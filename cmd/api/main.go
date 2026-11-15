@@ -161,7 +161,7 @@ func main() {
 		return
 	}
 	if err := run(); err != nil {
-		log.Print("API startup or shutdown failed; check local configuration and service health")
+		log.Printf("API startup or shutdown failed: %v", err)
 		os.Exit(1)
 	}
 }

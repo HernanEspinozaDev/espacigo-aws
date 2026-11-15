@@ -56,8 +56,15 @@ export function validateCsrfOrigin(
 
   try {
     const parsedOrigin = new URL(origin);
+    const isLocalhost =
+      (parsedOrigin.hostname === "127.0.0.1" ||
+        parsedOrigin.hostname === "localhost") &&
+      (host.startsWith("127.0.0.1") || host.startsWith("localhost"));
+
     if (parsedOrigin.protocol !== "https:") {
-      return false;
+      if (!isLocalhost || parsedOrigin.protocol !== "http:") {
+        return false;
+      }
     }
     if (
       parsedOrigin.username !== "" ||
