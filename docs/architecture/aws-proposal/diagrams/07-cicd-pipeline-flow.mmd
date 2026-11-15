@@ -1,0 +1,37 @@
+flowchart TB
+    subgraph GH["GitHub Repository (HernanEspinozaDev/espaciGo)"]
+        PR["Pull Request / Push a main"]
+        subgraph CI_Gate["1. Quality & Security Gate (Paralelo en GitHub Actions)"]
+            Q_Go["Go Quality & Integration Tests\n(gofmt, go vet, govulncheck,\ngo test contra PostGIS 18-3.6)"]
+            Q_Web["Frontend Next.js 16 Quality\n(check:architecture, lint,\ntypecheck, vitest, next build)"]
+            Q_DB["Database Migration Gate\n(Valida secuencia V000001..V000084+,\nrelease-policy.json expand-only)"]
+        end
+    end
+
+    subgraph CD_AWS["2. Release Orchestrator (Solo en push a main — OIDC a AWS IAM)"]
+        Scope["Clasificador de Alcance ( Diff contra Watermark S3 )\n- docs: No-op\n- web: Solo contenedor Next.js\n- full: Migrator + API + Web"]
+        Build["Build & Push Multi-Stage ARM64 a Amazon ECR\n(Verifica digest inmutable @sha256 y ECR Scan)"]
+        
+        subgraph DB_Phase["3. Fase de Base de Datos (Solo si hay SQL pendiente en alcance full)"]
+            PlanJob["ECS RunTask: espacigo-dbmigrate -plan-only\n(Transacción READ ONLY y validación de checksums)"]
+            Snap["aws rds create-db-snapshot\n(espacigo-pre-release-<sha> y espera AVAILABLE)"]
+            ApplyJob["ECS RunTask: espacigo-dbmigrate -release\n(Adquiere pg_advisory_lock y aplica SQL transaccional)"]
+            PostSQL["ECS RunTask: -schema-evidence-only\n(Guarda recibo firmado en S3)"]
+        end
+
+        subgraph App_Phase["4. Despliegue Progresivo de Aplicación y Verificación"]
+            ECS_Upd["aws ecs update-service --force-new-deployment\n(Con imagen fijada por @sha256:...)"]
+            Breaker["ECS Deployment Circuit Breaker\n- Levanta tarea nueva en paralelo\n- Verifica /health/ready (:8080) y /healthz (:4000)"]
+            Smoke["Smoke Test Externo vía Cloudflare\n+ Actualización de Watermark en S3"]
+            Rollback["Rollback Automático de ECS\n(Si falla healthcheck, revierte a Task Definition previa;\nNUNCA revierte migraciones SQL automáticamente)"]
+        end
+    end
+
+    PR --> CI_Gate
+    CI_Gate -- "100% Verde en main" --> Scope
+    Scope -- "web o full" --> Build
+    Build -- "Hay migraciones nuevas" --> PlanJob --> Snap --> ApplyJob --> PostSQL --> ECS_Upd
+    Build -- "Sin migraciones nuevas" --> ECS_Upd
+    ECS_Upd --> Breaker
+    Breaker -- "Healthy" --> Smoke
+    Breaker -- "Fallo Healthcheck / Timeout" --> Rollback

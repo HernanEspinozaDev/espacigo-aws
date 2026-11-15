@@ -1,0 +1,41 @@
+flowchart TB
+    subgraph Boundary_Internet["Límite 1: Internet Público"]
+        Client["Navegador Usuario / Evaluador\n(TLS 1.3)"]
+    end
+
+    subgraph Boundary_CF["Límite 2: Borde Perimetral Cloudflare (PoP Santiago SCL)"]
+        CF_Proxy["Cloudflare Anycast Proxy\n- WAF & DDoS Protection\n- Rate Limiting (60/120 rpm)\n- Zero Trust Access (Demo Evaluadores ≤ 50 users)\n- Cache Rules (Static & Public WebP)"]
+    end
+
+    subgraph Boundary_VPC["Límite 3: AWS VPC 10.20.0.0/16 (Región Inicial us-east-2 Ohio -> Futura AWS Chile)"]
+        IGW["Internet Gateway + Egress-Only IGW (IPv6)\n(Costo: $0.00/mes — Sin NAT Gateway)"]
+
+        subgraph Subnet_App["Subredes de Aplicación Multi-AZ (10.20.1.0/24, 10.20.2.0/24 en var.aws_region)"]
+            SG_App["Security Group: sg-espacigo-app\n- INGRESS: TCP 4000 SOLO desde Cloudflare Prefix List\n- INGRESS: 0 puertos desde 0.0.0.0/0\n- EGRESS: TCP 5432 a sg-espacigo-db, TCP 587 a Zoho SMTP + HTTPS 443"]
+            subgraph Fargate_Pod["ECS Fargate Task ARM64 (0.25 vCPU / 0.5–1.0 GB RAM)"]
+                C_Web["Contenedor espacigo-web\n0.0.0.0:4000 (Next.js 16.4.3 BFF)"]
+                C_API["Contenedor espacigo-api\n127.0.0.1:8080 (Go 1.27.1 + Poppler — No expuesto en red)"]
+                C_Web -- "Loopback Local\n127.0.0.1:8080 (<0.1ms)" --> C_API
+            end
+        end
+
+        subgraph Subnet_DB["Subredes Privadas Aisladas de Datos (10.20.10.0/24, 10.20.11.0/24)\nTabla de Rutas: SOLO local (10.20.0.0/16) — Cero ruta a IGW/Internet"]
+            SG_DB["Security Group: sg-espacigo-db\n- INGRESS: TCP 5432 SOLO desde sg-espacigo-app\n- EGRESS: Ninguno"]
+            RDS_Node[("Amazon RDS PostgreSQL 18.6\ndb.t4g.micro Single-AZ + PITR\nIP Privada 10.20.10.x\nrds.force_ssl = 1 (TLS verify-full)")]
+        end
+
+        VPCE_S3["Gateway VPC Endpoint para S3\n(com.amazonaws.${var.aws_region}.s3 — $0.00/mes)"]
+    end
+
+    subgraph Boundary_AWS_Svc["Límite 4: Servicios Administrados AWS y Zoho SMTP"]
+        S3_Buckets[("Amazon S3 Buckets\n(Public Access Block = TRUE\nSSE-S3 + App AES-256-GCM / Object Lock)")]
+        SSM_Store["SSM Parameter Store\n(SecureString Standard $0)"]
+        Zoho_SMTP["Zoho Mail SMTP\nsmtp.zoho.com:587 (contacto@hotusoft.com)"]
+    end
+
+    Client -- "HTTPS :443" --> CF_Proxy
+    CF_Proxy -- "HTTPS / Origin Pull\n(Filtrado por Cloudflare IP Prefix List)" --> IGW --> SG_App --> C_Web
+    C_API -- "TCP :5432 (TLS verify-full\nDATABASE_CONNECTION_MODE=direct)" --> SG_DB --> RDS_Node
+    C_API -- "Ruta Privada AWS" --> VPCE_S3 --> S3_Buckets
+    C_API -- "STARTTLS :587" --> Zoho_SMTP
+    Fargate_Pod -. "IAM Execution Role (Solo al iniciar)" .-> SSM_Store

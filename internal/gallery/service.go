@@ -1,0 +1,261 @@
+package gallery
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"strings"
+	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
+)
+
+type Service struct {
+	repo  Repository
+	files FileStore
+	ids   IDGenerator
+	now   func() time.Time
+}
+
+func NewService(repo Repository, files FileStore, ids IDGenerator, now func() time.Time) (*Service, error) {
+	if repo == nil || files == nil || ids == nil || now == nil {
+		return nil, ErrInvalid
+	}
+	return &Service{repo: repo, files: files, ids: ids, now: now}, nil
+}
+
+// AddSynthetic creates a durable candidate record before writing the fixed
+// server-side PNG. Rejections and reused idempotency results leave a durable
+// cleanup job; successful gallery metadata consumes that candidate atomically.
+func (s *Service) AddSynthetic(ctx context.Context, owner, spaceID, key string) (Photo, bool, error) {
+	key = strings.TrimSpace(key)
+	if !validUUID(owner) || !validUUID(spaceID) || len(key) < 8 || len(key) > 128 {
+		return Photo{}, false, ErrInvalid
+	}
+	blob, err := verification.SyntheticPNG()
+	if err != nil {
+		return Photo{}, false, err
+	}
+	id, err := s.ids.ID()
+	if err != nil {
+		return Photo{}, false, err
+	}
+	if !validUUID(id) {
+		return Photo{}, false, ErrInvalid
+	}
+	digest := sha256.Sum256(blob)
+	item := Photo{ID: id, Fixture: SyntheticFixture, MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(blob)), CreatedAt: s.now().UTC()}
+	if err := s.repo.ReserveCandidate(ctx, owner, spaceID, id, item.CreatedAt); err != nil {
+		return Photo{}, false, err
+	}
+	writer, err := s.repo.BeginCandidate(ctx, owner, spaceID, id)
+	if err != nil {
+		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
+		return Photo{}, false, err
+	}
+	defer func() { _ = writer.Close() }()
+	if err := s.files.Put(ctx, id, blob); err != nil {
+		_ = writer.QueueCleanup(context.Background(), s.now().UTC())
+		return Photo{}, false, ErrFileStore
+	}
+	result, reused, err := writer.Add(ctx, item, key, s.now().UTC())
+	if err != nil {
+		// Commit errors can be ambiguous. The repository removes the candidate
+		// row atomically with a confirmed gallery insert; queueing only changes
+		// candidates still present, so a committed file is never deleted.
+		_ = writer.Close()
+		_ = s.repo.QueueCandidateCleanup(context.Background(), id, s.now().UTC())
+		return Photo{}, false, err
+	}
+	return result, reused, nil
+}
+
+func (s *Service) List(ctx context.Context, owner, spaceID string) ([]Photo, error) {
+	if !validUUID(owner) || !validUUID(spaceID) {
+		return nil, ErrNotFound
+	}
+	return s.repo.List(ctx, owner, spaceID)
+}
+
+func (s *Service) Content(ctx context.Context, owner, spaceID, photoID string) (Photo, []byte, error) {
+	item, err := s.Metadata(ctx, owner, spaceID, photoID)
+	if err != nil {
+		return Photo{}, nil, err
+	}
+	blob, err := s.files.Get(ctx, item.ID)
+	if err != nil {
+		return Photo{}, nil, ErrFileStore
+	}
+	digest := sha256.Sum256(blob)
+	if int64(len(blob)) != item.Size || hex.EncodeToString(digest[:]) != item.SHA256 {
+		return Photo{}, nil, ErrFileStore
+	}
+	return item, blob, nil
+}
+
+func (s *Service) Metadata(ctx context.Context, owner, spaceID, photoID string) (Photo, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, ErrNotFound
+	}
+	item, err := s.repo.Get(ctx, owner, spaceID, photoID)
+	if err != nil {
+		return Photo{}, err
+	}
+	return item, nil
+}
+
+func (s *Service) Remove(ctx context.Context, owner, spaceID, photoID string) (Removal, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Removal{}, ErrNotFound
+	}
+	return s.repo.Remove(ctx, owner, spaceID, photoID)
+}
+
+func (s *Service) RemoveCAS(ctx context.Context, owner, spaceID, photoID, expected string) (Removal, time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Removal{}, time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Removal{}, time.Time{}, ErrInvalid
+	}
+	repo, ok := s.repo.(RemoveCASRepository)
+	if !ok {
+		return Removal{}, time.Time{}, ErrNotFound
+	}
+	return repo.RemoveCAS(ctx, owner, spaceID, photoID, at.UTC())
+}
+
+func (s *Service) SelectCover(ctx context.Context, owner, spaceID, photoID string) (Cover, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Cover{}, ErrNotFound
+	}
+	return s.repo.SelectCover(ctx, owner, spaceID, photoID)
+}
+
+func (s *Service) SelectCoverCAS(ctx context.Context, owner, spaceID, photoID, expected string) (Cover, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Cover{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Cover{}, ErrInvalid
+	}
+	repo, ok := s.repo.(CoverCASRepository)
+	if !ok {
+		return Cover{}, ErrNotFound
+	}
+	return repo.SelectCoverCAS(ctx, owner, spaceID, photoID, at.UTC())
+}
+
+func (s *Service) SetPublicInCatalogCAS(ctx context.Context, owner, spaceID, photoID string, enabled bool, expected string) (Photo, time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Photo{}, time.Time{}, ErrInvalid
+	}
+	repo, ok := s.repo.(PublicInCatalogCASRepository)
+	if !ok {
+		return Photo{}, time.Time{}, ErrNotFound
+	}
+	item, revision, err := repo.SetPublicInCatalogCAS(ctx, owner, spaceID, photoID, enabled, at.UTC())
+	if errors.Is(err, ErrConflict) {
+		return Photo{}, time.Time{}, ErrConflict
+	}
+	return item, revision, err
+}
+
+func (s *Service) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoID string, enabled bool) (Photo, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, ErrNotFound
+	}
+	return s.repo.SetPublicInCatalog(ctx, owner, spaceID, photoID, enabled)
+}
+
+func (s *Service) ListAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) ([]Photo, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(correlation) {
+		return nil, ErrNotFound
+	}
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return repository.ListAsAdministrator(ctx, actor, owner, spaceID, correlation)
+}
+
+func (s *Service) SetPublicInCatalogAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, enabled bool, expectedUpdatedAt time.Time, correlation, reason string) (Photo, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Photo{}, ErrInvalid
+	}
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok {
+		return Photo{}, ErrNotFound
+	}
+	return repository.SetPublicInCatalogAsAdministrator(ctx, actor, owner, spaceID, photoID, enabled, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) SelectCoverAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Cover, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Cover{}, ErrInvalid
+	}
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok {
+		return Cover{}, ErrNotFound
+	}
+	return repository.SelectCoverAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+func (s *Service) RemoveAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Removal, error) {
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Removal{}, ErrInvalid
+	}
+	repository, ok := s.repo.(AdministrativeRepository)
+	if !ok {
+		return Removal{}, ErrNotFound
+	}
+	return repository.RemoveAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
+}
+
+// CleanRetiredOnce drains withdrawn photos and files that never became photos.
+// Both paths are durable, retryable and safe across Backend restarts.
+func (s *Service) CleanRetiredOnce(ctx context.Context, limit int) error {
+	if limit < 1 || limit > 500 {
+		return ErrInvalid
+	}
+	ids, err := s.repo.PendingCleanup(ctx, limit)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := s.files.Delete(ctx, id); err != nil {
+			if markErr := s.repo.FailCleanup(ctx, id, s.now().UTC()); markErr != nil {
+				return markErr
+			}
+			continue
+		}
+		if err := s.repo.CompleteCleanup(ctx, id, s.now().UTC()); err != nil {
+			return err
+		}
+	}
+	candidates, err := s.repo.ClaimCandidateCleanup(ctx, limit)
+	if err != nil {
+		return err
+	}
+	for _, id := range candidates {
+		if err := s.files.Delete(ctx, id); err != nil {
+			if markErr := s.repo.FailCandidateCleanup(ctx, id, s.now().UTC()); markErr != nil {
+				return markErr
+			}
+			continue
+		}
+		if err := s.repo.CompleteCandidateCleanup(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }

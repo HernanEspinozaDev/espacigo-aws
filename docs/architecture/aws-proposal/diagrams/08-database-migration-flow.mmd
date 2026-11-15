@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph Prep["Fase Previa (Sin Downtime — GCP Sigue Operativo)"]
+        T1["1. Desplegar Infraestructura AWS con OpenTofu/Terraform\n(VPC, S3, KMS, SSM, RDS PostgreSQL 18.6, ECS Cluster)"]
+        T2["2. Ejecutar bootstrap_rds_roles.sql en RDS\n(Crea roles espacigo_*, asigna ownership a espacigo_schema_owner\ny ejecuta REVOKE ... FROM postgres para cumplir V000081)"]
+        T3["3. Ensayo en Seco (Dry-Run) de Migración SQL + S3\n(Verifica las 84 migraciones, checksums y smoke test en AWS)"]
+        T4["4. Bajar TTL de DNS en Cloudflare a 60 segundos\n(24 horas antes de la ventana de corte)"]
+        T1 --> T2 --> T3 --> T4
+    end
+
+    subgraph Cutover["Ventana de Corte Controlada (~15 a 25 minutos)"]
+        C1["5. Poner GCP en Modo Mantenimiento / Read-Only\n(Bloquear mutaciones en Cloud Run y drenar los 13 workers)"]
+        C2["6. Exportar Dump Final desde Cloud SQL PG 18.6\npg_dump -Fc --no-owner --no-acl\n--exclude-schema=topology --exclude-schema=tiger*"]
+        C3["7. Sincronizar Delta Final de Objetos GCS -> Amazon S3\n(Preservando claves exactas y verificando SHA-256 +\ncompleted-suppressions-v1.json)"]
+        C4["8. Restaurar en RDS PostgreSQL 18.6\npg_restore --no-owner --role=espacigo_schema_owner\n+ Reconciliar ACLs de espacigo_runtime y worker"]
+        C5["9. Validación de Integridad Post-Restore\n- cmd/dbmigrate -plan-only (0 pendientes, 0 drift)\n- /api local-privacy-replay-apply (Ley 21.719)\n- /api local-readonly-probe"]
+        C6["10. Iniciar Tarea ECS Fargate en AWS + Switch en Cloudflare\n(Apuntar Origin a AWS y activar Proxy Naranja + WAF)"]
+        C1 --> C2 --> C3 --> C4 --> C5 --> C6
+    end
+
+    subgraph Post["Post-Corte y Retirada Segura (7 días de convivencia)"]
+        P1["11. Monitoreo de 7 días en AWS\n(CloudSQL y Cloud Run detenidos/escala 0 en GCP como respaldo frío)"]
+        P2["12. Backup Final de Archivo en S3 Glacier +\nDestrucción Auditada de Recursos GCP antes de agotar Free Trial"]
+        C6 --> P1 --> P2
+    end

@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 PRIVATE_OUTPUT_DIRECTORY" >&2
+  exit 2
+fi
+
+output_dir="$1"
+umask 077
+mkdir -p "$output_dir"
+chmod 0700 "$output_dir"
+output_dir="$(cd "$output_dir" && pwd)"
+oci_archive="$output_dir/dbmigrate-linux-amd64.oci.tar"
+manifest="$output_dir/dbmigrate-manifest.json"
+
+source_date_epoch="${SOURCE_DATE_EPOCH:-0}"
+builder_image='golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e'
+buildx_version="$(docker buildx version)"
+docker_client_version="$(docker version --format '{{.Client.Version}}')"
+go_version="$(sed -n 's/^go //p' go.mod)"
+[[ "$go_version" == "1.27.1" ]] || { echo "unexpected Go toolchain: $go_version" >&2; exit 1; }
+
+docker buildx build \
+  --platform linux/amd64 \
+  --provenance=false \
+  --sbom=false \
+  --build-arg "SOURCE_DATE_EPOCH=$source_date_epoch" \
+  --output "type=oci,dest=$oci_archive" \
+  --file Dockerfile.dbmigrate \
+  .
+
+python3 - "$oci_archive" "$manifest" "$go_version" "$builder_image" "$source_date_epoch" "$buildx_version" "$docker_client_version" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+import tarfile
+
+archive, manifest_path, go_version, builder_image, source_date_epoch, buildx_version, docker_client_version = sys.argv[1:]
+migrations = sorted(pathlib.Path("db/migrations").glob("V*.sql"))
+migration_hashes = {
+    path.as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    for path in migrations
+}
+aggregate_hash = hashlib.sha256()
+for path, digest in migration_hashes.items():
+    aggregate_hash.update(f"{digest}  {path}\n".encode())
+aggregate = aggregate_hash.hexdigest()
+
+with tarfile.open(archive, "r:") as image:
+    index = json.load(image.extractfile("index.json"))
+    manifests = index.get("manifests", [])
+    if len(manifests) != 1:
+        raise SystemExit(f"expected one OCI manifest, found {len(manifests)}")
+    if manifests[0].get("platform") != {"architecture": "amd64", "os": "linux"}:
+        raise SystemExit(f"unexpected OCI platform: {manifests[0].get('platform')}")
+    digest = manifests[0]["digest"]
+    algorithm, value = digest.split(":", 1)
+    blob_path = f"blobs/{algorithm}/{value}"
+    manifest_blob = image.extractfile(blob_path).read()
+    calculated = f"sha256:{hashlib.sha256(manifest_blob).hexdigest()}"
+    if calculated != digest:
+        raise SystemExit("OCI manifest digest did not match its blob")
+
+record = {
+    "schema_version": 1,
+    "go_toolchain": go_version,
+    "builder_image": builder_image,
+    "source_date_epoch": int(source_date_epoch),
+    "buildx_version": buildx_version,
+    "docker_client_version": docker_client_version,
+    "platform": "linux/amd64",
+    "oci_manifest_digest": digest,
+    "oci_archive_sha256": hashlib.sha256(pathlib.Path(archive).read_bytes()).hexdigest(),
+    "executor_command": "cmd/dbmigrate",
+    "migration_count": len(migrations),
+    "migration_inventory_sha256": aggregate,
+    "migration_sha256": migration_hashes,
+    "extensions_expected": ["btree_gist", "postgis", "unaccent"],
+    "execution_purpose": "Isolated local PostgreSQL migration OCI package",
+}
+path = pathlib.Path(manifest_path)
+path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+path.chmod(0o600)
+pathlib.Path(archive).chmod(0o600)
+print(json.dumps({"oci_manifest_digest": digest, "migration_count": len(migrations), "migration_inventory_sha256": aggregate}))
+PY

@@ -1,0 +1,32 @@
+flowchart LR
+    subgraph Browser["Navegador Cliente (Límite de Confianza 1)"]
+        UI["React 19 Client & SSR Pages"]
+    end
+
+    subgraph NextBFF["BFF Next.js 16.4.3 Standalone (:4000) (Límite 2)"]
+        SC["Server Components\n(force-dynamic, no-store)"]
+        RH["Route Handlers BFF\n/api/backend/[...path]\nWhitelist OpenAPI + CSRF + Body ≤ 50MiB"]
+    end
+
+    subgraph GoAPI["Monolito Hexagonal Go 1.27.1 (:8080) (Límite 3)"]
+        HTTP["HTTP Router & Middlewares\n(Session SHA-256, RBAC, RestrictedMode)"]
+        DOM["28 Módulos de Dominio\n(identity, spaces, booking, contract,\nmedia, documentverification, privacy)"]
+        WRK["13 Goroutines con time.Ticker\n(Reconcilers 5s, Outbox 1s, Cleanup 15s-1h)"]
+        DRV["pgxpool v5 (MaxConns=4..10)\nAfterConnect: SET ROLE espacigo_runtime"]
+    end
+
+    subgraph Storage["Capa de Datos y Servicios Externos (Límite 4)"]
+        PG[("PostgreSQL 18.6\n+ PostGIS 3.6 + btree_gist + unaccent\n112 tablas / 84 migraciones")]
+        BLOB[("Almacenamiento de Objetos\n(WebP Media, KYC AES-256-GCM, Contratos)")]
+        SMTP["Proveedor SMTP TLS\n(SES / Zoho)"]
+    end
+
+    UI -- "Cookie HttpOnly\n__Host-espacigo-session" --> RH
+    UI --> SC
+    SC -- "GET /api/v1/public/*" --> HTTP
+    RH -- "Authorization: Bearer <token>" --> HTTP
+    HTTP --> DOM
+    WRK --> DOM
+    DOM --> DRV --> PG
+    DOM -- "Streaming Binario / S3 SDK" --> BLOB
+    WRK -- "Outbox TLS :587" --> SMTP

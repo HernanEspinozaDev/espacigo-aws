@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph Internet["Internet & DNS (Límite Externo)"]
+        Users["Usuarios / Evaluadores"]
+        CF_DNS["Cloudflare DNS (Modo DNS-Only / Gris)\nespacigo.testingpage.store\nespacigo-demo.testingpage.store"]
+    end
+
+    subgraph GCP_Global["GCP Global Edge (espacigo-testprod)"]
+        IP["IP Estática Global\n136.81.48.241"]
+        GCLB["Global External HTTPS Load Balancer\nespacigo-testprod-edge-https"]
+        Armor["Cloud Armor Policy\nRate Limit 60-120 req/min\n(Solo en backend público)"]
+        IAP["Google Identity-Aware Proxy (IAP)\n(Solo en backend privado)"]
+    end
+
+    subgraph GCP_Regional["Región southamerica-west1 (Santiago)"]
+        subgraph CloudRun["Cloud Run Services (Direct VPC Egress)"]
+            CR_Pub["espacigo-test-public\nNext.js 16 (1 vCPU, 1 GiB)\nmin=0, max=1, cpu-throttling=true"]
+            CR_Priv["espacigo-test-private\nNext.js 16 (1 vCPU, 1 GiB)\nmin=0, max=1, IAP enabled"]
+            CR_API["espacigo-test-api\nGo API (1 vCPU, 1 GiB)\nmin=1, max=1, cpu-throttling=false (24/7)"]
+            CR_Job["Cloud Run Jobs Efímeros\nespacigo-db-plan / apply\n(Creados y borrados por release)"]
+        end
+
+        subgraph VPC["VPC espacigo-testprod (Sin Cloud NAT)"]
+            Sub_Web["Subnet serverless\n10.80.0.0/24"]
+            Sub_API["Subnet api-serverless\n10.81.0.0/26"]
+            PSA["Private Services Access\n10.189.0.0/16"]
+        end
+
+        subgraph DataAndStorage["Datos, Almacenamiento y Secretos"]
+            CSQL[("Cloud SQL PostgreSQL 18.6 Enterprise\nespacigo-testprod-db (db-g1-small)\nZONAL (Single-AZ), 10 GiB SSD\nIP Privada 10.189.0.15\nBackups: 7 días | PITR: OFF")]
+            GCS_Media[("GCS Bucket Privado\nespacigo-testprod-media-*\n(WebP Media)")]
+            GCS_Build[("GCS Buckets Técnicos\ntfstate + cloud-build")]
+            SM["Secret Manager\n(8 secretos activos)"]
+            AR["Artifact Registry\n(Sin cleanup_policies)"]
+        end
+    end
+
+    Users -. "Resolución DNS" .-> CF_DNS
+    Users -- "HTTPS :443" --> IP --> GCLB
+    GCLB -- "espacigo.testingpage.store" --> Armor --> CR_Pub
+    GCLB -- "espacigo-demo.testingpage.store" --> IAP --> CR_Priv
+    CR_Pub -- "HTTPS + IAM Invoker Token" --> CR_API
+    CR_Priv -- "HTTPS + IAM Invoker Token" --> CR_API
+    CR_Pub --- Sub_Web
+    CR_Priv --- Sub_Web
+    CR_API --- Sub_API
+    CR_Job --- Sub_API
+    Sub_API --> PSA --> CSQL
+    CR_API --> GCS_Media
+    CR_API --> SM

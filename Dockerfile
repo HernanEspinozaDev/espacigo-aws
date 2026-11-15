@@ -1,0 +1,47 @@
+FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS go-deps
+WORKDIR /src
+RUN apk add --no-cache ca-certificates
+COPY go.mod go.sum ./
+COPY third_party/pdfcpu ./third_party/pdfcpu
+RUN go mod download
+
+FROM go-deps AS api-build
+WORKDIR /src
+COPY . .
+RUN mkdir -p /out \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/privacy-cleanup-worker ./cmd/privacy-cleanup-worker \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
+
+FROM scratch AS api
+COPY --from=api-build --chown=65532:65532 /out/api /api
+COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY db/migrations /migrations
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/api"]
+
+FROM scratch AS netprobe
+COPY --from=api-build --chown=65532:65532 /out/netprobe /netprobe
+USER 65532:65532
+ENTRYPOINT ["/netprobe"]
+
+FROM scratch AS privacy-cleanup-worker
+COPY --from=api-build --chown=65532:65532 /out/privacy-cleanup-worker /privacy-cleanup-worker
+COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+USER 65532:65532
+ENTRYPOINT ["/privacy-cleanup-worker"]
+
+FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS frontend-runner
+WORKDIR /runner
+COPY scripts/verify-frontend-stack.mjs ./verify-frontend-stack.mjs
+USER node
+ENTRYPOINT ["node", "verify-frontend-stack.mjs"]
+
+FROM postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677 AS database
+USER root
+COPY scripts/postgres/entrypoint-wrapper.sh /usr/local/bin/espacigo-postgres-entrypoint
+COPY scripts/postgres/init-runtime-user.sh /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+RUN chmod 0755 /usr/local/bin/espacigo-postgres-entrypoint /docker-entrypoint-initdb.d/20-espacigo-runtime-user.sh
+ENTRYPOINT ["/usr/local/bin/espacigo-postgres-entrypoint"]
+CMD ["postgres"]

@@ -1,0 +1,683 @@
+// Package ownerexport composes module-owned, read-only archive projections.
+// It delegates selection to each module's repository contract and only handles
+// ZIP-level metadata and private evidence file assembly.
+package ownerexport
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
+	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
+	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	contractdomain "github.com/HernanEspinozaDev/espaciGo/internal/contract"
+	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type sectionReader interface {
+	ExportOwnArchiveSections(context.Context, string) (map[string]json.RawMessage, error)
+}
+
+type contractReader interface {
+	Get(context.Context, string, string) (contractdomain.Contract, error)
+}
+
+type Repository struct {
+	pool         *pgxpool.Pool
+	verification *verificationpg.Repository
+	files        verification.EvidenceStorage
+	mediaStore   media.ObjectStore
+	spaces       sectionReader
+	pricing      sectionReader
+	bookings     sectionReader
+	conversation sectionReader
+	disputes     sectionReader
+	contracts    contractReader
+}
+
+func New(pool *pgxpool.Pool, files verification.EvidenceStorage, contractReaders ...contractReader) *Repository {
+	r := &Repository{
+		pool:         pool,
+		verification: verificationpg.New(pool), files: files,
+		spaces:  spacespg.New(pool, credentials.Generator{}),
+		pricing: pricingpg.New(pool), bookings: bookingpg.New(pool),
+		conversation: conversationpg.New(pool), disputes: disputepg.New(pool),
+	}
+	if len(contractReaders) > 0 {
+		r.contracts = contractReaders[0]
+	}
+	return r
+}
+
+// NewWithMediaStore exports real media variants from the same private object
+// store used by the upload service. The legacy constructor remains available
+// for tests and callers that do not configure real-media storage.
+func NewWithMediaStore(pool *pgxpool.Pool, files verification.EvidenceStorage, store media.ObjectStore, contractReaders ...contractReader) *Repository {
+	r := New(pool, files, contractReaders...)
+	r.mediaStore = store
+	return r
+}
+
+type verificationCase struct {
+	ID         string     `json:"id"`
+	Type       string     `json:"type"`
+	State      string     `json:"state"`
+	ReasonCode string     `json:"reason_code,omitempty"`
+	RetryOf    string     `json:"retry_of,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+}
+type evidenceRecord struct {
+	ID             string    `json:"id"`
+	VerificationID string    `json:"verification_id"`
+	FixtureCode    string    `json:"fixture_code"`
+	MIMEType       string    `json:"mime_type"`
+	SizeBytes      int64     `json:"size_bytes"`
+	SHA256         string    `json:"sha256"`
+	CreatedAt      time.Time `json:"created_at"`
+	FileAvailable  bool      `json:"file_available"`
+	ArchiveFile    string    `json:"archive_file,omitempty"`
+}
+
+func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) (map[string]json.RawMessage, []privacy.ExportFile, []string, error) {
+	if r == nil || r.verification == nil || owner == "" {
+		return nil, nil, nil, privacy.ErrInvalid
+	}
+	sections := map[string]json.RawMessage{}
+	var blockJSON []byte
+	if err := r.pool.QueryRow(ctx, `SELECT jsonb_build_object(
+	  'current_block', (SELECT jsonb_build_object('reason_code',b.motivo_codigo,'blocked_at',b.bloqueada_en) FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=$1),
+	  'history', COALESCE((SELECT jsonb_agg(jsonb_build_object('action',h.accion,'reason_code',h.motivo_codigo,'occurred_at',h.ocurrida_en,'actor_kind',CASE WHEN h.actor_id IS NULL THEN NULL WHEN h.actor_id=$1 THEN 'self' ELSE 'administrator' END) ORDER BY h.ocurrida_en,h.id) FROM public.bloqueo_cuenta_historial_local h WHERE h.cuenta_id=$1),'[]'::jsonb)
+	)`, owner).Scan(&blockJSON); err != nil {
+		return nil, nil, nil, err
+	}
+	sections["administrative_account_block"] = json.RawMessage(blockJSON)
+	// Export only the signed-in owner's own damage-claim defense and its
+	// server-generated attachment. Counterparty IDs, contacts and evidence are
+	// not included in this projection.
+	type defenseEvidenceRecord struct {
+		Description   string    `json:"description"`
+		CreatedAt     time.Time `json:"created_at"`
+		EvidenceID    string    `json:"evidence_id,omitempty"`
+		Fixture       string    `json:"fixture_code,omitempty"`
+		MIME          string    `json:"mime_type,omitempty"`
+		SHA           string    `json:"sha256,omitempty"`
+		Size          int64     `json:"size_bytes,omitempty"`
+		Archive       string    `json:"archive_file,omitempty"`
+		FileAvailable bool      `json:"file_available"`
+	}
+	defenseRows, err := r.pool.Query(ctx, `SELECT d.descripcion,d.creado_en,e.id::text,e.fixture_code,e.mime_type,e.sha256,e.size_bytes
+		FROM public.reclamo_dano_descargo_ensayo_local d
+		JOIN public.reclamo_dano_ensayo_local c ON c.id=d.reclamo_id
+		LEFT JOIN public.operacion_arriendo_ensayo_local o ON o.reserva_id=c.reserva_id AND o.tipo='descargo' AND o.actor_id=d.actor_id
+		LEFT JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id AND e.archivo_retirado_en IS NULL
+		WHERE d.actor_id=$1 ORDER BY d.creado_en,c.id,e.id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defenses := []defenseEvidenceRecord{}
+	defenseFiles := []privacy.ExportFile{}
+	defenseExclusions := []string{}
+	for defenseRows.Next() {
+		var item defenseEvidenceRecord
+		var evidenceID, fixture, mime, sha *string
+		var size *int64
+		if err := defenseRows.Scan(&item.Description, &item.CreatedAt, &evidenceID, &fixture, &mime, &sha, &size); err != nil {
+			defenseRows.Close()
+			return nil, nil, nil, err
+		}
+		if evidenceID != nil {
+			item.EvidenceID = *evidenceID
+			item.Fixture = *fixture
+			item.MIME = *mime
+			item.SHA = *sha
+			item.Size = *size
+		}
+		if item.EvidenceID != "" && r.files != nil {
+			if content, readErr := r.files.Get(ctx, item.EvidenceID); readErr == nil {
+				item.FileAvailable = true
+				item.Archive = "files/damage-claim-defense/" + item.EvidenceID + ".png"
+				defenseFiles = append(defenseFiles, privacy.ExportFile{Name: item.Archive, MediaType: "image/png", Description: "Evidencia sintética propia de descargo", Content: content})
+			} else {
+				defenseExclusions = append(defenseExclusions, "evidencia de descargo "+item.EvidenceID+" sin archivo disponible; omitida del ZIP")
+			}
+		} else if item.EvidenceID != "" {
+			defenseExclusions = append(defenseExclusions, "storage privado no disponible; evidencia de descargo omitida del ZIP")
+		}
+		defenses = append(defenses, item)
+	}
+	if err := defenseRows.Err(); err != nil {
+		defenseRows.Close()
+		return nil, nil, nil, err
+	}
+	defenseRows.Close()
+	defenseJSON, err := json.Marshal(map[string]any{"items": defenses})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_damage_claim_defenses"] = defenseJSON
+	type photoRecord struct {
+		ID      string    `json:"id"`
+		State   string    `json:"state"`
+		Fixture string    `json:"fixture_code"`
+		MIME    string    `json:"mime_type"`
+		SHA     string    `json:"sha256"`
+		Size    int64     `json:"size_bytes"`
+		Created time.Time `json:"created_at"`
+		Archive string    `json:"archive_file,omitempty"`
+	}
+	photoRows, photoErr := r.pool.Query(ctx, `SELECT id::text,estado,fixture_code,mime_type,sha256,size_bytes,creada_en FROM public.foto_perfil_sintetica_local WHERE usuario_id=$1 AND archivo_id IS NOT NULL ORDER BY creada_en,id`, owner)
+	if photoErr != nil {
+		return nil, nil, nil, photoErr
+	}
+	photoFiles := []privacy.ExportFile{}
+	photoExclusions := []string{}
+	photos := []photoRecord{}
+	for photoRows.Next() {
+		var p photoRecord
+		if e := photoRows.Scan(&p.ID, &p.State, &p.Fixture, &p.MIME, &p.SHA, &p.Size, &p.Created); e != nil {
+			photoRows.Close()
+			return nil, nil, nil, e
+		}
+		if r.files != nil {
+			if content, e := r.files.Get(ctx, p.ID); e == nil {
+				p.Archive = "files/profile/photo-" + p.ID + ".png"
+				photoFiles = append(photoFiles, privacy.ExportFile{Name: p.Archive, MediaType: "image/png", Description: "Foto sintética propia", Content: content})
+			} else {
+				photoExclusions = append(photoExclusions, "foto sintética "+p.ID+" sin archivo disponible; omitida del ZIP")
+			}
+		} else {
+			photoExclusions = append(photoExclusions, "storage privado no disponible; foto sintética omitida del ZIP")
+		}
+		photos = append(photos, p)
+	}
+	if photoErr = photoRows.Err(); photoErr != nil {
+		photoRows.Close()
+		return nil, nil, nil, photoErr
+	}
+	photoRows.Close()
+	photoJSON, _ := json.Marshal(map[string]any{"photos": photos})
+	sections["synthetic_profile_photo"] = photoJSON
+	mediaSection, mediaFiles, mediaExclusions, err := r.exportRealMedia(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["media_assets"] = mediaSection
+	rows, e := r.pool.Query(ctx, `SELECT id::text,adaptador,referencia_ficticia,estado,creada_en,actualizada_en,revocada_en FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1 ORDER BY creada_en,id`, owner)
+	if e != nil {
+		return nil, nil, nil, e
+	}
+	payouts := []map[string]any{}
+	for rows.Next() {
+		var id, adapter, state string
+		var ref *string
+		var created, updated time.Time
+		var revoked *time.Time
+		if e = rows.Scan(&id, &adapter, &ref, &state, &created, &updated, &revoked); e != nil {
+			rows.Close()
+			return nil, nil, nil, e
+		}
+		payouts = append(payouts, map[string]any{"id": id, "adapter": adapter, "reference": ref, "state": state, "created_at": created, "updated_at": updated, "revoked_at": revoked})
+	}
+	if e = rows.Err(); e != nil {
+		rows.Close()
+		return nil, nil, nil, e
+	}
+	rows.Close()
+	historyRows, e := r.pool.Query(ctx, `SELECT h.cuenta_id::text,h.accion,h.ocurrida_en,h.correlacion_id FROM public.cuenta_cobro_sintetica_historial_local h WHERE h.usuario_id=$1 ORDER BY h.ocurrida_en,h.id`, owner)
+	if e != nil {
+		return nil, nil, nil, e
+	}
+	hist := []map[string]any{}
+	for historyRows.Next() {
+		var id, action, corr string
+		var at time.Time
+		if e = historyRows.Scan(&id, &action, &at, &corr); e != nil {
+			historyRows.Close()
+			return nil, nil, nil, e
+		}
+		hist = append(hist, map[string]any{"account_id": id, "action": action, "occurred_at": at, "correlation_id": corr})
+	}
+	if e = historyRows.Err(); e != nil {
+		historyRows.Close()
+		return nil, nil, nil, e
+	}
+	historyRows.Close()
+	payoutJSON, _ := json.Marshal(map[string]any{"accounts": payouts, "history": hist})
+	sections["synthetic_payout_accounts"] = payoutJSON
+	type galleryPhotoRecord struct {
+		ID      string    `json:"id"`
+		SpaceID string    `json:"space_id"`
+		Fixture string    `json:"fixture_code"`
+		MIME    string    `json:"mime_type"`
+		SHA     string    `json:"sha256"`
+		Size    int64     `json:"size_bytes"`
+		Created time.Time `json:"created_at"`
+		Archive string    `json:"archive_file,omitempty"`
+	}
+	galleryRows, err := r.pool.Query(ctx, `SELECT id::text,espacio_id::text,fixture_code,mime_type,sha256,size_bytes,creada_en FROM public.espacio_galeria_sintetica_local WHERE propietario_id=$1 AND estado='activa' AND archivo_id IS NOT NULL ORDER BY espacio_id,creada_en,id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	galleryRecords := []galleryPhotoRecord{}
+	galleryFiles := []privacy.ExportFile{}
+	galleryExclusions := []string{}
+	for galleryRows.Next() {
+		var item galleryPhotoRecord
+		if err := galleryRows.Scan(&item.ID, &item.SpaceID, &item.Fixture, &item.MIME, &item.SHA, &item.Size, &item.Created); err != nil {
+			galleryRows.Close()
+			return nil, nil, nil, err
+		}
+		if r.files != nil {
+			if content, e := r.files.Get(ctx, item.ID); e == nil {
+				item.Archive = "files/spaces/" + item.SpaceID + "/gallery/" + item.ID + ".png"
+				galleryFiles = append(galleryFiles, privacy.ExportFile{Name: item.Archive, MediaType: item.MIME, Description: "Imagen sintética propia de galería", Content: content})
+			} else {
+				galleryExclusions = append(galleryExclusions, "imagen de galería sintética "+item.ID+" sin archivo privado disponible; omitida del ZIP")
+			}
+		} else {
+			galleryExclusions = append(galleryExclusions, "storage privado no disponible; imagen de galería sintética omitida del ZIP")
+		}
+		galleryRecords = append(galleryRecords, item)
+	}
+	if err := galleryRows.Err(); err != nil {
+		galleryRows.Close()
+		return nil, nil, nil, err
+	}
+	galleryRows.Close()
+	galleryJSON, err := json.Marshal(map[string]any{"items": galleryRecords})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_space_gallery"] = galleryJSON
+	// Reputation export is owner-scoped. The authored comment is included only
+	// for the author; received reviews export score/state without another
+	// participant's free text or identifiers. Reports contain structured codes.
+	var reputationJSON []byte
+	if err := r.pool.QueryRow(ctx, `SELECT jsonb_build_object(
+	  'reviews_authored', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'comment',x.comentario,'target_type',x.destinatario_tipo,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x WHERE x.autor_id=$1), '[]'::jsonb),
+	  'reviews_received', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'target_type',x.destinatario_tipo,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x WHERE x.destinatario_id=$1), '[]'::jsonb),
+	  'reviews_for_owned_spaces', COALESCE((SELECT jsonb_agg(jsonb_build_object('rating',x.puntuacion,'state',x.estado,'created_at',x.creada_en,'retention_until',x.retirar_en) ORDER BY x.creada_en,x.id) FROM public.resena_ensayo_local x JOIN public.espacio e ON e.id=x.espacio_id WHERE e.propietario_id=$1 AND x.destinatario_tipo='espacio'), '[]'::jsonb),
+	  'reports', COALESCE((SELECT jsonb_agg(jsonb_build_object('reason_code',q.motivo_codigo,'state',q.estado,'created_at',q.creada_en,'resolved_at',q.resolver_en,'resolution_reason_code',q.motivo_resolucion_codigo,'retention_until',q.retirar_en,'history',COALESCE((SELECT jsonb_agg(jsonb_build_object('from',h.estado_anterior,'to',h.estado_nuevo,'reason_code',h.motivo_codigo,'at',h.ocurrida_en) ORDER BY h.secuencia) FROM public.reporte_resena_historial_local h WHERE h.reporte_id=q.id),'[]'::jsonb)) ORDER BY q.creada_en,q.id) FROM public.reporte_resena_ensayo_local q LEFT JOIN public.resena_ensayo_local x ON x.id=q.resena_id WHERE q.anfitrion_id=$1 OR x.autor_id=$1 OR x.destinatario_id=$1), '[]'::jsonb),
+	  'notice_delivery', COALESCE((SELECT jsonb_agg(jsonb_build_object('event_type',a.tipo_evento,'state',a.estado,'cycle',a.ciclo,'attempts',a.intentos_total,'created_at',a.creada_en,'delivered_at',a.entregada_en,'terminal_failure_at',a.fallo_terminal_en,'cancelled_at',a.cancelada_en,'retention_until',a.retirar_en,'cycles',COALESCE((SELECT jsonb_agg(jsonb_build_object('cycle',c.ciclo,'state',c.estado,'started_at',c.iniciada_en,'finished_at',c.finalizada_en,'attempts',c.intentos,'result_code',c.codigo_resultado) ORDER BY c.ciclo) FROM public.aviso_local_ciclo c WHERE c.aviso_id=a.id),'[]'::jsonb)) ORDER BY a.creada_en,a.id) FROM public.aviso_local a WHERE a.destinatario_id=$1), '[]'::jsonb)
+	)`, owner).Scan(&reputationJSON); err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_reputation_and_notices"] = json.RawMessage(reputationJSON)
+	contractSection, contractFiles, contractExclusions, err := r.exportContracts(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_contracts"] = contractSection
+	for _, reader := range []sectionReader{r.spaces, r.pricing, r.bookings, r.conversation, r.disputes} {
+		part, err := reader.ExportOwnArchiveSections(ctx, owner)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for key, raw := range part {
+			if _, exists := sections[key]; exists {
+				return nil, nil, nil, fmt.Errorf("duplicate owner-export section %s", key)
+			}
+			sections[key] = raw
+		}
+	}
+	cases, err := r.verification.ListOwn(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caseItems := make([]verificationCase, 0, len(cases))
+	for _, item := range cases {
+		caseItems = append(caseItems, verificationCase{ID: item.ID, Type: item.Type, State: item.State, ReasonCode: item.ReasonCode, RetryOf: item.RetryOf, CreatedAt: item.CreatedAt, ResolvedAt: item.ResolvedAt})
+	}
+	caseJSON, err := json.Marshal(caseItems)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["verifications"] = caseJSON
+	eligibility, err := r.verification.ListEligibility(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	eligibilityJSON, err := json.Marshal(eligibility)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["verification_eligibility"] = eligibilityJSON
+	history := make(map[string][]verification.HistoryEntry, len(cases))
+	for _, item := range cases {
+		entries, err := r.verification.ListHistory(ctx, owner, item.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		history[item.ID] = entries
+	}
+	historyJSON, err := json.Marshal(history)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["verification_history"] = historyJSON
+	files := append([]privacy.ExportFile{}, photoFiles...)
+	files = append(files, mediaFiles...)
+	files = append(files, contractFiles...)
+	files = append(files, galleryFiles...)
+	files = append(files, defenseFiles...)
+	photoExclusions = append(photoExclusions, galleryExclusions...)
+	photoExclusions = append(photoExclusions, mediaExclusions...)
+	photoExclusions = append(photoExclusions, defenseExclusions...)
+	photoExclusions = append(photoExclusions, contractExclusions...)
+	exclusionCounts := 0
+	evidenceItems := []evidenceRecord{}
+	for _, item := range cases {
+		stored, err := r.verification.ListOwnEvidence(ctx, owner, item.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		for _, evidence := range stored {
+			entry := evidenceRecord{ID: evidence.ID, VerificationID: evidence.VerificationID, FixtureCode: evidence.FixtureCode, MIMEType: evidence.MIMEType, SizeBytes: evidence.SizeBytes, SHA256: evidence.SHA256, CreatedAt: evidence.CreatedAt, FileAvailable: evidence.FileAvailable}
+			if r.files == nil || !evidence.FileAvailable || evidence.FileID == "" {
+				exclusionCounts++
+				evidenceItems = append(evidenceItems, entry)
+				continue
+			}
+			content, readErr := r.files.Get(ctx, evidence.FileID)
+			if readErr != nil {
+				exclusionCounts++
+				evidenceItems = append(evidenceItems, entry)
+				continue
+			}
+			entry.ArchiveFile = "files/evidence/" + evidence.ID + ".png"
+			evidenceItems = append(evidenceItems, entry)
+			files = append(files, privacy.ExportFile{Name: entry.ArchiveFile, MediaType: evidence.MIMEType, Description: "Evidencia sintética propia de verificación", Content: content})
+		}
+	}
+	evidenceJSON, err := json.Marshal(evidenceItems)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["synthetic_evidence"] = evidenceJSON
+	exclusions := append([]string{}, photoExclusions...)
+	if exclusionCounts > 0 {
+		exclusions = append(exclusions, fmt.Sprintf("%d evidencia(s) propia(s) referenciada(s) sin archivo disponible; omitidas del ZIP", exclusionCounts))
+	}
+	return sections, files, exclusions, nil
+}
+
+type mediaAssetExport struct {
+	ID        string               `json:"id"`
+	Purpose   string               `json:"purpose"`
+	State     string               `json:"state"`
+	SpaceID   string               `json:"space_id,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
+	DeletedAt *time.Time           `json:"deleted_at,omitempty"`
+	Variants  []mediaVariantExport `json:"variants"`
+}
+
+type mediaVariantExport struct {
+	Name          string `json:"name"`
+	MIME          string `json:"mime_type"`
+	Size          int64  `json:"size_bytes"`
+	SHA256        string `json:"sha256"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	FileAvailable bool   `json:"file_available"`
+	ArchiveFile   string `json:"archive_file,omitempty"`
+}
+
+// exportRealMedia includes the owner's media metadata and each available
+// derived variant. Object keys, bucket names and storage generations remain
+// internal; archive paths are generated from validated database identifiers.
+func (r *Repository) exportRealMedia(ctx context.Context, owner string) (json.RawMessage, []privacy.ExportFile, []string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT a.id::text,a.proposito,a.estado,COALESCE(a.espacio_id::text,''),a.created_at,a.deleted_at,
+		v.variant,v.mime_type,v.size_bytes,v.sha256,v.width,v.height,v.object_key,v.generation
+		FROM public.media_asset a
+		LEFT JOIN public.media_variant v ON v.media_id=a.id
+		WHERE a.propietario_id=$1
+		ORDER BY a.created_at,a.id,v.variant`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer rows.Close()
+	type storedVariant struct {
+		public     mediaVariantExport
+		key        string
+		generation int64
+	}
+	type assetGroup struct {
+		public   mediaAssetExport
+		variants []storedVariant
+	}
+	groups := make([]assetGroup, 0)
+	byID := make(map[string]int)
+	for rows.Next() {
+		var id, purpose, state, spaceID string
+		var created time.Time
+		var deleted *time.Time
+		var name, mime, digest, objectKey *string
+		var size, width, height, generation *int64
+		if err := rows.Scan(&id, &purpose, &state, &spaceID, &created, &deleted, &name, &mime, &size, &digest, &width, &height, &objectKey, &generation); err != nil {
+			return nil, nil, nil, err
+		}
+		index, ok := byID[id]
+		if !ok {
+			index = len(groups)
+			byID[id] = index
+			groups = append(groups, assetGroup{public: mediaAssetExport{ID: id, Purpose: purpose, State: state, SpaceID: spaceID, CreatedAt: created, DeletedAt: deleted, Variants: []mediaVariantExport{}}})
+		}
+		if name == nil {
+			continue
+		}
+		v := mediaVariantExport{Name: *name, MIME: *mime, Size: *size, SHA256: *digest, Width: int(*width), Height: int(*height)}
+		g := &groups[index]
+		g.variants = append(g.variants, storedVariant{public: v, key: *objectKey, generation: *generation})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	files := []privacy.ExportFile{}
+	exclusions := []string{}
+	for i := range groups {
+		for j := range groups[i].variants {
+			v := &groups[i].variants[j]
+			if r.mediaStore == nil {
+				exclusions = append(exclusions, "storage privado de medios no disponible; variante "+v.public.Name+" omitida del ZIP")
+				continue
+			}
+			content, readErr := r.mediaStore.Get(ctx, v.key, v.generation)
+			if readErr != nil || int64(len(content)) != v.public.Size {
+				exclusions = append(exclusions, "variante "+v.public.Name+" de imagen propia sin objeto verificable; omitida del ZIP")
+				continue
+			}
+			sum := sha256.Sum256(content)
+			if hex.EncodeToString(sum[:]) != v.public.SHA256 {
+				exclusions = append(exclusions, "variante "+v.public.Name+" de imagen propia no coincide con su checksum; omitida del ZIP")
+				continue
+			}
+			name := "files/media/" + groups[i].public.Purpose + "/" + groups[i].public.ID + "/" + v.public.Name + ".webp"
+			v.public.FileAvailable = true
+			v.public.ArchiveFile = name
+			files = append(files, privacy.ExportFile{Name: name, MediaType: v.public.MIME, Description: "Variante WebP de imagen propia", Content: content})
+		}
+		for _, variant := range groups[i].variants {
+			groups[i].public.Variants = append(groups[i].public.Variants, variant.public)
+		}
+	}
+	assets := make([]mediaAssetExport, len(groups))
+	for i := range groups {
+		assets[i] = groups[i].public
+	}
+	body, err := json.Marshal(map[string]any{"assets": assets})
+	return body, files, exclusions, err
+}
+
+type exportedContract struct {
+	ID          string           `json:"id"`
+	Role        string           `json:"role"`
+	Version     int              `json:"version"`
+	State       string           `json:"state"`
+	Snapshot    json.RawMessage  `json:"snapshot"`
+	Signatures  []map[string]any `json:"signatures"`
+	History     []map[string]any `json:"history"`
+	CreatedAt   time.Time        `json:"created_at"`
+	UpdatedAt   time.Time        `json:"updated_at"`
+	PDFStatus   string           `json:"pdf_status"`
+	ArchiveFile string           `json:"archive_file,omitempty"`
+}
+
+// exportContracts obtains each artifact through the contract owner's
+// participant-authorized repository. The archive receives a redacted copy of
+// an available PDF; a retired/missing artifact is reported without rebuild.
+func (r *Repository) exportContracts(ctx context.Context, owner string) (json.RawMessage, []privacy.ExportFile, []string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT c.id::text,r.anfitrion_id::text,r.arrendatario_id::text
+		FROM public.contrato_ensayo_local c JOIN public.reserva_ensayo_local r ON r.id=c.reserva_id
+		WHERE r.anfitrion_id=$1 OR r.arrendatario_id=$1 ORDER BY c.creada_en,c.id`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	type candidate struct{ id, host, renter string }
+	items := []candidate{}
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.host, &item.renter); err != nil {
+			rows.Close()
+			return nil, nil, nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, nil, nil, err
+	}
+	rows.Close()
+	if len(items) > 0 && r.contracts == nil {
+		return nil, nil, nil, privacy.ErrExportUnavailable
+	}
+	exported := make([]exportedContract, 0, len(items))
+	files := []privacy.ExportFile{}
+	exclusions := []string{}
+	for _, item := range items {
+		c, err := r.contracts.Get(ctx, owner, item.id)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		role := "renter"
+		if owner == item.host {
+			role = "host"
+		}
+		var snapshot map[string]any
+		if err := json.Unmarshal(c.Snapshot, &snapshot); err != nil {
+			return nil, nil, nil, err
+		}
+		// Participant and reservation UUIDs are replaced with roles. Snapshot
+		// facts remain useful without exporting another account's identifier.
+		for _, key := range []string{"host_id", "renter_id", "reservation_id"} {
+			delete(snapshot, key)
+		}
+		snapshot = redactContractSnapshot(snapshot, item.host, item.renter, c.ReservationID).(map[string]any)
+		snapshot["participants"] = map[string]string{"host": "host", "renter": "renter"}
+		snapshotJSON, err := json.Marshal(snapshot)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		entry := exportedContract{ID: c.ID, Role: role, Version: c.Version, State: c.State, Snapshot: snapshotJSON,
+			Signatures: []map[string]any{}, History: []map[string]any{}, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, PDFStatus: "unavailable"}
+		for _, sig := range c.Signatures {
+			entry.Signatures = append(entry.Signatures, map[string]any{"role": sig.Role, "state": sig.State, "updated_at": sig.UpdatedAt})
+		}
+		for _, event := range c.History {
+			actorRole := "system"
+			if event.ActorID == owner {
+				actorRole = "self"
+			} else if event.ActorID == item.host || event.ActorID == item.renter {
+				actorRole = "counterparty"
+			}
+			entry.History = append(entry.History, map[string]any{"sequence": event.Sequence, "actor_role": actorRole, "action": event.Action, "at": event.At})
+		}
+		if len(c.Artifact) > 0 {
+			content := redactContractPDF(c.Artifact, item.host, item.renter, c.ReservationID)
+			name := "files/contracts/" + c.ID + ".pdf"
+			entry.PDFStatus = "included"
+			entry.ArchiveFile = name
+			files = append(files, privacy.ExportFile{Name: name, MediaType: "application/pdf", Description: "PDF sintético compartido de la reserva propia", Content: content})
+		} else if c.ArtifactRetiredAt != nil {
+			entry.PDFStatus = "retired"
+			exclusions = append(exclusions, "PDF del contrato "+c.ID+" ya retirado por retención; no se reconstruyó")
+		} else {
+			exclusions = append(exclusions, "PDF del contrato "+c.ID+" no disponible; no se reconstruyó")
+		}
+		exported = append(exported, entry)
+	}
+	body, err := json.Marshal(map[string]any{"items": exported})
+	return body, files, exclusions, err
+}
+
+func redactContractSnapshot(value any, hostID, renterID, reservationID string) any {
+	switch item := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(item))
+		for key, child := range item {
+			out[key] = redactContractSnapshot(child, hostID, renterID, reservationID)
+		}
+		return out
+	case []any:
+		out := make([]any, len(item))
+		for i, child := range item {
+			out[i] = redactContractSnapshot(child, hostID, renterID, reservationID)
+		}
+		return out
+	case string:
+		for _, replacement := range []struct{ id, role string }{{hostID, "host"}, {renterID, "renter"}, {reservationID, "reservation"}} {
+			if replacement.id != "" {
+				item = strings.ReplaceAll(item, replacement.id, replacement.role)
+			}
+		}
+		return item
+	default:
+		return value
+	}
+}
+
+// The synthetic PDF is a byte-addressed, uncompressed artifact. Replacing
+// each 36-byte UUID with a same-length role marker preserves object offsets,
+// stream length, and the original PDF structure.
+func redactContractPDF(pdf []byte, hostID, renterID, reservationID string) []byte {
+	redact := func(id, role string) {
+		if id == "" {
+			return
+		}
+		marker := role
+		if len(marker) > len(id) {
+			marker = marker[:len(id)]
+		}
+		marker += strings.Repeat(" ", len(id)-len(marker))
+		pdf = bytes.ReplaceAll(pdf, []byte(id), []byte(marker))
+	}
+	redact(hostID, "HOST")
+	redact(renterID, "RENTER")
+	redact(reservationID, "RESERVATION")
+	return pdf
+}
+
+var _ privacy.CompleteExportRepository = (*Repository)(nil)
+var _ spaces.ArchiveSectionRepository = (*spacespg.Repository)(nil)
+var _ pricing.ArchiveSectionRepository = (*pricingpg.Repository)(nil)
+var _ booking.ArchiveSectionRepository = (*bookingpg.Repository)(nil)
+var _ conversation.ArchiveSectionRepository = (*conversationpg.Repository)(nil)
+var _ dispute.ArchiveSectionRepository = (*disputepg.Repository)(nil)

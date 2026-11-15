@@ -1,0 +1,30 @@
+# Local synthetic credentials and runtime data
+.local/
+/ES2/
+
+# Frontend dependencies and build output
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+frontend/.next/
+frontend/out/
+
+# Environment files and secrets
+.env
+.env.*
+*.env
+
+# Local editor/build artifacts
+__pycache__/
+*.py[cod]
+*.swp
+*.tmp
+*.log
+
+# Compiled binaries
+/api
+/dbmigrate
+/privacy-cleanup-worker
+/netprobe
+

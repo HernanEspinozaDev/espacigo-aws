@@ -1,0 +1,18 @@
+# Build context must contain only sources and lockfiles
+node_modules
+.next
+out
+build
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+.git
+.gitignore
+.dockerignore
+.env*
+!.env.example
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*

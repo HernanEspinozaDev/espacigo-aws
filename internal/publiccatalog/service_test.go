@@ -1,0 +1,501 @@
+package publiccatalog
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"strings"
+	"testing"
+)
+
+type memoryRepository struct{ rows []Space }
+
+func (m memoryRepository) Categories(context.Context) ([]Category, error) {
+	return []Category{{Code: "oficina", Name: "Oficina", Order: 1}}, nil
+}
+func (m memoryRepository) HasActiveCategory(context.Context, string) (bool, error) { return true, nil }
+func (m memoryRepository) AttributeFilters(context.Context, string) ([]AttributeFilter, error) {
+	min, max, step := json.Number("0.01"), json.Number("99.99"), json.Number("0.01")
+	return []AttributeFilter{{Code: "wifi", Type: "boolean", ProfileVersion: 1}, {Code: "altura", Type: "number", Minimum: &min, Maximum: &max, Step: &step, ProfileVersion: 1}, {Code: "uso", Type: "enum", Options: []string{"privada", "compartida"}, ProfileVersion: 1}, {Code: "equipo", Type: "enum_list", Options: []string{"wifi", "proyector"}, ProfileVersion: 1}}, nil
+}
+func (m memoryRepository) HasRegion(context.Context, string) (bool, error)          { return true, nil }
+func (m memoryRepository) HasCommune(context.Context, string, string) (bool, error) { return true, nil }
+func (m memoryRepository) Locations(context.Context, string, string, int) ([]Location, error) {
+	return nil, nil
+}
+func (m memoryRepository) Detail(context.Context, string) (Space, error) { return Space{}, ErrNotFound }
+func (m memoryRepository) List(_ context.Context, f Filters, after *Cursor, limit int) ([]Space, error) {
+	start := 0
+	if after != nil {
+		for i, v := range m.rows {
+			if v.SpaceID == after.LastSpaceID {
+				start = i + 1
+				break
+			}
+		}
+	}
+	end := start + limit
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+	return append([]Space(nil), m.rows[start:end]...), nil
+}
+
+func TestListSupportsRealFortyEightItemPagesWithStableCursor(t *testing.T) {
+	rows := make([]Space, 60)
+	for i := range rows {
+		rows[i] = Space{SpaceID: fmt.Sprintf("00000000-0000-4000-8000-%012d", i+1), CategoryOrder: 1, TitleKey: fmt.Sprintf("space-%02d", i+1)}
+	}
+	svc, err := New(memoryRepository{rows}, []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.List(context.Background(), Filters{PageSize: 48, PageSizeSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Items) != 48 || first.NextCursor == "" {
+		t.Fatalf("first page size=%d cursor=%t", len(first.Items), first.NextCursor != "")
+	}
+	second, err := svc.List(context.Background(), Filters{PageSize: 48, PageSizeSet: true, Cursor: first.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 12 || second.NextCursor != "" {
+		t.Fatalf("second page size=%d cursor=%t", len(second.Items), second.NextCursor != "")
+	}
+	seen := make(map[string]bool, 60)
+	for _, item := range append(first.Items, second.Items...) {
+		if seen[item.SpaceID] {
+			t.Fatalf("duplicate space across cursor pages: %s", item.SpaceID)
+		}
+		seen[item.SpaceID] = true
+	}
+	if len(seen) != 60 {
+		t.Fatalf("unique items=%d, want 60", len(seen))
+	}
+	if _, err = svc.List(context.Background(), Filters{PageSize: 24, PageSizeSet: true, Cursor: first.NextCursor}); err != ErrInvalid {
+		t.Fatalf("cursor accepted after changing page size: %v", err)
+	}
+}
+
+func TestListCursorIsStableAndBoundToFilters(t *testing.T) {
+	rows := []Space{{SpaceID: "00000000-0000-0000-0000-000000000001", CategoryOrder: 1, TitleKey: "a", BasePriceCLP: 6000}, {SpaceID: "00000000-0000-0000-0000-000000000002", CategoryOrder: 1, TitleKey: "b", BasePriceCLP: 7000}, {SpaceID: "00000000-0000-0000-0000-000000000003", CategoryOrder: 1, TitleKey: "c", BasePriceCLP: 8000}}
+	svc, err := New(memoryRepository{rows}, []byte("01234567890123456789012345678901"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := svc.List(context.Background(), Filters{PageSize: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Items) != 2 || page.NextCursor == "" {
+		t.Fatalf("unexpected first page: %#v", page)
+	}
+	second, err := svc.List(context.Background(), Filters{PageSize: 2, Cursor: page.NextCursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Items) != 1 || second.Items[0].SpaceID != rows[2].SpaceID {
+		t.Fatalf("unexpected next page: %#v", second)
+	}
+	if _, err = svc.List(context.Background(), Filters{PageSize: 2, RateUnit: "hora", Cursor: page.NextCursor}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("cursor accepted with changed filters: %v", err)
+	}
+}
+
+func TestListRejectsUnitPriceComparisonsWithoutModality(t *testing.T) {
+	svc, _ := New(memoryRepository{}, []byte("01234567890123456789012345678901"))
+	if _, err := svc.List(context.Background(), Filters{Sort: "unit_price_asc"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected invalid request, got %v", err)
+	}
+	price := int64(1 << 62)
+	if _, err := svc.List(context.Background(), Filters{RateUnit: "dia", MinUnitPriceCLP: &price}); err != nil {
+		t.Fatalf("valid int64 rejected: %v", err)
+	}
+}
+
+func TestListAcceptsStableTitleSorts(t *testing.T) {
+	svc, _ := New(memoryRepository{}, []byte("01234567890123456789012345678901"))
+	for _, order := range []string{"title_asc", "title_desc"} {
+		if _, err := svc.List(context.Background(), Filters{Sort: order, PageSize: 20}); err != nil {
+			t.Fatalf("%s rejected: %v", order, err)
+		}
+	}
+}
+
+func TestTypedPredicatesAreProfileValidatedAndCursorVersioned(t *testing.T) {
+	svc, _ := New(memoryRepository{}, []byte("01234567890123456789012345678901"))
+	min := "1.23"
+	valid := Filters{CategoryCode: "oficina", PageSize: 20, TypedAttributes: map[string]AttributePredicate{"altura": {Minimum: &min}, "uso": {Value: stringPointer("privada")}, "equipo": {Values: []string{"wifi", "proyector"}}}}
+	if _, err := svc.List(context.Background(), valid); err != nil {
+		t.Fatalf("valid typed predicates rejected: %v", err)
+	}
+	for _, predicate := range []AttributePredicate{{Minimum: stringPointer("1.234")}, {Minimum: stringPointer("100")}, {Value: stringPointer("foreign")}, {Values: []string{"wifi", "wifi"}}} {
+		f := Filters{CategoryCode: "oficina", PageSize: 20, TypedAttributes: map[string]AttributePredicate{"altura": predicate}}
+		if _, err := svc.List(context.Background(), f); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid predicate accepted: %#v / %v", predicate, err)
+		}
+	}
+	if _, err := svc.List(context.Background(), Filters{CategoryCode: "oficina", TypedAttributes: map[string]AttributePredicate{"altura": {Type: "integer", Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("type-mismatched predicate accepted: %v", err)
+	}
+	if _, err := svc.List(context.Background(), Filters{TypedAttributes: map[string]AttributePredicate{"altura": {Minimum: &min}}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("filter without category accepted: %v", err)
+	}
+	tooMany := Filters{TypedAttributes: make(map[string]AttributePredicate, 17)}
+	for i := 0; i < 17; i++ {
+		tooMany.TypedAttributes[fmt.Sprintf("attribute_%02d", i)] = AttributePredicate{Minimum: &min}
+	}
+	if err := validate(&tooMany); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("more than 16 typed fields accepted: %v", err)
+	}
+	cursor, err := svc.encodeCursor(Cursor{Version: cursorVersion, LastSpaceID: "00000000-0000-0000-0000-000000000001"})
+	if err != nil || !strings.HasPrefix(cursor, "v3.") {
+		t.Fatalf("typed cursor version missing: %q %v", cursor, err)
+	}
+	if _, err := svc.decodeCursor(strings.Replace(cursor, "v3.", "v2.", 1)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("old cursor unexpectedly accepted: %v", err)
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
+type publicMediaRepository struct {
+	memoryRepository
+	item PublicImage
+}
+
+func (r publicMediaRepository) PublicImage(context.Context, string, string) (PublicImage, error) {
+	return PublicImage{}, ErrNotFound
+}
+func (r publicMediaRepository) PublicMediaVariant(context.Context, string, string, string) (PublicImage, error) {
+	return r.item, nil
+}
+
+type publicMediaStore struct {
+	body       []byte
+	key        string
+	generation int64
+	getCalls   int
+}
+
+func (s *publicMediaStore) Put(context.Context, string, []byte, string) (media.StoredObject, error) {
+	return media.StoredObject{}, nil
+}
+func (s *publicMediaStore) Get(_ context.Context, key string, generation int64) ([]byte, error) {
+	s.getCalls++
+	if key != s.key || generation != s.generation {
+		return nil, media.ErrNotFound
+	}
+	return append([]byte(nil), s.body...), nil
+}
+func (s *publicMediaStore) Generation(context.Context, string) (int64, error) {
+	return s.generation, nil
+}
+func (s *publicMediaStore) Delete(context.Context, string, int64) error { return nil }
+
+func TestMediaImageContentRevalidatesVariantAndChecksDigest(t *testing.T) {
+	body := []byte("normalized-webp-fixture")
+	digest := sha256.Sum256(body)
+	store := &publicMediaStore{body: body, key: "media/v1/spaces/a/photo/display.webp", generation: 7}
+	repo := publicMediaRepository{item: PublicImage{MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), ObjectKey: store.key, Generation: 7}}
+	svc, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), nil, store)
+	if err == nil {
+		t.Fatal("constructor accepted nil legacy private image store")
+	}
+	legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+	svc, err = NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, got, err := svc.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+	if err != nil || string(got) != string(body) || item.ObjectKey != "media/v1/spaces/a/photo/display.webp" {
+		t.Fatalf("item=%+v body=%q err=%v", item, got, err)
+	}
+	if _, _, err = svc.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "avatar"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("avatar became public: %v", err)
+	}
+}
+
+type PublicImageStoreFunc func(context.Context, string) ([]byte, error)
+
+func (f PublicImageStoreFunc) Get(ctx context.Context, key string) ([]byte, error) {
+	return f(ctx, key)
+}
+
+func TestMediaImageContentRejectsInvalidMetadataSizeAndDigest(t *testing.T) {
+	body := []byte("normalized-webp-fixture")
+	digest := sha256.Sum256(body)
+	base := PublicImage{
+		MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)),
+		ObjectKey: "media/v1/spaces/a/photo/display.webp", Generation: 7,
+	}
+	cases := []struct {
+		name         string
+		mutate       func(*PublicImage)
+		wantGetCalls int
+	}{
+		{name: "invalid mime", mutate: func(item *PublicImage) { item.MIME = "image/png" }},
+		{name: "zero size", mutate: func(item *PublicImage) { item.Size = 0 }},
+		{name: "oversized variant", mutate: func(item *PublicImage) { item.Size = 10<<20 + 1 }},
+		{name: "stored size mismatch", mutate: func(item *PublicImage) { item.Size++ }, wantGetCalls: 1},
+		{name: "digest mismatch", mutate: func(item *PublicImage) { item.SHA256 = strings.Repeat("0", 64) }, wantGetCalls: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item := base
+			tc.mutate(&item)
+			store := &publicMediaStore{body: body, key: base.ObjectKey, generation: base.Generation}
+			repo := publicMediaRepository{item: item}
+			legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+			service, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, content, err := service.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+			if !errors.Is(err, ErrNotFound) || len(content) != 0 {
+				t.Fatalf("content length=%d err=%v; want hidden not-found", len(content), err)
+			}
+			if store.getCalls != tc.wantGetCalls {
+				t.Fatalf("object-store reads=%d; want %d", store.getCalls, tc.wantGetCalls)
+			}
+		})
+	}
+}
+
+type cancelledPublicMediaRepository struct {
+	publicMediaRepository
+	calls int
+}
+
+func (r *cancelledPublicMediaRepository) PublicMediaVariant(ctx context.Context, _, _, _ string) (PublicImage, error) {
+	r.calls++
+	return PublicImage{}, ctx.Err()
+}
+
+func TestMediaImageContentStopsAfterCancelledRepositoryLookup(t *testing.T) {
+	store := &publicMediaStore{body: []byte("must-not-be-read"), key: "fixture", generation: 7}
+	repo := &cancelledPublicMediaRepository{}
+	legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+	service, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, content, err := service.MediaImageContent(ctx, "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+	if !errors.Is(err, context.Canceled) || len(content) != 0 {
+		t.Fatalf("content length=%d err=%v; want canceled lookup and no content", len(content), err)
+	}
+	if repo.calls != 1 || store.getCalls != 0 {
+		t.Fatalf("repository calls=%d object-store reads=%d; want 1 and 0", repo.calls, store.getCalls)
+	}
+}
+
+type legacyPublicImageRepository struct {
+	memoryRepository
+	item       PublicImage
+	imageErr   error
+	imageCalls int
+	spaceID    string
+	imageID    string
+}
+
+func (r *legacyPublicImageRepository) PublicImage(_ context.Context, spaceID, imageID string) (PublicImage, error) {
+	r.imageCalls++
+	r.spaceID, r.imageID = spaceID, imageID
+	return r.item, r.imageErr
+}
+
+func (*legacyPublicImageRepository) PublicMediaVariant(context.Context, string, string, string) (PublicImage, error) {
+	return PublicImage{}, ErrNotFound
+}
+
+func TestLegacyImageContentReturnsVerifiedPNGAndCanonicalIDs(t *testing.T) {
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	const spaceID = "00000000-0000-4000-8000-ABCDEF000001"
+	const imageID = "00000000-0000-4000-8000-ABCDEF000002"
+	repo := &legacyPublicImageRepository{item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "synthetic-file-1"}}
+	var reads int
+	var storedKey string
+	store := PublicImageStoreFunc(func(_ context.Context, key string) ([]byte, error) {
+		reads++
+		storedKey = key
+		return append([]byte(nil), body...), nil
+	})
+	service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, got, err := service.ImageContent(context.Background(), spaceID, imageID)
+	if err != nil || string(got) != string(body) || item.FileID != "synthetic-file-1" {
+		t.Fatalf("item=%+v body=%q err=%v", item, got, err)
+	}
+	if repo.imageCalls != 1 || repo.spaceID != strings.ToLower(spaceID) || repo.imageID != strings.ToLower(imageID) || reads != 1 || storedKey != item.FileID {
+		t.Fatalf("repository calls=%d ids=%q/%q store reads=%d key=%q", repo.imageCalls, repo.spaceID, repo.imageID, reads, storedKey)
+	}
+}
+
+func TestLegacyImageContentRejectsUnsafeMetadataBeforeStorage(t *testing.T) {
+	cases := []struct {
+		name string
+		item PublicImage
+	}{
+		{name: "wrong MIME", item: PublicImage{MIME: "image/webp", Size: 10, FileID: "file"}},
+		{name: "oversized image", item: PublicImage{MIME: "image/png", Size: 1<<20 + 1, FileID: "file"}},
+		{name: "missing file ID", item: PublicImage{MIME: "image/png", Size: 10}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &legacyPublicImageRepository{item: tc.item}
+			var reads int
+			service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+				reads++
+				return []byte("unexpected storage read"), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = service.ImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002")
+			if !errors.Is(err, ErrNotFound) || reads != 0 || repo.imageCalls != 1 {
+				t.Fatalf("err=%v storage_reads=%d repository_calls=%d", err, reads, repo.imageCalls)
+			}
+		})
+	}
+}
+
+func TestLegacyImageContentRejectsUnverifiedStoredBytes(t *testing.T) {
+	valid := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	badSignature := []byte("not-a-png-synthetic")
+	validDigest := sha256.Sum256(valid)
+	wrongDigest := sha256.Sum256([]byte("different-bytes"))
+	badSignatureDigest := sha256.Sum256(badSignature)
+	cases := []struct {
+		name string
+		body []byte
+		item PublicImage
+	}{
+		{name: "size mismatch", body: valid, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(validDigest[:]), Size: int64(len(valid) + 1), FileID: "file"}},
+		{name: "digest mismatch", body: valid, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(wrongDigest[:]), Size: int64(len(valid)), FileID: "file"}},
+		{name: "invalid PNG signature", body: badSignature, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(badSignatureDigest[:]), Size: int64(len(badSignature)), FileID: "file"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &legacyPublicImageRepository{item: tc.item}
+			var reads int
+			service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+				reads++
+				return append([]byte(nil), tc.body...), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = service.ImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002")
+			if !errors.Is(err, ErrNotFound) || reads != 1 || repo.imageCalls != 1 {
+				t.Fatalf("err=%v storage_reads=%d repository_calls=%d", err, reads, repo.imageCalls)
+			}
+		})
+	}
+}
+
+func TestLegacyImageContentRejectsInvalidIDsAndUnavailableDependenciesEarly(t *testing.T) {
+	const masterKey = "01234567890123456789012345678901"
+	const spaceID = "00000000-0000-4000-8000-000000000001"
+	const imageID = "00000000-0000-4000-8000-000000000002"
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	item := PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "file"}
+
+	t.Run("invalid IDs before repository or storage", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ids := range [][2]string{{"bad-space", imageID}, {spaceID, "bad-image"}} {
+			if _, _, err := service.ImageContent(context.Background(), ids[0], ids[1]); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("IDs %q/%q returned %v", ids[0], ids[1], err)
+			}
+		}
+		if repo.imageCalls != 0 || reads != 0 {
+			t.Fatalf("invalid IDs reached dependencies: repository=%d storage=%d", repo.imageCalls, reads)
+		}
+	})
+
+	t.Run("missing store before repository", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		service, err := New(repo, []byte(masterKey))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, ErrNotFound) || repo.imageCalls != 0 {
+			t.Fatalf("err=%v repository_calls=%d", err, repo.imageCalls)
+		}
+	})
+
+	t.Run("repository without legacy image capability", func(t *testing.T) {
+		var reads int
+		service, err := NewWithImageStore(memoryRepository{}, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, ErrNotFound) || reads != 0 {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+}
+
+func TestLegacyImageContentHandlesRepositoryAndStorageErrors(t *testing.T) {
+	const masterKey = "01234567890123456789012345678901"
+	const spaceID = "00000000-0000-4000-8000-000000000001"
+	const imageID = "00000000-0000-4000-8000-000000000002"
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	item := PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "file"}
+
+	t.Run("repository error propagates", func(t *testing.T) {
+		failure := errors.New("synthetic image metadata failure")
+		repo := &legacyPublicImageRepository{imageErr: failure}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, failure) || reads != 0 {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+
+	t.Run("storage error is hidden as not found", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return nil, errors.New("synthetic private storage detail")
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = service.ImageContent(context.Background(), spaceID, imageID)
+		if !errors.Is(err, ErrNotFound) || reads != 1 || err.Error() == "synthetic private storage detail" {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+}

@@ -1,0 +1,40 @@
+flowchart TB
+    subgraph Internet["Internet & Usuarios (Chile)"]
+        Users["Usuarios / Evaluadores"]
+        DNS["Cloudflare DNS (Gris) o Route 53"]
+    end
+
+    subgraph AWS_Edge["AWS Edge Global (PoP Santiago SCL)"]
+        CF["Amazon CloudFront CDN + TLS (ACM)\nCachea /_next/static/* y S3 Public Media"]
+    end
+
+    subgraph AWS_Region["AWS Region (us-east-1 o sa-east-1) — VPC espacigo-vpc (Sin NAT Gateway)"]
+        subgraph Subnet_App["Subnet de Aplicación (Security Group: Solo CloudFront Prefix List / VPC Origin)"]
+            subgraph ECS_Task["ECS Fargate Task (ARM64 Graviton2: 0.5 vCPU / 1 GB RAM)"]
+                Next["Contenedor Next.js 16 (:4000)\nBFF Same-Origin"]
+                Go["Contenedor Go API (:8080)\n+ 13 Workers Ticker + Poppler"]
+                Next -- "http://127.0.0.1:8080\n(Loopback 0ms, sin IAM externo)" --> Go
+            end
+            MigTask["ECS Fargate Task Efímera\n(cmd/dbmigrate en cada release)"]
+        end
+
+        subgraph Subnet_Data["Subnet Privada Aislada de Datos (Sin ruta a Internet)"]
+            RDS[("Amazon RDS PostgreSQL 18.6\ndb.t4g.micro / small (Single-AZ)\n20 GB gp3 + PITR Continuo (RPO ≤ 5m)\nPostGIS + btree_gist + unaccent")]
+        end
+
+        S3[("Amazon S3\n- /public-media (OAC a CloudFront)\n- /private-kyc & /contracts (SSE-KMS)")]
+        SSM["SSM Parameter Store\n(SecureString, $0/mes)"]
+        ECR["Amazon ECR\n(Con Lifecycle Policy: máx 10 imágenes)"]
+        SES["Amazon SES / Zoho SMTP"]
+    end
+
+    Users -.-> DNS
+    Users -- "HTTPS :443" --> CF
+    CF -- "OAC (Imágenes WebP Públicas)" --> S3
+    CF -- "Tráfico SSR y /api/backend/*" --> Next
+    Go -- "TCP :5432 TLS verify-full" --> RDS
+    MigTask -- "TCP :5432 TLS verify-full" --> RDS
+    Go -- "Gateway VPC Endpoint ($0)" --> S3
+    ECS_Task -. "Inyección Secretos al iniciar" .-> SSM
+    ECS_Task -. "Pull Imagen" .-> ECR
+    Go -- "SMTP TLS / SES API" --> SES

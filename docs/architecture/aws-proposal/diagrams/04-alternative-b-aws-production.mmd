@@ -1,0 +1,43 @@
+flowchart TB
+    subgraph Edge["Borde Global AWS"]
+        Users["Usuarios / Clientes"]
+        WAF["AWS WAFv2 + Shield Standard\n(Rate Limit + OWASP Managed Rules)"]
+        CF["Amazon CloudFront CDN + TLS (ACM)"]
+    end
+
+    subgraph VPC["AWS Region (sa-east-1 o us-east-1) — VPC Multi-AZ (AZ-a & AZ-b)"]
+        ALB["Application Load Balancer (Multi-AZ)\ncon CloudFront VPC Origin"]
+
+        subgraph Compute["Amazon ECS Fargate Cluster (Graviton2 ARM64)"]
+            WebSvc["ECS Service: espacigo-web\nNext.js 16 (2..6 tasks Multi-AZ)"]
+            ApiSvc["ECS Service: espacigo-api\nGo HTTP API (2..6 tasks Multi-AZ)"]
+            WrkSvc["ECS Service: espacigo-worker\nOutbox, Reconcilers & Privacy Cleanup\n+ ClamAV / Poppler Inspector"]
+            MigJob["ECS RunTask: espacigo-dbmigrate\n(Pre-deploy Migration Job)"]
+        end
+
+        subgraph DataTier["Subredes Privadas Aisladas (Multi-AZ)"]
+            RDS_Pri[("RDS PostgreSQL 18 Primary (AZ-a)\ndb.t4g.small / db.m7g.large\nPITR + Deletion Protection")]
+            RDS_Stby[("RDS PostgreSQL 18 Standby (AZ-b)\nReplicación Síncrona Multi-AZ\nFailover Automático ~60-120s")]
+            RDS_Pri <== "Sync Replication" ==> RDS_Stby
+        end
+
+        subgraph StorageAndSec["Almacenamiento S3 Clasificado, KMS y Observabilidad"]
+            S3_Media[("S3: public-media\n(WebP + CloudFront OAC)")]
+            S3_KYC[("S3: private-kyc\n(SSE-KMS + Quarantine)")]
+            S3_Doc[("S3: contracts & audit\n(SSE-KMS + S3 Object Lock WORM)")]
+            KMS["AWS KMS + Secrets Manager\n/ SSM Parameter Store"]
+            CW["CloudWatch Logs, Alarms\n+ AWS Budgets + EventBridge"]
+        end
+    end
+
+    Users --> WAF --> CF
+    CF -- "/media/public/*" --> S3_Media
+    CF -- "VPC Origin" --> ALB
+    ALB --> WebSvc
+    WebSvc -- "Service Connect / Internal DNS :8080" --> ApiSvc
+    ApiSvc --> RDS_Pri
+    WrkSvc --> RDS_Pri
+    MigJob --> RDS_Pri
+    ApiSvc --> S3_Media & S3_KYC & S3_Doc
+    WrkSvc --> S3_KYC & S3_Doc
+    Compute -.-> KMS & CW

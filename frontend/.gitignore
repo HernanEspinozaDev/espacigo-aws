@@ -1,0 +1,33 @@
+# Dependencies
+/node_modules/
+/.pnp
+.pnp.*
+
+# Next.js output
+/.next/
+/out/
+/build/
+
+# Test and coverage output
+/coverage/
+/playwright-report/
+/test-results/
+
+# TypeScript and tool caches
+*.tsbuildinfo
+.eslintcache
+.prettiercache
+
+# Local environment and logs
+.env*
+!.env.example
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

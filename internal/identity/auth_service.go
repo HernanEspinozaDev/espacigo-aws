@@ -1,0 +1,991 @@
+package identity
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/mail"
+	"net/netip"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+)
+
+var (
+	ErrEmailRegistered           = errors.New("El correo ya está registrado; inicia sesión o recupera tu contraseña")
+	ErrCredentials               = errors.New("identity: incorrect credentials")
+	ErrEmailUnverified           = errors.New("identity: verify email before signing in")
+	ErrAccountDisabled           = errors.New("identity: account disabled")
+	ErrTokenInvalid              = errors.New("identity: invalid verification token")
+	ErrRateLimited               = errors.New("identity: verification rate limited")
+	ErrUnauthorized              = errors.New("identity: unauthorized")
+	ErrForbidden                 = errors.New("identity: role not granted")
+	ErrDelivery                  = errors.New("identity: mail delivery failed")
+	ErrCurrentPassword           = errors.New("La contraseña actual no es correcta")
+	ErrPasswordSame              = errors.New("La contraseña nueva debe ser distinta de la actual")
+	ErrPasswordRecentlyUsed      = errors.New("La contraseña nueva fue utilizada durante los últimos tres meses")
+	ErrPasswordConfirm           = errors.New("La repetición de la contraseña nueva no coincide")
+	ErrCredentialNoticeState     = errors.New("identity: credential notice is not recoverable")
+	ErrCredentialNoticeRecipient = errors.New("identity: credential notice recipient is inactive")
+	ErrRestrictedMode            = errors.New("identity: operation unavailable in restricted account mode")
+)
+
+const (
+	verificationPurpose = "verificar_correo"
+	recoveryPurpose     = "recuperar_clave"
+)
+
+type LoginBlockedError struct{ Until time.Time }
+
+func (e *LoginBlockedError) Error() string {
+	return "identity: login blocked until " + e.Until.UTC().Format(time.RFC3339)
+}
+
+type AuthenticationService struct {
+	repo        AuthenticationRepository
+	passwords   PasswordHasher
+	mailer      AuthenticationMailer
+	ipLimiter   VerificationIPLimiter
+	credentials CredentialGenerator
+	now         func() time.Time
+}
+
+func NewAuthenticationService(repo AuthenticationRepository, passwords PasswordHasher, mailer AuthenticationMailer, limiter VerificationIPLimiter, credentials CredentialGenerator, now func() time.Time) (*AuthenticationService, error) {
+	if repo == nil || passwords == nil || mailer == nil || limiter == nil || credentials == nil || now == nil {
+		return nil, ErrInvalid
+	}
+	return &AuthenticationService{repo, passwords, mailer, limiter, credentials, now}, nil
+}
+
+// Validate the received email before deriving the shared M01 key. Display names,
+// comments and multiple addresses are not account emails. Outer space is retained.
+func ValidateEmail(email string) error {
+	trimmed := strings.TrimSpace(email)
+	parsed, err := mail.ParseAddress(trimmed)
+	if err != nil || parsed.Name != "" || parsed.Address != trimmed || strings.Count(trimmed, "@") != 1 {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func ValidatePassword(password Secret) error {
+	value := string(password)
+	// bcrypt's byte limit is enforced explicitly; never silently truncate.
+	if !utf8.ValidString(value) || utf8.RuneCountInString(value) < 8 || len(value) > 72 {
+		return ErrInvalid
+	}
+	var upper, digit, special bool
+	for _, r := range value {
+		upper = upper || unicode.IsUpper(r)
+		digit = digit || unicode.IsDigit(r)
+		special = special || unicode.IsPunct(r) || unicode.IsSymbol(r)
+	}
+	if !upper || !digit || !special {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func CredentialHash(raw Secret) string {
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+func canonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if r != '-' {
+				return false
+			}
+		} else if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+type RegisterInput struct {
+	Email             string
+	Password          Secret
+	TermsVersionIDs   []string
+	Channel, ClientIP string
+}
+
+var ErrConsentInvalid = fmt.Errorf("%w: current consent versions required", ErrInvalid)
+
+// Registration persists the account and terms atomically without assigning a
+// business role. Token issuance and mail follow commit; delivery failure leaves
+// a pending account that can reissue verification.
+func (s *AuthenticationService) Register(ctx context.Context, input RegisterInput) (string, error) {
+	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil {
+		return "", ErrInvalid
+	}
+	if input.Channel != "web" && input.Channel != "api" {
+		return "", ErrInvalid
+	}
+	if _, err := netip.ParseAddr(input.ClientIP); err != nil {
+		return "", ErrInvalid
+	}
+	now := s.now()
+	documents, err := PublicConsentDocuments()
+	if err != nil || len(input.TermsVersionIDs) != len(documents) {
+		return "", ErrConsentInvalid
+	}
+	expected := make(map[string]ConsentDocument)
+	for _, document := range documents {
+		expected[document.ID] = document
+	}
+	versions := make(map[string]bool)
+	for _, id := range input.TermsVersionIDs {
+		document, allowed := expected[id]
+		if !allowed || versions[id] {
+			return "", ErrConsentInvalid
+		}
+		versions[id] = true
+		version, err := s.repo.TermsVersion(ctx, id)
+		if err != nil || version.PublishedAt.After(now) || version.Code != document.Code || version.Type != document.Type || version.SHA256 != document.SHA256 {
+			return "", ErrConsentInvalid
+		}
+	}
+
+	hash, err := s.passwords.Hash(input.Password)
+	if err != nil {
+		return "", err
+	}
+	id, err := s.credentials.ID()
+	if err != nil {
+		return "", err
+	}
+	account := Account{ID: id, Email: input.Email, NormalizedEmail: NormalizeEmail(input.Email), PasswordHash: hash, State: AccountEmailPending, CreatedAt: now, UpdatedAt: now}
+	acceptances := make([]TermsAcceptance, 0, len(versions))
+	for _, version := range input.TermsVersionIDs {
+		acceptanceID, err := s.credentials.ID()
+		if err != nil {
+			return "", err
+		}
+		acceptances = append(acceptances, TermsAcceptance{ID: acceptanceID, AccountID: id, VersionID: version, Channel: input.Channel, AcceptedAt: now})
+	}
+	if err := s.repo.CreateWithTerms(ctx, account, acceptances); err != nil {
+		if errors.Is(err, ErrConflict) {
+			return "", ErrEmailRegistered
+		}
+		return "", err
+	}
+	return id, s.ReissueVerification(ctx, input.Email, input.ClientIP)
+}
+
+func (s *AuthenticationService) ReissueVerification(ctx context.Context, email, clientIP string) error {
+	if ValidateEmail(email) != nil {
+		return ErrInvalid
+	}
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	now := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var delivery VerificationDelivery
+	var denied error
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(email)}, func(account Account, tx AuthenticationTransaction) error {
+		if account.State != AccountEmailPending {
+			denied = ErrAccountDisabled
+			return nil
+		}
+		count, err := tx.CountActionTokenEmissions(ctx, account.ID, verificationPurpose, now.Add(-time.Hour))
+		if err != nil {
+			return err
+		}
+		if count >= 3 {
+			denied = ErrRateLimited
+			return nil
+		}
+		raw, err := s.credentials.Token()
+		if err != nil {
+			return err
+		}
+		id, err := s.credentials.ID()
+		if err != nil {
+			return err
+		}
+		token := ActionToken{ID: id, AccountID: account.ID, Purpose: verificationPurpose, Hash: CredentialHash(raw), CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
+		if err := tx.ReplaceActionToken(ctx, token); err != nil {
+			return err
+		}
+		delivery = VerificationDelivery{AccountID: account.ID, TokenID: id, Email: account.Email, Token: raw, ExpiresAt: token.ExpiresAt}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if denied != nil {
+		return denied
+	}
+	if s.mailer.SendVerification(ctx, delivery) != nil {
+		slog.WarnContext(ctx, "Credential email delivery failed", "event", "identity.mail_delivery_failed", "purpose", verificationPurpose)
+		return ErrDelivery
+	}
+	return nil
+}
+
+func (s *AuthenticationService) VerifyEmail(ctx context.Context, tokenID string, raw Secret, clientIP string) error {
+	if tokenID == "" {
+		return ErrTokenInvalid
+	}
+	now := s.now()
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), now)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var denied error
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{VerificationID: tokenID}, func(account Account, tx AuthenticationTransaction) error {
+		token, err := tx.ActionToken(ctx, tokenID)
+		if err != nil {
+			return err
+		}
+		if account.State != AccountEmailPending || token.Purpose != verificationPurpose || token.AccountID != account.ID || now.Before(token.CreatedAt) || !now.Before(token.ExpiresAt) || token.ConsumedAt != nil || token.InvalidatedAt != nil || token.Attempts >= 5 {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(token.Hash), []byte(CredentialHash(raw))) != 1 {
+			_, err := tx.RecordActionTokenFailure(ctx, token.Hash, now)
+			denied = ErrTokenInvalid
+			return err
+		}
+		consumed, err := tx.ConsumeActionToken(ctx, token.Hash, now)
+		if err != nil {
+			return err
+		}
+		if !consumed {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		// Consumption and activation commit together, or both roll back.
+		// Email verification must not shorten an existing login block.
+		if account.BlockedUntil != nil && now.Before(*account.BlockedUntil) {
+			return tx.SaveLoginState(ctx, account.ID, AccountBlocked, account.FailedAttempts, account.BlockedUntil)
+		}
+		return tx.SaveLoginState(ctx, account.ID, AccountActive, 0, nil)
+	})
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return ErrTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	return denied
+}
+
+// RequestPasswordRecovery intentionally returns the same result for missing,
+// ineligible and over-account-quota accounts. Only a trusted-IP quota rejection
+// is visible, and it happens before account lookup.
+func (s *AuthenticationService) RequestPasswordRecovery(ctx context.Context, email, clientIP string) error {
+	if ValidateEmail(email) != nil {
+		return ErrInvalid
+	}
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var delivery RecoveryDelivery
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(email)}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
+		// Do not send a credential reset to an address that has not been verified,
+		// or to a disabled account. The public response remains generic.
+		if account.State != AccountActive && account.State != AccountBlocked {
+			return nil
+		}
+		count, err := tx.CountActionTokenEmissions(ctx, account.ID, recoveryPurpose, now.Add(-time.Hour))
+		if err != nil {
+			return err
+		}
+		if count >= 3 {
+			return nil
+		}
+		raw, err := s.credentials.Token()
+		if err != nil {
+			return err
+		}
+		id, err := s.credentials.ID()
+		if err != nil {
+			return err
+		}
+		token := ActionToken{ID: id, AccountID: account.ID, Purpose: recoveryPurpose, Hash: CredentialHash(raw), CreatedAt: now, ExpiresAt: now.Add(15 * time.Minute)}
+		if err := tx.ReplaceActionToken(ctx, token); err != nil {
+			return err
+		}
+		delivery = RecoveryDelivery{AccountID: account.ID, TokenID: id, Email: account.Email, Token: raw, ExpiresAt: token.ExpiresAt}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if delivery.TokenID != "" {
+		// Delivery failure is deliberately hidden from the requester to preserve
+		// the same public result as an unknown address. No token is logged.
+		if s.mailer.SendRecovery(ctx, delivery) != nil {
+			slog.WarnContext(ctx, "Credential email delivery failed", "event", "identity.mail_delivery_failed", "purpose", recoveryPurpose)
+		}
+	}
+	return nil
+}
+
+type ResetPasswordInput struct {
+	TokenID, ClientIP             string
+	Token, Password, Confirmation Secret
+}
+
+func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
+	if input.TokenID == "" || input.Token == "" {
+		return ErrTokenInvalid
+	}
+	if err := ValidatePassword(input.Password); err != nil {
+		return err
+	}
+	if input.Password != input.Confirmation {
+		return ErrPasswordConfirm
+	}
+	address, err := netip.ParseAddr(input.ClientIP)
+	if err != nil {
+		return ErrInvalid
+	}
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return ErrRateLimited
+	}
+	var denied error
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: input.TokenID}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
+		token, err := tx.ActionToken(ctx, input.TokenID)
+		if err != nil {
+			return err
+		}
+		if token.Purpose != recoveryPurpose || token.AccountID != account.ID || now.Before(token.CreatedAt) || !now.Before(token.ExpiresAt) || token.ConsumedAt != nil || token.InvalidatedAt != nil || token.Attempts >= 5 {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(token.Hash), []byte(CredentialHash(input.Token))) != 1 {
+			_, err := tx.RecordActionTokenFailure(ctx, token.Hash, now)
+			denied = ErrTokenInvalid
+			return err
+		}
+		if err := s.passwordAvailable(ctx, tx, account, input.Password, now); err != nil {
+			denied = err
+			return nil
+		}
+		consumed, err := tx.ConsumeActionToken(ctx, token.Hash, now)
+		if err != nil {
+			return err
+		}
+		if !consumed {
+			denied = ErrTokenInvalid
+			return nil
+		}
+		newHash, err := s.passwords.Hash(input.Password)
+		if err != nil {
+			return err
+		}
+		if err := s.commitPasswordChange(ctx, tx, account, newHash, now); err != nil {
+			return err
+		}
+		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
+			return err
+		}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return ErrTokenInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if denied != nil {
+		return denied
+	}
+	return nil
+}
+
+type LinkStatus string
+
+const (
+	LinkStatusReady   LinkStatus = "ready"
+	LinkStatusUsed    LinkStatus = "used"
+	LinkStatusExpired LinkStatus = "expired"
+	LinkStatusInvalid LinkStatus = "invalid"
+)
+
+func (s *AuthenticationService) InspectVerificationLink(ctx context.Context, tokenID string, raw Secret, clientIP string) (LinkStatus, error) {
+	return s.inspectActionToken(ctx, tokenID, raw, clientIP, verificationPurpose)
+}
+
+func (s *AuthenticationService) InspectRecoveryLink(ctx context.Context, tokenID string, raw Secret, clientIP string) (LinkStatus, error) {
+	return s.inspectActionToken(ctx, tokenID, raw, clientIP, recoveryPurpose)
+}
+
+func (s *AuthenticationService) inspectActionToken(ctx context.Context, tokenID string, raw Secret, clientIP string, expectedPurpose string) (LinkStatus, error) {
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return "", ErrInvalid
+	}
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "", ErrRateLimited
+	}
+	if tokenID == "" || raw == "" || len(raw) > 2048 || !canonicalUUID(tokenID) {
+		return LinkStatusInvalid, nil
+	}
+	var status LinkStatus = LinkStatusInvalid
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: tokenID}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
+		token, err := tx.ActionToken(ctx, tokenID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				status = LinkStatusInvalid
+				return nil
+			}
+			return err
+		}
+		if token.AccountID != account.ID || token.Purpose != expectedPurpose {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(token.Hash), []byte(CredentialHash(raw))) != 1 {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if token.ConsumedAt != nil {
+			status = LinkStatusUsed
+			return nil
+		}
+		if token.InvalidatedAt != nil || token.Attempts >= 5 || now.Before(token.CreatedAt) {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if !now.Before(token.ExpiresAt) {
+			status = LinkStatusExpired
+			return nil
+		}
+		switch expectedPurpose {
+		case verificationPurpose:
+			if account.State != AccountEmailPending {
+				status = LinkStatusInvalid
+				return nil
+			}
+		case recoveryPurpose:
+			if account.State != AccountActive && account.State != AccountBlocked {
+				status = LinkStatusInvalid
+				return nil
+			}
+		default:
+			status = LinkStatusInvalid
+			return nil
+		}
+		status = LinkStatusReady
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return LinkStatusInvalid, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return status, nil
+}
+
+type ChangePasswordInput struct {
+	SessionToken                            string
+	CurrentPassword, Password, Confirmation Secret
+}
+
+func (s *AuthenticationService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
+	if input.SessionToken == "" {
+		return ErrUnauthorized
+	}
+	if err := ValidatePassword(input.Password); err != nil {
+		return err
+	}
+	if input.Password != input.Confirmation {
+		return ErrPasswordConfirm
+	}
+	hash := CredentialHash(Secret(input.SessionToken))
+	var denied error
+	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
+		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		session, err := tx.SessionByTokenHash(ctx, hash)
+		if err != nil {
+			return err
+		}
+		if session.AccountID != account.ID || now.Before(session.CreatedAt) || !session.ActiveAt(now) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		currentOK, err := s.passwords.Matches(account.PasswordHash, input.CurrentPassword)
+		if err != nil {
+			return err
+		}
+		if !currentOK {
+			denied = ErrCurrentPassword
+			return nil
+		}
+		same, err := s.passwords.Matches(account.PasswordHash, input.Password)
+		if err != nil {
+			return err
+		}
+		if same {
+			denied = ErrPasswordSame
+			return nil
+		}
+		if err := s.passwordAvailable(ctx, tx, account, input.Password, now); err != nil {
+			denied = err
+			return nil
+		}
+		newHash, err := s.passwords.Hash(input.Password)
+		if err != nil {
+			return err
+		}
+		if err := s.commitPasswordChange(ctx, tx, account, newHash, now); err != nil {
+			return err
+		}
+		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
+			return err
+		}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return ErrUnauthorized
+	}
+	if err != nil {
+		return err
+	}
+	if denied != nil {
+		return denied
+	}
+	return nil
+}
+
+func (s *AuthenticationService) passwordAvailable(ctx context.Context, tx AuthenticationTransaction, account Account, candidate Secret, now time.Time) error {
+	current, err := s.passwords.Matches(account.PasswordHash, candidate)
+	if err != nil {
+		return err
+	}
+	if current {
+		return ErrPasswordSame
+	}
+	if err := tx.DeleteExpiredPasswordHistory(ctx, account.ID, now); err != nil {
+		return err
+	}
+	previous, err := tx.PreviousPasswordHashes(ctx, account.ID, now)
+	if err != nil {
+		return err
+	}
+	for _, hash := range previous {
+		matches, err := s.passwords.Matches(hash, candidate)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return ErrPasswordRecentlyUsed
+		}
+	}
+	return nil
+}
+
+func (s *AuthenticationService) commitPasswordChange(ctx context.Context, tx AuthenticationTransaction, account Account, newHash Secret, now time.Time) error {
+	removeAt := AddCalendarMonthsUTC(now, 3)
+	historyID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	if err := tx.StorePreviousPasswordHash(ctx, historyID, account.ID, account.PasswordHash, now, removeAt, now); err != nil {
+		return err
+	}
+	noticeID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	if err := tx.UpdatePasswordHash(ctx, account.ID, newHash); err != nil {
+		return err
+	}
+	if err := tx.EnqueueCredentialChanged(ctx, noticeID, account.ID, "password-change:"+noticeID, now); err != nil {
+		return err
+	}
+	auditID, err := s.credentials.ID()
+	if err != nil {
+		return err
+	}
+	return tx.RecordCredentialChangeAudit(ctx, auditID, account.ID, account.ID, noticeID, now, AddCalendarMonthsUTC(now, 60))
+}
+
+// AddCalendarMonthsUTC adds whole calendar months in UTC and clamps a day that
+// does not exist in the target month to that month's final day.
+func AddCalendarMonthsUTC(at time.Time, months int) time.Time {
+	at = at.UTC()
+	targetMonth := int(at.Month()) - 1 + months
+	year := at.Year() + targetMonth/12
+	month := time.Month(targetMonth%12 + 1)
+	if targetMonth < 0 && targetMonth%12 != 0 {
+		year--
+		month = time.Month(12 + targetMonth%12 + 1)
+	}
+	day := at.Day()
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(year, month, day, at.Hour(), at.Minute(), at.Second(), at.Nanosecond(), time.UTC)
+}
+
+// DispatchOneCredentialNotice durably claims one event, sends its Mailpit
+// message, and records completion or one of at most eight attempts per cycle.
+func (s *AuthenticationService) DispatchOneCredentialNotice(ctx context.Context) error {
+	now := s.now().UTC()
+	if err := s.repo.PurgeExpiredPasswordHistory(ctx, now); err != nil {
+		return err
+	}
+	if _, err := s.repo.CancelInactiveCredentialNotices(ctx, now, 100); err != nil {
+		return err
+	}
+	notice, err := s.repo.ClaimCredentialNotice(ctx, now, now.Add(time.Minute))
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	email, err := s.repo.ActiveAccountEmail(ctx, notice.AccountID)
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrAccountDisabled) {
+		return s.repo.CancelInactiveCredentialNotice(ctx, notice.ID, notice.LeaseUntil, s.now().UTC())
+	}
+	if err == nil {
+		err = s.mailer.SendPasswordChanged(ctx, email)
+	}
+	if err != nil {
+		delay := time.Duration(1<<min(notice.CycleAttempts, 8)) * time.Second
+		failedAt := s.now().UTC()
+		if retryErr := s.repo.RetryCredentialNotice(ctx, notice.ID, notice.LeaseUntil, failedAt, failedAt.Add(delay), "mailpit_delivery_failed"); retryErr != nil {
+			return retryErr
+		}
+		return ErrDelivery
+	}
+	return s.repo.CompleteCredentialNotice(ctx, notice.ID, notice.LeaseUntil, s.now().UTC())
+}
+
+func (s *AuthenticationService) TerminalCredentialNotices(ctx context.Context) ([]CredentialNoticeSummary, error) {
+	return s.repo.ListTerminalCredentialNotices(ctx)
+}
+
+func (s *AuthenticationService) ReopenCredentialNotice(ctx context.Context, eventID, actorID, reason, idempotencyKey, correlationID string) (CredentialNoticeCycle, error) {
+	if eventID == "" || actorID == "" || len(idempotencyKey) < 8 || len(idempotencyKey) > 200 || len(correlationID) < 1 || len(correlationID) > 120 || (reason != "smtp_restaurado" && reason != "reintento_operativo") {
+		return CredentialNoticeCycle{}, ErrInvalid
+	}
+	auditID, err := s.credentials.ID()
+	if err != nil {
+		return CredentialNoticeCycle{}, err
+	}
+	at := s.now().UTC()
+	return s.repo.ReopenCredentialNotice(ctx, ReopenCredentialNoticeInput{
+		EventID: eventID, ActorID: actorID, AuditID: auditID, ReasonCode: reason,
+		CorrelationID: correlationID, IdempotencyKey: idempotencyKey, At: at,
+		AuditRemoveAt: AddCalendarMonthsUTC(at, 60),
+	})
+}
+
+func (s *AuthenticationService) PurgeExpiredCredentialNotices(ctx context.Context, at time.Time, limit int) (int64, error) {
+	return s.repo.PurgeExpiredCredentialNotices(ctx, at.UTC(), limit)
+}
+
+func (s *AuthenticationService) RunCredentialNoticeWorker(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		_ = s.DispatchOneCredentialNotice(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+type LoginInput struct {
+	Email         string
+	Password      Secret
+	ClientSummary string
+}
+type LoginResult struct {
+	AccountID      string
+	Roles          []Role
+	Capabilities   []Capability
+	Token          Secret
+	ExpiresAt      time.Time
+	RestrictedMode bool
+}
+
+func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
+	if ValidateEmail(input.Email) != nil {
+		return LoginResult{}, ErrCredentials
+	}
+	var result LoginResult
+	var denied error
+	err := s.repo.WithLockedAccount(ctx, AccountLookup{Email: NormalizeEmail(input.Email)}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now().UTC() // evaluate lockout and session validity after account lock
+		state, attempts, blocked := account.State, account.FailedAttempts, account.BlockedUntil
+		if blocked != nil && now.Before(*blocked) {
+			denied = &LoginBlockedError{*blocked}
+			return nil
+		}
+		if blocked != nil && !now.Before(*blocked) {
+			if state == AccountBlocked {
+				state = AccountActive
+			}
+			attempts = 0
+			blocked = nil
+			if err := tx.SaveLoginState(ctx, account.ID, state, attempts, blocked); err != nil {
+				return err
+			}
+		}
+		if state != AccountActive && state != AccountEmailPending {
+			denied = ErrAccountDisabled
+			return nil
+		}
+		correct, err := s.passwords.Matches(account.PasswordHash, input.Password)
+		if err != nil {
+			return err
+		}
+		if !correct {
+			attempts++
+			if attempts >= 5 {
+				until := now.Add(30 * time.Minute)
+				blocked = &until
+				// Never convert an unverified account into an active account on unlock.
+				if state == AccountActive {
+					state = AccountBlocked
+				}
+				denied = &LoginBlockedError{until}
+			} else {
+				denied = ErrCredentials
+			}
+			return tx.SaveLoginState(ctx, account.ID, state, attempts, blocked)
+		}
+		if state == AccountEmailPending {
+			denied = ErrEmailUnverified
+			return nil
+		}
+		roles, err := tx.Roles(ctx, account.ID)
+		if err != nil {
+			return err
+		}
+		raw, err := s.credentials.Token()
+		if err != nil {
+			return err
+		}
+		id, err := s.credentials.ID()
+		if err != nil {
+			return err
+		}
+		session := Session{ID: id, AccountID: account.ID, TokenHash: CredentialHash(raw), CreatedAt: now, LastActivityAt: now, ExpiresAt: now.Add(8 * time.Hour), ClientSummary: input.ClientSummary}
+		if err := tx.CreateSession(ctx, session); err != nil {
+			return err
+		}
+		if err := tx.SaveLoginState(ctx, account.ID, AccountActive, 0, nil); err != nil {
+			return err
+		}
+		result = LoginResult{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), Token: raw, ExpiresAt: session.ExpiresAt, RestrictedMode: account.AdministrativeBlocked}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return LoginResult{}, ErrCredentials
+	}
+	if err != nil {
+		return LoginResult{}, err
+	}
+	return result, denied
+}
+
+type ActivityKind int
+
+const (
+	UserOperation ActivityKind = iota
+	HealthCheck
+	AutomaticPolling
+	Keepalive
+	TokenRenewal
+)
+
+type Principal struct {
+	AccountID       string
+	Roles           []Role
+	Capabilities    []Capability
+	RestrictedMode  bool
+	AuthenticatedAt time.Time
+}
+
+type restrictedAccessContextKey struct{}
+
+// WithRestrictedReservationAccess marks a request already screened by the
+// transport allow-list. Domain handlers still perform their ordinary session,
+// role, participant, state, deadline and idempotency checks.
+func WithRestrictedReservationAccess(ctx context.Context, accountID string) context.Context {
+	return context.WithValue(ctx, restrictedAccessContextKey{}, accountID)
+}
+
+func HasRestrictedReservationAccess(ctx context.Context, accountID string) bool {
+	return accountID != "" && ctx.Value(restrictedAccessContextKey{}) == accountID
+}
+
+func (s *AuthenticationService) Authorize(ctx context.Context, raw Secret, required Role, activity ActivityKind) (Principal, error) {
+	adminGate := required == RoleAdministrator || required == RoleGlobalAdministrator
+	return s.authorize(ctx, raw, activity, adminGate, func(roles []Role) bool {
+		if required == "" {
+			return true
+		}
+		if required == RoleAdministrator {
+			return HasCapability(roles, CapabilityLegacyAdministration)
+		}
+		for _, role := range roles {
+			if role == required {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// AuthorizeCapability checks a server-defined capability against roles read
+// under the same account lock as session validity. Empty capabilities deny.
+func (s *AuthenticationService) AuthorizeCapability(ctx context.Context, raw Secret, required Capability, activity ActivityKind) (Principal, error) {
+	if required == "" {
+		return Principal{}, ErrForbidden
+	}
+	return s.authorize(ctx, raw, activity, true, func(roles []Role) bool { return HasCapability(roles, required) })
+}
+
+func (s *AuthenticationService) authorize(ctx context.Context, raw Secret, activity ActivityKind, adminGate bool, granted func([]Role) bool) (Principal, error) {
+	if raw == "" || activity < UserOperation || activity > TokenRenewal {
+		return Principal{}, ErrUnauthorized
+	}
+	hash := CredentialHash(raw)
+	var result Principal
+	var denied error
+	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now().UTC() // revalidate expiry/revocation after waiting for the account lock
+		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		session, err := tx.SessionByTokenHash(ctx, hash)
+		if err != nil {
+			return err
+		}
+		if session.AccountID != account.ID || now.Before(session.CreatedAt) || !session.ActiveAt(now) {
+			denied = ErrUnauthorized
+			return nil
+		}
+		if account.AdministrativeBlocked && activity == UserOperation && !HasRestrictedReservationAccess(ctx, account.ID) {
+			denied = ErrRestrictedMode
+			return nil
+		}
+		if account.AdministrativeBlocked && adminGate {
+			denied = ErrRestrictedMode
+			return nil
+		}
+		roles, err := tx.Roles(ctx, account.ID)
+		if err != nil {
+			return err
+		}
+		if !granted(roles) {
+			denied = ErrForbidden
+			return nil
+		}
+		if activity == UserOperation {
+			updated, err := tx.TouchSession(ctx, session.ID, now)
+			if err != nil {
+				return err
+			}
+			if !updated {
+				denied = ErrUnauthorized
+				return nil
+			}
+		}
+		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked, AuthenticatedAt: session.CreatedAt.UTC()}
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) {
+		return Principal{}, ErrUnauthorized
+	}
+	if err != nil {
+		return Principal{}, err
+	}
+	return result, denied
+}
+
+func (s *AuthenticationService) Logout(ctx context.Context, raw Secret) error {
+	if raw == "" {
+		return ErrUnauthorized
+	}
+	hash := CredentialHash(raw)
+	now := s.now()
+	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
+		session, err := tx.SessionByTokenHash(ctx, hash)
+		if err != nil {
+			return err
+		}
+		if session.AccountID != account.ID || now.Before(session.CreatedAt) {
+			return ErrUnauthorized
+		}
+		if session.RevokedAt != nil {
+			return nil
+		}
+		return tx.RevokeSession(ctx, session.ID, now)
+	})
+	if errors.Is(err, ErrNotFound) {
+		return ErrUnauthorized
+	}
+	return err
+}

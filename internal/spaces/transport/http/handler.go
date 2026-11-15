@@ -1,0 +1,695 @@
+package spaceshttp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"mime"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+)
+
+type Authenticator interface {
+	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
+}
+type Handler struct {
+	auth     Authenticator
+	service  *spaces.Service
+	calendar CalendarService
+	pricing  *pricing.Service
+	origins  map[string]bool
+}
+
+type CalendarService interface {
+	SetTimeZone(context.Context, string, string, string) error
+	SetTimeZoneCAS(context.Context, string, string, string, time.Time) (time.Time, error)
+	TimeZone(context.Context, string, string) (string, error)
+	Availability(context.Context, string, string, string, string) (occupancy.Availability, error)
+	ListBlocks(context.Context, string, string, string, string) (occupancy.Calendar, error)
+	CreateBlock(context.Context, string, string, occupancy.BlockInput) (occupancy.Block, error)
+	DeleteBlock(context.Context, string, string, string) error
+}
+
+func NewHandler(auth Authenticator, service *spaces.Service, origins []string, calendar ...CalendarService) http.Handler {
+	m := map[string]bool{}
+	for _, v := range origins {
+		m[v] = true
+	}
+	var calendarService CalendarService
+	if len(calendar) > 0 {
+		calendarService = calendar[0]
+	}
+	return &Handler{auth: auth, service: service, calendar: calendarService, origins: m}
+}
+func NewHandlerWithPricing(auth Authenticator, service *spaces.Service, origins []string, calendar CalendarService, pricingService *pricing.Service) http.Handler {
+	h := NewHandler(auth, service, origins, calendar).(*Handler)
+	h.pricing = pricingService
+	return h
+}
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	id, err := (credentials.Generator{}).ID()
+	if err != nil {
+		write(w, 500, map[string]any{"error": map[string]string{"code": "internal_error", "message": "Ocurrió un error inesperado."}})
+		return
+	}
+	w.Header().Set("X-Request-ID", id)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Add("Vary", "Origin")
+	if origin := r.Header.Get("Origin"); origin != "" {
+		if !h.origins[origin] {
+			failure(w, 403, "origin_denied", "Origen no permitido.")
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	}
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(204)
+		return
+	}
+	path := strings.TrimSuffix(r.URL.Path, "/")
+	publicationID := publicationSpaceID(path)
+	publicationContentID := publicationContentSpaceID(path)
+	requiredRole := identity.Role("")
+	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
+		requiredRole = identity.RoleLandlord
+	}
+	deleteSpaceID := ownSpaceID(path)
+	if deleteSpaceID != "" && r.Method == http.MethodDelete {
+		requiredRole = identity.RoleLandlord
+	}
+	if strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") || strings.Contains(path, "/price-simulations") {
+		requiredRole = identity.RoleLandlord
+	}
+	calendarPath := strings.Contains(path, "/availability")
+	if r.URL.RawQuery != "" && !calendarPath {
+		failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
+		return
+	}
+	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), requiredRole, identity.UserOperation)
+	if e != nil {
+		if errors.Is(e, identity.ErrForbidden) {
+			failure(w, 403, "forbidden", "Permiso insuficiente.")
+		} else {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			failure(w, 401, "unauthenticated", "Credencial ausente, incorrecta o expirada.")
+		}
+		return
+	}
+	const profilesPrefix = "/api/v1/spaces/categories/"
+	if strings.HasPrefix(path, profilesPrefix) && r.Method == http.MethodGet {
+		parts := strings.Split(strings.TrimPrefix(path, profilesPrefix), "/")
+		if len(parts) != 2 && len(parts) != 3 || parts[0] == "" || parts[1] != "attributes" {
+			failure(w, 404, "not_found", "Perfil no encontrado.")
+			return
+		}
+		version := 0
+		if len(parts) == 3 {
+			version, e = strconv.Atoi(parts[2])
+			if e != nil || version < 1 {
+				failure(w, 404, "not_found", "Perfil no encontrado.")
+				return
+			}
+		}
+		profile, e := h.service.Profile(r.Context(), parts[0], version)
+		if e != nil {
+			serviceError(w, e)
+			return
+		}
+		write(w, 200, profile)
+		return
+	}
+	if calendarPath {
+		h.serveCalendar(w, r, path, principal.AccountID)
+		return
+	}
+	if publicationID != "" {
+		if r.Method != http.MethodPut {
+			failure(w, 405, "method_not_allowed", "Método no permitido.")
+			return
+		}
+		timestamp, err := parseIfMatch(r.Header.Values("If-Match"), publicationID)
+		if err != nil {
+			switch {
+			case errors.Is(err, errMissingPrecondition):
+				failure(w, 428, "precondition_required", "Se requiere If-Match.")
+			case errors.Is(err, errStalePrecondition):
+				failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+			default:
+				failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+			}
+			return
+		}
+		expected, err := time.Parse(time.RFC3339Nano, timestamp)
+		if err != nil {
+			failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+			return
+		}
+		var in struct {
+			State string `json:"state"`
+		}
+		if !decode(w, r, &in) {
+			return
+		}
+		item, err := h.service.SetPublicationStateIfRevision(r.Context(), principal.AccountID, publicationID, in.State, w.Header().Get("X-Request-ID"), expected)
+		if err != nil {
+			if errors.Is(err, spaces.ErrPreconditionFailed) {
+				failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				serviceError(w, err)
+			}
+			return
+		}
+		w.Header().Set("ETag", draftETag(item))
+		write(w, 200, item)
+		return
+	}
+	if publicationContentID != "" {
+		if r.Method != http.MethodPut {
+			failure(w, 405, "method_not_allowed", "Método no permitido.")
+			return
+		}
+		timestamp, err := parseIfMatch(r.Header.Values("If-Match"), publicationContentID)
+		if err != nil {
+			if errors.Is(err, ErrMissingPrecondition) {
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+			} else if errors.Is(err, ErrStalePrecondition) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+			}
+			return
+		}
+		var in spaces.PublishedContentInput
+		if !decode(w, r, &in) {
+			return
+		}
+		expected, parseErr := time.Parse(time.RFC3339Nano, timestamp)
+		if parseErr != nil {
+			failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+			return
+		}
+		item, err := h.service.UpdatePublishedOwnIfRevision(r.Context(), principal.AccountID, publicationContentID, expected, in)
+		if err != nil {
+			if errors.Is(err, spaces.ErrPreconditionFailed) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				serviceError(w, err)
+			}
+			return
+		}
+		w.Header().Set("ETag", draftETag(item))
+		write(w, 200, item)
+		return
+	}
+	if deleteSpaceID != "" && r.Method == http.MethodDelete {
+		item, err := h.service.DeleteOwn(r.Context(), principal.AccountID, deleteSpaceID, w.Header().Get("X-Request-ID"))
+		if err != nil {
+			serviceError(w, err)
+			return
+		}
+		write(w, 200, item)
+		return
+	}
+	if strings.Contains(path, "/price-simulations") || strings.HasSuffix(path, "/tariff") || strings.HasSuffix(path, "/tariffs") {
+		h.servePricing(w, r, path, principal.AccountID)
+		return
+	}
+	if path == "/api/v1/spaces/categories" && r.Method == http.MethodGet {
+		items, e := h.service.Categories(r.Context())
+		if e != nil {
+			failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+			return
+		}
+		write(w, 200, map[string]any{"items": items})
+		return
+	}
+	if path == "/api/v1/spaces" && r.Method == http.MethodGet {
+		items, e := h.service.ListOwn(r.Context(), principal.AccountID)
+		if e != nil {
+			failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+			return
+		}
+		write(w, 200, map[string]any{"items": items})
+		return
+	}
+	if path == "/api/v1/spaces" && r.Method == http.MethodPost {
+		var in spaces.Input
+		if !decode(w, r, &in) {
+			return
+		}
+		item, e := h.service.Create(r.Context(), principal.AccountID, in)
+		if e != nil {
+			serviceError(w, e)
+			return
+		}
+		w.Header().Set("ETag", draftETag(item))
+		write(w, 201, item)
+		return
+	}
+	if strings.HasPrefix(path, "/api/v1/spaces/") {
+		id := strings.TrimPrefix(path, "/api/v1/spaces/")
+		if strings.Contains(id, "/") {
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			item, e := h.service.GetOwn(r.Context(), principal.AccountID, id)
+			if e != nil {
+				serviceError(w, e)
+				return
+			}
+			w.Header().Set("ETag", draftETag(item))
+			write(w, 200, item)
+			return
+		case http.MethodPut:
+			if _, err := h.service.GetOwn(r.Context(), principal.AccountID, id); err != nil {
+				serviceError(w, err)
+				return
+			}
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), id)
+			if errors.Is(err, errMissingPrecondition) {
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+				return
+			}
+			if errors.Is(err, errInvalidPrecondition) {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
+			if errors.Is(err, errStalePrecondition) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del recurso no coincide.")
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
+			var in spaces.Input
+			if !decode(w, r, &in) {
+				return
+			}
+			item, err := h.service.UpdateOwnIfRevision(r.Context(), principal.AccountID, id, expected, in)
+			if err != nil {
+				if errors.Is(err, spaces.ErrPreconditionFailed) {
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del recurso no coincide.")
+				} else {
+					serviceError(w, err)
+				}
+				return
+			}
+			w.Header().Set("ETag", draftETag(item))
+			write(w, 200, item)
+			return
+		}
+	}
+	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func (h *Handler) servePricing(w http.ResponseWriter, r *http.Request, path, owner string) {
+	if h.pricing == nil {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	spaceID := parts[0]
+	if len(parts) == 2 && parts[1] == "tariff" {
+		switch r.Method {
+		case http.MethodGet:
+			item, err := h.pricing.CurrentRate(r.Context(), owner, spaceID)
+			if err != nil {
+				pricingError(w, err)
+				return
+			}
+			write(w, 200, item)
+		case http.MethodPut:
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), spaceID)
+			if err != nil {
+				switch {
+				case errors.Is(err, errMissingPrecondition):
+					failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+				case errors.Is(err, errStalePrecondition):
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+				default:
+					failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				}
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
+			var in pricing.RateInput
+			if !decode(w, r, &in) {
+				return
+			}
+			item, revision, err := h.pricing.UpdateRateIfRevision(r.Context(), owner, spaceID, expected, in)
+			if err != nil {
+				if errors.Is(err, pricing.ErrPreconditionFailed) {
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+				} else {
+					pricingError(w, err)
+				}
+				return
+			}
+			w.Header().Set("ETag", draftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
+			write(w, 200, item)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 2 && parts[1] == "tariffs" && r.Method == http.MethodGet {
+		items, err := h.pricing.RateHistory(r.Context(), owner, spaceID)
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 200, map[string]any{"items": items})
+		return
+	}
+	if len(parts) == 2 && parts[1] == "price-simulations" && r.Method == http.MethodPost {
+		var in pricing.SimulationInput
+		if !decode(w, r, &in) {
+			return
+		}
+		item, err := h.pricing.Simulate(r.Context(), owner, spaceID, in)
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 201, item)
+		return
+	}
+	if len(parts) == 3 && parts[1] == "price-simulations" && r.Method == http.MethodGet {
+		item, err := h.pricing.GetSimulation(r.Context(), owner, spaceID, parts[2])
+		if err != nil {
+			pricingError(w, err)
+			return
+		}
+		write(w, 200, item)
+		return
+	}
+	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func pricingError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, pricing.ErrCalendarConflict):
+		failure(w, 409, "tariff_calendar_conflict", "Desactiva el horario semanal antes de cambiar a una modalidad distinta de hora.")
+	case errors.Is(err, pricing.ErrInvalid):
+		failure(w, 422, "invalid_request", "La tarifa o el intervalo no es válido.")
+	case errors.Is(err, pricing.ErrNotFound):
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, pricing.ErrConflict):
+		failure(w, 409, "interval_unavailable", "El intervalo no está disponible para simulación.")
+	default:
+		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+	}
+}
+func bearer(v string) string {
+	p := strings.SplitN(v, " ", 2)
+	if len(p) != 2 || !strings.EqualFold(p[0], "Bearer") {
+		return ""
+	}
+	return p[1]
+}
+
+func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, owner string) {
+	if h.calendar == nil {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	parts := strings.Split(strings.TrimPrefix(path, prefix), "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] != "availability" {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
+		return
+	}
+	spaceID := parts[0]
+	if len(parts) == 2 {
+		switch r.Method {
+		case http.MethodPut:
+			if r.URL.RawQuery != "" {
+				failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
+				return
+			}
+			if _, err := h.service.GetOwn(r.Context(), owner, spaceID); err != nil {
+				serviceError(w, err)
+				return
+			}
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), spaceID)
+			if err != nil {
+				switch {
+				case errors.Is(err, errMissingPrecondition):
+					failure(w, 428, "precondition_required", "Se requiere If-Match.")
+				case errors.Is(err, errStalePrecondition):
+					failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+				default:
+					failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+				}
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
+			var in struct {
+				TimeZone string `json:"time_zone"`
+			}
+			if !decode(w, r, &in) {
+				return
+			}
+			revision, err := h.calendar.SetTimeZoneCAS(r.Context(), owner, spaceID, in.TimeZone, expected)
+			if err != nil {
+				if errors.Is(err, occupancy.ErrPreconditionFailed) {
+					failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+				} else {
+					calendarError(w, err)
+				}
+				return
+			}
+			w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
+			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": in.TimeZone})
+		case http.MethodGet:
+			from, to, ok := queryWindow(w, r.URL.RawQuery)
+			if !ok {
+				return
+			}
+			result, err := h.calendar.Availability(r.Context(), owner, spaceID, from, to)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 200, result)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 3 && parts[2] == "blocks" {
+		switch r.Method {
+		case http.MethodGet:
+			from, to, ok := queryWindow(w, r.URL.RawQuery)
+			if !ok {
+				return
+			}
+			result, err := h.calendar.ListBlocks(r.Context(), owner, spaceID, from, to)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 200, result)
+		case http.MethodPost:
+			if r.URL.RawQuery != "" {
+				failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
+				return
+			}
+			var in occupancy.BlockInput
+			if !decode(w, r, &in) {
+				return
+			}
+			result, err := h.calendar.CreateBlock(r.Context(), owner, spaceID, in)
+			if err != nil {
+				calendarError(w, err)
+				return
+			}
+			write(w, 201, result)
+		default:
+			failure(w, 404, "not_found", "Recurso no encontrado.")
+		}
+		return
+	}
+	if len(parts) == 3 && parts[2] == "timezone" && r.Method == http.MethodGet && r.URL.RawQuery == "" {
+		zone, err := h.calendar.TimeZone(r.Context(), owner, spaceID)
+		if err != nil {
+			calendarError(w, err)
+			return
+		}
+		write(w, 200, map[string]string{"space_id": spaceID, "time_zone": zone})
+		return
+	}
+	if len(parts) == 4 && parts[2] == "blocks" && r.Method == http.MethodDelete && r.URL.RawQuery == "" {
+		if err := h.calendar.DeleteBlock(r.Context(), owner, spaceID, parts[3]); err != nil {
+			calendarError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	failure(w, 404, "not_found", "Recurso no encontrado.")
+}
+
+func queryWindow(w http.ResponseWriter, rawQuery string) (string, string, bool) {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil || len(values) != 2 || len(values["from"]) != 1 || len(values["to"]) != 1 || values.Get("from") == "" || values.Get("to") == "" {
+		failure(w, 400, "invalid_request", "Se requieren from y to como timestamps RFC 3339.")
+		return "", "", false
+	}
+	return values.Get("from"), values.Get("to"), true
+}
+
+func calendarError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, occupancy.ErrInvalid):
+		failure(w, 422, "validation_error", "Revisa la zona horaria y el intervalo indicado.")
+	case errors.Is(err, occupancy.ErrNotFound):
+		failure(w, 404, "not_found", "Espacio o bloqueo no encontrado.")
+	case errors.Is(err, occupancy.ErrConflict):
+		failure(w, 409, "occupancy_conflict", "El intervalo se superpone con una ocupación activa.")
+	case errors.Is(err, occupancy.ErrTimezoneRequired):
+		failure(w, 409, "time_zone_required", "Configura la zona horaria del espacio antes de usar el calendario.")
+	case errors.Is(err, occupancy.ErrTimezoneInUse):
+		failure(w, 409, "time_zone_in_use", "No se puede reparar la zona: el espacio ya tiene reservas y sus referencias temporales deben conservarse.")
+	case errors.Is(err, occupancy.ErrTimezoneLocked):
+		failure(w, 409, "time_zone_locked", "La zona configurada de una publicación no se reemplaza por esta ruta.")
+	default:
+		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+	}
+}
+func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
+	mt, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if e != nil || mt != "application/json" {
+		failure(w, 415, "unsupported_media_type", "Se requiere application/json.")
+		return false
+	}
+	// Leave room for the common draft fields; the versioned attribute object
+	// has its own stricter 16 KiB limit in the domain validator.
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	defer r.Body.Close()
+	d := json.NewDecoder(r.Body)
+	d.DisallowUnknownFields()
+	if err := d.Decode(dst); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) && (typeErr.Field == "area_m2" || typeErr.Field == "capacity" || typeErr.Field == "base_price_clp") {
+			failureWithDetails(w, 422, "validation_error", "Los límites numéricos del borrador no son válidos.", []spaces.FieldError{{Field: typeErr.Field, Code: "invalid_value"}})
+			return false
+		}
+		failure(w, 400, "invalid_request", "El cuerpo JSON no es válido.")
+		return false
+	}
+	var extra any
+	if d.Decode(&extra) != io.EOF {
+		failure(w, 400, "invalid_request", "El cuerpo JSON debe contener un único objeto.")
+		return false
+	}
+	return true
+}
+func serviceError(w http.ResponseWriter, e error) {
+	switch {
+	case errors.Is(e, spaces.ErrPublicationConflict):
+		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
+	case errors.Is(e, spaces.ErrDeleteBlocked):
+		failure(w, 409, "publication_delete_blocked", "La publicación conserva reservas u obligaciones abiertas y no puede retirarse todavía.")
+	case errors.Is(e, spaces.ErrEnabledFixture):
+		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
+	case errors.Is(e, spaces.ErrTimeZoneRequired):
+		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
+	case errors.Is(e, spaces.ErrInvalid):
+		var validation *spaces.ValidationError
+		if errors.As(e, &validation) {
+			failureWithDetails(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.", validation.Details)
+			return
+		}
+		failure(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.")
+	case errors.Is(e, spaces.ErrNotFound):
+		failure(w, 404, "not_found", "Borrador no encontrado.")
+	default:
+		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+	}
+}
+
+func publicationSpaceID(path string) string {
+	const prefix, suffix = "/api/v1/spaces/", "/publication"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func publicationContentSpaceID(path string) string {
+	const prefix, suffix = "/api/v1/spaces/", "/publication-content"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+
+func ownSpaceID(path string) string {
+	const prefix = "/api/v1/spaces/"
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	id := strings.TrimPrefix(path, prefix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
+}
+func failure(w http.ResponseWriter, status int, code, msg string) {
+	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID")}})
+}
+func failureWithDetails(w http.ResponseWriter, status int, code, msg string, details []spaces.FieldError) {
+	write(w, status, map[string]any{"error": map[string]any{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID"), "details": details}})
+}
+func write(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

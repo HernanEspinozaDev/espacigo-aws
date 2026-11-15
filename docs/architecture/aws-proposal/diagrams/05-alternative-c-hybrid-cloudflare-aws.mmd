@@ -1,0 +1,46 @@
+flowchart TB
+    subgraph Users_CL["Usuarios y Comisión Evaluadora en Chile"]
+        U_Pub["Usuarios Públicos\nespacigo.testingpage.store"]
+        U_Eval["Evaluadores / Profesora Guía\nespacigo-demo.testingpage.store"]
+    end
+
+    subgraph CF_SCL["Cloudflare Edge — Nodo Santiago de Chile (Plan Free $0)"]
+        CF_WAF["Cloudflare DNS (Proxied) + DDoS L3/L4/L7\n+ WAF Rules + Rate Limiting"]
+        CF_ZT["Cloudflare Zero Trust Access (Free ≤ 50 users)\nPolítica Email OTP / Google para Evaluadores\n(Reemplaza Google IAP y elimina 2do contenedor)"]
+        CF_Cache["Cloudflare Cache Rules\n- Cache 1y: /_next/static/* e imágenes WebP públicas\n- Bypass: /api/backend/* y sesiones"]
+    end
+
+    subgraph AWS_Ohio["Región Inicial: AWS us-east-2 (Ohio) — parametrizada con var.aws_region\n(Migrable por IaC a AWS South America Chile sa-west-1)"]
+        IGW["Internet Gateway + Egress-Only IGW\n(Sin NAT Gateway = $0/mes)"]
+        SG_App["Security Group Perimetral (sg-espacigo-app)\nINGRESS TCP 4000: SOLO Managed Prefix List de Cloudflare"]
+
+        subgraph ECS_Task["ECS Fargate Task ARM64 Graviton2 (0.25 vCPU / 0.5–1.0 GB RAM = ~$7.21–$8.51/mes)"]
+            Web_C["Contenedor espacigo-web\nNext.js 16.4.3 Standalone (0.0.0.0:4000)"]
+            API_C["Contenedor espacigo-api\nGo 1.27.1 + Poppler (127.0.0.1:8080)\n+ 13 Workers Ticker"]
+            Web_C -- "Loopback Local 127.0.0.1:8080\n(Latencia < 0.1 ms, 0 costo red)" --> API_C
+        end
+
+        Mig_Task["ECS Fargate RunTask Efímero\nespacigo-dbmigrate (Solo en despliegues con SQL)"]
+
+        subgraph Sub_Isolated["Subred Privada Aislada (Sin ruta a Internet)"]
+            RDS_Ohio[("Amazon RDS PostgreSQL 18.6\ndb.t4g.micro Single-AZ ($11.68/mes)\n20 GB gp3 ($2.30/mes) + PITR Activo + Cifrado\nPostGIS + btree_gist + unaccent")]
+        end
+
+        S3_Ohio[("Amazon S3 (us-east-2)\n- media (WebP)\n- kyc & contracts (AES-256-GCM + SSE-S3)\n- audit-logs (S3 Object Lock WORM)")]
+        SSM_Ohio["SSM Parameter Store\n(8 Secretos SecureString = $0/mes)"]
+        ECR_Ohio["Amazon ECR (us-east-2)\n(Lifecycle Policy: máx 5 imágenes = $0.15/mes)"]
+        CW_Ohio["CloudWatch Logs (14d) + Alarmas\n+ AWS Budgets ($0/mes + $20 Crédito)"]
+    end
+
+    subgraph External_Mail["Correo Transaccional Actual (Preservado)"]
+        Zoho["Zoho Mail SMTP (smtp.zoho.com:587)\ncontacto@hotusoft.com ($0 costo extra AWS)"]
+    end
+
+    U_Pub --> CF_WAF --> CF_Cache
+    U_Eval --> CF_WAF --> CF_ZT --> CF_Cache
+    CF_Cache -- "HTTPS (TLS Full Strict + Origin Pull)" --> IGW --> SG_App --> Web_C
+    API_C -- "TCP :5432 (TLS verify-full)" --> RDS_Ohio
+    Mig_Task -- "TCP :5432 (TLS verify-full)" --> RDS_Ohio
+    API_C -- "Gateway VPC Endpoint ($0)" --> S3_Ohio
+    ECS_Task -.-> SSM_Ohio & ECR_Ohio & CW_Ohio
+    API_C -- "STARTTLS TCP :587" --> Zoho
