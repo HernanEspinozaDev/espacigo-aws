@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,11 +103,24 @@ func (m Mailer) send(ctx context.Context, email, subject, body string) error {
 	}
 	return nil
 }
-func (m Mailer) SendVerification(ctx context.Context, d identity.VerificationDelivery) error {
-	return m.send(ctx, d.Email, "EspaciGo - verifica tu correo (desarrollo)", "Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: "+d.TokenID+"\r\nToken: "+string(d.Token)+"\r\nExpira: "+d.ExpiresAt.UTC().Format(time.RFC3339)+"\r\nCopia ambos valores en el formulario de verificacion del mock local.")
+func (m Mailer) frontendBase() string {
+	origin := strings.TrimSpace(os.Getenv("FRONTEND_PUBLIC_ORIGIN"))
+	if origin == "" {
+		origin = "http://127.0.0.1:3000"
+	}
+	return strings.TrimRight(origin, "/")
 }
+
+func (m Mailer) SendVerification(ctx context.Context, d identity.VerificationDelivery) error {
+	link := fmt.Sprintf("%s/verificar-correo#token_id=%s&token=%s", m.frontendBase(), d.TokenID, string(d.Token))
+	body := fmt.Sprintf("Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: %s\r\nToken: %s\r\nExpira: %s\r\n\r\nEnlace directo de activacion:\r\n%s\r\n", d.TokenID, string(d.Token), d.ExpiresAt.UTC().Format(time.RFC3339), link)
+	return m.send(ctx, d.Email, "EspaciGo - verifica tu correo (desarrollo)", body)
+}
+
 func (m Mailer) SendRecovery(ctx context.Context, d identity.RecoveryDelivery) error {
-	return m.send(ctx, d.Email, "EspaciGo - recupera tu clave (desarrollo)", "Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: "+d.TokenID+"\r\nToken: "+string(d.Token)+"\r\nExpira: "+d.ExpiresAt.UTC().Format(time.RFC3339)+"\r\nCopia ambos valores en el formulario de recuperacion del mock local.")
+	link := fmt.Sprintf("%s/recuperar-clave#token_id=%s&token=%s", m.frontendBase(), d.TokenID, string(d.Token))
+	body := fmt.Sprintf("Correo sintetico de desarrollo; no es envio productivo.\r\nToken ID: %s\r\nToken: %s\r\nExpira: %s\r\n\r\nEnlace directo de recuperacion:\r\n%s\r\n", d.TokenID, string(d.Token), d.ExpiresAt.UTC().Format(time.RFC3339), link)
+	return m.send(ctx, d.Email, "EspaciGo - recupera tu clave (desarrollo)", body)
 }
 func (m Mailer) SendPasswordChanged(ctx context.Context, email string) error {
 	return m.send(ctx, email, "EspaciGo - clave actualizada (desarrollo)", "La clave de tu cuenta EspaciGo local fue actualizada. Todas las sesiones anteriores fueron revocadas. Si no hiciste este cambio, contacta al equipo de desarrollo.")
