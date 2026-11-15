@@ -3,9 +3,8 @@
 package s3storage
 
 import (
+	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"net/http"
 	"os"
@@ -40,14 +39,17 @@ func NewClient(ctx context.Context) (*s3.Client, error) {
 		region = defaultRegion
 	}
 
-	httpClient, err := newHTTPClient()
-	if err != nil {
-		return nil, err
-	}
-
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(region),
-		config.WithHTTPClient(httpClient),
+	}
+
+	// Supply custom CA bundle if found
+	if caPath := resolveCABundlePath(); caPath != "" {
+		pemBytes, readErr := os.ReadFile(caPath)
+		if readErr != nil {
+			return nil, readErr
+		}
+		opts = append(opts, config.WithCustomCABundle(bytes.NewReader(pemBytes)))
 	}
 
 	// Avoid loading ~/.aws/emulator/9297/config unless explicitly requested,
@@ -75,30 +77,6 @@ func NewClient(ctx context.Context) (*s3.Client, error) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = true
 	}), nil
-}
-
-func newHTTPClient() (*http.Client, error) {
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-
-	if caPath := resolveCABundlePath(); caPath != "" {
-		pemBytes, readErr := os.ReadFile(caPath)
-		if readErr != nil {
-			return nil, readErr
-		}
-		if !pool.AppendCertsFromPEM(pemBytes) {
-			return nil, errors.New("invalid CA bundle PEM")
-		}
-	}
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		RootCAs:    pool,
-	}
-	return &http.Client{Transport: transport}, nil
 }
 
 func resolveCABundlePath() string {

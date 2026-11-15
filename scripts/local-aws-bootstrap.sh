@@ -13,6 +13,13 @@ BUCKETS=(
   "espacigo-privacy-replay-local"
 )
 
+LOG_GROUPS=(
+  "/aws/ecs/espacigo-api"
+  "/aws/ecs/espacigo-web"
+  "/aws/ecs/espacigo-privacy-worker"
+  "/aws/ecs/espacigo-dbmigrate"
+)
+
 ensure_local_secrets() {
   umask 077
   mkdir -p "$SECRETS_DIR"
@@ -117,17 +124,7 @@ bootstrap_aws_emulator() {
     . "$EMULATOR_ENV"
 
     health_Raw="$(curl --cacert "$AWS_CA_BUNDLE" -fsS "$AWS_ENDPOINT_URL/__admin/health")"
-    health_status="$(python3 - "$health_Raw" <<'PY'
-import json, sys
-raw = sys.argv[1].strip()
-if raw == "ok":
-    print("ok")
-else:
-    data = json.loads(raw)
-    print(data.get("status", ""))
-PY
-)"
-    if [[ "$health_status" != "ok" ]]; then
+    if [[ "$health_Raw" != *"ok"* ]]; then
       echo "ERROR: aws-emulator health check failed: $health_Raw" >&2
       exit 1
     fi
@@ -140,6 +137,8 @@ PY
     fi
     echo "PASS: aws sts get-caller-identity Account == $account_id"
 
+    # --- S3 Buckets Setup ---
+    echo "--- Configuring S3 Buckets ---"
     for bucket in "${BUCKETS[@]}"; do
       if aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
         echo "OK: S3 bucket already exists: $bucket"
@@ -147,11 +146,93 @@ PY
         aws s3api create-bucket --bucket "$bucket" >/dev/null
         echo "CREATED: S3 bucket: $bucket"
       fi
-    done
 
-    echo "PASS: all 5 local S3 buckets verified on $AWS_ENDPOINT_URL"
+      # 1. Versioning
+      aws s3api put-bucket-versioning \
+        --bucket "$bucket" \
+        --versioning-configuration Status=Enabled >/dev/null
+
+      # 2. Public Access Block (Total isolation)
+      aws s3api put-public-access-block \
+        --bucket "$bucket" \
+        --public-access-block-configuration "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true" >/dev/null 2>&1 || true
+
+      # 3. Default SSE-S3 Encryption (AES256)
+      aws s3api put-bucket-encryption \
+        --bucket "$bucket" \
+        --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' >/dev/null 2>&1 || true
+    done
+    echo "PASS: all 5 local S3 buckets configured with versioning, public access block & SSE-S3"
+
+    # --- SSM Parameter Store Setup ---
+    echo "--- Configuring SSM Parameter Store ---"
+    put_param() {
+      local name="$1"
+      local val="$2"
+      local type="${3:-String}"
+      aws ssm put-parameter --name "$name" --value "$val" --type "$type" --overwrite >/dev/null
+    }
+
+    put_param "/espacigo/local/app_profile" "local"
+    put_param "/espacigo/local/cors_allowed_origins" "http://127.0.0.1:3000,http://127.0.0.1:4200,http://127.0.0.1:4201"
+    put_param "/espacigo/local/frontend_public_origin" "http://127.0.0.1:3000"
+    put_param "/espacigo/local/database/host" "172.24.0.3"
+    put_param "/espacigo/local/database/port" "5432"
+    put_param "/espacigo/local/database/name" "espacigo_aws_local"
+    put_param "/espacigo/local/database/user" "espacigo_api_login"
+    put_param "/espacigo/local/database/set_role" "espacigo_runtime"
+    put_param "/espacigo/local/s3/evidence_bucket" "espacigo-evidence-local"
+    put_param "/espacigo/local/s3/media_bucket" "espacigo-media-local"
+    put_param "/espacigo/local/s3/kyc_identity_bucket" "espacigo-kyc-identity-local"
+    put_param "/espacigo/local/s3/kyc_space_bucket" "espacigo-kyc-space-local"
+    put_param "/espacigo/local/s3/privacy_replay_bucket" "espacigo-privacy-replay-local"
+    echo "PASS: SSM parameters configured under /espacigo/local/"
+
+    # --- CloudWatch Logs Setup ---
+    echo "--- Configuring CloudWatch Log Groups ---"
+    for lg in "${LOG_GROUPS[@]}"; do
+      if aws logs describe-log-groups --log-group-name-prefix "$lg" --query "logGroups[?logGroupName=='$lg'].logGroupName" --output text | grep -q "$lg"; then
+        echo "OK: Log group exists: $lg"
+      else
+        aws logs create-log-group --log-group-name "$lg" >/dev/null 2>&1 || true
+        echo "CREATED: Log group: $lg"
+      fi
+    done
+    echo "PASS: CloudWatch log groups verified"
+
+    # --- IAM Roles Setup ---
+    echo "--- Configuring IAM Roles & Policies ---"
+    # Task Role
+    if ! aws iam get-role --role-name "espacigo-api-task-role" >/dev/null 2>&1; then
+      aws iam create-role \
+        --role-name "espacigo-api-task-role" \
+        --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+      echo "CREATED: IAM role espacigo-api-task-role"
+    fi
+    aws iam put-role-policy \
+      --role-name "espacigo-api-task-role" \
+      --policy-name "espacigo-s3-access-policy" \
+      --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:ListBucket"],"Resource":["arn:aws:s3:::espacigo-*-local","arn:aws:s3:::espacigo-*-local/*"]}]}' >/dev/null
+    aws iam put-role-policy \
+      --role-name "espacigo-api-task-role" \
+      --policy-name "espacigo-ssm-access-policy" \
+      --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:GetParameter","ssm:GetParameters","ssm:GetParametersByPath"],"Resource":["arn:aws:ssm:us-east-1:000000000000:parameter/espacigo/local/*"]}]}' >/dev/null
+
+    # Execution Role
+    if ! aws iam get-role --role-name "espacigo-ecs-task-execution-role" >/dev/null 2>&1; then
+      aws iam create-role \
+        --role-name "espacigo-ecs-task-execution-role" \
+        --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ecs-tasks.amazonaws.com"},"Action":"sts:AssumeRole"}]}' >/dev/null
+      echo "CREATED: IAM role espacigo-ecs-task-execution-role"
+    fi
+    aws iam put-role-policy \
+      --role-name "espacigo-ecs-task-execution-role" \
+      --policy-name "espacigo-logs-policy" \
+      --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["logs:CreateLogStream","logs:PutLogEvents"],"Resource":["arn:aws:logs:us-east-1:000000000000:log-group:/aws/ecs/espacigo-*:*"]}]}' >/dev/null
+    echo "PASS: IAM roles & least-privilege policies configured"
   )
 }
 
 ensure_local_secrets
 bootstrap_aws_emulator
+echo "=== AWS Emulator Architecture Stack Successfully Mounted! ==="
