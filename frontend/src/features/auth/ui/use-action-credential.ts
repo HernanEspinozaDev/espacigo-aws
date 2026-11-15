@@ -25,7 +25,10 @@ export function useActionCredential(
     mountedRef.current = true;
 
     const captureAndScrub = () => {
-      const parsed = parseActionFragment(window.location.hash);
+      let parsed = parseActionFragment(window.location.hash);
+      if (!parsed.ok && window.location.search) {
+        parsed = parseActionFragment("#" + window.location.search.slice(1));
+      }
       window.history.replaceState(
         window.history.state,
         "",
