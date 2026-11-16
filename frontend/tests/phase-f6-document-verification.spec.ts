@@ -429,7 +429,7 @@ test("owner completes the six document operations and downloads only a clean spa
   ]);
   expect(
     documentRequests.every(
-      ({ authorization }) => authorization === `Bearer ${sessionToken}`,
+      ({ authorization }) => authorization === undefined,
     ),
   ).toBe(true);
   expect(
@@ -694,7 +694,7 @@ test("identity creation shows role-aware capture without exposing a download", a
   ).toBe(false);
   expect(
     documentRequests.every(
-      ({ authorization }) => authorization === `Bearer ${sessionToken}`,
+      ({ authorization }) => authorization === undefined,
     ),
   ).toBe(true);
   expect(
