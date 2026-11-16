@@ -113,3 +113,26 @@ flowchart TD
 - [x] **Liquidación Financiera al Anfitrión**: `POST /api/v1/local/booking-trial/reservations/{id}/settlement` ejecutada bajo política `liquidacion_local_0pct_v1` por $140.000 CLP netos transferidos al anfitrión, cerrando la reserva a `cerrada`.
 - [x] **Evaluaciones Mutuas y Visualización en Ficha Pública**: Publicación de calificación y comentarios recíprocos de 5 estrellas (`POST /.../reviews`), renderizados en tiempo real en el Bloque 3 del Marketplace (`/espacios/[id]`) con promedio, contador y tags de calidad.
 - [x] **Script de Bootstrap Reproducible**: Creación de [scripts/seed-rental-lifecycle.sh](file:///home/nandev/Documentos/projects/espacigo-aws/scripts/seed-rental-lifecycle.sh) para poblar y reparar de forma autónoma cuentas con KYC aprobado y el espacio comercial en segundos.
+
+### Fase 7 (Fase A): Reclamos de Daño, Disputas y Arbitraje de Garantías (100% Validado)
+- [x] **Apertura de Reclamo de Daño**: `POST /api/v1/local/booking-trial/reservations/{id}/damage-claim` ejecutado por el anfitrión post check-out, transicionando la reserva a `en_disputa` e iniciando el reclamo en estado `abierto`.
+- [x] **Descargo Formal del Arrendatario**: `POST /api/v1/local/booking-trial/reservations/{id}/damage-claim/defense` registrando la justificación del arrendatario contra el cobro.
+- [x] **Carga de Evidencia Fotográfica de Defensa**: `POST /api/v1/local/booking-trial/reservations/{id}/damage-claim/defense/evidence` almacenando evidencia sintética cifrada en S3 local (`espacigo-evidence-local`).
+- [x] **Cola y Auditoría Administrativa**: `GET /api/v1/admin/local/damage-claims` y descarga de imagen probatoria (`GET /.../evidence/{evidenceId}`) por el rol `administrador`.
+- [x] **Dictamen Arbitral del Administrador**: `POST /api/v1/admin/local/damage-claims/{claimID}/resolution` con `outcome: "acogido"` y `reason_code: "evidencia_suficiente"`, resolviendo el reclamo a `resuelta` y devolviendo la reserva a `finalizada`.
+- [x] **Decisión Financiera**: Registro de `public.reserva_decision_financiera_ensayo_local` por deducción parcial acreditada ($12.000 CLP de $50.000 CLP autorizados).
+- [x] **Captura Parcial y Liberación de Saldo de Garantía**: `POST /.../guarantee` con `kind: "captura"` ($12.000 CLP $\rightarrow$ `parcialmente_capturada`), seguida de `kind: "liberacion"` ($38.000 CLP restantes $\rightarrow$ `liberada`).
+- [x] **Recepción y Liquidación Final Post-Disputa**: Anfitrión confirma recepción (`POST /.../reception`), liberando el calendario GiST en `public.ocupacion`, y ejecuta liquidación final (`POST /.../settlement`) transicionando la reserva a `cerrada`.
+- [x] **Verificación UI Frontend**: Renderizado reactivo verificado en `BookingDisputesPanel` (`/reservas/{id}` y `/anfitrion/reservas/{id}`) y en el panel global `/administracion/disputas`.
+
+### Roadmap de Siguientes Fases
+- [ ] **Fase B: Cancelaciones de Arriendo y Políticas de Devolución**:
+  - Cancelación antes del inicio del arriendo (`POST /api/v1/local/booking-trial/reservations/{id}/cancel`) por arrendatario o anfitrión.
+  - Evaluación de retenciones según política de cancelación (`local_flexible_v1`), registro de reembolsos en `public.reserva_devolucion_ensayo` y liberación atómica de `public.ocupacion`.
+- [ ] **Fase C: Gestión Multimedia de Espacios (Host Space Wizard)**:
+  - Creación y edición de espacios comerciales desde la interfaz de anfitrión (`/anfitrion/espacios/nuevo` y `/anfitrion/espacios/{id}/editar`).
+  - Subida directa y procesamiento WebP de fotografías hacia el bucket local `espacigo-media-local` vía adaptador `s3storage.MediaStore`.
+- [ ] **Fase D: Despliegue de Infraestructura Cloud en AWS (Ohio us-east-2)**:
+  - Validación de módulos OpenTofu/Terraform en `infra/terraform/environments/aws-main`.
+  - Configuración del Free Tier en AWS (RDS PostgreSQL 18 `db.t4g.micro`, S3, SES, ECS Fargate).
+
