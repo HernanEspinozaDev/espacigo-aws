@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -238,6 +239,9 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 				status = "AVAILABLE"
 			} else {
 				status = "PARTIAL"
+			}
+			if rateUnit == "hora" {
+				status = hourlyDayStatus(slotFullStart, slotFullEnd, occupancies)
 			}
 		}
 
@@ -532,4 +536,41 @@ func intervalOverlaps(start, end time.Time, occupancies []occItem) bool {
 		}
 	}
 	return false
+}
+
+// hourlyDayStatus classifies actual operating-time coverage using half-open intervals.
+func hourlyDayStatus(start, end time.Time, occupancies []occItem) string {
+	if !start.Before(end) {
+		return "BLOCKED"
+	}
+	clipped := make([]occItem, 0, len(occupancies))
+	for _, o := range occupancies {
+		a, b := o.start, o.end
+		if a.Before(start) {
+			a = start
+		}
+		if b.After(end) {
+			b = end
+		}
+		if a.Before(b) {
+			clipped = append(clipped, occItem{a, b})
+		}
+	}
+	sort.Slice(clipped, func(i, j int) bool { return clipped[i].start.Before(clipped[j].start) })
+	cursor := start
+	for _, o := range clipped {
+		if o.start.After(cursor) {
+			return "PARTIAL"
+		}
+		if o.end.After(cursor) {
+			cursor = o.end
+		}
+		if !cursor.Before(end) {
+			return "BOOKED"
+		}
+	}
+	if cursor.Equal(start) {
+		return "AVAILABLE"
+	}
+	return "PARTIAL"
 }

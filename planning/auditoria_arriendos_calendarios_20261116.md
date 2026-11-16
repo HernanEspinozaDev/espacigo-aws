@@ -107,7 +107,7 @@ Logs finales: `/home/nandev/.hermes/cache/scratch/espacigo-resume-gates/`; `brow
 | Calendarios: contrato mensual y estados error/vacío | **Ya finalizado** para transporte/render | Mantener endpoint canónico, generación OpenAPI y fail-closed | Ninguno para esta aceptación; no implica autoridad global de inventario/precio |
 | Calendarios: intervalos y restricciones V98 | **Parcial** | Lecturas y `IntervalAvailable` ya filtran V98; mensual, quote trial y commit requieren equivalencia completa | Horarios, DST, overrides y concurrencia comprobados en una única traza persistida |
 | Calendarios: configuración de anfitrión | **Parcial; regla base nativa verificada** | Escritura de regla, CAS obsoleto, recarga, horario semanal y publicación comprobados mediante BFF/Go/PostgreSQL; faltan mutación/reversión nativas de overrides y tarifa especial | Completar excepciones, precios y concurrencia entre dos escritores; la prueba de revisión antigua no equivale a una carrera concurrente |
-| Ambos: aceptación integral de dos cuentas | **Parcial; cotización bloqueada por KYC** | Creados anfitrión y dos arrendatarios locales; falta elegibilidad vigente, no autorizarla por inferencia ni sustituirla con mocks | Journey público → quote → solicitud → ocupación/no solapamiento en mismo/diferente día → cancelación, con readback PostgreSQL |
+| Ambos: aceptación integral de dos cuentas | **Ensayo horario nativo verificado hasta listo para check-in** | KYC fixture autorizado; cuatro cotizaciones/reservas, pagos, garantías, aprobación y firmas simuladas con rangos persistidos. No equivale a revisión documental ni dinero/firma real | Cancelación/liberación, operación física futura, precio variable y unidades no horarias siguen como gates independientes |
 
 **Siguiente trabajo asignado:** contraste de precio variable con constraints efectivos y contrato privado del calendario anfitrión, en dos auditorías focales sin escrituras. La incidencia recurrente del worker `private media cleanup pass failed` permanece abierta; health 200 no la resuelve. No se alteraron sus permisos ni roles.
 
@@ -187,3 +187,38 @@ Receipts, scripts y capturas nativos permanecen en `.local/testing/ticket-native
 - Infrastructure as Code Quality: **success**, run `43931181609`.
 - Frontend architecture and quality: **failure**, run `43931181650`; `pnpm format:check` identifica nueve archivos de formato fuera del checkpoint de código. No es un fallo de los tres tests de calendario, repetidos 3/3 antes del push.
 - Workflow DB: **failure**, run `43931178770`, sin jobs; causa no adjudicada en este corte. No afirmar CI completamente verde ni despliegue por el push.
+
+## Continuación autorizada: cuatro reservas horarias persistidas — 2026-11-16
+
+La instrucción humana posterior autorizó expresamente simular KYC y marcar verificadas **sólo las tres cuentas nuevas de prueba**. Esto sustituye el bloqueo por falta de autorización del apartado anterior; no representa una revisión real ni autoriza cambios globales de seguridad.
+
+### Fixture de identidad y límites
+
+Se insertaron tres casos `local-fixture-v1`, sus elegibilidades KYC y dos eventos de historial por caso. La aprobación del anfitrión además exige la aserción documental propia: se guardó una declaración sintética por el API cifrado, se leyó de nuevo y se sembró exclusivamente un caso aprobado por cada cuenta, vinculado a esa revisión y con vigencia de doce meses. Los IDs y la etiqueta **QA simulada, no revisión documental real** permanecen en el receipt privado. No se subieron documentos ficticios para aparentar una revisión, no se consultó proveedor externo y no se deshabilitó el verificador. Tampoco se concedieron roles administrativos ni se modificaron cuentas preexistentes.
+
+El primer intento de aprobación respondió 409: el KYC legacy no sustituye la aserción documental y el pago no sustituye la autorización de garantía. Se completaron esos prerrequisitos de prueba sin crear otra reserva ni repetir pagos confirmados. Todas las operaciones de arriendo, pago, garantía, aprobación y firma se ejecutaron después mediante **navegador → BFF HTTPS loopback → Go → PostgreSQL**; sólo la precondición de identidad se preparó como fixture autorizado.
+
+### Escenarios conservados en la base de datos
+
+Zona: **America/Santiago**. Espacio: `7aec3e2d-8ac8-441c-a906-18020289b0d0`. Precio: 12.000 CLP/hora; cada reserva son dos horas y subtotal 24.000 CLP, excluida la garantía simulada.
+
+| Escenario | Fecha local | Horario local | Reserva persistida | Estado final |
+|---|---|---|---|---|
+| Arrendatario A / día 1 | 2026-11-17 | 10:00–12:00 | `161cedd8-a512-4cfe-842f-395f084f4643` | `lista_para_checkin` |
+| Arrendatario B / día 1 | 2026-11-17 | 14:00–16:00 | `3517b4c2-9dbc-4be0-99c7-e414d61d42f0` | `lista_para_checkin` |
+| Arrendatario A / día 2 | 2026-11-18 | 10:00–12:00 | `be704a27-f0a8-4166-8f70-3f199b0c1c68` | `lista_para_checkin` |
+| Arrendatario B / día 2 | 2026-11-18 | 14:00–16:00 | `4e7cb6ee-5283-4d50-85da-a11625ed13e0` | `lista_para_checkin` |
+
+Postcheck SQL independiente, con aserciones programáticas sobre **los cuatro IDs exactos**, confirma cuatro snapshots de quote concordantes con sus reservas, cuatro rangos `[inicio,termino)` exactos en `ocupacion`, activos, tipo `reserva`, sin expiración; cuatro contratos `firmado`; cinco transiciones por reserva. Dos arrendatarios, dos fechas, **8 horas / 96.000 CLP de arriendo simulado**, cero pares activos solapados. Las firmas son simuladas y no tienen validez jurídica. No se adelantó el reloj para fingir check-in/check-out: la aceptación termina en listo para check-in, no arriendo físico finalizado.
+
+Controles negativos reales mediante BFF: intentar cotizar B sobre el tramo 10:00–12:00 ocupado por A responde **409**; B no puede leer la reserva de A (**404**). La lectura pública de intervalos elimina los ocupados y conserva exactamente 12:00–14:00 y 16:00–18:00 en ambas fechas. Recarga de las cuatro pantallas de reserva mantiene contratos firmados y estado; no hay solicitudes de navegador fuera del origen local.
+
+### Bug descubierto por el recorrido, no por mocks
+
+Con reservas 10:00–12:00 y 14:00–16:00, la proyección mensual antigua marcaba `BOOKED` al detectar ocupación en ambos presets mañana/tarde. El navegador deshabilitaba el día aunque el API de intervalos devolvía dos huecos reales. Se conservó el RED de navegador y se corrigió sólo el estado mensual **por hora**: cobertura recortada/unida de ocupaciones respecto a 10:00–18:00; ningún solapamiento → `AVAILABLE`, cobertura parcial → `PARTIAL`, cobertura total → `BOOKED`. Rango operativo vacío/inverso → `BLOCKED`; `PAST`, bloqueo de override y reglas diarias/mensuales conservados.
+
+Pruebas del helper: doce casos (huecos, adyacencia, unión desordenada/solapada, límites half-open, clipping, cierre 24:00 y rangos inválidos). El padre observó RED específico de rangos inválidos y GREEN posterior. Race de spaces PG/dominio/HTTP y cmd/api, vet y build API: exit 0. Suite Go global final: **4.719 pass, 217 skip, 0 fail**, con live S3 excluido. API reiniciada conservando la misma DB; GET mensual posterior devuelve `PARTIAL` para los días 17/18. El harness nativo final pasó **dos veces consecutivas**: recarga de las cuatro reservas, contratos, denegaciones, intervalos y día público móvil nuevamente seleccionable. No se repitieron las cuatro creaciones para fabricar una segunda corrida.
+
+Evidencia privada: `.local/testing/ticket-native-20261116/{fixture.json,postgres-bookings-proof.json,book-native.mjs,sign-and-verify.mjs,verify_postgres.py}`, capturas `*-signed.png` y `public-occupied-mobile.png`. No publicar archivos de credenciales. El script inicialmente consultó contrato por GET en la ruta de creación (405); se corrigió al GET por ID del contrato ya persistido, sin recrearlo. La comprobación repetida también se corrigió para navegar a la reserva antes de recargar cuando las firmas ya existían.
+
+**Cerrado para este ensayo:** anfitrión publica/configura, dos arrendatarios seleccionan distintos tramos en el mismo día y en otro día, cotizan, solicitan, simulan pago/garantía, reciben aprobación y firman; persistencia y ocupación exactas verificadas. **No cerrar los planes completos:** quedan tarifas especiales, overrides nativos, cancelación/liberación y operación física; no se probaron días/semanas/meses ni se añadió unidad `semana`. CI histórico de formato/workflow DB no queda corregido por estas pruebas locales.
