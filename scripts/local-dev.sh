@@ -78,17 +78,27 @@ cmd_bootstrap() {
     terraform apply -auto-approve
   )
 
-  # Asegurar permisos ACL de runtime en PostgreSQL
-  echo "Asegurando permisos para espacigo_runtime en PostgreSQL..."
+  # Asegurar permisos ACL de runtime y soporte S3 en PostgreSQL
+  echo "Asegurando permisos para espacigo_runtime y soporte S3 en PostgreSQL..."
   admin_pass=$(cat "${REPO_ROOT}/.local/secrets/db_admin_password" 2>/dev/null || echo "")
+  runtime_pass=$(cat "${REPO_ROOT}/.local/secrets/runtime_password" 2>/dev/null || echo "")
   if [ -n "$admin_pass" ]; then
-    docker exec -e PGPASSWORD="$admin_pass" "$DB_CONTAINER" psql -U espacigo_admin -d "$DB_NAME" <<'EOF' >/dev/null 2>&1 || true
+    docker exec -e PGPASSWORD="$admin_pass" "$DB_CONTAINER" psql -U espacigo_admin -d "$DB_NAME" <<EOF >/dev/null 2>&1 || true
+ALTER ROLE espacigo_api_login WITH PASSWORD '${runtime_pass}';
 GRANT USAGE ON SCHEMA public TO espacigo_runtime;
 GRANT SELECT ON public.version_terminos TO espacigo_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO espacigo_runtime;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO espacigo_runtime;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO espacigo_runtime;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO espacigo_runtime;
+
+SET ROLE espacigo_schema_owner;
+ALTER TABLE public.media_variant DROP CONSTRAINT IF EXISTS media_variant_provider_check;
+ALTER TABLE public.media_variant ADD CONSTRAINT media_variant_provider_check CHECK (provider IN ('s3', 'gcs', 'filesystem'));
+ALTER TABLE public.media_variant_intent DROP CONSTRAINT IF EXISTS media_variant_intent_provider_check;
+ALTER TABLE public.media_variant_intent ADD CONSTRAINT media_variant_intent_provider_check CHECK (provider IN ('s3', 'gcs', 'filesystem'));
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo_runtime;
 EOF
   fi
 
