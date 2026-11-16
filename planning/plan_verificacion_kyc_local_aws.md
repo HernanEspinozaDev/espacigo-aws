@@ -152,19 +152,20 @@ Cada cambio de estado en la verificación emite una plantilla de correo a travé
 ## 7. Plan de Ejecución por Fases (Roadmap)
 
 ### Fase 1: Conexión de Declaración y Subida S3
-- [ ] Conectar endpoint `POST /api/v1/identity/declarations` a la tabla `identity_declaration_revision` y `identity_rut_claim`.
-- [ ] Integrar el adaptador S3 en `internal/documentverification/upload.go` apuntando al bucket `espacigo-kyc-identity-local`.
-- [ ] Probar subida real de cédula y selfie desde `/mi-cuenta/verificaciones`.
+- [x] Conectar endpoint `POST /api/v1/identity/declarations` a la tabla `identity_declaration_revision` y `identity_rut_claim`.
+- [x] Integrar el adaptador S3 en `internal/documentverification` apuntando al bucket `espacigo-kyc-identity-local`.
+- [x] Probar subida de cédula y selfie desde `/mi-cuenta/verificaciones` con aislamiento por sesión.
 
 ### Fase 2: Envío y Transición de Estados
-- [ ] Implementar endpoint `POST /api/v1/verifications/cases/{id}/submit` que valide la presencia de los 3 archivos y pase el caso a `en_revision`.
-- [ ] Disparar notificación por correo de confirmación de recepción en Mailpit.
+- [x] Implementar endpoint `POST /api/v1/document-verification/cases/{id}/submit` validando la presencia de los 3 archivos limpios y concurrencia optimista (`If-Match: "{revision}"`).
+- [x] Disparar notificación por correo de confirmación de recepción en Mailpit.
 
 ### Fase 3: Cola de Revisión de Administración
-- [ ] Habilitar endpoint `GET /api/v1/admin/verifications/cases` para listar solicitudes en espera.
-- [ ] Conectar visor de imágenes en `/administracion/verificaciones` transmitiendo blobs directamente desde S3.
-- [ ] Implementar endpoint `POST /api/v1/admin/verifications/cases/{id}/decision` que actualice la base de datos, inserte en `identity_reviewer_observation_audit` y actualice `elegibilidad_verificacion_local`.
+- [x] Habilitar endpoints en `/api/v1/document-verification/reviewer/cases` para listar solicitudes en espera (`reviewer-queue`).
+- [x] Conectar visor seguro de imágenes en frontend transmitiendo blobs directamente desde S3.
+- [x] Implementar endpoint `POST /.../review` que actualice la base de datos, inserte auditoría inmutable y active `public.elegibilidad_verificacion_local`.
 
 ### Fase 4: Sello Visual y Desbloqueo en el Ecosistema
-- [ ] Mostrar insignia de identidad verificada en el navbar, perfil (`/mi-cuenta`) y en la ficha de anfitrión de espacios.
-- [ ] Integrar el chequeo de elegibilidad en el flujo de publicación de espacios y arriendos.
+- [x] Mostrar insignia de identidad verificada (badge KYC) en el navbar, perfil (`/mi-cuenta`) y en la ficha pública del marketplace (`/espacios/[id]`).
+- [x] Integrar el chequeo de elegibilidad en el motor de arriendo: tanto arrendatario como anfitrión deben contar con verificación KYC vigente (límite estricto de 24 meses) para cotizar y confirmar reservas.
+- [x] Validar suite completa de pruebas: 21 tests pasados en Playwright (`identity-declaration.spec.ts`, `identity-evidence-upload.spec.ts`, `phase-f6-document-verification.spec.ts`, `reviewer-queue.spec.ts`).

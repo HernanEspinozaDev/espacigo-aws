@@ -294,3 +294,11 @@ Estado, límites de integración y pruebas: [ejecución y matriz de aceptación]
 - [x] Pre-poblar `<BookingQuoteCard>` con los parámetros del marketplace (`spaceId`, `defaultRateUnit`, `initialStartDate`, `initialDurationUnits`).
 - [x] Habilitar cálculo formal de cotización y confirmación de reserva local (`reserva_ensayo_local`) con bloqueo de ocupación.
 - [x] Ejecutar suites completas de tests (`playwright.marketplace-phase1`, `public-rental-commercial`, `pnpm test`, `tsc --noEmit`, `go test ./...`).
+
+### Fase 5: Ciclo de Vida Completo de Reserva, Pagos y Contratos (Validado End-to-End)
+- [x] **Cotización Real y Snapshot Inmutable**: `POST /api/v1/local/booking-trial/quotes` calcula precio unitario y desglose con TTL de 15 minutos en `cotizacion_reserva_ensayo`.
+- [x] **Reserva y Bloqueo Atómico de Ocupación**: `POST /api/v1/local/booking-trial/reservations` bloquea el rango con índice GiST en `public.ocupacion` impidiendo solapamientos.
+- [x] **Simulación de Pago y Notificaciones**: `POST /.../payment` con `outcome: "exito"` transiciona a `pagada` y despacha correos automáticos tanto a arrendatario como a anfitrión a través de SES emulado a Mailpit (`:8025`).
+- [x] **Garantía y Aprobación de Anfitrión**: `POST /.../guarantee` autoriza el monto de garantía y `POST /.../decision` con `decision: "aprobar"` transiciona el estado a `aprobada_host`.
+- [x] **Contratos Sintéticos y Doble Firma**: Generación automática de contrato, firma digital de ambas partes (`POST /.../contracts/{id}/sign`), pasando a `firmado` y la reserva a `lista_para_checkin`.
+- [x] **Descarga de PDF y Mensajería**: Generación y descarga directa de `contrato-ensayo-sintetico.pdf` (`GET /.../contracts/{id}/document`) y comunicación bidireccional en `/messages` auditada en PostgreSQL 18.
