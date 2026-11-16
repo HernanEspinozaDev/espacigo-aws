@@ -215,6 +215,28 @@ func (s *Service) DeleteAsAdministrator(ctx context.Context, actor, owner, id, c
 	return repository.DeleteAsAdministrator(ctx, actor, owner, id, correlationID, expectedUpdatedAt.UTC(), reason)
 }
 
+func (s *Service) MonthlyAvailability(ctx context.Context, spaceID, month string) (MonthlyAvailability, error) {
+	if !validID(spaceID) {
+		return MonthlyAvailability{}, ErrNotFound
+	}
+	r, ok := s.repo.(AvailabilityRepository)
+	if !ok {
+		return MonthlyAvailability{}, errors.New("spaces: availability repository required")
+	}
+	return r.GetMonthlyAvailability(ctx, spaceID, month)
+}
+
+func (s *Service) UpdateAvailability(ctx context.Context, owner, spaceID string, in AvailabilityUpdateInput) (AvailabilityRule, string, error) {
+	if !validOwner(owner) || !validID(spaceID) {
+		return AvailabilityRule{}, "", ErrNotFound
+	}
+	r, ok := s.repo.(AvailabilityRepository)
+	if !ok {
+		return AvailabilityRule{}, "", errors.New("spaces: availability repository required")
+	}
+	return r.UpdateAvailability(ctx, owner, spaceID, in)
+}
+
 func validateAttributes(profile Profile, input Input) error {
 	return profile.ValidateAttributesForArea(input.Attributes, input.AreaM2)
 }
@@ -223,5 +245,6 @@ var uuidPattern = func() *regexp.Regexp {
 	return regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 }()
 
-func validID(v string) bool    { return uuidPattern.MatchString(v) }
-func validOwner(v string) bool { return validID(strings.TrimSpace(v)) }
+func ValidID(v string) bool    { return uuidPattern.MatchString(v) }
+func validID(v string) bool    { return ValidID(v) }
+func validOwner(v string) bool { return ValidID(strings.TrimSpace(v)) }

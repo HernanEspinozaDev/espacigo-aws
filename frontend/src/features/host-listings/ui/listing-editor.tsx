@@ -66,6 +66,7 @@ import type {
 import { ListingGallery } from "./listing-gallery";
 import { ListingReturnsPanel } from "./listing-returns-panel";
 import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
+import { HostAvailabilityCalendar } from "./host-availability-calendar";
 
 interface ListingEditorProps {
   readonly listingId: string;
@@ -2112,7 +2113,8 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         hidden={activeTab !== "availability"}
       >
         {activeTab === "availability" && accessToken && currentListing && (
-          <Card>
+          <div className="space-y-6">
+            <Card>
             <CardHeader>
               <CardTitle className="text-lg">
                 Bloqueos manuales por fecha
@@ -2341,6 +2343,18 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               </section>
             </CardContent>
           </Card>
+            <div className="mt-6">
+              <HostAvailabilityCalendar
+                spaceId={listingId}
+                rateUnit={currentListing.rate_unit}
+                basePriceCLP={currentListing.base_price_clp}
+                timeZone={currentListing.time_zone ?? "America/Santiago"}
+                initialSlots={scheduleSlots}
+                onScheduleChange={(newSlots) => setScheduleSlots(newSlots)}
+                disabled={isPending}
+              />
+            </div>
+          </div>
         )}
       </div>
 

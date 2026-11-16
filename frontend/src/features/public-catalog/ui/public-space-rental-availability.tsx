@@ -6,6 +6,7 @@ import {
   MonthCalendar,
   type RentalDemoCalendarDay,
 } from "@/features/rental-demo/ui/month-calendar";
+import { PublicBookingCalendar } from "./booking-calendar";
 import { addCivilDays } from "../domain/local-date";
 import { publicAvailabilityNotice } from "../domain/availability-notice";
 import { publicAvailabilityExceptionMessage } from "../domain/availability-error";
@@ -34,6 +35,7 @@ interface PublicSpaceRentalAvailabilityProps {
 export function PublicSpaceRentalAvailability({
   spaceId,
   rateUnit,
+  basePriceCLP,
   today,
   initialSelection,
   onSelectionChange,
@@ -360,23 +362,30 @@ export function PublicSpaceRentalAvailability({
       ) : null}
 
       <div className="pt-2">
-        <MonthCalendar
-          month={currentMonth}
-          days={days}
-          selectedDate={selectedDate}
-          onSelect={(date) => {
-            if (selectedDate === date || quotePending) return;
-            pendingRentalSelection.current = undefined;
-            clearQuoteForSelection();
-            beginAvailabilityQuery();
-            setSelectedDate(date);
-          }}
-          onMonthChange={(m) => setCurrentMonth(m)}
+        <PublicBookingCalendar
+          spaceId={spaceId}
+          rateUnit={rateUnit}
+          basePriceCLP={basePriceCLP}
           today={today}
+          initialSelection={initialSelection}
+          onSelectionChange={(sel) => {
+            if (sel) {
+              setSelectedDate(sel.date);
+              setDuration(sel.duration);
+              setAvailabilityTimeZone(sel.timeZone);
+              setSelectedInterval({
+                start_at: sel.startAt,
+                end_at: sel.endAt,
+              });
+              selectionChange.current?.(sel);
+              notifySelection(sel);
+            } else {
+              setSelectedInterval(null);
+              selectionChange.current?.(null);
+              notifySelection(null);
+            }
+          }}
           disabled={loading || quotePending}
-          allowUnqueriedDates
-          minDate={today}
-          maxDate={addCivilDays(today, 90)}
         />
       </div>
 

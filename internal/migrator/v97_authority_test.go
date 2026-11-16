@@ -33,13 +33,13 @@ func TestV97AuthorityManifestIsPinnedToTheExactV97Inventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateV97MigrationInventory(all); err != nil {
+	if err := validateV97MigrationInventory(all[:97]); err != nil {
 		t.Fatalf("valid exact V1..V97 inventory rejected: %v", err)
 	}
 	if err := validateV97MigrationInventory(all[:96]); err == nil {
 		t.Fatal("V96-only inventory unexpectedly accepted for V97 authority")
 	}
-	changed := append([]Migration(nil), all...)
+	changed := append([]Migration(nil), all[:97]...)
 	changed[96].Checksum = strings.Repeat("0", 64)
 	if err := validateV97MigrationInventory(changed); err == nil {
 		t.Fatal("changed V97 checksum unexpectedly accepted")

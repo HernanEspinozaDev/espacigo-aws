@@ -84,11 +84,21 @@ await writeFile(
   path.join(temporary, "link.mjs"),
   `import { createElement } from ${JSON.stringify(reactUrl)}; export default function Link({ href, children, ...props }) { return createElement("a", { href, ...props }, children); }`,
 );
+await compile(
+  "src/features/public-catalog/ui/booking-calendar.tsx",
+  "booking-calendar.mjs",
+  [
+    ["@/features/rental-demo/domain/calendar", "./calendar-domain.mjs"],
+    ["../domain/local-date", "./local-date.mjs"],
+    ["../infrastructure/rental-availability-runtime", "./runtime.mjs"],
+  ],
+);
 const { PublicSpaceRentalAvailability } = await compile(
   "src/features/public-catalog/ui/public-space-rental-availability.tsx",
   "public-space-rental-availability.mjs",
   [
     ["@/features/rental-demo/ui/month-calendar", "./month-calendar.mjs"],
+    ["./booking-calendar", "./booking-calendar.mjs"],
     ["../domain/local-date", "./local-date.mjs"],
     ["../domain/availability-notice", "./notice.mjs"],
     ["../domain/availability-error", "./error.mjs"],

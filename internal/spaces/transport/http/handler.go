@@ -98,6 +98,48 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
 		return
 	}
+	if calendarPath && r.Method == http.MethodGet {
+		spaceID := availabilitySpaceID(path)
+		if spaceID != "" {
+			values, err := url.ParseQuery(r.URL.RawQuery)
+			if err == nil && values.Has("month") {
+				if len(values) != 1 || len(values["month"]) != 1 {
+					failure(w, 400, "invalid_request", "No se admiten parámetros de URL adicionales.")
+					return
+				}
+				month := values.Get("month")
+				if !spaces.ValidID(spaceID) {
+					failure(w, 422, "validation_error", "ID de espacio no válido.")
+					return
+				}
+				if len(month) != 7 || month[4] != '-' {
+					failure(w, 400, "invalid_request", "El mes debe tener formato YYYY-MM.")
+					return
+				}
+				y, errY := strconv.Atoi(month[:4])
+				m, errM := strconv.Atoi(month[5:7])
+				if errY != nil || errM != nil || m < 1 || m > 12 || y < 2000 || y > 2100 {
+					failure(w, 400, "invalid_request", "El mes debe tener formato YYYY-MM.")
+					return
+				}
+				result, err := h.service.MonthlyAvailability(r.Context(), spaceID, month)
+				if err != nil {
+					if errors.Is(err, spaces.ErrNotFound) {
+						failure(w, 404, "not_found", "Espacio no encontrado.")
+						return
+					}
+					if errors.Is(err, spaces.ErrInvalid) {
+						failure(w, 422, "validation_error", "Parámetros no válidos.")
+						return
+					}
+					failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+					return
+				}
+				write(w, 200, result)
+				return
+			}
+		}
+	}
 	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), requiredRole, identity.UserOperation)
 	if e != nil {
 		if errors.Is(e, identity.ErrForbidden) {
@@ -439,10 +481,6 @@ func bearer(v string) string {
 }
 
 func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, owner string) {
-	if h.calendar == nil {
-		failure(w, 404, "not_found", "Recurso no encontrado.")
-		return
-	}
 	const prefix = "/api/v1/spaces/"
 	if !strings.HasPrefix(path, prefix) {
 		failure(w, 404, "not_found", "Recurso no encontrado.")
@@ -483,12 +521,74 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 				return
 			}
 			var in struct {
-				TimeZone string `json:"time_zone"`
+				TimeZone      *string                        `json:"time_zone"`
+				DiasOperacion []int                          `json:"dias_operacion"`
+				HoraApertura  *string                        `json:"hora_apertura"`
+				HoraCierre    *string                        `json:"hora_cierre"`
+				CheckInHora   *string                        `json:"check_in_hora"`
+				CheckOutHora  *string                        `json:"check_out_hora"`
+				TarifaBaseDia *int                           `json:"tarifa_base_dia"`
+				EstadiaMinima *int                           `json:"estadia_minima"`
+				EstadiaMaxima *int                           `json:"estadia_maxima"`
+				Overrides     []spaces.CalendarOverrideInput `json:"overrides"`
 			}
 			if !decode(w, r, &in) {
 				return
 			}
-			revision, err := h.calendar.SetTimeZoneCAS(r.Context(), owner, spaceID, in.TimeZone, expected)
+
+			hasInventory := len(in.DiasOperacion) > 0 || in.HoraApertura != nil || in.HoraCierre != nil ||
+				in.CheckInHora != nil || in.CheckOutHora != nil || in.TarifaBaseDia != nil ||
+				in.EstadiaMinima != nil || in.EstadiaMaxima != nil || in.Overrides != nil
+
+			if hasInventory {
+				updateIn := spaces.AvailabilityUpdateInput{
+					TimeZone:      in.TimeZone,
+					DiasOperacion: in.DiasOperacion,
+					HoraApertura:  in.HoraApertura,
+					HoraCierre:    in.HoraCierre,
+					CheckInHora:   in.CheckInHora,
+					CheckOutHora:  in.CheckOutHora,
+					TarifaBaseDia: in.TarifaBaseDia,
+					EstadiaMinima: in.EstadiaMinima,
+					EstadiaMaxima: in.EstadiaMaxima,
+					Overrides:     in.Overrides,
+				}
+				rule, zone, err := h.service.UpdateAvailability(r.Context(), owner, spaceID, updateIn)
+				if err != nil {
+					serviceError(w, err)
+					return
+				}
+				w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: rule.ActualizadoEn}))
+				resp := map[string]any{
+					"space_id":  spaceID,
+					"time_zone": zone,
+				}
+				if rule.TarifaBaseDia > 0 {
+					resp["dias_operacion"] = rule.DiasOperacion
+					resp["hora_apertura"] = rule.HoraApertura
+					resp["hora_cierre"] = rule.HoraCierre
+					resp["check_in_hora"] = rule.CheckInHora
+					resp["check_out_hora"] = rule.CheckOutHora
+					resp["tarifa_base_dia"] = rule.TarifaBaseDia
+					resp["estadia_minima"] = rule.EstadiaMinima
+					resp["estadia_maxima"] = rule.EstadiaMaxima
+				}
+				if in.Overrides != nil {
+					resp["overrides"] = in.Overrides
+				}
+				write(w, 200, resp)
+				return
+			}
+
+			if h.calendar == nil {
+				failure(w, 404, "not_found", "Recurso no encontrado.")
+				return
+			}
+			tz := ""
+			if in.TimeZone != nil {
+				tz = *in.TimeZone
+			}
+			revision, err := h.calendar.SetTimeZoneCAS(r.Context(), owner, spaceID, tz, expected)
 			if err != nil {
 				if errors.Is(err, occupancy.ErrPreconditionFailed) {
 					failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
@@ -498,8 +598,12 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 				return
 			}
 			w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
-			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": in.TimeZone})
+			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": tz})
 		case http.MethodGet:
+			if h.calendar == nil {
+				failure(w, 404, "not_found", "Recurso no encontrado.")
+				return
+			}
 			from, to, ok := queryWindow(w, r.URL.RawQuery)
 			if !ok {
 				return
@@ -513,6 +617,10 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 		default:
 			failure(w, 404, "not_found", "Recurso no encontrado.")
 		}
+		return
+	}
+	if h.calendar == nil {
+		failure(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
 	if len(parts) == 3 && parts[2] == "blocks" {
@@ -645,6 +753,18 @@ func serviceError(w http.ResponseWriter, e error) {
 	default:
 		failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
 	}
+}
+
+func availabilitySpaceID(path string) string {
+	const prefix, suffix = "/api/v1/spaces/", "/availability"
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	if id == "" || strings.Contains(id, "/") {
+		return ""
+	}
+	return id
 }
 
 func publicationSpaceID(path string) string {

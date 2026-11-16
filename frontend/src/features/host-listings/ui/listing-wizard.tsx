@@ -50,6 +50,7 @@ import {
   markPartialDraftRecoveryPending,
 } from "./partial-draft-recovery-state";
 import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
+import { HostAvailabilityCalendar } from "./host-availability-calendar";
 import {
   validateCategoryAttributes,
   validateListingDraftInput,
@@ -1490,6 +1491,20 @@ export function ListingWizard() {
                   </div>
                 </div>
               )}
+              <div className="pt-4 border-t border-border">
+                <HostAvailabilityCalendar
+                  rateUnit={rateUnit}
+                  basePriceCLP={basePriceCLP}
+                  timeZone={timeZone}
+                  onTimeZoneChange={(tz) => setTimeZone(tz)}
+                  initialSlots={slots}
+                  onScheduleChange={(nextSlots) => {
+                    setSlots(nextSlots);
+                    clearScheduleError();
+                  }}
+                  disabled={isSubmitting}
+                />
+              </div>
               {rateUnit !== "hora" && (
                 <p className="text-sm text-muted-foreground" role="note">
                   Horario semanal no aplicable a tarifas por día o mes; se

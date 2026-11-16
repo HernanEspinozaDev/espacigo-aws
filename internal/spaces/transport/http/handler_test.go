@@ -158,6 +158,48 @@ func (m *memoryRepo) DeleteOwn(_ context.Context, owner, id, correlationID strin
 	m.draft.State = "eliminada"
 	return spaces.Deletion{SpaceID: id, State: "eliminada", Removed: []string{"catalogo"}, Preserved: []string{"historicos"}}, nil
 }
+func (m *memoryRepo) GetMonthlyAvailability(_ context.Context, spaceID, month string) (spaces.MonthlyAvailability, error) {
+	if spaceID != draftID {
+		return spaces.MonthlyAvailability{}, spaces.ErrNotFound
+	}
+	return spaces.MonthlyAvailability{
+		Month:        month,
+		TimeZone:     "America/Santiago",
+		RateUnit:     "dia",
+		BasePriceCLP: 48000,
+		Days: []spaces.DayAvailability{
+			{
+				Date:     month + "-01",
+				Status:   "AVAILABLE",
+				PriceCLP: 48000,
+				Slots: []spaces.SlotAvailability{
+					{Name: "Mañana 09:00–13:00", Ticket: "Mañana 09:00–13:00", Available: true},
+					{Name: "Tarde 14:00–18:00", Ticket: "Tarde 14:00–18:00", Available: true},
+					{Name: "Día Completo", Ticket: "Día Completo", Available: true},
+				},
+			},
+		},
+	}, nil
+}
+func (m *memoryRepo) UpdateAvailability(_ context.Context, owner, spaceID string, in spaces.AvailabilityUpdateInput) (spaces.AvailabilityRule, string, error) {
+	if owner != m.owner || spaceID != draftID {
+		return spaces.AvailabilityRule{}, "", spaces.ErrNotFound
+	}
+	tz := "America/Santiago"
+	if in.TimeZone != nil {
+		tz = *in.TimeZone
+	}
+	tarifa := 48000
+	if in.TarifaBaseDia != nil {
+		tarifa = *in.TarifaBaseDia
+	}
+	return spaces.AvailabilityRule{
+		SpaceID:       spaceID,
+		DiasOperacion: in.DiasOperacion,
+		TarifaBaseDia: tarifa,
+		ActualizadoEn: time.Now(),
+	}, tz, nil
+}
 func draftFromInput(in spaces.Input) spaces.Draft {
 	name := map[string]string{"oficina": "Oficina", "sala_multiproposito": "Sala o espacio multipropósito"}[in.CategoryCode]
 	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
@@ -1557,4 +1599,76 @@ func TestUpdateDraftKeepsItsStoredProfileVersion(t *testing.T) {
 	if repo.draft.AttributeSchemaVersion != 1 {
 		t.Fatalf("update implicitly converted profile version: %d", repo.draft.AttributeSchemaVersion)
 	}
+}
+
+func TestPublicMonthlyAvailabilityAndHostInventoryUpdate(t *testing.T) {
+	repo := &memoryRepo{}
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	// Create draft
+	if response := invoke(h, "POST", "/api/v1/spaces", "user", validJSON()); response.Code != 201 {
+		t.Fatalf("create status=%d %s", response.Code, response.Body.String())
+	}
+	tag := DraftETag(repo.draft)
+
+	t.Run("public monthly availability without auth", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability?month=2026-11", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200, body=%s", rec.Code, rec.Body.String())
+		}
+		var out spaces.MonthlyAvailability
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("json unmarshal failed: %v", err)
+		}
+		if out.Month != "2026-11" || out.BasePriceCLP != 48000 || len(out.Days) == 0 {
+			t.Fatalf("unexpected monthly availability response: %+v", out)
+		}
+		if out.Days[0].Status != "AVAILABLE" || len(out.Days[0].Slots) != 3 {
+			t.Fatalf("unexpected day status or slots: %+v", out.Days[0])
+		}
+	})
+
+	t.Run("rejects malformed month", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability?month=invalid", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", rec.Code)
+		}
+	})
+
+	t.Run("rejects extra query parameters", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability?month=2026-11&extra=1", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400", rec.Code)
+		}
+	})
+
+	t.Run("host updates availability rules and overrides with If-Match", func(t *testing.T) {
+		body := `{
+			"tarifa_base_dia": 55000,
+			"dias_operacion": [1, 2, 3, 4, 5],
+			"overrides": [
+				{"fecha": "2026-11-20", "estado": "bloqueado", "motivo": "Mantenimiento"}
+			]
+		}`
+		r := invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/availability", "user", body, tag)
+		if r.Code != http.StatusOK {
+			t.Fatalf("put status = %d, want 200, body=%s", r.Code, r.Body.String())
+		}
+		var putOut map[string]any
+		if err := json.Unmarshal(r.Body.Bytes(), &putOut); err != nil {
+			t.Fatalf("unmarshal put response: %v", err)
+		}
+		if putOut["space_id"] != draftID || putOut["tarifa_base_dia"] != float64(55000) {
+			t.Fatalf("unexpected put response: %+v", putOut)
+		}
+	})
 }

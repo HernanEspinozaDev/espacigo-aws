@@ -5,6 +5,10 @@
     "V000084__didit_identity_verification_schema.sql": {
       "checksum": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
       "strategy": "expand"
+    },
+    "V000098__space_inventory_and_calendar_rules.sql": {
+      "checksum": "a12e56098d68a4d683ff2bca5fb975d96fa6ec6853675336a8bd318c595339f2",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

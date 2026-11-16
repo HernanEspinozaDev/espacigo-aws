@@ -20,11 +20,11 @@ func stageSpacesOrder2Snapshot(source string) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if len(all) != 97 {
+	if len(all) < 97 {
 		return "", nil, errors.New("source migration inventory differs from reviewed V1..V97 inventory")
 	}
 	fingerprint := sha256.New()
-	for i, migration := range all {
+	for i, migration := range all[:97] {
 		if migration.Version != int64(i+1) {
 			return "", nil, errors.New("source migration sequence is not contiguous V1..V97")
 		}
