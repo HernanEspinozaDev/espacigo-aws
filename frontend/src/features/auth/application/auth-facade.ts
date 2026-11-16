@@ -234,6 +234,9 @@ export class AuthFacade {
           this.#clearIfCurrent(generation);
           return false;
         }
+        if (this.#snapshot.status === "checking") {
+          this.#clearIfCurrent(generation);
+        }
         throw error;
       } finally {
         this.#checkSessionPromise = null;

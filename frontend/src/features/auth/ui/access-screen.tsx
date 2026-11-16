@@ -30,10 +30,21 @@ export function AccessScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [checkingTimedOut, setCheckingTimedOut] = useState(false);
   const [message, setMessage] = useState("");
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (snapshot.status === "checking") {
+      const timer = setTimeout(() => {
+        setCheckingTimedOut(true);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+    setCheckingTimedOut(false);
+  }, [snapshot.status]);
 
   useEffect(() => {
     if (!message) return;
@@ -112,15 +123,7 @@ export function AccessScreen() {
       secondaryLabel="Crear una cuenta"
       secondaryHref="/registro"
     >
-      {snapshot.status === "checking" ? (
-        <div
-          data-testid="access-checking"
-          className="flex min-h-[220px] items-center justify-center text-sm text-gray-500"
-          aria-live="polite"
-        >
-          <span className="sr-only">Comprobando sesión…</span>
-        </div>
-      ) : snapshot.status === "authenticated" ? (
+      {snapshot.status === "authenticated" ? (
         <div
           data-testid="access-redirecting"
           className="flex min-h-[220px] items-center justify-center text-sm text-gray-500"
@@ -129,7 +132,13 @@ export function AccessScreen() {
           <span className="sr-only">Redirigiendo…</span>
         </div>
       ) : (
-        <form className="space-y-6" onSubmit={submit}>
+        <>
+          {snapshot.status === "checking" ? (
+            <div data-testid="access-checking" className="sr-only">
+              Comprobando sesión…
+            </div>
+          ) : null}
+          <form className="space-y-6" onSubmit={submit}>
           <div>
             <Label
               htmlFor="email"
@@ -183,6 +192,7 @@ export function AccessScreen() {
             quieras.
           </p>
         </form>
+        </>
       )}
       <div className="mt-4 space-y-3">
         <AuthFeedback message={message} focusRef={feedbackRef} />
