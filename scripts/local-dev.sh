@@ -153,7 +153,7 @@ cmd_api() {
   export DATABASE_SSLMODE="disable"
 
   # Parámetros runtime de aplicación
-  export HTTP_ADDR=":8080"
+  export HTTP_ADDR="${HTTP_ADDR:-127.0.0.1:8080}"
   export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
   export CORS_ALLOWED_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"
   export LOCAL_AUTH_PROTOTYPE="1"

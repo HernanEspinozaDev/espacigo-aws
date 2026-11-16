@@ -1453,6 +1453,51 @@ paths:
       responses:
         "200": { description: Comunas del snapshot DPA activo, con referencia a región, content: { application/json: { schema: { $ref: "#/components/schemas/PublicLocations" } } } }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /public/spaces/{spaceID}/month:
+    get:
+      operationId: getPublicSpaceMonth
+      security: []
+      tags: [ Public catalog ]
+      parameters:
+        - { in: path, name: spaceID, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: month, required: true, schema: { type: string, pattern: '^[0-9]{4}-[0-9]{2}$' } }
+      responses:
+        "200":
+          description: Disponibilidad mensual de publicación activa.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ month, time_zone, rate_unit, base_price_clp, days ]
+                properties:
+                  month: { type: string }
+                  time_zone: { type: string }
+                  rate_unit: { type: string, enum: [ hora, dia, mes ] }
+                  base_price_clp: { type: integer, format: int64, minimum: 1 }
+                  days:
+                    type: array
+                    items:
+                      type: object
+                      required: [ date, status, price_clp, slots ]
+                      properties:
+                        date: { type: string, format: date }
+                        status: { type: string, enum: [ AVAILABLE, PARTIAL, BLOCKED, BOOKED, PAST ] }
+                        price_clp: { type: integer, format: int64 }
+                        slots:
+                          type: array
+                          items:
+                            type: object
+                            required: [ name, available ]
+                            properties:
+                              name: { type: string }
+                              ticket: { type: string }
+                              start: { type: string }
+                              end: { type: string }
+                              available: { type: boolean }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
   /public/spaces/{spaceID}:
     get:
       operationId: getPublicSpace
@@ -3541,6 +3586,57 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { description: Storage privado temporalmente no disponible. }
+  /spaces/{spaceId}/availability/configuration:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnCalendarConfiguration
+      tags: [ M04/M06 local ]
+      description: Lee la regla de inventario y todas las excepciones del espacio propio no eliminado. Solo el titular autenticado; no es la proyección pública mensual ni la consulta de intervalos. ETag corresponde a la revisión compartida del espacio.
+      responses:
+        "200":
+          description: Configuración privada leída de la fuente persistida.
+          headers:
+            ETag: { required: true, schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OwnCalendarConfiguration" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: updateOwnCalendarConfiguration
+      tags: [ M04/M06 local ]
+      description: >-
+        Actualiza campos de regla y hace merge de excepciones por fecha. Omitir una excepción no la elimina.
+        Una excepción enviada sustituye sus campos, incluida la tarifa opcional. Requiere la revisión fuerte vigente
+        del espacio en If-Match y la verifica dentro de la transacción. Devuelve ETag del espacio renovado.
+        No cambia la tarifa comercial vigente; las tarifas especiales del calendario no acreditan por sí solas un quote.
+        La respuesta de escritura es un acuse; leer GET configuration para confirmar el estado completo. No reintentar automáticamente.
+      parameters:
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CalendarInventoryUpdate" }
+      responses:
+        "200":
+          description: Acuse de actualización, no readback completo.
+          headers:
+            ETag: { required: true, schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CalendarInventoryAcknowledgement" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /spaces/{spaceId}/availability:
     parameters:
       - name: spaceId
@@ -7064,6 +7160,71 @@ components:
         base_price_clp: { type: integer, format: int64, minimum: 5001, maximum: 9223372036854776000 }
         region_code: { type: string, pattern: "^([0-9]{2})?$", description: Enviar junto a comuna_code para cambiar ubicación; enviar ambos vacíos la retira del catálogo público. }
         comuna_code: { type: string, pattern: "^([0-9]{5})?$", description: Código de comuna dentro de region_code; enviar ambos vacíos retira la ubicación. }
+    CalendarInventoryOverride:
+      type: object
+      additionalProperties: false
+      required: [ fecha, estado ]
+      properties:
+        fecha: { type: string, format: date }
+        estado: { type: string, enum: [ disponible, bloqueado, mantenimiento ] }
+        tarifa_personalizada_clp: { type: integer, minimum: 1, maximum: 2147483647 }
+        motivo: { type: string }
+    CalendarInventoryUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        time_zone: { type: string, minLength: 1, maxLength: 100 }
+        dias_operacion: { type: array, minItems: 1, maxItems: 7, uniqueItems: true, items: { type: integer, minimum: 1, maximum: 7 } }
+        hora_apertura: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        hora_cierre: { type: string, pattern: "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$" }
+        check_in_hora: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        check_out_hora: { type: string, pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+        tarifa_base_dia: { type: integer, minimum: 1, maximum: 2147483647 }
+        estadia_minima: { type: integer, minimum: 1, maximum: 32767 }
+        estadia_maxima: { type: integer, minimum: 1, maximum: 32767 }
+        overrides: { type: array, items: { $ref: "#/components/schemas/CalendarInventoryOverride" } }
+    OwnCalendarRule:
+      type: object
+      additionalProperties: false
+      required: [ space_id, dias_operacion, hora_apertura, hora_cierre, check_in_hora, check_out_hora, tarifa_base_dia, estadia_minima, estadia_maxima, actualizado_en ]
+      properties:
+        space_id: { type: string, format: uuid }
+        dias_operacion: { type: array, items: { type: integer, minimum: 1, maximum: 7 } }
+        hora_apertura: { type: string }
+        hora_cierre: { type: string }
+        check_in_hora: { type: string }
+        check_out_hora: { type: string }
+        tarifa_base_dia: { type: integer, minimum: 1 }
+        estadia_minima: { type: integer, minimum: 1 }
+        estadia_maxima: { type: integer, minimum: 1 }
+        actualizado_en: { type: string, format: date-time }
+    OwnCalendarConfiguration:
+      type: object
+      additionalProperties: false
+      required: [ space_id, time_zone, rule, overrides, updated_at ]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+        rule: { $ref: "#/components/schemas/OwnCalendarRule" }
+        overrides: { type: array, items: { $ref: "#/components/schemas/CalendarInventoryOverride" } }
+        updated_at: { type: string, format: date-time }
+    CalendarInventoryAcknowledgement:
+      type: object
+      additionalProperties: false
+      required: [ space_id, time_zone ]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string }
+        dias_operacion: { type: array, items: { type: integer } }
+        hora_apertura: { type: string }
+        hora_cierre: { type: string }
+        check_in_hora: { type: string }
+        check_out_hora: { type: string }
+        tarifa_base_dia: { type: integer }
+        estadia_minima: { type: integer }
+        estadia_maxima: { type: integer }
+        overrides: { type: array, items: { $ref: "#/components/schemas/CalendarInventoryOverride" } }
     AvailabilityConfig:
       type: object
       additionalProperties: false

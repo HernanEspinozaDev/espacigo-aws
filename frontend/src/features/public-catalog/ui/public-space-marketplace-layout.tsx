@@ -3,6 +3,7 @@
 import {
   cloneElement,
   isValidElement,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -11,6 +12,10 @@ import {
 } from "react";
 import type { MarketplaceBookingSelection } from "../domain/marketplace-booking-selection";
 import { PublicSpaceBookingCta } from "./public-space-booking-cta";
+
+type AvailabilitySelectionProps = {
+  onSelectionChange?: (selection: MarketplaceBookingSelection | null) => void;
+};
 
 export function PublicSpaceMarketplaceLayout({
   summary,
@@ -45,19 +50,17 @@ export function PublicSpaceMarketplaceLayout({
     };
   }, []);
 
-  const handleChooseDates = () => {
+  const handleChooseDates = useCallback(() => {
     calendarRef.current?.scrollIntoView({ behavior: "smooth" });
     const button = calendarRef.current?.querySelector<HTMLButtonElement>(
       "button[aria-pressed]:not([disabled])",
     );
     button?.focus();
-  };
+  }, []);
 
   const availabilityElement = isValidElement(availability)
-    ? cloneElement(availability as ReactElement<any>, {
-        onSelectionChange: (sel: MarketplaceBookingSelection | null) => {
-          setSelection(sel);
-        },
+    ? cloneElement(availability as ReactElement<AvailabilitySelectionProps>, {
+        onSelectionChange: setSelection,
       })
     : availability;
 
@@ -75,10 +78,7 @@ export function PublicSpaceMarketplaceLayout({
             />
           )}
         </div>
-        <div
-          ref={calendarRef}
-          className="mt-8 min-w-0 lg:col-span-4 lg:mt-0"
-        >
+        <div ref={calendarRef} className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">
           {availabilityElement}
         </div>
         <div className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">{gallery}</div>

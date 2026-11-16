@@ -17,8 +17,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+type availabilityPool interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	Begin(context.Context) (pgx.Tx, error)
+}
+
 type Repository struct {
-	pool *pgxpool.Pool
+	pool availabilityPool
 	ids  identity.CredentialGenerator
 }
 

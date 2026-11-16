@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   monthDays,
   shiftMonth,
@@ -11,7 +18,12 @@ import { addCivilDays } from "../domain/local-date";
 import type { RentalReturnSelection } from "../domain/availability-return";
 import type { MarketplaceBookingSelection } from "../domain/marketplace-booking-selection";
 import type { PublicRentalAvailability } from "../domain/rental-availability";
+import {
+  availabilitySelection,
+  createGenerationFence,
+} from "../domain/booking-calendar";
 import { publicRentalAvailability } from "../infrastructure/rental-availability-runtime";
+import { publicMonth } from "../infrastructure/public-month-openapi-adapter";
 
 export interface CalendarDayAvailability {
   date: string;
@@ -59,7 +71,6 @@ function monthLabel(month: string): string {
 export function PublicBookingCalendar({
   spaceId,
   rateUnit,
-  basePriceCLP,
   today,
   initialSelection,
   onSelectionChange,
@@ -76,7 +87,10 @@ export function PublicBookingCalendar({
   const [endDate, setEndDate] = useState<string | null>(() => {
     if (initialSelection?.date && initialSelection.duration > 1) {
       try {
-        return addCivilDays(initialSelection.date, initialSelection.duration - 1);
+        return addCivilDays(
+          initialSelection.date,
+          initialSelection.duration - 1,
+        );
       } catch {
         return initialSelection.date;
       }
@@ -88,20 +102,26 @@ export function PublicBookingCalendar({
     initialSelection?.duration ?? (rateUnit === "hora" ? 2 : 1),
   );
 
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(() => {
-    if (initialSelection?.startAt) {
-      return initialSelection.startAt;
-    }
-    return null;
-  });
-
-  const [monthData, setMonthData] = useState<Map<string, CalendarDayAvailability>>(
-    new Map(),
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(
+    () => {
+      if (initialSelection?.startAt) {
+        return initialSelection.startAt;
+      }
+      return null;
+    },
   );
+
+  const [monthData, setMonthData] = useState<
+    Map<string, CalendarDayAvailability>
+  >(new Map());
   const [loadingMonth, setLoadingMonth] = useState(false);
+  const [monthError, setMonthError] = useState(false);
   const [loadingIntervals, setLoadingIntervals] = useState(false);
-  const [intervals, setIntervals] = useState<PublicRentalAvailability["items"]>([]);
+  const [intervals, setIntervals] = useState<PublicRentalAvailability["items"]>(
+    [],
+  );
   const [timeZone, setTimeZone] = useState<string>("America/Santiago");
+  const intervalFence = useRef(createGenerationFence());
 
   const minDate = today;
   const maxDate = useMemo(() => {
@@ -112,46 +132,52 @@ export function PublicBookingCalendar({
     }
   }, [today]);
 
-  const notifySelection = (sel: MarketplaceBookingSelection | null) => {
-    onSelectionChange?.(sel);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("espacigo:marketplace-selection", {
-          detail: sel,
-        }),
-      );
-    }
-  };
+  const notifySelection = useCallback(
+    (sel: MarketplaceBookingSelection | null) => {
+      onSelectionChange?.(sel);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("espacigo:marketplace-selection", {
+            detail: sel,
+          }),
+        );
+      }
+    },
+    [onSelectionChange],
+  );
 
-  // Fetch month availability: try GET /api/v1/spaces/{spaceId}/availability?month=YYYY-MM
+  // Load the authoritative typed month snapshot.
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
-    setLoadingMonth(true);
 
     async function loadMonth() {
+      await Promise.resolve();
+      if (!active) return;
+      setMonthData(new Map());
+      setMonthError(false);
+      setLoadingMonth(true);
       try {
-        const res = await fetch(
-          `/api/v1/spaces/${encodeURIComponent(spaceId)}/availability?month=${encodeURIComponent(currentMonth)}`,
-          {
-            signal: controller.signal,
-            headers: { Accept: "application/json" },
-          },
+        const result = await publicMonth.getMonth(
+          spaceId,
+          currentMonth,
+          controller.signal,
         );
-        if (res.ok) {
-          const json = await res.json();
-          if (active && json && Array.isArray(json.days)) {
-            const map = new Map<string, CalendarDayAvailability>();
-            for (const item of json.days) {
-              map.set(item.date, item);
-            }
-            setMonthData(map);
-            if (json.time_zone) setTimeZone(json.time_zone);
-            return;
-          }
+        if (!active) return;
+        if (!result.ok) {
+          setMonthError(true);
+          notifySelection(null);
+          return;
         }
+        const map = new Map<string, CalendarDayAvailability>();
+        for (const day of result.value.days) map.set(day.date, day);
+        setMonthData(map);
+        setTimeZone(result.value.timeZone);
       } catch {
-        // Fallback gracefully: base availability
+        if (active) {
+          setMonthData(new Map());
+          setMonthError(true);
+        }
       } finally {
         if (active) setLoadingMonth(false);
       }
@@ -162,14 +188,13 @@ export function PublicBookingCalendar({
       active = false;
       controller.abort();
     };
-  }, [spaceId, currentMonth]);
+  }, [spaceId, currentMonth, notifySelection]);
 
   // Fetch authoritative intervals when startDate changes
   useEffect(() => {
-    if (!startDate) {
-      setIntervals([]);
-      return;
-    }
+    const fence = intervalFence.current;
+    const generation = fence.next();
+    if (!startDate) return;
 
     const durationDays =
       endDate && endDate >= startDate
@@ -184,18 +209,24 @@ export function PublicBookingCalendar({
         : selectedStayDays;
 
     const controller = new AbortController();
-    setLoadingIntervals(true);
 
-    publicRentalAvailability
-      .getAvailability(
-        spaceId,
-        startDate,
-        rateUnit === "hora" ? selectedStayDays : durationDays,
-        controller.signal,
-      )
+    Promise.resolve()
+      .then(() => {
+        if (!fence.isCurrent(generation)) return;
+        setLoadingIntervals(true);
+        return publicRentalAvailability.getAvailability(
+          spaceId,
+          startDate,
+          rateUnit === "hora" ? selectedStayDays : durationDays,
+          controller.signal,
+        );
+      })
       .then((result) => {
+        if (!result || !fence.isCurrent(generation)) return;
         if (!result.ok) {
           setIntervals([]);
+          setSelectedTicketId(null);
+          notifySelection(null);
           return;
         }
         setIntervals(result.value.items);
@@ -204,54 +235,54 @@ export function PublicBookingCalendar({
         }
 
         // If an interval was already selected or we can pick the first available
-        if (result.value.items.length > 0) {
-          const chosen =
-            result.value.items.find((it) => it.start_at === selectedTicketId) ??
-            result.value.items[0];
-
-          setSelectedTicketId(chosen.start_at);
-          notifySelection({
+        const selection = availabilitySelection(
+          result.value.items,
+          {
             spaceId,
             date: startDate,
             duration: rateUnit === "hora" ? selectedStayDays : durationDays,
             rateUnit,
-            startAt: chosen.start_at,
-            endAt: chosen.end_at,
-            timeZone: result.value.time_zone,
-          });
-        } else {
-          // Fallback ticket times if server has no specific interval items
-          const startIso = `${startDate}T09:00:00-03:00`;
-          const endIso =
-            endDate && endDate !== startDate
-              ? `${endDate}T19:00:00-03:00`
-              : `${startDate}T13:00:00-03:00`;
-          notifySelection({
-            spaceId,
-            date: startDate,
-            duration: rateUnit === "hora" ? selectedStayDays : durationDays,
-            rateUnit,
-            startAt: startIso,
-            endAt: endIso,
-            timeZone,
-          });
-        }
+          },
+          result.value.time_zone,
+        );
+        setSelectedTicketId(selection?.startAt ?? null);
+        notifySelection(selection);
       })
       .catch(() => {
+        if (!fence.isCurrent(generation)) return;
         setIntervals([]);
+        setSelectedTicketId(null);
+        notifySelection(null);
       })
       .finally(() => {
-        setLoadingIntervals(false);
+        if (fence.isCurrent(generation)) setLoadingIntervals(false);
       });
 
     return () => {
+      fence.next();
       controller.abort();
     };
-  }, [spaceId, startDate, endDate, selectedStayDays, rateUnit]);
+  }, [
+    spaceId,
+    startDate,
+    endDate,
+    selectedStayDays,
+    rateUnit,
+    notifySelection,
+  ]);
+
+  const invalidateIntervals = () => {
+    intervalFence.current.next();
+    setLoadingIntervals(false);
+    setIntervals([]);
+    setSelectedTicketId(null);
+    notifySelection(null);
+  };
 
   // Handle day click for Check-in / Check-out range
   const handleDayClick = (date: string) => {
     if (disabled || date < minDate || date > maxDate) return;
+    invalidateIntervals();
 
     if (!startDate || (startDate && endDate)) {
       // First click: sets start date, clears end date
@@ -273,6 +304,7 @@ export function PublicBookingCalendar({
 
   // Handle stay pills: "1 día", "2 días", "3 días", "1 semana"
   const handleStayPill = (days: number) => {
+    invalidateIntervals();
     setSelectedStayDays(days);
     if (startDate) {
       try {
@@ -286,8 +318,6 @@ export function PublicBookingCalendar({
 
   // Build grid days
   const grid = useMemo(() => monthDays(currentMonth), [currentMonth]);
-
-  const compactPriceStr = formatCompactPrice(basePriceCLP);
 
   // Tickets representation
   const tickets = useMemo(() => {
@@ -323,40 +353,8 @@ export function PublicBookingCalendar({
       });
     }
 
-    // Default hotel / space ticket options when no intervals
-    return [
-      {
-        id: "ticket-morning",
-        symbol: "●",
-        symbolColor: "text-emerald-500",
-        title: "Mañana · 09:00 a 13:00",
-        interval: {
-          start_at: `${startDate}T09:00:00-03:00`,
-          end_at: `${startDate}T13:00:00-03:00`,
-        },
-      },
-      {
-        id: "ticket-afternoon",
-        symbol: "●",
-        symbolColor: "text-emerald-500",
-        title: "Tarde · 14:00 a 19:00",
-        interval: {
-          start_at: `${startDate}T14:00:00-03:00`,
-          end_at: `${startDate}T19:00:00-03:00`,
-        },
-      },
-      {
-        id: "ticket-fullday",
-        symbol: "★",
-        symbolColor: "text-amber-500",
-        title: "Día Completo · Check-in 15:00 / Check-out 12:00",
-        interval: {
-          start_at: `${startDate}T15:00:00-03:00`,
-          end_at: `${endDate ?? addCivilDays(startDate, 1)}T12:00:00-03:00`,
-        },
-      },
-    ];
-  }, [startDate, endDate, intervals, timeZone]);
+    return [];
+  }, [startDate, intervals, timeZone]);
 
   const handleSelectTicket = (t: (typeof tickets)[number]) => {
     setSelectedTicketId(t.id);
@@ -388,6 +386,7 @@ export function PublicBookingCalendar({
   return (
     <section
       aria-labelledby={headingId}
+      aria-busy={loadingMonth}
       className="w-full min-w-0 space-y-5 rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs sm:p-6"
     >
       {/* Header with Month Navigation */}
@@ -411,7 +410,13 @@ export function PublicBookingCalendar({
             disabled={disabled || !shiftMonth(currentMonth, -1)}
             onClick={() => {
               const prev = shiftMonth(currentMonth, -1);
-              if (prev) setCurrentMonth(prev);
+              if (prev) {
+                invalidateIntervals();
+                setMonthData(new Map());
+                setStartDate(null);
+                setEndDate(null);
+                setCurrentMonth(prev);
+              }
             }}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
           >
@@ -423,7 +428,13 @@ export function PublicBookingCalendar({
             disabled={disabled || !shiftMonth(currentMonth, 1)}
             onClick={() => {
               const next = shiftMonth(currentMonth, 1);
-              if (next) setCurrentMonth(next);
+              if (next) {
+                invalidateIntervals();
+                setMonthData(new Map());
+                setStartDate(null);
+                setEndDate(null);
+                setCurrentMonth(next);
+              }
             }}
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-100 disabled:opacity-40 transition-colors"
           >
@@ -493,7 +504,11 @@ export function PublicBookingCalendar({
             const dayAvail = monthData.get(date);
             const isOutsideRange = date < minDate || date > maxDate;
             const isBlocked =
-              isOutsideRange || dayAvail?.status === "unavailable";
+              isOutsideRange ||
+              !dayAvail ||
+              monthError ||
+              dayAvail.status === "unavailable" ||
+              dayAvail.status === "outside_horizon";
             const isPartial = dayAvail?.status === "partial";
 
             // Terracotta continuous selection band logic
@@ -501,10 +516,7 @@ export function PublicBookingCalendar({
             const isEnd = endDate === date;
             const isSingle = isStart && (!endDate || endDate === startDate);
             const isIntermediate =
-              startDate &&
-              endDate &&
-              date > startDate &&
-              date < endDate;
+              startDate && endDate && date > startDate && date < endDate;
             const isSelected = isStart || isEnd || isIntermediate;
 
             // Compute styling
@@ -534,11 +546,10 @@ export function PublicBookingCalendar({
                 "bg-white border border-neutral-200 text-neutral-900 rounded-lg hover:border-[#A83820]/40 hover:bg-neutral-50/50 ";
             }
 
-            const priceDisplay = isBlocked
-              ? "-"
-              : dayAvail?.price
-                ? formatCompactPrice(dayAvail.price)
-                : compactPriceStr;
+            const priceDisplay =
+              isBlocked || !dayAvail
+                ? "-"
+                : formatCompactPrice(dayAvail.price ?? null);
 
             return (
               <div key={date} className="px-0.5">
@@ -575,9 +586,7 @@ export function PublicBookingCalendar({
                     , {localDateLabel(date)}
                     {dayAvail
                       ? `, ${dayAvail.status}`
-                      : isBlocked
-                        ? ", No disponible"
-                        : ", Sin información"}
+                      : ", Disponibilidad no confirmada"}
                     {isSelected ? ", seleccionado" : ""}
                   </span>
                 </button>
@@ -586,6 +595,12 @@ export function PublicBookingCalendar({
           })}
         </div>
       </div>
+
+      {monthError && (
+        <p role="alert" className="break-words text-sm text-red-800">
+          No se pudo cargar la disponibilidad de este mes. Inténtalo de nuevo.
+        </p>
+      )}
 
       {/* Chromatic Legend with Circles */}
       <div className="flex flex-wrap items-center justify-between gap-y-2 border-t border-neutral-100 pt-3 text-xs text-neutral-600">

@@ -276,6 +276,20 @@ func run() error {
 		if err != nil {
 			return errors.New("local document verification initialization failed")
 		}
+		commercialQuoteRepository, err = rentalflowpg.NewRepository(pool, pool, time.Now)
+		if err != nil {
+			return errors.New("public rental availability persistence initialization failed")
+		}
+		publicAvailabilityService, serviceErr := rentalflow.NewAvailabilityService(commercialQuoteRepository, commercialQuoteRepository, time.Now)
+		if serviceErr != nil {
+			return errors.New("public rental availability initialization failed")
+		}
+		publicAvailabilityHandler := rentalflowhttp.New(nil, publicAvailabilityService, nil, nil, cfg.allowedOrigins)
+		if !commercialFlowEnabled {
+			if err := mountPublicRentalAvailabilityRoute(mux, publicAvailabilityHandler); err != nil {
+				return errors.New("public rental availability route registration failed")
+			}
+		}
 		if commercialFlowEnabled {
 			declarationKeys, keyringErr := loadRentalContractDeclarationKeyring(os.Getenv)
 			if keyringErr != nil {
@@ -473,6 +487,7 @@ func run() error {
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		registerPublicSpaceMonthRoute(mux, spacesHandler)
 		ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
 		ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(service, ownerWeeklyHoursService, cfg.allowedOrigins)
 		registerOwnerWeeklyHoursRoutes(mux, ownerWeeklyHoursHandler)

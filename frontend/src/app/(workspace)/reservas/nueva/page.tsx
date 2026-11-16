@@ -90,6 +90,11 @@ export default async function NuevaReservaPage({
             defaultRateUnit={selection.rateUnit}
             initialStartDate={selection.startAt}
             initialDurationUnits={selection.duration}
+            authoritativeInterval={{
+              startAt: selection.startAt,
+              endAt: selection.endAt,
+              timeZone: selection.timeZone,
+            }}
           />
         </div>
         <nav

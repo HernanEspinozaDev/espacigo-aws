@@ -86,12 +86,19 @@ func (r *Repository) IntervalAvailable(ctx context.Context, listing rentalflow.L
 	if r == nil || ctx == nil || strings.TrimSpace(listing.ID) == "" {
 		return false, rentalflow.ErrInvalid
 	}
+	policy, err := r.readCalendarRestrictions(ctx, listing, interval.StartAt, interval.EndAt)
+	if err != nil {
+		return false, err
+	}
+	if !policy.allows(listing, interval) {
+		return false, nil
+	}
 	const q = `SELECT NOT EXISTS (
     SELECT 1 FROM public.ocupacion
     WHERE espacio_id = $1 AND activo AND intervalo && tstzrange($2, $3, '[)')
 )`
 	var available bool
-	err := r.db.QueryRow(ctx, q, listing.ID, interval.StartAt, interval.EndAt).Scan(&available)
+	err = r.db.QueryRow(ctx, q, listing.ID, interval.StartAt, interval.EndAt).Scan(&available)
 	if err != nil {
 		return false, err
 	}
@@ -197,7 +204,29 @@ FROM available`
 	for i := range availableStarts {
 		available = append(available, rentalflow.Interval{StartAt: availableStarts[i], EndAt: availableEnds[i]})
 	}
-	return available, nil
+	if len(available) == 0 {
+		return available, nil
+	}
+	first, last := available[0].StartAt, available[0].EndAt
+	for _, interval := range available {
+		if interval.StartAt.Before(first) {
+			first = interval.StartAt
+		}
+		if interval.EndAt.After(last) {
+			last = interval.EndAt
+		}
+	}
+	policy, err := r.readCalendarRestrictions(ctx, listing, first, last)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]rentalflow.Interval, 0, len(available))
+	for _, interval := range available {
+		if policy.allows(listing, interval) {
+			filtered = append(filtered, interval)
+		}
+	}
+	return filtered, nil
 }
 
 func (r *Repository) CreateValidatedQuote(

@@ -37,7 +37,7 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 	err = r.pool.QueryRow(ctx, `
 		SELECT estado, zona_horaria, modalidad_tarifa, precio_base_clp
 		FROM public.espacio
-		WHERE id = $1
+		WHERE id = $1 AND estado='activa'
 	`, spaceID).Scan(&estado, &zonePtr, &rateUnit, &precioBaseCLP)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -45,7 +45,7 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		}
 		return spaces.MonthlyAvailability{}, err
 	}
-	if estado == "eliminada" {
+	if estado != "activa" {
 		return spaces.MonthlyAvailability{}, spaces.ErrNotFound
 	}
 
@@ -55,7 +55,7 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 	}
 	loc, err := time.LoadLocation(timeZone)
 	if err != nil {
-		loc = time.FixedZone("CLT", -3*3600)
+		return spaces.MonthlyAvailability{}, fmt.Errorf("invalid space timezone %q: %w", timeZone, err)
 	}
 
 	rule := spaces.AvailabilityRule{
@@ -109,6 +109,8 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		if estMax != nil && *estMax > 0 {
 			rule.EstadiaMaxima = int(*estMax)
 		}
+	} else if !errors.Is(ruleErr, pgx.ErrNoRows) {
+		return spaces.MonthlyAvailability{}, ruleErr
 	}
 
 	monthStart := time.Date(year, time.Month(m), 1, 0, 0, 0, 0, loc)
@@ -123,15 +125,22 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		FROM public.espacio_calendario_override
 		WHERE espacio_id = $1 AND fecha >= $2::date AND fecha <= $3::date
 	`, spaceID, monthStartDate, monthEndDate)
-	if err == nil {
+	if err != nil {
+		return spaces.MonthlyAvailability{}, err
+	}
+	{
 		defer ovRows.Close()
 		for ovRows.Next() {
 			var ov spaces.CalendarOverride
 			var fechaStr string
-			if err := ovRows.Scan(&fechaStr, &ov.Estado, &ov.TarifaPersonalizadaCLP, &ov.Motivo); err == nil {
-				ov.Fecha = fechaStr
-				overridesMap[fechaStr] = ov
+			if err := ovRows.Scan(&fechaStr, &ov.Estado, &ov.TarifaPersonalizadaCLP, &ov.Motivo); err != nil {
+				return spaces.MonthlyAvailability{}, err
 			}
+			ov.Fecha = fechaStr
+			overridesMap[fechaStr] = ov
+		}
+		if err := ovRows.Err(); err != nil {
+			return spaces.MonthlyAvailability{}, err
 		}
 	}
 
@@ -142,13 +151,20 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		WHERE espacio_id = $1 AND activo = true
 		  AND intervalo && tstzrange($2, $3, '[)')
 	`, spaceID, monthStart, monthEnd)
-	if err == nil {
+	if err != nil {
+		return spaces.MonthlyAvailability{}, err
+	}
+	{
 		defer occRows.Close()
 		for occRows.Next() {
 			var occ occItem
-			if err := occRows.Scan(&occ.start, &occ.end); err == nil {
-				occupancies = append(occupancies, occ)
+			if err := occRows.Scan(&occ.start, &occ.end); err != nil {
+				return spaces.MonthlyAvailability{}, err
 			}
+			occupancies = append(occupancies, occ)
+		}
+		if err := occRows.Err(); err != nil {
+			return spaces.MonthlyAvailability{}, err
 		}
 	}
 
@@ -279,13 +295,14 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 
 	var currentZone *string
 	var estado string
+	var currentUpdatedAt time.Time
 	var currentBasePrice int64
 	err = tx.QueryRow(ctx, `
-		SELECT zona_horaria, estado, precio_base_clp
+		SELECT zona_horaria, estado, precio_base_clp, actualizado_en
 		FROM public.espacio
 		WHERE id = $1 AND propietario_id = $2
 		FOR UPDATE
-	`, spaceID, owner).Scan(&currentZone, &estado, &currentBasePrice)
+	`, spaceID, owner).Scan(&currentZone, &estado, &currentBasePrice, &currentUpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return spaces.AvailabilityRule{}, "", spaces.ErrNotFound
@@ -294,6 +311,9 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 	}
 	if estado == "eliminada" {
 		return spaces.AvailabilityRule{}, "", spaces.ErrNotFound
+	}
+	if in.ExpectedUpdatedAt.IsZero() || !currentUpdatedAt.Equal(in.ExpectedUpdatedAt.UTC()) {
+		return spaces.AvailabilityRule{}, "", spaces.ErrPreconditionFailed
 	}
 
 	timeZone := "America/Santiago"
@@ -306,14 +326,19 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 		if _, err := time.LoadLocation(newZone); err != nil {
 			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
 		}
+		if currentZone != nil && strings.TrimSpace(*currentZone) != "" && estado != "borrador" && newZone != strings.TrimSpace(*currentZone) {
+			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
+		}
 		timeZone = newZone
-		_, err = tx.Exec(ctx, `
-			UPDATE public.espacio
-			SET zona_horaria = $1, actualizado_en = now()
-			WHERE id = $2
-		`, newZone, spaceID)
-		if err != nil {
-			return spaces.AvailabilityRule{}, "", err
+		if currentZone == nil || newZone != strings.TrimSpace(*currentZone) {
+			_, err = tx.Exec(ctx, `
+				UPDATE public.espacio
+				SET zona_horaria = $1, actualizado_en = now()
+				WHERE id = $2
+			`, newZone, spaceID)
+			if err != nil {
+				return spaces.AvailabilityRule{}, "", err
+			}
 		}
 	}
 
@@ -388,7 +413,8 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 	}
 
 	for _, ov := range in.Overrides {
-		if len(ov.Fecha) != 10 || ov.Fecha[4] != '-' || ov.Fecha[7] != '-' {
+		date, dateErr := time.Parse("2006-01-02", ov.Fecha)
+		if dateErr != nil || date.Format("2006-01-02") != ov.Fecha {
 			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
 		}
 		if ov.Estado != "disponible" && ov.Estado != "bloqueado" && ov.Estado != "mantenimiento" {
@@ -466,6 +492,19 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 			resRule.EstadiaMaxima = int(*estMax)
 		}
 		resRule.ActualizadoEn = actEn
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.AvailabilityRule{}, "", err
+	}
+
+	// Inventory and overrides share the space revision with the other owner
+	// editors. A rule timestamp is not a valid space ETag, especially when only
+	// an override changed. The row stays locked from the CAS comparison above.
+	err = tx.QueryRow(ctx, `UPDATE public.espacio
+		SET actualizado_en = GREATEST(clock_timestamp(), actualizado_en + interval '1 microsecond')
+		WHERE id = $1 AND propietario_id = $2
+		RETURNING actualizado_en`, spaceID, owner).Scan(&resRule.ActualizadoEn)
+	if err != nil {
+		return spaces.AvailabilityRule{}, "", err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

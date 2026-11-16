@@ -1,6 +1,12 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import type {
+  CalendarConfiguration,
+  CalendarInventoryUpdate,
+} from "../domain/calendar-configuration";
+import type { CalendarConfigurationController } from "../application/calendar-configuration-controller";
+import { useHostCalendarConfiguration } from "./use-host-calendar-configuration";
 import {
   monthDays,
   shiftMonth,
@@ -22,6 +28,7 @@ export interface HostAvailabilityCalendarProps {
 
 interface CustomDateOverride {
   blocked: boolean;
+  state?: "disponible" | "bloqueado" | "mantenimiento";
   specialRateCLP?: number;
 }
 
@@ -44,7 +51,51 @@ function currentMonthISO(): string {
   return `${y}-${m}`;
 }
 
-export function HostAvailabilityCalendar({
+export function HostAvailabilityCalendar(props: HostAvailabilityCalendarProps) {
+  const { controller, state } = useHostCalendarConfiguration(props.spaceId);
+  if (props.spaceId && state.phase !== "ready") {
+    return (
+      <div
+        role="status"
+        className="break-words rounded-2xl border border-neutral-200 bg-white p-5 text-sm text-neutral-700"
+      >
+        {state.phase === "needs_refresh"
+          ? state.message
+          : state.phase === "error"
+            ? state.message
+            : "Cargando configuración del calendario…"}
+        {(state.phase === "needs_refresh" || state.phase === "error") &&
+          controller && (
+            <button
+              type="button"
+              className="ml-2 underline"
+              onClick={() => void controller.refresh()}
+            >
+              Actualizar para verificar
+            </button>
+          )}
+      </div>
+    );
+  }
+  return (
+    <>
+      {state.message && (
+        <p role="status" className="break-words text-sm">
+          {state.message}
+        </p>
+      )}
+      <HostAvailabilityCalendarEditor
+        key={state.read?.etag ?? "draft"}
+        {...props}
+        controller={controller}
+        configuration={state.read?.configuration ?? null}
+        phase={state.phase}
+      />
+    </>
+  );
+}
+
+function HostAvailabilityCalendarEditor({
   spaceId,
   rateUnit = "hora",
   basePriceCLP,
@@ -52,18 +103,42 @@ export function HostAvailabilityCalendar({
   onScheduleChange,
   initialSlots = [],
   disabled = false,
-}: HostAvailabilityCalendarProps) {
+  controller,
+  configuration,
+  phase,
+}: HostAvailabilityCalendarProps & {
+  controller: CalendarConfigurationController | null;
+  configuration: CalendarConfiguration | null;
+  phase: string;
+}) {
   const headingId = useId();
 
   // 1. Quick Base Schedule Configurator State
   const [activeDays, setActiveDays] = useState<Set<number>>(
-    () => new Set([1, 2, 3, 4, 5]), // Default: Mon-Fri
+    () =>
+      new Set(
+        configuration?.rule.dias_operacion ??
+          (initialSlots.length
+            ? initialSlots.map((slot) =>
+                slot.day_of_week === 0 ? 7 : slot.day_of_week,
+              )
+            : [1, 2, 3, 4, 5]),
+      ),
   );
-  const [openTime, setOpenTime] = useState<string>(
-    rateUnit === "dia" ? "15:00" : "09:00",
+  const [openTime, setOpenTime] = useState<string>(() =>
+    configuration
+      ? rateUnit === "dia"
+        ? configuration.rule.check_in_hora
+        : configuration.rule.hora_apertura
+      : (initialSlots[0]?.start_time ??
+        (rateUnit === "dia" ? "15:00" : "09:00")),
   );
-  const [closeTime, setCloseTime] = useState<string>(
-    rateUnit === "dia" ? "12:00" : "20:00",
+  const [closeTime, setCloseTime] = useState<string>(() =>
+    configuration
+      ? rateUnit === "dia"
+        ? configuration.rule.check_out_hora
+        : configuration.rule.hora_cierre
+      : (initialSlots[0]?.end_time ?? (rateUnit === "dia" ? "12:00" : "20:00")),
   );
   const [ruleAppliedFeedback, setRuleAppliedFeedback] = useState<string | null>(
     null,
@@ -75,15 +150,36 @@ export function HostAvailabilityCalendar({
   const [isDragging, setIsDragging] = useState(false);
   const [dateOverrides, setDateOverrides] = useState<
     Map<string, CustomDateOverride>
-  >(new Map());
+  >(
+    () =>
+      new Map(
+        (configuration?.overrides ?? []).map((override) => [
+          override.fecha,
+          {
+            blocked: override.estado !== "disponible",
+            state: override.estado,
+            ...(override.tarifa_personalizada_clp !== undefined
+              ? { specialRateCLP: override.tarifa_personalizada_clp }
+              : {}),
+          },
+        ]),
+      ),
+  );
   const [specialRateInput, setSpecialRateInput] = useState<string>("");
+  const [baseRate, setBaseRate] = useState(
+    String(configuration?.rule.tarifa_base_dia ?? basePriceCLP ?? ""),
+  );
+  const [minimumStay, setMinimumStay] = useState(
+    String(configuration?.rule.estadia_minima ?? 1),
+  );
+  const [maximumStay, setMaximumStay] = useState(
+    String(configuration?.rule.estadia_maxima ?? 30),
+  );
+  const [validationMessage, setValidationMessage] = useState<string | null>(
+    null,
+  );
 
   // 3. API Sync State
-  const [savingServer, setSavingServer] = useState(false);
-  const [serverMessage, setServerMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
 
   // Toggle active days [L] [M] [X] [J] [V] [S] [D]
   const toggleDay = (day: number) => {
@@ -111,9 +207,9 @@ export function HostAvailabilityCalendar({
       });
     }
 
-    onScheduleChange?.(slots);
+    if (rateUnit === "hora") onScheduleChange?.(slots);
     setRuleAppliedFeedback(
-      `¡Regla base aplicada exitosamente a ${sortedDays.length} días de la semana (${openTime} a ${closeTime})!`,
+      `Regla preparada para ${sortedDays.length} días (${openTime} a ${closeTime}). Guarda para persistirla.`,
     );
     setTimeout(() => {
       setRuleAppliedFeedback(null);
@@ -150,7 +246,7 @@ export function HostAvailabilityCalendar({
       const next = new Map(prev);
       for (const d of selectedDates) {
         const existing = next.get(d) ?? { blocked: false };
-        next.set(d, { ...existing, blocked: true });
+        next.set(d, { ...existing, blocked: true, state: "mantenimiento" });
       }
       return next;
     });
@@ -163,9 +259,7 @@ export function HostAvailabilityCalendar({
       const next = new Map(prev);
       for (const d of selectedDates) {
         const existing = next.get(d);
-        if (existing) {
-          next.set(d, { ...existing, blocked: false });
-        }
+        next.set(d, { ...existing, blocked: false, state: "disponible" });
       }
       return next;
     });
@@ -200,47 +294,59 @@ export function HostAvailabilityCalendar({
 
   // Save to backend: PUT /api/v1/spaces/{spaceId}/availability
   const handleSaveToBackend = async () => {
-    if (!spaceId) {
-      setServerMessage({
-        type: "success",
-        text: "Configuración guardada localmente para la creación del espacio.",
-      });
+    if (!spaceId || !configuration || !controller) return;
+    const price = Number(baseRate),
+      minStay = Number(minimumStay),
+      maxStay = Number(maximumStay);
+    if (
+      !Number.isSafeInteger(price) ||
+      price < 1 ||
+      price > 2147483647 ||
+      !Number.isInteger(minStay) ||
+      !Number.isInteger(maxStay) ||
+      minStay < 1 ||
+      maxStay < minStay ||
+      maxStay > 32767 ||
+      !openTime ||
+      !closeTime ||
+      (rateUnit !== "dia" && openTime >= closeTime)
+    ) {
+      setValidationMessage(
+        "Revisa el precio, los horarios y los límites de estadía antes de guardar.",
+      );
       return;
     }
-
-    setSavingServer(true);
-    setServerMessage(null);
-    try {
-      const res = await fetch(`/api/v1/spaces/${encodeURIComponent(spaceId)}/availability`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          time_zone: timeZone,
-        }),
+    setValidationMessage(null);
+    const overrides = new Map(
+      configuration.overrides.map((item) => [item.fecha, item]),
+    );
+    for (const [date, draft] of dateOverrides) {
+      const previous = overrides.get(date);
+      overrides.set(date, {
+        fecha: date,
+        estado: draft.state ?? (draft.blocked ? "mantenimiento" : "disponible"),
+        ...(draft.specialRateCLP
+          ? { tarifa_personalizada_clp: draft.specialRateCLP }
+          : previous?.tarifa_personalizada_clp
+            ? { tarifa_personalizada_clp: previous.tarifa_personalizada_clp }
+            : {}),
+        ...(previous?.motivo ? { motivo: previous.motivo } : {}),
       });
-
-      if (res.ok) {
-        setServerMessage({
-          type: "success",
-          text: "Disponibilidad sincronizada con éxito en el servidor.",
-        });
-      } else {
-        setServerMessage({
-          type: "error",
-          text: "No se pudo sincronizar la disponibilidad con el servidor.",
-        });
-      }
-    } catch {
-      setServerMessage({
-        type: "error",
-        text: "Error de red al conectar con el servidor de disponibilidad.",
-      });
-    } finally {
-      setSavingServer(false);
     }
+    const rule = configuration.rule;
+    const payload: CalendarInventoryUpdate = {
+      time_zone: configuration.time_zone,
+      dias_operacion: [...activeDays].sort((a, b) => a - b),
+      hora_apertura: rateUnit === "dia" ? rule.hora_apertura : openTime,
+      hora_cierre: rateUnit === "dia" ? rule.hora_cierre : closeTime,
+      check_in_hora: rateUnit === "dia" ? openTime : rule.check_in_hora,
+      check_out_hora: rateUnit === "dia" ? closeTime : rule.check_out_hora,
+      tarifa_base_dia: price,
+      estadia_minima: minStay,
+      estadia_maxima: maxStay,
+      overrides: [...overrides.values()],
+    };
+    await controller.save(payload);
   };
 
   const grid = useMemo(() => monthDays(month), [month]);
@@ -283,7 +389,7 @@ export function HostAvailabilityCalendar({
             Regla de Horario Base (Días y Horarios Habituales)
           </span>
           <span className="text-xs font-medium text-neutral-500">
-            Zona: {timeZone}
+            Zona: {configuration?.time_zone ?? timeZone}
           </span>
         </div>
 
@@ -319,11 +425,15 @@ export function HostAvailabilityCalendar({
         {/* Opening / Closing times */}
         <div className="grid grid-cols-2 gap-3 max-w-sm">
           <div>
-            <label className="text-xs font-medium text-neutral-600 block mb-1">
+            <label
+              htmlFor={`${headingId}-open`}
+              className="text-xs font-medium text-neutral-600 block mb-1"
+            >
               {rateUnit === "dia" ? "Check-in" : "Hora apertura"}
             </label>
             <input
               type="time"
+              id={`${headingId}-open`}
               value={openTime}
               disabled={disabled}
               onChange={(e) => setOpenTime(e.target.value)}
@@ -331,11 +441,15 @@ export function HostAvailabilityCalendar({
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-neutral-600 block mb-1">
+            <label
+              htmlFor={`${headingId}-close`}
+              className="text-xs font-medium text-neutral-600 block mb-1"
+            >
               {rateUnit === "dia" ? "Check-out" : "Hora cierre"}
             </label>
             <input
               type="time"
+              id={`${headingId}-close`}
               value={closeTime}
               disabled={disabled}
               onChange={(e) => setCloseTime(e.target.value)}
@@ -344,6 +458,68 @@ export function HostAvailabilityCalendar({
           </div>
         </div>
 
+        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+          <label
+            className="min-w-0 break-words text-xs"
+            htmlFor={`${headingId}-base-rate`}
+          >
+            Tarifa base del calendario (CLP)
+            <input
+              id={`${headingId}-base-rate`}
+              type="number"
+              min={1}
+              max={2147483647}
+              step={1}
+              value={baseRate}
+              onChange={(event) => setBaseRate(event.target.value)}
+              disabled={disabled}
+              className="mt-1 w-full min-w-0 rounded-lg border p-2"
+            />
+          </label>
+          <label
+            className="min-w-0 break-words text-xs"
+            htmlFor={`${headingId}-min-stay`}
+          >
+            Estadía mínima
+            <input
+              id={`${headingId}-min-stay`}
+              type="number"
+              min={1}
+              max={32767}
+              step={1}
+              value={minimumStay}
+              onChange={(event) => setMinimumStay(event.target.value)}
+              disabled={disabled}
+              className="mt-1 w-full min-w-0 rounded-lg border p-2"
+            />
+          </label>
+          <label
+            className="min-w-0 break-words text-xs"
+            htmlFor={`${headingId}-max-stay`}
+          >
+            Estadía máxima
+            <input
+              id={`${headingId}-max-stay`}
+              type="number"
+              min={1}
+              max={32767}
+              step={1}
+              value={maximumStay}
+              onChange={(event) => setMaximumStay(event.target.value)}
+              disabled={disabled}
+              className="mt-1 w-full min-w-0 rounded-lg border p-2"
+            />
+          </label>
+        </div>
+        <p className="break-words text-xs text-neutral-600">
+          Los precios del calendario no constituyen una cotización ni modifican
+          por sí solos la tarifa comercial.
+        </p>
+        {validationMessage && (
+          <p role="alert" className="break-words text-sm text-red-800">
+            {validationMessage}
+          </p>
+        )}
         {/* 1-Click Button */}
         <div>
           <button
@@ -470,8 +646,7 @@ export function HostAvailabilityCalendar({
                   cellBg =
                     "bg-neutral-100 border-neutral-300 text-neutral-400 opacity-60 ";
                 } else if (specialRate) {
-                  cellBg =
-                    "bg-amber-50 border-amber-300 text-neutral-900 ";
+                  cellBg = "bg-amber-50 border-amber-300 text-neutral-900 ";
                 }
                 if (isSelected) {
                   cellBg =
@@ -483,6 +658,8 @@ export function HostAvailabilityCalendar({
                     key={date}
                     type="button"
                     disabled={disabled}
+                    aria-label={`${localDateLabel(date)}${isBlocked ? ", bloqueada" : ""}`}
+                    aria-pressed={isSelected}
                     onClick={() => handleDateClick(date)}
                     onMouseEnter={() => handleMouseEnterDate(date)}
                     className={`relative flex h-12 w-full flex-col items-center justify-center rounded-lg p-0.5 text-xs transition-all ${cellBg}`}
@@ -495,7 +672,11 @@ export function HostAvailabilityCalendar({
                         ? "Bloq."
                         : specialRate
                           ? formatCompactPrice(specialRate)
-                          : formatCompactPrice(basePriceCLP ?? null)}
+                          : formatCompactPrice(
+                              configuration?.rule.tarifa_base_dia ??
+                                basePriceCLP ??
+                                null,
+                            )}
                     </span>
                     {isSelected && (
                       <span
@@ -550,12 +731,18 @@ export function HostAvailabilityCalendar({
 
                 {/* Special Tariff Input */}
                 <div className="border-t border-neutral-200 pt-3 space-y-2">
-                  <label className="text-xs font-medium text-neutral-700 block">
+                  <label
+                    htmlFor={`${headingId}-special`}
+                    className="text-xs font-medium text-neutral-700 block"
+                  >
                     Asignar tarifa especial por día:
                   </label>
                   <div className="flex gap-2">
                     <input
                       type="number"
+                      id={`${headingId}-special`}
+                      min={1}
+                      step={1}
                       placeholder="Ej. 55000"
                       value={specialRateInput}
                       disabled={disabled}
@@ -579,26 +766,33 @@ export function HostAvailabilityCalendar({
             <div className="border-t border-neutral-200 pt-3">
               <button
                 type="button"
-                disabled={disabled || savingServer}
+                disabled={disabled || !spaceId || phase !== "ready"}
                 onClick={handleSaveToBackend}
                 className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 disabled:opacity-50 transition-colors"
               >
-                {savingServer
-                  ? "Sincronizando con servidor..."
-                  : "Guardar disponibilidad en servidor"}
+                {!spaceId
+                  ? "Crear el espacio primero para guardar"
+                  : phase === "saving"
+                    ? "Guardando y verificando..."
+                    : "Guardar disponibilidad en servidor"}
               </button>
-              {serverMessage && (
+              {!spaceId ? (
                 <p
                   role="status"
-                  className={`mt-2 text-xs font-medium rounded-md p-2 border ${
-                    serverMessage.type === "success"
-                      ? "text-emerald-800 bg-emerald-50 border-emerald-200"
-                      : "text-red-800 bg-red-50 border-red-200"
-                  }`}
+                  className="mt-2 break-words text-xs text-amber-800"
                 >
-                  {serverMessage.text}
+                  El calendario del asistente no se persiste aquí; crea primero
+                  el espacio.
                 </p>
-              )}
+              ) : phase === "needs_refresh" ? (
+                <p
+                  role="alert"
+                  className="mt-2 break-words text-xs text-red-800"
+                >
+                  No se confirmó el resultado. Actualiza manualmente antes de
+                  volver a guardar.
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

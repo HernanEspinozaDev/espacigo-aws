@@ -36,16 +36,17 @@ type CalendarOverrideInput struct {
 }
 
 type AvailabilityUpdateInput struct {
-	TimeZone      *string                 `json:"time_zone,omitempty"`
-	DiasOperacion []int                   `json:"dias_operacion,omitempty"`
-	HoraApertura  *string                 `json:"hora_apertura,omitempty"`
-	HoraCierre    *string                 `json:"hora_cierre,omitempty"`
-	CheckInHora   *string                 `json:"check_in_hora,omitempty"`
-	CheckOutHora  *string                 `json:"check_out_hora,omitempty"`
-	TarifaBaseDia *int                    `json:"tarifa_base_dia,omitempty"`
-	EstadiaMinima *int                    `json:"estadia_minima,omitempty"`
-	EstadiaMaxima *int                    `json:"estadia_maxima,omitempty"`
-	Overrides     []CalendarOverrideInput `json:"overrides,omitempty"`
+	ExpectedUpdatedAt time.Time               `json:"-"`
+	TimeZone          *string                 `json:"time_zone,omitempty"`
+	DiasOperacion     []int                   `json:"dias_operacion,omitempty"`
+	HoraApertura      *string                 `json:"hora_apertura,omitempty"`
+	HoraCierre        *string                 `json:"hora_cierre,omitempty"`
+	CheckInHora       *string                 `json:"check_in_hora,omitempty"`
+	CheckOutHora      *string                 `json:"check_out_hora,omitempty"`
+	TarifaBaseDia     *int                    `json:"tarifa_base_dia,omitempty"`
+	EstadiaMinima     *int                    `json:"estadia_minima,omitempty"`
+	EstadiaMaxima     *int                    `json:"estadia_maxima,omitempty"`
+	Overrides         []CalendarOverrideInput `json:"overrides,omitempty"`
 }
 
 type SlotAvailability struct {

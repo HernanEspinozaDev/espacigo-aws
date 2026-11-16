@@ -302,3 +302,45 @@ Estado, límites de integración y pruebas: [ejecución y matriz de aceptación]
 - [x] **Garantía y Aprobación de Anfitrión**: `POST /.../guarantee` autoriza el monto de garantía y `POST /.../decision` con `decision: "aprobar"` transiciona el estado a `aprobada_host`.
 - [x] **Contratos Sintéticos y Doble Firma**: Generación automática de contrato, firma digital de ambas partes (`POST /.../contracts/{id}/sign`), pasando a `firmado` y la reserva a `lista_para_checkin`.
 - [x] **Descarga de PDF y Mensajería**: Generación y descarga directa de `contrato-ensayo-sintetico.pdf` (`GET /.../contracts/{id}/document`) y comunicación bidireccional en `/messages` auditada en PostgreSQL 18.
+
+---
+
+## Addendum de estado real y trazabilidad — 2026-11-16
+
+**Estado vigente posterior:** consultar «Verificación del padre: selección y handoff» en [auditoría trazable](auditoria_arriendos_calendarios_20261116.md). Sustituye los bloqueos históricos de mes/BFF, intervalos no montados y CTA sin selección; conserva los pendientes de precio variable, edición host y ciclo persistido.
+
+Este addendum preserva el roadmap y los checkboxes históricos; no certifica por sí solo cierre end-to-end. Las afirmaciones históricas de «completo», «validado end-to-end» o equivalentes describen el corte/prueba que las originó, no el estado actual de todos los canales. Para el estado contrastado y la evidencia con fecha, véase [auditoría trazable](auditoria_arriendos_calendarios_20261116.md).
+
+### Matriz de aceptación actual
+
+| Bloque | Estado actual | Alinear Go / PostgreSQL / Next | Criterio verificable para 100% |
+|---|---|---|---|
+| Ficha pública, DTO y CTA | **Parcial** | Alinear contrato público versionado, campos minimizados y selección UI con disponibilidad real; no inventar reseñas/KYC/garantía | GET público del espacio y calendario con contrato, autorización/privacidad, DTO y UI concordantes; navegador comprueba datos reales y estados vacíos |
+| Calendario mensual público | **Con incongruencias/bugs** | No confundir el endpoint legado `/spaces/{id}/availability?month=` (Go 200) con el contrato mensual canónico: BFF hoy rechaza la query (400); Go comercial actual expone disponibilidad por fecha/duración, no esta grilla mensual. Aplicar fail-closed al calendario público canónico; asegurar que error/vacío no fabrique horas `-03:00` | Contrato OpenAPI generado, BFF acepta sólo parámetros declarados, respuestas vacías/error no se convierten en slots; prueba HTTP Go→BFF y navegador con disponibilidad, bloqueos, zona y recarga coherentes |
+| Edición del anfitrión | **Parcial** | Contrastar schedule/tramos y ocupación existentes con regla base/overrides propuestos; propietario, CAS/ETag, zona horaria y escritura batch deben ser idénticos en API/DB/UI | anfitrión autorizado persiste regla, modifica/revierte override y lee exactamente la misma versión en Postgres y calendario público; conflicto concurrente rechazado |
+| Cotización y precio | **Parcial** | El quote comercial debe usar mismos horarios, overrides, tarifa/versionado y zona que disponibilidad; snapshot inmutable; reservar la futura regla de precio a su fuente real | cambios de precio/regla entre selección y quote se rechazan o recalculan de forma explícita; detalle de CLP coincide con snapshot y DB; sin cotización desde tarifa UI fabricada |
+| Reserva/ocupación y estados posteriores | **Parcial (ensayo local), no arriendo comercial** | Distinguir flag/namespace `LOCAL_BOOKING_TRIAL` y adaptadores fake del flujo comercial protegido por `COMMERCIAL_RENTAL_FLOW_ENABLED`; trial y comercial son excluyentes | cita con evidencia de store persistente y transacción/ocupación atómica, idempotencia y lectura posterior. Pagos simulados, firmas demo, Mailpit y mocks no se llaman pago/arriendo comercial |
+| QA de usuario | **Falta construir** para cierre actual | Conectar navegación pública, edición host, calendario, quote y reserva en una sesión coherente con BFF y Go | Playwright autorizado en builds finales demuestra ambas cuentas, selección→quote→reserva→ocupación y readback; no usar tests mock como sustituto de Postgres |
+
+### Próximos tracer bullets (orden de dependencia)
+1. **Contrato público mensual:** corregir OpenAPI y BFF allowlist/query; GET canónico fail-closed, schema válido, errores no vacíos encubiertos; diferenciar endpoint legado y nuevo canónico.
+2. **Edición host:** fijar DTO/versionado, autorización de propietario, zona horaria y CAS; persistir regla semanal y overrides de bloqueo/apertura/precio en PostgreSQL, con GET de confirmación.
+3. **Quote:** usar esa misma regla/override y tarifa efectiva; congelar unidades, fechas, moneda y precio en snapshot; comparar lectura de DB y rechazo al cambiar inventario.
+4. **Reserva/ocupación:** validar quote, exclusión atómica GiST/idempotencia y actualizar lectura pública; dejar pago/firma/comercial fuera hasta gates separados.
+5. **Navegador:** journey anfitrión→publicación→calendario→selección→quote→reserva local y readback; separar explícitamente trial local de producto comercial.
+
+Las migraciones `V000085`/`V000086` descritas arriba son **propuesta histórica**. Las secuencias de migración y SQL aplicado deben derivarse del ledger/fuentes vigentes; no renumerar ni reescribir SQL ya aplicado para que coincida con esa propuesta. La auditoría indicada registra 98/98 migraciones en DB Docker local, checksums/nombres coincidentes y cero pendientes (lectura solamente).
+
+### Addendum de QA del corte mensual — 2026-11-16
+
+**CERRADO únicamente:** transporte/render del mes y lectura de día publicado sobre BFF/API en el artefacto existente, desktop 1440 px y móvil 390 px. El flujo de arriendo que describe este plan permanece **PARCIAL** en conjunto: disponibilidad mensual no equivale a quote ni a reserva; no están acreditados selección real de intervalos, edición host, persistencia de quote/reserva/ocupación ni pago comercial.
+
+En los controles de selección pública con mes vacío y error, Playwright confirmó que la CTA «Selecciona fechas en el calendario» sigue habilitada; **2 controles fallan por esa misma causa** y quedan documentados en [auditoría QA](auditoria_arriendos_calendarios_20261116.md). No cambiar producción desde este corte. La lectura de intervalos y el rango/quote están a cargo de escritores concurrentes: **PENDIENTES de resultado/revisión del padre**, no completados. Un próximo corte debe resolver CTA, repetir ambos controles y luego integrar el GET de intervalos/rango/quote bajo OpenAPI antes de preparar una selección positiva sin escrituras. No afirmar ocupación, reserva confirmada ni pago comercial.
+
+### Actualización posterior: selección y preparación verificadas — 2026-11-16
+
+**Avance posterior del anfitrión:** ver «Integración visible del calendario anfitrión» en la [auditoría](auditoria_arriendos_calendarios_20261116.md). Nuevo recurso privado, CAS atómico y gestor con carga/guardado/readback implementados; 3/3 pruebas UI con gateway simulado pasan dos veces. No equivalen a escritura PostgreSQL nativa. El alta de inventario desde el asistente, precio variable y ciclo de solicitud/ocupación siguen pendientes. Resultado frontend posterior: 681 pass, 1 skip; build, typecheck, lint y API check de 218 operaciones pasan.
+
+El bloqueo anterior de CTA queda resuelto: 4/4 pruebas mensuales pasan dos veces, incluidos vacío/error controlados. El GET de intervalos está activo en el runtime local sin activar operación comercial; 2/2 pruebas nativas desktop/móvil seleccionan un intervalo real, conservan timestamps/zona y hacen clic hasta `/reservas/nueva`, con campos de handoff bloqueados. La garantía fija sin respaldo fue retirada. `BookingQuoteCard` conserva el rango recibido y la etiqueta Ensayo; no se ejecutó POST de quote ni solicitud en este gate.
+
+Build aislado exit 0; frontend final typecheck/test/lint/api:check exit 0 (669 pass, 1 skip; 216 operaciones); Go global exit 0 (4.696 pass, 217 skip, live S3 excluido). Formato global sigue fallando en 10 archivos ajenos al corte. Evidencia, matriz vigente y límites están en [auditoría trazable](auditoria_arriendos_calendarios_20261116.md). **Plan global: Parcial.** Próximos gates: precio variable/snapshot, configuración host con readback y solicitud/ocupación/cancelación persistidas. No marcar esas etapas finalizadas por el handoff de lectura.

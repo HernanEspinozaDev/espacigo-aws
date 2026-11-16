@@ -65,3 +65,29 @@ func TestMountCommercialRentalFlowRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicAvailabilityMountDoesNotExposeCommercialRoutes(t *testing.T) {
+	mux := http.NewServeMux()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	})
+	if err := mountPublicRentalAvailabilityRoute(mux, handler); err != nil {
+		t.Fatal(err)
+	}
+	resp := httptest.NewRecorder()
+	mux.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/api/v1/spaces/x/rental-availability", nil))
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("GET status %d", resp.Code)
+	}
+	for _, path := range []string{"/api/v1/rental-quotes", "/api/v1/rental-quotes/x/contract-preview"} {
+		resp = httptest.NewRecorder()
+		mux.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, path, nil))
+		if resp.Code != http.StatusNotFound {
+			t.Fatalf("commercial route %s status %d", path, resp.Code)
+		}
+	}
+}

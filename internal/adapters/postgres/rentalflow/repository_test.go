@@ -38,6 +38,8 @@ func (m *mockRow) Scan(dest ...any) error {
 				*target = m.vals[i].([]byte)
 			case *[]time.Time:
 				*target = m.vals[i].([]time.Time)
+			case *[]int16:
+				*target = m.vals[i].([]int16)
 			case *time.Time:
 				*target = m.vals[i].(time.Time)
 			case *sql.NullString:
@@ -62,6 +64,11 @@ func (m *mockDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 	m.calls++
 	m.lastSQL = sql
 	m.lastArgs = args
+	// Existing schedule/occupancy scenarios explicitly use an unrestricted
+	// synthetic base rule; dedicated policy tests exercise restricted rules.
+	if strings.Contains(sql, "FROM public.espacio_regla_disponibilidad") {
+		return &mockRow{vals: []any{[]int16{1, 2, 3, 4, 5, 6, 7}, "00:00", "24:00", 1, 30}}
+	}
 	if len(m.queue) > 0 {
 		r := m.queue[0]
 		m.queue = m.queue[1:]
@@ -74,8 +81,12 @@ func (m *mockDB) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row 
 }
 
 func (m *mockDB) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	m.calls++
 	m.lastSQL = sql
 	m.lastArgs = args
+	if strings.Contains(sql, "FROM public.espacio_calendario_override") {
+		return &policyGuardRows{}, nil
+	}
 	return nil, nil
 }
 
@@ -143,13 +154,13 @@ func TestIntervalAvailableQueriesOccupancy(t *testing.T) {
 	start := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	avail, err := repo.IntervalAvailable(ctx, rentalflow.Listing{ID: "space-1"}, rentalflow.Interval{StartAt: start, EndAt: end})
+	avail, err := repo.IntervalAvailable(ctx, rentalflow.Listing{ID: "space-1", RateUnit: "mes", TimeZone: "UTC"}, rentalflow.Interval{StartAt: start, EndAt: end})
 	if err != nil || !avail {
 		t.Fatalf("expected available=true, got avail=%v err=%v", avail, err)
 	}
 
 	m.row = mockRow{vals: []any{false}}
-	avail, err = repo.IntervalAvailable(ctx, rentalflow.Listing{ID: "space-1"}, rentalflow.Interval{StartAt: start, EndAt: end})
+	avail, err = repo.IntervalAvailable(ctx, rentalflow.Listing{ID: "space-1", RateUnit: "mes", TimeZone: "UTC"}, rentalflow.Interval{StartAt: start, EndAt: end})
 	if err != nil || avail {
 		t.Fatalf("expected available=false, got avail=%v err=%v", avail, err)
 	}
@@ -194,8 +205,10 @@ func TestPublicIntervalsBoundsDatabaseRoundTripsPerRequest(t *testing.T) {
 	if len(got) != 48 {
 		t.Fatalf("available hourly intervals=%d, want 48", len(got))
 	}
-	if m.calls > 2 {
-		t.Fatalf("database round trips=%d, want at most 2 per request", m.calls)
+	// Weekly schedule, occupancy batch, base rule and overrides are four
+	// constant reads, not a query per candidate or per calendar day.
+	if m.calls != 4 {
+		t.Fatalf("database round trips=%d, want exactly 4 batched reads per request", m.calls)
 	}
 }
 

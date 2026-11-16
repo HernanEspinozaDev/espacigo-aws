@@ -30,21 +30,11 @@ export function AccessScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
-  const [checkingTimedOut, setCheckingTimedOut] = useState(false);
+
   const [message, setMessage] = useState("");
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (snapshot.status === "checking") {
-      const timer = setTimeout(() => {
-        setCheckingTimedOut(true);
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-    setCheckingTimedOut(false);
-  }, [snapshot.status]);
 
   useEffect(() => {
     if (!message) return;
@@ -139,59 +129,59 @@ export function AccessScreen() {
             </div>
           ) : null}
           <form className="space-y-6" onSubmit={submit}>
-          <div>
-            <Label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Correo electrónico
-            </Label>
-            <div className="mt-1">
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                disabled={pending}
-                required
-                aria-describedby="email-help"
-                className="relative block min-h-11 w-full rounded-full border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-500 focus:z-10 focus:border-orange-600 focus:outline-none focus:ring-orange-600 sm:text-sm"
-              />
+            <div>
+              <Label
+                htmlFor="email"
+                className="block text-sm font-medium text-gray-700"
+              >
+                Correo electrónico
+              </Label>
+              <div className="mt-1">
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  disabled={pending}
+                  required
+                  aria-describedby="email-help"
+                  className="relative block min-h-11 w-full rounded-full border border-gray-300 px-3 py-2 text-gray-900 placeholder:text-gray-500 focus:z-10 focus:border-orange-600 focus:outline-none focus:ring-orange-600 sm:text-sm"
+                />
+              </div>
+              <p id="email-help" className="mt-1 text-xs text-gray-600">
+                Usaremos el correo asociado a tu cuenta.
+              </p>
             </div>
-            <p id="email-help" className="mt-1 text-xs text-gray-600">
-              Usaremos el correo asociado a tu cuenta.
-            </p>
-          </div>
-          <PasswordField
-            id="password"
-            label="Contraseña"
-            autoComplete="current-password"
-            value={password}
-            onChange={setPassword}
-            disabled={pending}
-          />
-          <div className="flex justify-end">
-            <Link
-              href="/recuperar-acceso"
-              className="inline-flex min-h-11 items-center rounded-md text-sm font-medium text-orange-800 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+            <PasswordField
+              id="password"
+              label="Contraseña"
+              autoComplete="current-password"
+              value={password}
+              onChange={setPassword}
+              disabled={pending}
+            />
+            <div className="flex justify-end">
+              <Link
+                href="/recuperar-acceso"
+                className="inline-flex min-h-11 items-center rounded-md text-sm font-medium text-orange-800 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
+            <Button
+              type="submit"
+              disabled={pending || retryRemaining > 0}
+              className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
             >
-              ¿Olvidaste tu contraseña?
-            </Link>
-          </div>
-          <Button
-            type="submit"
-            disabled={pending || retryRemaining > 0}
-            className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
-          >
-            {pending ? "Conectando…" : "Iniciar sesión"}
-          </Button>
-          <p className="text-center text-xs leading-relaxed text-gray-600">
-            Tu sesión se conserva mientras esté vigente. Puedes cerrarla cuando
-            quieras.
-          </p>
-        </form>
+              {pending ? "Conectando…" : "Iniciar sesión"}
+            </Button>
+            <p className="text-center text-xs leading-relaxed text-gray-600">
+              Tu sesión se conserva mientras esté vigente. Puedes cerrarla
+              cuando quieras.
+            </p>
+          </form>
         </>
       )}
       <div className="mt-4 space-y-3">

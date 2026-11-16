@@ -6,6 +6,11 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
 import { formatBookingClp } from "./format";
 import { generateIdempotencyKey } from "../domain/booking-rules";
+import {
+  selectQuoteIntervalPayload,
+  formatIntervalInTimeZone,
+} from "../domain/quote-interval";
+import type { AuthoritativeBookingInterval } from "../domain/quote-interval";
 import type { RateUnit } from "../domain/types";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -25,6 +30,7 @@ interface BookingQuoteCardProps {
   defaultUnitPriceClp?: number;
   initialStartDate?: string;
   initialDurationUnits?: number;
+  authoritativeInterval?: AuthoritativeBookingInterval;
   onReservationCreated?: (reservationId: string) => void;
 }
 
@@ -35,6 +41,7 @@ export function BookingQuoteCard({
   defaultUnitPriceClp,
   initialStartDate,
   initialDurationUnits,
+  authoritativeInterval,
   onReservationCreated,
 }: BookingQuoteCardProps) {
   const router = useRouter();
@@ -88,24 +95,6 @@ export function BookingQuoteCard({
     clearError();
   }
 
-  // Calculate end_at based on start_at, rateUnit, and durationUnits
-  const calculateEndAt = (
-    startIso: string,
-    unit: RateUnit,
-    units: number,
-  ): string => {
-    const date = new Date(startIso);
-    if (isNaN(date.getTime())) return "";
-    if (unit === "hora") {
-      date.setHours(date.getHours() + units);
-    } else if (unit === "dia") {
-      date.setDate(date.getDate() + units);
-    } else if (unit === "mes") {
-      date.setMonth(date.getMonth() + units);
-    }
-    return date.toISOString();
-  };
-
   const handleRequestQuote = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
@@ -121,15 +110,21 @@ export function BookingQuoteCard({
       return;
     }
 
-    const startAtIso = new Date(startDate).toISOString();
-    const endAtIso = calculateEndAt(startDate, rateUnit, durationUnits);
+    const intervalPayload = selectQuoteIntervalPayload({
+      authoritative: authoritativeInterval,
+      startDate,
+      rateUnit,
+      durationUnits,
+    });
+    if (!intervalPayload) {
+      setLocalError(
+        "El intervalo seleccionado no es válido. Vuelve al calendario y selecciona nuevamente el horario.",
+      );
+      return;
+    }
 
     try {
-      await requestQuote({
-        space_id: targetSpaceId,
-        start_at: startAtIso,
-        end_at: endAtIso,
-      });
+      await requestQuote({ space_id: targetSpaceId, ...intervalPayload });
     } catch (err) {
       setLocalError(
         err instanceof Error ? err.message : "Error al calcular cotización.",
@@ -247,6 +242,7 @@ export function BookingQuoteCard({
                 setRateUnit(unit);
                 setDurationUnits(1);
               }}
+              disabled={Boolean(authoritativeInterval)}
               className="mt-1.5 w-full rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="hora">Por Hora</option>
@@ -277,6 +273,7 @@ export function BookingQuoteCard({
               onChange={(e) =>
                 setDurationUnits(Math.max(1, parseInt(e.target.value, 10) || 1))
               }
+              disabled={Boolean(authoritativeInterval)}
               required
               className="mt-1.5 w-full rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -296,6 +293,7 @@ export function BookingQuoteCard({
               type="datetime-local"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
+              disabled={Boolean(authoritativeInterval)}
               required
               className="w-full rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -306,6 +304,22 @@ export function BookingQuoteCard({
           <p className="text-xs text-muted-foreground">
             Tarifa referencial: {formatBookingClp(defaultUnitPriceClp)} CLP /{" "}
             {rateUnit}
+          </p>
+        ) : null}
+
+        {authoritativeInterval ? (
+          <p className="text-sm text-muted-foreground">
+            Intervalo seleccionado:{" "}
+            {formatIntervalInTimeZone(
+              authoritativeInterval.startAt,
+              authoritativeInterval.timeZone,
+            )}{" "}
+            –{" "}
+            {formatIntervalInTimeZone(
+              authoritativeInterval.endAt,
+              authoritativeInterval.timeZone,
+            )}{" "}
+            ({authoritativeInterval.timeZone})
           </p>
         ) : null}
 

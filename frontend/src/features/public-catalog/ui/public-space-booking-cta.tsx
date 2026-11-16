@@ -23,7 +23,6 @@ export function PublicSpaceBookingCta({
   selection,
   basePriceCLP,
   rateUnit,
-  onChooseDates,
   mobile = false,
 }: Props) {
   const href = selection ? marketplaceBookingHref(selection) : null;
@@ -73,10 +72,6 @@ export function PublicSpaceBookingCta({
               {unitPrice} x {selection.duration} = {formattedSubtotal} CLP
             </span>
           </div>
-          <div className="flex justify-between items-center">
-            <span>Garantía de arriendo:</span>
-            <span className="font-semibold text-foreground">$50.000 CLP</span>
-          </div>
         </div>
       )}
       {formattedSubtotal && (
@@ -95,7 +90,7 @@ export function PublicSpaceBookingCta({
       ) : (
         <button
           type="button"
-          onClick={onChooseDates}
+          disabled={!selection}
           className="min-h-11 min-w-0 w-full break-words [overflow-wrap:anywhere] rounded-lg bg-primary px-4 py-2 font-semibold text-primary-foreground"
         >
           Selecciona fechas en el calendario
@@ -109,4 +104,3 @@ export function PublicSpaceBookingCta({
 }
 
 export { PublicSpaceBookingCta as BookingSummaryCard };
-

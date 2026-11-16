@@ -10,44 +10,69 @@ const source = await readFile(
   "utf8",
 );
 
+const calendar = await readFile(
+  new URL(
+    "../src/features/public-catalog/ui/booking-calendar.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const selection = await readFile(
+  new URL(
+    "../src/features/public-catalog/domain/booking-calendar.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
 test("calendar exposes an optional marketplace selection callback without changing consumers", () => {
   assert.match(
     source,
     /onSelectionChange\?: \(selection: MarketplaceBookingSelection \| null\) => void/,
   );
-  assert.match(source, /selectionChange = useRef\(onSelectionChange\)/);
+  assert.match(source, /onSelectionChange=\{onSelectionChange\}/);
+  assert.doesNotMatch(source, /getAvailability\(/);
 });
 
 test("calendar emits only selected response intervals with the exact response instants and timezone", () => {
   assert.match(
-    source,
-    /if \(matchingInterval\) \{[\s\S]*?selectionChange\.current\?\.\(\{[\s\S]*?timeZone: result\.value\.time_zone/,
+    calendar,
+    /availabilitySelection\([\s\S]*?result\.value\.time_zone/,
   );
   assert.match(
-    source,
-    /startAt: it\.start_at,[\s\S]*?endAt: it\.end_at,[\s\S]*?timeZone: availabilityTimeZone/,
+    calendar,
+    /startAt: t\.interval\.start_at,[\s\S]*?endAt: t\.interval\.end_at,[\s\S]*?timeZone/,
   );
   assert.match(
-    source,
-    /if \(availabilityTimeZone\)[\s\S]{0,80}selectionChange\.current\?\.\(/,
+    selection,
+    /startAt:\s*item\.start_at,\s*endAt:\s*item\.end_at,\s*timeZone/,
+  );
+  assert.doesNotMatch(
+    calendar,
+    /ticket-morning|ticket-afternoon|T09:00:00-03:00/,
   );
 });
 
 test("date and duration changes invalidate pending callback generations synchronously", () => {
   assert.match(
-    source,
-    /const beginAvailabilityQuery = \(\) => \{\s*generation\.current \+= 1;\s*selectionChange\.current\?\.\(null\);/,
+    calendar,
+    /const invalidateIntervals = \(\) => \{\s*intervalFence\.current\.next\(\);[\s\S]*?notifySelection\(null\);/,
   );
-  assert.match(source, /if \(generation\.current !== currentOp\) return/);
+  assert.match(calendar, /handleDayClick[\s\S]{0,180}invalidateIntervals\(\)/);
+  assert.match(calendar, /handleStayPill[\s\S]{0,100}invalidateIntervals\(\)/);
+  assert.match(
+    calendar,
+    /if \(!result \|\| !fence\.isCurrent\(generation\)\) return/,
+  );
 });
 
 test("fresh availability errors and non-aborted query failures clear the emitted selection", () => {
   assert.match(
-    source,
-    /if \(!result\.ok\) \{[\s\S]*?selectionChange\.current\?\.\(null\);/,
+    calendar,
+    /if \(!result\.ok\) \{\s*setIntervals\(\[\]\);\s*setSelectedTicketId\(null\);\s*notifySelection\(null\);/,
   );
   assert.match(
-    source,
-    /\.catch\(\(\) => \{[\s\S]*?if \(controller\.signal\.aborted \|\| generation\.current !== currentOp\)\s*return;[\s\S]*?selectionChange\.current\?\.\(null\);/,
+    calendar,
+    /\.catch\(\(\) => \{\s*if \(!fence\.isCurrent\(generation\)\) return;[\s\S]*?notifySelection\(null\);/,
   );
 });

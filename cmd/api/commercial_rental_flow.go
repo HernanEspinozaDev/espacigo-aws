@@ -6,6 +6,14 @@ import (
 	"net/http"
 )
 
+func mountPublicRentalAvailabilityRoute(mux *http.ServeMux, handler http.Handler) error {
+	if mux == nil || handler == nil {
+		return errors.New("public rental availability dependencies are unavailable")
+	}
+	mux.Handle("/api/v1/spaces/{spaceID}/rental-availability", handler)
+	return nil
+}
+
 func mountCommercialRentalFlowRoutes(mux *http.ServeMux, handler http.Handler) error {
 	if mux == nil || handler == nil {
 		return errors.New("commercial rental route dependencies are unavailable")

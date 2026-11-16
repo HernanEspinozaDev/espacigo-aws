@@ -80,6 +80,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	if strings.HasPrefix(path, "/api/v1/public/spaces/") && strings.HasSuffix(path, "/month") && r.Method == http.MethodGet {
+		spaceID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/public/spaces/"), "/month")
+		values, parseErr := url.ParseQuery(r.URL.RawQuery)
+		if spaceID == "" || strings.Contains(spaceID, "/") || parseErr != nil || len(values) != 1 || len(values["month"]) != 1 {
+			failure(w, 400, "invalid_request", "Se requiere únicamente month en formato YYYY-MM.")
+			return
+		}
+		month := values.Get("month")
+		if !spaces.ValidID(spaceID) {
+			failure(w, 422, "validation_error", "ID de espacio no válido.")
+			return
+		}
+		if len(month) != 7 || month[4] != '-' {
+			failure(w, 400, "invalid_request", "El mes debe tener formato YYYY-MM.")
+			return
+		}
+		y, ey := strconv.Atoi(month[:4])
+		m, em := strconv.Atoi(month[5:])
+		if ey != nil || em != nil || y < 2000 || y > 2100 || m < 1 || m > 12 {
+			failure(w, 400, "invalid_request", "El mes debe tener formato YYYY-MM.")
+			return
+		}
+		result, err := h.service.MonthlyAvailability(r.Context(), spaceID, month)
+		if errors.Is(err, spaces.ErrNotFound) {
+			failure(w, 404, "not_found", "Espacio no encontrado.")
+			return
+		}
+		if err != nil {
+			failure(w, 500, "internal_error", "Ocurrió un error inesperado.")
+			return
+		}
+		write(w, 200, result)
+		return
+	}
 	publicationID := publicationSpaceID(path)
 	publicationContentID := publicationContentSpaceID(path)
 	requiredRole := identity.Role("")
@@ -174,6 +208,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if calendarPath {
+		if strings.HasSuffix(path, "/availability/configuration") {
+			h.serveCalendarConfiguration(w, r, path, principal.AccountID)
+			return
+		}
 		h.serveCalendar(w, r, path, principal.AccountID)
 		return
 	}
@@ -542,20 +580,25 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 
 			if hasInventory {
 				updateIn := spaces.AvailabilityUpdateInput{
-					TimeZone:      in.TimeZone,
-					DiasOperacion: in.DiasOperacion,
-					HoraApertura:  in.HoraApertura,
-					HoraCierre:    in.HoraCierre,
-					CheckInHora:   in.CheckInHora,
-					CheckOutHora:  in.CheckOutHora,
-					TarifaBaseDia: in.TarifaBaseDia,
-					EstadiaMinima: in.EstadiaMinima,
-					EstadiaMaxima: in.EstadiaMaxima,
-					Overrides:     in.Overrides,
+					ExpectedUpdatedAt: expected,
+					TimeZone:          in.TimeZone,
+					DiasOperacion:     in.DiasOperacion,
+					HoraApertura:      in.HoraApertura,
+					HoraCierre:        in.HoraCierre,
+					CheckInHora:       in.CheckInHora,
+					CheckOutHora:      in.CheckOutHora,
+					TarifaBaseDia:     in.TarifaBaseDia,
+					EstadiaMinima:     in.EstadiaMinima,
+					EstadiaMaxima:     in.EstadiaMaxima,
+					Overrides:         in.Overrides,
 				}
 				rule, zone, err := h.service.UpdateAvailability(r.Context(), owner, spaceID, updateIn)
 				if err != nil {
-					serviceError(w, err)
+					if errors.Is(err, spaces.ErrPreconditionFailed) {
+						failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+					} else {
+						serviceError(w, err)
+					}
 					return
 				}
 				w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: rule.ActualizadoEn}))

@@ -2146,6 +2146,21 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json", "image/webp"],
   },
   {
+    method: "GET",
+    path: "/public/spaces/{spaceID}/month",
+    operationId: "getPublicSpaceMonth",
+    query: [
+      {
+        name: "month",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "POST",
     path: "/rental-quotes",
     operationId: "createRentalQuote",
@@ -2301,6 +2316,26 @@ export const gatewayOperations = [
     headers: [],
     bearer: true,
     requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/spaces/{spaceId}/availability/configuration",
+    operationId: "getOwnCalendarConfiguration",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "PUT",
+    path: "/spaces/{spaceId}/availability/configuration",
+    operationId: "updateOwnCalendarConfiguration",
+    query: [],
+    headers: ["if-match"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
   },
   {

@@ -794,6 +794,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/public/spaces/{spaceID}/month": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getPublicSpaceMonth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/public/spaces/{spaceID}": {
     parameters: {
       query?: never;
@@ -2137,6 +2153,26 @@ export interface paths {
     /** @description Sirve WebP privado mediante autorización del titular en cada solicitud. Nunca expone bucket, object key ni generación. */
     get: operations["getOwnSpaceMediaVariant"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/availability/configuration": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Lee la regla de inventario y todas las excepciones del espacio propio no eliminado. Solo el titular autenticado; no es la proyección pública mensual ni la consulta de intervalos. ETag corresponde a la revisión compartida del espacio. */
+    get: operations["getOwnCalendarConfiguration"];
+    /** @description Actualiza campos de regla y hace merge de excepciones por fecha. Omitir una excepción no la elimina. Una excepción enviada sustituye sus campos, incluida la tarifa opcional. Requiere la revisión fuerte vigente del espacio en If-Match y la verifica dentro de la transacción. Devuelve ETag del espacio renovado. No cambia la tarifa comercial vigente; las tarifas especiales del calendario no acreditan por sí solas un quote. La respuesta de escritura es un acuse; leer GET configuration para confirmar el estado completo. No reintentar automáticamente. */
+    put: operations["updateOwnCalendarConfiguration"];
     post?: never;
     delete?: never;
     options?: never;
@@ -5341,6 +5377,63 @@ export interface components {
       /** @description Código de comuna dentro de region_code; enviar ambos vacíos retira la ubicación. */
       comuna_code?: string;
     };
+    CalendarInventoryOverride: {
+      /** Format: date */
+      fecha: string;
+      /** @enum {string} */
+      estado: "disponible" | "bloqueado" | "mantenimiento";
+      tarifa_personalizada_clp?: number;
+      motivo?: string;
+    };
+    CalendarInventoryUpdate: {
+      time_zone?: string;
+      dias_operacion?: number[];
+      hora_apertura?: string;
+      hora_cierre?: string;
+      check_in_hora?: string;
+      check_out_hora?: string;
+      tarifa_base_dia?: number;
+      estadia_minima?: number;
+      estadia_maxima?: number;
+      overrides?: components["schemas"]["CalendarInventoryOverride"][];
+    };
+    OwnCalendarRule: {
+      /** Format: uuid */
+      space_id: string;
+      dias_operacion: number[];
+      hora_apertura: string;
+      hora_cierre: string;
+      check_in_hora: string;
+      check_out_hora: string;
+      tarifa_base_dia: number;
+      estadia_minima: number;
+      estadia_maxima: number;
+      /** Format: date-time */
+      actualizado_en: string;
+    };
+    OwnCalendarConfiguration: {
+      /** Format: uuid */
+      space_id: string;
+      time_zone: string;
+      rule: components["schemas"]["OwnCalendarRule"];
+      overrides: components["schemas"]["CalendarInventoryOverride"][];
+      /** Format: date-time */
+      updated_at: string;
+    };
+    CalendarInventoryAcknowledgement: {
+      /** Format: uuid */
+      space_id: string;
+      time_zone: string;
+      dias_operacion?: number[];
+      hora_apertura?: string;
+      hora_cierre?: string;
+      check_in_hora?: string;
+      check_out_hora?: string;
+      tarifa_base_dia?: number;
+      estadia_minima?: number;
+      estadia_maxima?: number;
+      overrides?: components["schemas"]["CalendarInventoryOverride"][];
+    };
     AvailabilityConfig: {
       /** @description Nombre de zona horaria IANA validado en el servidor. */
       time_zone: string;
@@ -8505,6 +8598,56 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
     };
   };
+  getPublicSpaceMonth: {
+    parameters: {
+      query: {
+        month: string;
+      };
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Disponibilidad mensual de publicación activa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            month: string;
+            time_zone: string;
+            /** @enum {string} */
+            rate_unit: "hora" | "dia" | "mes";
+            /** Format: int64 */
+            base_price_clp: number | string;
+            days: {
+              /** Format: date */
+              date: string;
+              /** @enum {string} */
+              status: "AVAILABLE" | "PARTIAL" | "BLOCKED" | "BOOKED" | "PAST";
+              /** Format: int64 */
+              price_clp: number | string;
+              slots: {
+                name: string;
+                ticket?: string;
+                start?: string;
+                end?: string;
+                available: boolean;
+              }[];
+            }[];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
   getPublicSpace: {
     parameters: {
       query?: never;
@@ -11552,6 +11695,70 @@ export interface operations {
         };
         content?: never;
       };
+    };
+  };
+  getOwnCalendarConfiguration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Configuración privada leída de la fuente persistida. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OwnCalendarConfiguration"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateOwnCalendarConfiguration: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CalendarInventoryUpdate"];
+      };
+    };
+    responses: {
+      /** @description Acuse de actualización, no readback completo. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CalendarInventoryAcknowledgement"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   queryOwnDraftAvailability: {

@@ -65,6 +65,14 @@ await writeFile(
   "export const publicRentalAvailability = { getAvailability: async () => ({ ok: true, value: { items: [] } }) };",
 );
 await writeFile(
+  path.join(temporary, "month-runtime.mjs"),
+  'export const publicMonth = { getMonth: async () => ({ ok: false, kind: "error" }) };',
+);
+await compile(
+  "src/features/public-catalog/domain/booking-calendar.ts",
+  "booking-selection.mjs",
+);
+await writeFile(
   path.join(temporary, "quote-runtime.mjs"),
   "export const publicRentalQuote = { createQuote: async () => ({ ok: false, error: { kind: 'other', status: 500 } }) };",
 );
@@ -91,6 +99,8 @@ await compile(
     ["@/features/rental-demo/domain/calendar", "./calendar-domain.mjs"],
     ["../domain/local-date", "./local-date.mjs"],
     ["../infrastructure/rental-availability-runtime", "./runtime.mjs"],
+    ["../domain/booking-calendar", "./booking-selection.mjs"],
+    ["../infrastructure/public-month-openapi-adapter", "./month-runtime.mjs"],
   ],
 );
 const { PublicSpaceRentalAvailability } = await compile(
@@ -116,7 +126,7 @@ test.after(async () => {
   await rm(temporary, { recursive: true, force: true });
 });
 
-test("public availability permits choosing an unqueried date within the 90-day horizon", () => {
+test("public availability waits for a confirmed monthly snapshot before enabling dates", () => {
   const html = renderToStaticMarkup(
     createElement(PublicSpaceRentalAvailability, {
       spaceId: "11111111-1111-4111-8111-111111111111",
@@ -133,6 +143,7 @@ test("public availability permits choosing an unqueried date within the 90-day h
   assert.ok(yesterday);
   assert.match(yesterday[1], /disabled=""/);
   assert.ok(today);
-  assert.doesNotMatch(today[1], /disabled=""/);
-  assert.match(today[2], /Sin información/);
+  assert.match(today[1], /disabled=""/);
+  assert.match(today[2], /Disponibilidad no confirmada/);
+  assert.doesNotMatch(html, /ticket-morning|ticket-afternoon|\$12k/);
 });

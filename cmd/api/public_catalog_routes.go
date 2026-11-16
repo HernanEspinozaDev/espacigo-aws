@@ -66,3 +66,7 @@ func mountPublicCatalogRoutes(mux *http.ServeMux, handler http.Handler, standalo
 	}
 	return nil
 }
+
+func registerPublicSpaceMonthRoute(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/public/spaces/{spaceID}/month", handler)
+}
