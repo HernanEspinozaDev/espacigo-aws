@@ -44,12 +44,14 @@ sequenceDiagram
     FE->>API: PUT /api/v1/spaces/{id}/schedule & POST /blocks
     API->>DB: Guarda en espacio_horario_semanal y ocupacion
 
-    Note over U, DB: 2. Consulta Pública y Cotización
-    U->>FE: Visita /espacios/{id} y selecciona fecha/intervalo en MonthCalendar
+    Note over U, DB: 2. Consulta Pública, UX/UI en 3 Columnas y Cotización
+    U->>FE: Visita /espacios/{id} (Layout 3 Columnas: Resumen+CTA / Mes / Fotos)
+    FE->>API: GET /api/v1/public/spaces/{id} (Auditoría completa de atributos y anfitrión)
     FE->>API: GET /api/v1/public/spaces/{id}/month?month=YYYY-MM
     API->>DB: Calcula disponibilidad cruzando horarios + bloqueos + ocupaciones
     API-->>FE: Retorna slots disponibles
-    U->>FE: Solicita cotización
+    U->>FE: Selecciona rango en Calendario Central -> Sincroniza Tarjeta Izquierda
+    U->>FE: Clic en "Solicitar Arriendo"
     FE->>API: POST /api/v1/spaces/{id}/quotes
     API->>DB: Registra en cotizacion_arriendo_comercial (TTL 15 min)
     API-->>FE: Retorna desglose de precio (CLP)
@@ -108,6 +110,7 @@ Reemplazamos el aislamiento volátil de `cmd/rentaldemo` montando los servicios 
 ### 4.2. Endpoints Contractuales de la API
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
+| `GET` | `/api/v1/public/spaces/{id}` | Público | Detalle extendido auditado (especificaciones, aforo, reglas, perfil anfitrión con KYC, recomendaciones). |
 | `GET` | `/api/v1/public/spaces/{id}/month?month=YYYY-MM` | Público | Obtiene la grilla de disponibilidad del mes (días, estados `available`, `partial`, `unavailable`, `outside_horizon` e intervalos). |
 | `POST` | `/api/v1/spaces/{id}/quotes` | Arrendatario | Genera y persiste una cotización con vigencia de 15 minutos. |
 | `POST` | `/api/v1/spaces/{id}/bookings` | Arrendatario | Confirma la reserva usando una cotización válida, registra el pago simulado y bloquea el calendario. |
@@ -120,62 +123,166 @@ Reemplazamos el aislamiento volátil de `cmd/rentaldemo` montando los servicios 
 
 ---
 
-## 5. Capa Frontend Next.js (`frontend/src/`)
+## 5. Modernización UX/UI de la Ficha Pública del Marketplace (`/espacios/[id]`)
 
-Aprovechamos los componentes construidos en `rental-demo` y los conectamos a las páginas oficiales de producción:
+La vista pública del detalle de un espacio se rediseña por completo para subsanar los problemas detectados: falta de atributos publicados, desborde de textos largos, ausencia del perfil del anfitrión, y carencia del botón y flujo interactivo para **"Solicitar Arriendo"**.
 
-### 5.1. Componentes Reutilizables
-- **`MonthCalendar`**: Componente de cuadrícula mensual interactivo con navegación de meses, localización en español, soporte de zona horaria IANA (`America/Santiago`), indicador «Hoy», selección de rangos y leyenda accesible.
-- **`DailyIntervalSelector`**: Selector de tramos horarios (grilla de 30 minutos, duraciones de 1, 2, 4 horas o días completos).
-- **`BookingSummaryCard`**: Tarjeta con desglose de precios (subtotal, tarifa unitaria, impuestos/comisiones simuladas, total en CLP).
+### 5.1. Auditoría de Campos: Integración de la Totalidad de Datos Publicados
 
-### 5.2. Vistas Integradas
-1. **Ficha Pública de Espacio (`/espacios/[id]`)**:
-   - Reemplazar la vista estática por el `MonthCalendar` interactivo.
-   - Panel lateral de reserva: selección de fechas -> selección de horas -> cotización en tiempo real -> botón «Continuar a Arrendar».
-2. **Flujo de Checkout y Confirmación (`/reservas/nueva?quoteId=...`)**:
-   - Resumen del arriendo y espacio.
-   - Casilla de confirmación de términos de arriendo.
-   - Selector de método de pago simulado («Tarjeta de Débito/Crédito Local (Simulada)»).
-   - Botón «Pagar y Confirmar Arriendo».
-   - Transición a pantalla de éxito con número de reserva y enlace a Mailpit.
-3. **Panel de Arrendatario (`/reservas` y `/reservas/[id]`)**:
-   - Listado de arriendos activos, próximos y pasados.
-   - Ficha con código QR / identificador de reserva, dirección, datos de contacto del anfitrión e instrucciones de llegada.
-4. **Panel de Anfitrión (`/anfitrion/espacios/[id]/calendario` y `/anfitrion/reservas`)**:
-   - Visualización de la ocupación en el calendario mensual con nombres de arrendatarios y estados.
-   - Botón para añadir bloqueos manuales de fechas.
+Se efectúa la auditoría comparativa entre el esquema de base de datos (`espacio`, `espacio_caracteristicas`, `usuario`, `perfil_usuario`, `resena_ensayo_local`), los DTOs de Go y el contrato público:
+
+| Campo / Atributo | Origen en Base de Datos | Estado Anterior en DTO Público | Ajuste en Go API / DTO Público |
+|---|---|---|---|
+| **Superficie y Aforo** | `espacio.superficie_m2`, `espacio.capacidad_maxima` | `superficie_m2` sí, `capacidad_maxima` omitido | Agregar `capacity: int` al DTO público. |
+| **Categoría y Tipo** | `espacio.categoria_codigo`, `categoria_espacio.nombre` | Sí devuelto | Conservar y formatear con badge visual. |
+| **Modalidad y Precios** | `tarifa_espacio.modalidad`, `tarifa_espacio.precio_base_clp` | Sí devuelto | Desglosar precio base por hora/día/mes y moneda CLP. |
+| **Equipamiento / Amenities** | `espacio_caracteristicas.valores` (JSONB) | Solo filtraba booleanos parciales | Devolver colección completa de características categorizadas (servicios, accesibilidad, estacionamiento, climatización). |
+| **Reglas de Uso y Convivencia** | `espacio.reglas_uso` | Sí devuelto | Exponer con contenedor seguro `break-words`. |
+| **Política de Cancelación** | `reserva_ensayo_local.politica_cancelacion_version` | No expuesto en ficha | Devolver política de cancelación aplicable (`local_flexible_v1` / Flexible). |
+| **Garantía y Depósito** | `reserva_garantia_ensayo_local.garantia_prevista_clp` | No expuesto en ficha | Devolver monto de garantía si aplica (`$50.000 CLP fija`). |
+| **Horarios de Operación** | `espacio_horario_semanal` + `tramos` | Devuelto como JSON semanal | Complementar con desglose legible de check-in / check-out. |
+| **Perfil del Anfitrión** | `usuario.id`, `perfil_usuario.nombre_visible`, `usuario.creado_en` | Omitido por privacidad estricta | Exponer perfil público minimizado: `host_name`, `host_joined_at`, `spaces_count`. |
+| **Sello de Verificación Anfitrión** | `elegibilidad_verificacion_local` / `verification` | Booleano neutro | Exponer badge `identity_verified` (KYC aprobado por EspaciGo). |
+| **Evaluaciones y Reseñas** | `resena_ensayo_local` | Omitido en ficha | Exponer resumen público: calificación promedio, conteo y comentarios con badges destacados. |
+
+---
+
+### 5.2. Nueva Arquitectura Visual: 3 Columnas Superiores + Detalle Inferior
+
+La página se reestructura bajo la identidad de diseño de EspaciGo: fondo crema cálido `#FAF7F2`, tarjetas blancas con bordes suaves `#E6E0D6`, tipografía nítida y acento terracota `#A83820`.
+
+```
++---------------------------------------------------------------------------------------------------+
+| BREADCRUMB: Inicio / Explorar / Bodegas y Almacenaje / Espacio Bodega Central                      |
++------------------------------------+----------------------------------+---------------------------+
+| COLUMNA IZQUIERDA (lg:col-span-4)  | COLUMNA CENTRAL (lg:col-span-4)  | COLUMNA DERECHA (span-4)  |
+|                                    |                                  |                           |
+| - Título (text-3xl font-bold)      | - CALENDARIO MENSUAL             | - MOSAICO FOTOS 2x2       |
+| - Ubicación (Comuna, Región)       |   - Selector de Duración (días)  |   - Foto Principal        |
+| - Chips rápidos (m², Aforo, etc.)  |   - Navegación Mes / Botón Hoy   |   - 3 Fotos secundarias   |
+| - "Sobre esta publicación" (resumen|   - Grilla interactiva de días   |   - Badge contador (1/N)  |
+|   con break-words y "Ver más")     |     (Disponible / Parcial / No)  |   - Tira miniaturas       |
+|                                    |                                  |   - Lightbox al clic      |
+| - TARJETA CTA "SOLICITAR ARRIENDO" | - Sincroniza rango seleccionado  |                           |
+|   - Tarifa ($XX.XXX / día)         |   directamente con la Tarjeta    |                           |
+|   - Desglose estimado en vivo      |   Izquierda                      |                           |
+|   - Botón Terracota Interactivo    |                                  |                           |
++------------------------------------+----------------------------------+---------------------------+
+| SECCIÓN INFERIOR (Ancho Completo - lg:grid-cols-12 gap-8 mt-12)                                   |
+|                                                                                                   |
+| [BLOQUE 1: ESPECIFICACIONES Y REGLAS]  [BLOQUE 2: PERFIL ANFITRIÓN]  [BLOQUE 3: RESEÑAS / RATING] |
+| - Grillas de equipamiento & amenities   - Avatar / Nombre público     - Calificación promedio     |
+| - Reglas de uso y convivencia           - Sello KYC Verificado        - Etiquetas destacadas      |
+| - Política de cancelación & garantía    - Fecha de registro / Espacios- Tarjetas de comentarios   |
++---------------------------------------------------------------------------------------------------+
+| MOBILE ONLY: Barra Inferior Fija Flotante con Precio + Botón Terracota "Solicitar Arriendo"       |
++---------------------------------------------------------------------------------------------------+
+```
+
+#### A. Sección Superior en 3 Columnas (`lg:grid-cols-12 gap-6 items-start`)
+
+1. **Columna Izquierda (`lg:col-span-4`) — Resumen Ejecutivo y Tarjeta de Conversión:**
+   - **Encabezado:** Breadcrumb accesible; Badge de categoría y modalidad de arriendo (`Por día`); Título del espacio (`text-3xl font-bold text-foreground break-words`); Ubicación (`Comuna, Región`) y superficie (`m²`).
+   - **Chips de Resumen Rápido:** Cuadrícula compacta de 4 a 6 píldoras con iconos:
+     - 📐 Superficie (`XX m²`)
+     - 👥 Capacidad/Aforo (`Hasta X personas` o `Carga X kg`)
+     - 🕒 Horario base (`Lun-Vie 08:00 - 20:00`)
+     - 🛡️ Cancelación (`Flexible`)
+     - ✅ Sello Anfitrión (`Identidad Verificada`)
+   - **Resumen "Sobre esta publicación":**
+     - Contenedor con `break-words` (`overflow-wrap: anywhere`) para evitar desbordes ante palabras largas o enlaces sin espacios.
+     - Texto truncado a 4 líneas con botón interactivo `"Ver más"` / `"Ver menos"`.
+   - **Tarjeta de Precio y CTA "Solicitar Arriendo":**
+     - Tarifa base destacada (`$XX.XXX / día`).
+     - Aclaración de garantía aplicable (`Garantía fija: $50.000 CLP`).
+     - **Resumen en vivo del calendario**: Al hacer clic en un rango de fechas en la columna central, la tarjeta se actualiza de forma reactiva mostrando:
+       - Rango seleccionado: `15 Nov 2026 - 18 Nov 2026 (3 días)`
+       - Subtotal estimado: `$75.000 CLP`
+     - **Botón Primario Terracota (`bg-[#A83820] hover:bg-[#8F2F1A] text-white font-semibold py-3 px-6 rounded-xl w-full transition-all shadow-md`)**:
+       - *Sin selección*: Texto *"Selecciona fechas en el calendario"* (al hacer clic, scroll o foco suave hacia el calendario central).
+       - *Con selección*: Texto *"Solicitar Arriendo — $XX.XXX CLP"* que redirige al flujo de checkout `/reservas/nueva?spaceId=...&start=...&end=...`.
+
+2. **Columna Central (`lg:col-span-4`) — Calendario Mensual Interactivo:**
+   - Incorpora el componente reactivo `MonthCalendar`:
+     - Selector de duración según modalidad (1, 2, 3 días o semanas).
+     - Navegación de mes (`< Mes Anterior`, `Mes Siguiente >`) y botón `"Hoy"`.
+     - Celdas con visualización clara de estados:
+       - 🟢 *Disponible*: Borde sutil, fondo claro, seleccionable.
+       - 🟡 *Parcialmente ocupado*: Franjas horarias específicas.
+       - ⚪ *No disponible / Bloqueado*: Gris tenue, deshabilitado.
+       - 🟤 *Seleccionado*: Resaltado terracota accesible.
+     - Leyenda clara al pie del calendario sin textos truncados.
+     - Al seleccionar fecha/rango, emite el evento de selección hacia el estado de la página para sincronizar la Columna Izquierda y la barra móvil.
+
+3. **Columna Derecha (`lg:col-span-4`) — Galería Multimedia del Espacio:**
+   - **Mosaico Principal 2x2**:
+     - Imagen principal destacada arriba y 2 o 3 imágenes secundarias debajo con `object-cover` y esquinas redondeadas (`rounded-xl`).
+     - Badge superior flotante con contador (`1 / 8 fotos`).
+     - Tira de miniaturas deslizable horizontalmente.
+     - Clic en cualquier foto abre el **Lightbox modal** a pantalla completa con navegación por teclado y botones `<` / `>`.
+
+---
+
+#### B. Sección Inferior en Bloques de Detalle y Confianza (Ancho Completo)
+
+1. **Bloque 1: Especificaciones Completas, Equipamiento y Reglas del Espacio (`lg:col-span-6` o ancho completo tabulado):**
+   - **Atributos y Equipamiento:** Grilla de 2 a 3 columnas con iconos temáticos (Servicios incluidos, Electricidad, Agua, Seguridad 24/7, Acceso vehicular, Altura libre, Portón eléctrico, Montacargas).
+   - **Reglas de Uso y Condiciones:** Contenedor estilizado con normas informadas por el anfitrión (prohibiciones, horarios de carga y descarga, cuidado de instalaciones).
+   - **Políticas de Arriendo:** Política de cancelación detallada, plazo de preaviso y condiciones de devolución de garantía.
+
+2. **Bloque 2: Perfil del Anfitrión / Propietario (`lg:col-span-3`):**
+   - Tarjeta de confianza:
+     - Avatar con foto o iniciales en círculo terracota suave.
+     - Nombre público (`Hernán E.`).
+     - **Insignia KYC Destacada**: Escudo verde con check `Identidad Verificada por EspaciGo`.
+     - Metadatos: *"Miembro desde Octubre 2026"* · *"2 espacios publicados"*.
+     - Botón secundario *"Contactar Anfitrión"* o *"Ver perfil"*.
+
+3. **Bloque 3: Recomendaciones y Evaluaciones (`lg:col-span-3`):**
+   - Puntuación promedio con estrellas (`⭐ 4.9 / 5.0 (12 arriendos)`).
+   - Etiquetas de reconocimiento: *"Excelente ubicación"*, *"Espacio impecable"*, *"Respuesta inmediata"*.
+   - Muestra de comentarios recientes de arrendatarios verificados.
+   - Estado vacío elegante para publicaciones nuevas: *"Esta publicación es nueva y aún no registra evaluaciones. ¡Sé el primero en reservar!"*.
+
+---
+
+#### C. Experiencia Móvil (Responsive)
+- En dispositivos móviles (`< lg`), el layout se apila verticalmente de forma ordenada:
+  1. Galería de fotos (carrusel táctil superior).
+  2. Encabezado con título, ubicación y chips rápidos.
+  3. Calendario interactivo mensual táctil.
+  4. Especificaciones, reglas y perfil de anfitrión.
+- **Barra Inferior Flotante Fija (`sticky bottom-0 z-40 bg-white border-t p-4 shadow-lg`)**:
+  - Muestra la tarifa `$XX.XXX / día` y el botón terracota **`Solicitar Arriendo`** siempre visible, garantizando la conversión sin importar el scroll.
+
+---
+
+### 5.3. Reglas Técnicas de Renderizado y Estabilidad
+- **Protección Anti-Desbordamiento**: Aplicación estricta de `break-words`, `overflow-wrap: anywhere` y `truncate` contextual en títulos, descripciones y comentarios de usuarios para impedir que textos continuos sin espacios rompan el ancho de las columnas.
+- **Sincronización Reactiva Unidireccional**: Estado compartido entre `PublicSpaceRentalAvailability` / `MonthCalendar` y el componente de la tarjeta de arriendo mediante un hook cliente o estado elevado (`useSpaceBookingSelection`).
+- **Accesibilidad (a11y)**: Navegación de teclado en calendario y galería, atributos `aria-label`, contraste de color validado (ratio > 4.5:1 en botón terracota y textos), y compatibilidad con lectores de pantalla.
 
 ---
 
 ## 6. Plan de Ejecución por Fases (Roadmap)
 
-### Fase 1: Disponibilidad y Calendario Mensual en Backend y Ficha Pública
-- [ ] Aplicar migración de consulta rápida de disponibilidad mensual en PostgreSQL.
-- [ ] Implementar endpoint `GET /api/v1/public/spaces/{id}/month` en Go calculando cruces reales de `espacio_horario_semanal` y `ocupacion`.
-- [ ] Integrar el componente `MonthCalendar` en `frontend/src/app/(marketplace)/espacios/[id]/page.tsx`.
+### Fase 1: Auditoría de Datos y Extensión del Backend Go
+- [ ] Incorporar `capacidad_maxima`, atributos completos de `espacio_caracteristicas`, datos públicos de anfitrión y políticas al DTO de `internal/publiccatalog`.
+- [ ] Validar endpoint `GET /api/v1/public/spaces/{id}` con tests unitarios en Go.
 
-### Fase 2: Cotización y Bloqueo Concurrente
-- [ ] Endpoint `POST /api/v1/spaces/{id}/quotes` conectado a `cotizacion_arriendo_comercial`.
-- [ ] Integrar selección de intervalo y obtención de cotización con TTL de 15 minutos en el frontend.
-- [ ] Validación de límites (antelación mínima, horizonte de 90 días).
+### Fase 2: Reestructuración de la Vista en Next.js (3 Columnas Superiores)
+- [ ] Construir layout en 3 columnas (`lg:grid-cols-12`) en `frontend/src/app/(marketplace)/espacios/[id]/page.tsx`.
+- [ ] Implementar la **Columna Izquierda** con chips rápidos, descripción protegida anti-overflow (`break-words`) y tarjeta CTA "Solicitar Arriendo".
+- [ ] Integrar el **Calendario Central** interactivo conectándolo reactivamente a la tarjeta izquierda.
+- [ ] Reubicar y optimizar la **Galería Multimedia** en la Columna Derecha con mosaico 2x2 y lightbox modal.
 
-### Fase 3: Creación de Reserva y Pago Simulado
-- [ ] Endpoint `POST /api/v1/spaces/{id}/bookings` con transacción atómica en `reserva_ensayo_local`, inserción en `ocupacion` y `reserva_pago_ensayo`.
-- [ ] Integración con el emulador S3 para guardar comprobante.
-- [ ] Disparo de correo de confirmación mediante AWS SES hacia Mailpit.
-- [ ] Pantalla de Checkout `/reservas/nueva` y confirmación de pago simulado.
+### Fase 3: Bloques Inferiores de Detalle, Anfitrión y Reseñas
+- [ ] Desarrollar el Bloque 1 de especificaciones y reglas con iconos temáticos.
+- [ ] Desarrollar el Bloque 2 con la tarjeta del anfitrión y su badge KYC de identidad verificada.
+- [ ] Desarrollar el Bloque 3 de calificaciones y recomendaciones con estado vacío elegante.
+- [ ] Agregar la barra inferior flotante de reserva para dispositivos móviles.
 
-### Fase 4: Gestión de Anfitrión y Dashboards
-- [ ] Endpoints de bloqueos manuales de anfitrión (`POST/DELETE /api/v1/owner/spaces/{id}/blocks`).
-- [ ] Calendario interactivo de anfitrión en `/anfitrion/espacios/[id]/editar` o subpágina `/calendario`.
-- [ ] Historial y detalle de reservas para el usuario en `/reservas` y para el anfitrión en `/anfitrion/reservas`.
-
----
-
-## 7. Verificación y Criterios de Aceptación End-to-End
-
-1. **Persistencia Real**: Crear una reserva desde el frontend debe reflejarse inmediatamente en la tabla `reserva_ensayo_local` y en `ocupacion` dentro de PostgreSQL 18.
-2. **Exclusión Mutua**: Una vez reservado un intervalo, ni el anfitrión ni otro usuario podrán seleccionar ni reservar ese mismo intervalo en el `MonthCalendar`.
-3. **Notificación**: Tras la confirmación, debe aparecer un correo de confirmación de arriendo en la interfaz web de Mailpit (`http://127.0.0.1:8025`).
-4. **Resistencia a Reinicios**: Al reiniciar el contenedor de Go API o Next.js, las reservas, bloqueos y calendarios se conservan intactos en PostgreSQL.
+### Fase 4: Integración del Flujo "Solicitar Arriendo" y Checkout Local
+- [ ] Conectar el botón terracota al endpoint de cotización `POST /api/v1/spaces/{id}/quotes`.
+- [ ] Redirigir a `/reservas/nueva?quoteId=...` para completar la reserva con confirmación atómica y notificación SES/Mailpit.
+- [ ] Ejecutar suites de tests (`pnpm test`, `tsc --noEmit`, `go test -race`).
