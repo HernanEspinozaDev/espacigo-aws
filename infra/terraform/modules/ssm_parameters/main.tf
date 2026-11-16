@@ -64,7 +64,7 @@ variable "bucket_names" {
 locals {
   prefix = "/espacigo/${var.environment}"
   parameters = {
-    "${local.prefix}/app_profile"               = var.environment
+    "${local.prefix}/app_profile"              = var.environment
     "${local.prefix}/cors_allowed_origins"     = var.cors_allowed_origins
     "${local.prefix}/frontend_public_origin"   = var.frontend_public_origin
     "${local.prefix}/database/host"            = var.database_host

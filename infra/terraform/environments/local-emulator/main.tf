@@ -42,11 +42,11 @@ provider "aws" {
   custom_ca_bundle            = pathexpand(var.custom_ca_bundle)
 
   endpoints {
-    s3             = var.emulator_endpoint
-    ssm            = var.emulator_endpoint
-    logs           = var.emulator_endpoint
-    iam            = var.emulator_endpoint
-    sts            = var.emulator_endpoint
+    s3   = var.emulator_endpoint
+    ssm  = var.emulator_endpoint
+    logs = var.emulator_endpoint
+    iam  = var.emulator_endpoint
+    sts  = var.emulator_endpoint
   }
 }
 
@@ -59,16 +59,16 @@ module "s3_storage" {
 
 # 2. Parámetros SSM en /espacigo/local/*
 module "ssm_parameters" {
-  source                  = "../../modules/ssm_parameters"
-  environment             = "local"
-  database_host           = "172.24.0.3"
-  database_port           = "5432"
-  database_name           = "espacigo_aws_local"
-  database_user           = "espacigo_api_login"
-  database_role           = "espacigo_runtime"
-  cors_allowed_origins    = "http://127.0.0.1:3000,http://127.0.0.1:4200,http://127.0.0.1:4201"
-  frontend_public_origin  = "http://127.0.0.1:3000"
-  bucket_names            = module.s3_storage.bucket_names
+  source                 = "../../modules/ssm_parameters"
+  environment            = "local"
+  database_host          = "172.24.0.3"
+  database_port          = "5432"
+  database_name          = "espacigo_aws_local"
+  database_user          = "espacigo_api_login"
+  database_role          = "espacigo_runtime"
+  cors_allowed_origins   = "http://127.0.0.1:3000,http://127.0.0.1:4200,http://127.0.0.1:4201"
+  frontend_public_origin = "http://127.0.0.1:3000"
+  bucket_names           = module.s3_storage.bucket_names
 }
 
 # 3. Observabilidad CloudWatch Logs
@@ -80,11 +80,11 @@ module "observability" {
 
 # 4. Roles IAM y Políticas de Privilegios Mínimos
 module "iam" {
-  source       = "../../modules/iam"
-  environment  = "local"
-  account_id   = "000000000000"
-  aws_region   = var.aws_region
-  bucket_arns  = values(module.s3_storage.bucket_arns)
+  source      = "../../modules/iam"
+  environment = "local"
+  account_id  = "000000000000"
+  aws_region  = var.aws_region
+  bucket_arns = values(module.s3_storage.bucket_arns)
 }
 
 output "s3_bucket_names" {
