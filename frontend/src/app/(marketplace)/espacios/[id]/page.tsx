@@ -17,6 +17,7 @@ import {
 import { parseRentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
 import type { RentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
 import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
+import { getApiBackendBaseUrl } from "@/lib/api/server-config";
 import { CatalogUnavailable } from "@/features/public-catalog/ui/catalog-states";
 import { PublicSpaceRentalAvailability } from "@/features/public-catalog/ui/public-space-rental-availability";
 import { PublicSpaceSummary } from "@/features/public-catalog/ui/public-space-summary";
@@ -24,6 +25,22 @@ import { PublicSpaceDetails } from "@/features/public-catalog/ui/public-space-de
 import { PublicSpaceMarketplaceGallery } from "@/features/public-catalog/ui/public-space-gallery";
 import { PublicSpaceMarketplaceLayout } from "@/features/public-catalog/ui/public-space-marketplace-layout";
 import { PublicWeeklySchedule } from "@/features/public-catalog/ui/public-weekly-schedule";
+
+async function fetchSpaceReviews(spaceId: string) {
+  try {
+    const base = getApiBackendBaseUrl();
+    const url = new URL(
+      `/api/v1/spaces/${encodeURIComponent(spaceId)}/reviews`,
+      base.origin,
+    );
+    const res = await fetch(url.toString(), { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const dynamic = "force-dynamic";
 type PageProps = {
@@ -71,7 +88,10 @@ export default async function PublicSpacePage({
 }: PageProps) {
   const { id } = await params;
   if (!isPublicUuid(id)) notFound();
-  const result = await publicCatalog.space(id);
+  const [result, reviews] = await Promise.all([
+    publicCatalog.space(id),
+    fetchSpaceReviews(id),
+  ]);
   if (!result.ok) {
     if (result.error.kind === "not-found") notFound();
     return (
@@ -185,7 +205,7 @@ export default async function PublicSpacePage({
       />
       <PublicWeeklySchedule schedule={space.weekly_schedule} />
       <div className="mt-8">
-        <PublicSpaceDetails space={space} />
+        <PublicSpaceDetails space={space} reviews={reviews} />
       </div>
       <p className="mt-8 border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">
         Esta ficha muestra un perfil público y permite preparar una solicitud.
