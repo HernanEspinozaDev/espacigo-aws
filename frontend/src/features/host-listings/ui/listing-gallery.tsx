@@ -543,11 +543,17 @@ export function ListingGallery(props: ListingGalleryProps) {
                       )}
                     </div>
                     <div className="flex h-36 items-center justify-center overflow-hidden rounded-lg border bg-muted/40">
-                      <img
-                        src={urls[photo.id] ?? ""}
-                        alt={photo.alt_text || "Fotografía del espacio"}
-                        className="h-full w-full object-cover"
-                      />
+                      {urls[photo.id] ? (
+                        <img
+                          src={urls[photo.id]}
+                          alt={photo.alt_text || "Fotografía del espacio"}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          Cargando vista previa...
+                        </span>
+                      )}
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
                       <div className="flex gap-1">
