@@ -266,6 +266,13 @@ La página se reestructura bajo la identidad de diseño de EspaciGo: fondo crema
 
 ## 6. Plan de Ejecución por Fases (Roadmap)
 
+### Corte activo autorizado: Fase 1, sub-tareas 1.1–1.4
+
+La instrucción de ejecución amplía el primer corte a cuatro sub-tareas: **1.1 DTO público y auditoría de fuentes**, **1.2 layout superior de tres columnas**, **1.3 bloques inferiores y barra móvil**, y **1.4 selección reactiva/CTA y verificación**. Se inician 1.1 y 1.2 con propiedad de archivos separada; los consumidores del nuevo DTO se integran después de fijar y regenerar el contrato. El roadmap original se conserva debajo como desglose funcional, no como restricción que excluya la UI expresamente autorizada.
+
+Estado, límites de integración y pruebas: [ejecución y matriz de aceptación](marketplace_fase1/ejecucion.md). El entorno es exclusivamente local; no se habilitan nube, pagos reales ni firma por este corte.
+
+
 ### Fase 1: Auditoría de Datos y Extensión del Backend Go
 - [ ] Incorporar `capacidad_maxima`, atributos completos de `espacio_caracteristicas`, datos públicos de anfitrión y políticas al DTO de `internal/publiccatalog`.
 - [ ] Validar endpoint `GET /api/v1/public/spaces/{id}` con tests unitarios en Go.

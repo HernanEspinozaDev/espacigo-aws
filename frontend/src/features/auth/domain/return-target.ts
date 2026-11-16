@@ -7,6 +7,10 @@ import {
   serializeRentalReturnSelection,
 } from "@/features/public-catalog/domain/availability-return";
 import type { RawCatalogParams } from "@/features/public-catalog/domain/types";
+import {
+  marketplaceBookingHref,
+  parseMarketplaceBookingSelection,
+} from "@/features/public-catalog/domain/marketplace-booking-selection";
 
 const categoryCode = /^[a-z][a-z0-9_-]{0,79}$/;
 const canonicalUuid =
@@ -115,6 +119,12 @@ export function resolveReturnTarget(
     return home;
   if (pathname === "/explorar")
     return (parseExploreQuery(search) ?? "/") as ReturnTarget;
+  if (pathname === "/reservas/nueva" && search) {
+    const selection = parseMarketplaceBookingSelection(search);
+    return (
+      selection ? (marketplaceBookingHref(selection) ?? "/") : "/"
+    ) as ReturnTarget;
+  }
   const space = /^\/espacios\/([^/]+)$/.exec(pathname);
   if (space && canonicalUuid.test(space[1] ?? "")) {
     if (!search) return pathname as ReturnTarget;

@@ -16,6 +16,7 @@ import { publicRentalAvailability } from "../infrastructure/rental-availability-
 import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
 import { formatRentalCLP } from "../domain/contract-preview-format";
 import type { RentalQuote } from "../domain/rental-quote";
+import type { MarketplaceBookingSelection } from "../domain/marketplace-booking-selection";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { PublicRentalContractPreview } from "./public-rental-contract-preview";
 
@@ -27,6 +28,7 @@ interface PublicSpaceRentalAvailabilityProps {
   basePriceCLP: number | string | null;
   today: string;
   initialSelection?: RentalReturnSelection;
+  onSelectionChange?: (selection: MarketplaceBookingSelection | null) => void;
 }
 
 export function PublicSpaceRentalAvailability({
@@ -34,6 +36,7 @@ export function PublicSpaceRentalAvailability({
   rateUnit,
   today,
   initialSelection,
+  onSelectionChange,
 }: PublicSpaceRentalAvailabilityProps) {
   const headingId = useId();
   const [currentMonth, setCurrentMonth] = useState(
@@ -46,6 +49,9 @@ export function PublicSpaceRentalAvailability({
     initialSelection?.duration ?? 1,
   );
   const [intervals, setIntervals] = useState<Interval[]>([]);
+  const [availabilityTimeZone, setAvailabilityTimeZone] = useState<
+    string | null
+  >(null);
   const [loading, setLoading] = useState(Boolean(initialSelection));
   const [error, setError] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<Interval | null>(
@@ -61,6 +67,10 @@ export function PublicSpaceRentalAvailability({
   const quoteController = useRef<AbortController | null>(null);
   const pendingRentalSelection = useRef(initialSelection);
   const generation = useRef(0);
+  const selectionChange = useRef(onSelectionChange);
+  useEffect(() => {
+    selectionChange.current = onSelectionChange;
+  }, [onSelectionChange]);
   const selectionKey = `${selectedDate ?? ""}|${duration}|${selectedInterval?.start_at ?? ""}|${selectedInterval?.end_at ?? ""}`;
   const sessionKey =
     authSnapshot.status === "authenticated"
@@ -160,6 +170,8 @@ export function PublicSpaceRentalAvailability({
     rateUnit === "hora" ? [1, 2, 4] : rateUnit === "dia" ? [1, 2, 3] : [1];
 
   const beginAvailabilityQuery = () => {
+    generation.current += 1;
+    selectionChange.current?.(null);
     setLoading(true);
     setError(null);
     setIntervals([]);
@@ -186,9 +198,12 @@ export function PublicSpaceRentalAvailability({
                 : "No se pudo consultar la disponibilidad en este momento.",
           );
           setIntervals([]);
+          setAvailabilityTimeZone(null);
+          selectionChange.current?.(null);
           return;
         }
         setIntervals(result.value.items);
+        setAvailabilityTimeZone(result.value.time_zone);
         const pending = pendingRentalSelection.current;
         if (pending?.date === selectedDate && pending.duration === duration) {
           const matchingInterval = result.value.items.find(
@@ -196,7 +211,18 @@ export function PublicSpaceRentalAvailability({
               item.start_at === pending.startAt &&
               item.end_at === pending.endAt,
           );
-          if (matchingInterval) setSelectedInterval(matchingInterval);
+          if (matchingInterval) {
+            setSelectedInterval(matchingInterval);
+            selectionChange.current?.({
+              spaceId,
+              date: selectedDate,
+              duration,
+              rateUnit,
+              startAt: matchingInterval.start_at,
+              endAt: matchingInterval.end_at,
+              timeZone: result.value.time_zone,
+            });
+          }
           pendingRentalSelection.current = undefined;
         }
       })
@@ -205,6 +231,8 @@ export function PublicSpaceRentalAvailability({
           return;
         setError(publicAvailabilityExceptionMessage());
         setIntervals([]);
+        setAvailabilityTimeZone(null);
+        selectionChange.current?.(null);
       })
       .finally(() => {
         if (generation.current === currentOp) {
@@ -215,7 +243,7 @@ export function PublicSpaceRentalAvailability({
     return () => {
       controller.abort();
     };
-  }, [spaceId, selectedDate, duration]);
+  }, [spaceId, selectedDate, duration, rateUnit]);
 
   // Days for calendar projection
   const days: RentalDemoCalendarDay[] = [];
@@ -234,7 +262,7 @@ export function PublicSpaceRentalAvailability({
       return d.toLocaleTimeString("es-CL", {
         hour: "2-digit",
         minute: "2-digit",
-        timeZone: "UTC",
+        timeZone: availabilityTimeZone ?? undefined,
       });
     } catch {
       return iso;
@@ -356,10 +384,26 @@ export function PublicSpaceRentalAvailability({
                     type="button"
                     disabled={quotePending}
                     onClick={() => {
-                      if (quotePending) return;
+                      if (
+                        loading ||
+                        error ||
+                        quotePending ||
+                        !availabilityTimeZone
+                      )
+                        return;
                       if (selectedInterval?.start_at !== it.start_at)
                         clearQuoteForSelection();
                       setSelectedInterval(it);
+                      if (availabilityTimeZone)
+                        selectionChange.current?.({
+                          spaceId,
+                          date: selectedDate,
+                          duration,
+                          rateUnit,
+                          startAt: it.start_at,
+                          endAt: it.end_at,
+                          timeZone: availabilityTimeZone,
+                        });
                     }}
                     className={`min-h-11 rounded-lg border p-2 text-center text-xs sm:text-sm font-medium transition-colors ${
                       selected

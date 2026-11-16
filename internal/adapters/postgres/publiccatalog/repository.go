@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	"github.com/jackc/pgx/v5"
@@ -380,19 +381,27 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
  ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`
 
 func detailQuery() string {
-	return projection + `,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id)` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
 	var scheduleJSON []byte
-	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON)
+	var hostName sql.NullString
+	var hostJoinedAt time.Time
+	var hostSpacesCount int64
+	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return publiccatalog.Space{}, publiccatalog.ErrNotFound
 		}
 		return v, err
 	}
+	var hostPublicName *string
+	if hostName.Valid {
+		hostPublicName = &hostName.String
+	}
+	v.Host = &publiccatalog.PublicHost{Name: hostPublicName, JoinedAt: hostJoinedAt, SpacesCount: int(hostSpacesCount), IdentityVerified: v.Verification.IdentityVerified}
 	if scheduleJSON != nil {
 		var schedule publiccatalog.PublicWeeklySchedule
 		if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {

@@ -22,13 +22,16 @@ func (p *countedDetailPool) Query(ctx context.Context, query string, args ...any
 func TestDetailDecodesSyntheticWeeklyScheduleProjection(t *testing.T) {
 	const spaceID = "11111111-1111-4111-8111-111111111111"
 	row := detailVerificationRow(spaceID)
-	row[len(row)-1] = []byte(`{"enabled":true,"time_zone":"America/Santiago","days":[{"weekday":1,"periods":[{"open":"09:00","close":"17:00"}]}]}`)
+	row[19] = []byte(`{"enabled":true,"time_zone":"America/Santiago","days":[{"weekday":1,"periods":[{"open":"09:00","close":"17:00"}]}]}`)
 	pool := &countedDetailPool{detailVerificationPool: &detailVerificationPool{detailRow: row}}
 	repo := &Repository{pool: pool}
 
 	space, err := repo.Detail(context.Background(), spaceID)
 	if err != nil {
 		t.Fatalf("Detail(): %v", err)
+	}
+	if space.SpaceID != spaceID || space.CapacityMax != 8 {
+		t.Fatalf("detail identity/capacity=(%q,%d), want (%q,8)", space.SpaceID, space.CapacityMax, spaceID)
 	}
 	want := publiccatalog.PublicWeeklySchedule{
 		Enabled:  true,
@@ -46,7 +49,7 @@ func TestDetailDecodesSyntheticWeeklyScheduleProjection(t *testing.T) {
 func TestDetailRejectsMalformedWeeklyScheduleBeforeDependentQueries(t *testing.T) {
 	const spaceID = "11111111-1111-4111-8111-111111111111"
 	row := detailVerificationRow(spaceID)
-	row[len(row)-1] = []byte(`{"enabled":true,`)
+	row[19] = []byte(`{"enabled":true,`)
 	pool := &countedDetailPool{detailVerificationPool: &detailVerificationPool{detailRow: row}}
 	repo := &Repository{pool: pool}
 

@@ -51,14 +51,26 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 		{
 			name: "PublicSpaceDetail",
 			properties: []string{
-				"space_id", "category_code", "category_name", "title", "description", "area_m2", "rate_unit",
+				"space_id", "category_code", "category_name", "title", "description", "area_m2", "capacity_max", "rate_unit",
 				"base_price_clp", "currency", "region_code", "region_name", "comuna_code", "comuna_name",
 				"estimated_total_clp", "usage_rules", "features", "images", "weekly_schedule", "verification",
+				"host", "attributes", "cancellation_policy", "guarantee",
 			},
 			required: []string{
-				"space_id", "category_code", "category_name", "title", "description", "area_m2", "rate_unit",
+				"space_id", "category_code", "category_name", "title", "description", "area_m2", "capacity_max", "rate_unit",
 				"base_price_clp", "currency", "estimated_total_clp", "usage_rules", "features", "images",
+				"host", "attributes", "cancellation_policy", "guarantee",
 			},
+		},
+		{
+			name:       "PublicSpaceHost",
+			properties: []string{"name", "joined_at", "spaces_count", "identity_verified"},
+			required:   []string{"name", "joined_at", "spaces_count", "identity_verified"},
+		},
+		{
+			name:       "PublicSpaceAttribute",
+			properties: []string{"code", "label", "type", "order", "value", "unit"},
+			required:   []string{"code", "label", "type", "order", "value"},
 		},
 		{
 			name:       "PublicDocumentVerification",

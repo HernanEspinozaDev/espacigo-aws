@@ -3894,6 +3894,15 @@ export interface components {
       title: string;
       description: string;
       area_m2: number;
+      /** @description Aforo máximo público de la publicación. */
+      capacity_max: number;
+      host: components["schemas"]["PublicSpaceHost"] | null;
+      /** @description Contiene todas las clases de atributos permitidas por el perfil y la política pública vigente; no expone el perfil ni valores crudos. */
+      attributes: components["schemas"]["PublicSpaceAttribute"][];
+      /** @description No informada porque no existe configuración pública. */
+      cancellation_policy: null;
+      /** @description No informada porque no existe configuración pública. */
+      guarantee: null;
       /** @enum {string} */
       rate_unit: "hora" | "dia" | "mes";
       /** Format: int64 */
@@ -3911,6 +3920,22 @@ export interface components {
       images: components["schemas"]["PublicSpaceImageRef"][];
       weekly_schedule?: components["schemas"]["PublicWeeklySchedule"];
       verification?: components["schemas"]["PublicDocumentVerification"];
+    };
+    PublicSpaceHost: {
+      name: string | null;
+      /** Format: date-time */
+      joined_at: string;
+      spaces_count: number;
+      identity_verified: boolean;
+    };
+    PublicSpaceAttribute: {
+      code: string;
+      label: string;
+      /** @enum {string} */
+      type: "boolean" | "integer" | "number" | "enum" | "enum_list";
+      order: number;
+      value: boolean | number | string | string[];
+      unit?: string;
     };
     PublicWeeklySchedule: {
       enabled: boolean;

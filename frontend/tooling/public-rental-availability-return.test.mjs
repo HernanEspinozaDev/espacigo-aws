@@ -47,11 +47,22 @@ test("public rental login link uses the access screen's safe return_to contract"
   const availabilityReturn = await loadModule(
     "../src/features/public-catalog/domain/availability-return.ts",
   );
+  const clp = await loadModule("../src/lib/api/clp.ts");
+  const bookingSelection = await loadModule(
+    "../src/features/public-catalog/domain/marketplace-booking-selection.ts",
+    {
+      "@/lib/api/clp": clp,
+      "./availability-return": availabilityReturn,
+      "./media": { isPublicUuid: (v) => typeof v === "string" && v.length === 36 },
+    },
+  );
   const { resolveReturnParam } = await loadModule(
     "../src/features/auth/domain/return-target.ts",
     {
       "@/features/public-catalog/domain/availability-return":
         availabilityReturn,
+      "@/features/public-catalog/domain/marketplace-booking-selection":
+        bookingSelection,
     },
   );
   const spaceId = "11111111-1111-4111-8111-111111111111";

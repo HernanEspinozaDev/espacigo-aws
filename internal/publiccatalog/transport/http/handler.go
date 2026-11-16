@@ -52,7 +52,12 @@ func (w *headResponseWriter) flush() {
 
 type publicSpaceDetailResponse struct {
 	publiccatalog.Space
-	UsageRules string `json:"usage_rules"`
+	UsageRules         string                          `json:"usage_rules"`
+	CapacityMax        int                             `json:"capacity_max"`
+	Host               *publiccatalog.PublicHost       `json:"host"`
+	CancellationPolicy *string                         `json:"cancellation_policy"`
+	Guarantee          *string                         `json:"guarantee"`
+	Attributes         []publiccatalog.PublicAttribute `json:"attributes"`
 }
 
 var (
@@ -262,7 +267,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		v = normalizePublicSpace(v)
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules}})
+		attrs, err := h.service.PublicAttributes(r.Context(), id)
+		if err != nil {
+			publicError(w, http.StatusInternalServerError)
+			return
+		}
+		if attrs == nil {
+			attrs = []publiccatalog.PublicAttribute{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules, CapacityMax: v.CapacityMax, Host: v.Host, CancellationPolicy: nil, Guarantee: nil, Attributes: attrs}})
 	default:
 		publicError(w, 404)
 	}
@@ -458,6 +471,10 @@ func normalizePublicSpaceListItem(space publiccatalog.Space) publiccatalog.Space
 	space = normalizePublicSpace(space)
 	space.UsageRules = ""
 	space.WeeklySchedule = nil
+	space.CapacityMax = 0
+	space.Host = nil
+	space.CancellationPolicy = nil
+	space.Guarantee = nil
 	return space
 }
 

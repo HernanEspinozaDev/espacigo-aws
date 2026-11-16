@@ -36,6 +36,23 @@ await compile(
     ["@/lib/api/time", "./time.mjs"],
   ],
 );
+await compile(
+  "src/features/public-catalog/domain/availability-return.ts",
+  "availability-return.mjs",
+);
+await compile(
+  "src/features/public-catalog/domain/media.ts",
+  "media.mjs",
+);
+await compile(
+  "src/features/public-catalog/domain/marketplace-booking-selection.ts",
+  "marketplace-booking-selection.mjs",
+  [
+    ["@/lib/api/clp", "./clp.mjs"],
+    ["./media", "./media.mjs"],
+    ["./availability-return", "./availability-return.mjs"],
+  ],
+);
 const returnPath = await compile(
   "src/features/auth/domain/return-target.ts",
   "return-target.mjs",
@@ -45,11 +62,11 @@ const returnPath = await compile(
       "@/features/public-catalog/domain/availability-return",
       "./availability-return.mjs",
     ],
+    [
+      "@/features/public-catalog/domain/marketplace-booking-selection",
+      "./marketplace-booking-selection.mjs",
+    ],
   ],
-);
-await compile(
-  "src/features/public-catalog/domain/availability-return.ts",
-  "availability-return.mjs",
 );
 const credentialPath = await compile(
   "src/features/auth/domain/action-credential.ts",

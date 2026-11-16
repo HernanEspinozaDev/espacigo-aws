@@ -71,7 +71,7 @@ await writeFile(
 );
 await compile("src/lib/api/clp.ts", "clp.mjs");
 await compile("src/lib/api/time.ts", "time.mjs");
-const queryPath = await compile(
+await compile(
   "src/features/public-catalog/domain/query-state.ts",
   "query-state.mjs",
   [
@@ -104,6 +104,7 @@ const { PublicVerificationBadges: Badges } = await compile(
 const fixture = {
   space_id: "11111111-1111-4111-8111-111111111111",
   title: "Ensayo sintético",
+  capacity_max: 1,
   category_code: "oficinas",
   category_name: "Oficinas",
   area_m2: 20,
@@ -131,7 +132,7 @@ test("catalog and detail refresh remove old verification flags without retaining
     return Response.json(
       new URL(url).pathname.endsWith("/public/spaces")
         ? { items: [space] }
-        : { data: space },
+        : { data: { ...space, capacity_max: 1 } },
     );
   };
   try {
@@ -271,7 +272,10 @@ test("public space adapters keep allowlisted fields and strip unknown private da
     ]);
     assert.deepEqual(sortedKeys(detailSpace), [
       "area_m2",
+      "attributes",
       "base_price_clp",
+      "cancellation_policy",
+      "capacity_max",
       "category_code",
       "category_name",
       "comuna_code",
@@ -280,6 +284,8 @@ test("public space adapters keep allowlisted fields and strip unknown private da
       "description",
       "estimated_total_clp",
       "features",
+      "guarantee",
+      "host",
       "images",
       "rate_unit",
       "region_code",

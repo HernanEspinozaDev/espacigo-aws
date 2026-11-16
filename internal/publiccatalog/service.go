@@ -366,6 +366,14 @@ func contains(options []string, value string) bool {
 	return false
 }
 
+func (s *Service) PublicAttributes(ctx context.Context, id string) ([]PublicAttribute, error) {
+	repo, ok := s.repo.(PublicAttributeRepository)
+	if !ok {
+		return []PublicAttribute{}, nil
+	}
+	return repo.PublicAttributes(ctx, strings.ToLower(id))
+}
+
 func (s *Service) Detail(ctx context.Context, spaceID string) (Space, error) {
 	if !validUUID(spaceID) {
 		return Space{}, ErrNotFound

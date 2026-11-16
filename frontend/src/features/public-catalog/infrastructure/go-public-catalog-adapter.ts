@@ -46,6 +46,11 @@ const publicSpaceDetailFields = [
   "title",
   "description",
   "area_m2",
+  "capacity_max",
+  "host",
+  "attributes",
+  "cancellation_policy",
+  "guarantee",
   "rate_unit",
   "base_price_clp",
   "currency",
@@ -230,10 +235,105 @@ function adaptPublicSpace(
   } as PublicSpace;
 }
 
+function publicSpaceHost(
+  value: unknown,
+): components["schemas"]["PublicSpaceHost"] | null {
+  const host = publicRecord(value);
+  if (!host) return null;
+  const joinedAt = host.joined_at;
+  if (
+    !(host.name === null || typeof host.name === "string") ||
+    typeof joinedAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T/.test(joinedAt) ||
+    !Number.isFinite(Date.parse(joinedAt)) ||
+    typeof host.spaces_count !== "number" ||
+    !Number.isSafeInteger(host.spaces_count) ||
+    host.spaces_count < 0 ||
+    typeof host.identity_verified !== "boolean"
+  )
+    return null;
+  return {
+    name: host.name,
+    joined_at: joinedAt,
+    spaces_count: host.spaces_count,
+    identity_verified: host.identity_verified,
+  };
+}
+
+function publicSpaceAttributes(
+  value: unknown,
+): components["schemas"]["PublicSpaceAttribute"][] {
+  if (!Array.isArray(value)) return [];
+  const validTypes = new Set([
+    "boolean",
+    "integer",
+    "number",
+    "enum",
+    "enum_list",
+  ]);
+  const seen = new Set<string>();
+  return value
+    .flatMap((raw) => {
+      const item = publicRecord(raw);
+      if (
+        !item ||
+        typeof item.code !== "string" ||
+        typeof item.label !== "string" ||
+        typeof item.type !== "string" ||
+        !validTypes.has(item.type) ||
+        typeof item.order !== "number" ||
+        !Number.isSafeInteger(item.order) ||
+        seen.has(item.code)
+      )
+        return [];
+      const { type, value: rawValue } = item;
+      const validValue =
+        type === "boolean"
+          ? typeof rawValue === "boolean"
+          : type === "integer"
+            ? typeof rawValue === "number" && Number.isSafeInteger(rawValue)
+            : type === "number"
+              ? typeof rawValue === "number" && Number.isFinite(rawValue)
+              : type === "enum"
+                ? typeof rawValue === "string"
+                : Array.isArray(rawValue) &&
+                  rawValue.every((entry) => typeof entry === "string");
+      if (
+        !validValue ||
+        (item.unit !== undefined && typeof item.unit !== "string")
+      )
+        return [];
+      seen.add(item.code);
+      return [
+        {
+          code: item.code,
+          label: item.label,
+          type: type as components["schemas"]["PublicSpaceAttribute"]["type"],
+          order: item.order,
+          value:
+            rawValue as components["schemas"]["PublicSpaceAttribute"]["value"],
+          ...(typeof item.unit === "string" ? { unit: item.unit } : {}),
+        },
+      ];
+    })
+    .sort((a, b) => a.order - b.order || a.code.localeCompare(b.code));
+}
+
 function adaptPublicSpaceDetail(
   space: components["schemas"]["PublicSpaceDetail"],
-): PublicSpaceDetail {
+): PublicSpaceDetail | undefined {
+  if (
+    typeof space.capacity_max !== "number" ||
+    !Number.isSafeInteger(space.capacity_max) ||
+    space.capacity_max <= 0
+  )
+    return undefined;
   const details = pickPublicFields(space, publicSpaceDetailFields);
+  details.host = publicSpaceHost(space.host);
+  details.attributes = publicSpaceAttributes(space.attributes);
+  details.cancellation_policy = null;
+  details.guarantee = null;
+
   const schedule = publicWeeklySchedule(space.weekly_schedule);
   if (schedule) details.weekly_schedule = schedule;
   else delete details.weekly_schedule;
@@ -358,12 +458,11 @@ export const goPublicCatalogAdapter: PublicCatalogPort = {
       const envelope = publicRecord(result.value);
       const data = publicRecord(envelope?.data);
       if (!data) return malformedCatalogResponse();
-      return {
-        ok: true,
-        value: adaptPublicSpaceDetail(
-          data as unknown as components["schemas"]["PublicSpaceDetail"],
-        ),
-      };
+      const adapted = adaptPublicSpaceDetail(
+        data as unknown as components["schemas"]["PublicSpaceDetail"],
+      );
+      if (!adapted) return malformedCatalogResponse();
+      return { ok: true, value: adapted };
     });
   },
   listTerms() {

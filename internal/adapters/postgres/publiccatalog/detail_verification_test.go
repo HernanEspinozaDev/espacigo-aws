@@ -2,6 +2,7 @@ package publiccatalogpg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
@@ -21,6 +23,8 @@ type detailVerificationPool struct {
 	failQueryPrefix string
 	rowsErrPrefix   string
 	rowsErr         error
+	rowsScanErr     error
+	attributes      []any
 }
 
 func (p *detailVerificationPool) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
@@ -28,6 +32,8 @@ func (p *detailVerificationPool) Query(_ context.Context, query string, _ ...any
 		return nil, fmt.Errorf("synthetic private query failure")
 	}
 	switch {
+	case strings.HasPrefix(strings.TrimSpace(query), "SELECT f.codigo, a.value->>'label'"):
+		return p.rows(query, p.attributes), nil
 	case strings.HasPrefix(strings.TrimSpace(query), "SELECT f.codigo,f.etiqueta"):
 		return p.rows(query, []any{"wifi", "Wi-Fi", true}), nil
 	case strings.HasPrefix(strings.TrimSpace(query), "SELECT image_id,is_cover,source FROM ("):
@@ -38,11 +44,12 @@ func (p *detailVerificationPool) Query(_ context.Context, query string, _ ...any
 }
 
 func (p *detailVerificationPool) rows(query string, row []any) pgx.Rows {
-	var err error
+	var err, scanErr error
 	if p.rowsErrPrefix != "" && strings.HasPrefix(strings.TrimSpace(query), p.rowsErrPrefix) {
 		err = p.rowsErr
+		scanErr = p.rowsScanErr
 	}
-	return &detailVerificationRows{row: row, err: err}
+	return &detailVerificationRows{row: row, err: err, scanErr: scanErr}
 }
 
 func (p *detailVerificationPool) QueryRow(context.Context, string, ...any) pgx.Row {
@@ -65,6 +72,7 @@ type detailVerificationRows struct {
 	pgx.Rows
 	row      []any
 	err      error
+	scanErr  error
 	consumed bool
 }
 
@@ -78,6 +86,9 @@ func (r *detailVerificationRows) Next() bool {
 	return true
 }
 func (r *detailVerificationRows) Scan(dest ...any) error {
+	if r.scanErr != nil {
+		return r.scanErr
+	}
 	return scanDetailVerificationFixture(r.row, dest...)
 }
 
@@ -123,6 +134,22 @@ func scanDetailVerificationFixture(row []any, dest ...any) error {
 				return fmt.Errorf("column %d expected float64, got %T", i, value)
 			}
 			*out = v
+		case *sql.NullString:
+			if value == nil {
+				*out = sql.NullString{}
+				continue
+			}
+			v, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("column %d expected nullable string, got %T", i, value)
+			}
+			*out = sql.NullString{String: v, Valid: true}
+		case *time.Time:
+			v, ok := value.(time.Time)
+			if !ok {
+				return fmt.Errorf("column %d expected time.Time, got %T", i, value)
+			}
+			*out = v
 		case *bool:
 			v, ok := value.(bool)
 			if !ok {
@@ -139,6 +166,12 @@ func scanDetailVerificationFixture(row []any, dest ...any) error {
 				return fmt.Errorf("column %d expected byte slice, got %T", i, value)
 			}
 			*out = append([]byte(nil), v...)
+		case *json.RawMessage:
+			v, ok := value.([]byte)
+			if !ok {
+				return fmt.Errorf("column %d expected JSON bytes, got %T", i, value)
+			}
+			*out = append(json.RawMessage(nil), v...)
 		default:
 			return fmt.Errorf("column %d unsupported destination %T", i, destination)
 		}
@@ -148,7 +181,7 @@ func scanDetailVerificationFixture(row []any, dest ...any) error {
 
 func TestDetailVerificationFlagsReachPublicHTTPResponse(t *testing.T) {
 	const spaceID = "11111111-1111-4111-8111-111111111111"
-	pool := &detailVerificationPool{detailRow: detailVerificationRow(spaceID)}
+	pool := &detailVerificationPool{detailRow: detailVerificationRow(spaceID), attributes: []any{"capacity", "Capacity", "integer", 1, "people", []byte(`8`), []byte(`[]`)}}
 	repo := &Repository{pool: pool}
 	service, err := publiccatalog.New(repo, []byte("01234567890123456789012345678901"))
 	if err != nil {
@@ -161,8 +194,9 @@ func TestDetailVerificationFlagsReachPublicHTTPResponse(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			Verification map[string]json.RawMessage     `json:"verification"`
-			Images       []publiccatalog.PublicImageRef `json:"images"`
+			Verification map[string]json.RawMessage      `json:"verification"`
+			Attributes   []publiccatalog.PublicAttribute `json:"attributes"`
+			Images       []publiccatalog.PublicImageRef  `json:"images"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
@@ -170,6 +204,9 @@ func TestDetailVerificationFlagsReachPublicHTTPResponse(t *testing.T) {
 	}
 	if len(envelope.Data.Verification) != 2 || string(envelope.Data.Verification["identity_verified"]) != "true" || string(envelope.Data.Verification["space_verified"]) != "false" {
 		t.Fatalf("verification=%v, want only identity_verified=true and space_verified=false", envelope.Data.Verification)
+	}
+	if len(envelope.Data.Attributes) != 1 || envelope.Data.Attributes[0].Code != "capacity" || string(envelope.Data.Attributes[0].Value) != "8" {
+		t.Fatalf("attributes=%+v, want the published capacity value", envelope.Data.Attributes)
 	}
 	if len(envelope.Data.Images) != 1 || envelope.Data.Images[0].ImageID != "22222222-2222-4222-8222-222222222222" || !envelope.Data.Images[0].IsCover || envelope.Data.Images[0].Source != "media" {
 		t.Fatalf("images=%+v, want the media cover", envelope.Data.Images)
@@ -184,16 +221,20 @@ func TestDetailQueryFailureDoesNotLeakPartialPublicDTO(t *testing.T) {
 		rowsPrefix string
 		queryErr   error
 		rowsErr    error
+		scanErr    error
 	}{
 		{name: "space query", queryErr: errors.New("synthetic private query failure")},
 		{name: "features query", prefix: "SELECT f.codigo,f.etiqueta"},
 		{name: "images query", prefix: "SELECT image_id,is_cover,source FROM ("},
 		{name: "features stream", rowsPrefix: "SELECT f.codigo,f.etiqueta", rowsErr: errors.New("synthetic private row stream failure")},
+		{name: "attributes query", prefix: "SELECT f.codigo, a.value->>'label'"},
+		{name: "attributes stream", rowsPrefix: "SELECT f.codigo, a.value->>'label'", rowsErr: errors.New("synthetic private row stream failure")},
+		{name: "attributes scan", rowsPrefix: "SELECT f.codigo, a.value->>'label'", scanErr: errors.New("synthetic private scan failure")},
 		{name: "images stream", rowsPrefix: "SELECT image_id,is_cover,source FROM (", rowsErr: errors.New("synthetic private row stream failure")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pool := &detailVerificationPool{detailRow: detailVerificationRow(spaceID), detailErr: tc.queryErr, failQueryPrefix: tc.prefix, rowsErrPrefix: tc.rowsPrefix, rowsErr: tc.rowsErr}
+			pool := &detailVerificationPool{detailRow: detailVerificationRow(spaceID), attributes: []any{"capacity", "Capacity", "integer", 1, "people", []byte(`8`), []byte(`[]`)}, detailErr: tc.queryErr, failQueryPrefix: tc.prefix, rowsErrPrefix: tc.rowsPrefix, rowsErr: tc.rowsErr, rowsScanErr: tc.scanErr}
 			service, err := publiccatalog.New(&Repository{pool: pool}, []byte("01234567890123456789012345678901"))
 			if err != nil {
 				t.Fatal(err)
@@ -232,7 +273,7 @@ func TestDetailMissingRowMapsToPublicNotFound(t *testing.T) {
 
 func detailVerificationRow(spaceID string) []any {
 	return []any{
-		spaceID, "oficina", "Oficina", "Sala sintética", "Descripción sintética", float64(20), "dia", int64(5000), "CLP", 1, "sala",
-		"Reglas sintéticas", "13", "Metropolitana", "13101", "Santiago", true, false, nil,
+		spaceID, "oficina", "Oficina", "Sala sintética", "Descripción sintética", float64(20), 8, "dia", int64(5000), "CLP", 1, "sala",
+		"Reglas sintéticas", "13", "Metropolitana", "13101", "Santiago", true, false, nil, nil, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC), int64(3),
 	}
 }

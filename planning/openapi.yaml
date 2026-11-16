@@ -5758,7 +5758,7 @@ components:
     PublicSpaceDetail:
       type: object
       additionalProperties: false
-      required: [ space_id, category_code, category_name, title, description, area_m2, rate_unit, base_price_clp, currency, estimated_total_clp, usage_rules, features, images ]
+      required: [ space_id, category_code, category_name, title, description, area_m2, capacity_max, rate_unit, base_price_clp, currency, estimated_total_clp, usage_rules, features, images, host, attributes, cancellation_policy, guarantee ]
       properties:
         space_id: { type: string, format: uuid }
         category_code: { type: string }
@@ -5766,6 +5766,18 @@ components:
         title: { type: string }
         description: { type: string }
         area_m2: { type: number }
+        capacity_max: { type: integer, minimum: 1, description: Aforo máximo público de la publicación. }
+        host: { oneOf: [ { $ref: "#/components/schemas/PublicSpaceHost" }, { type: "null" } ] }
+        attributes:
+          type: array
+          description: Contiene todas las clases de atributos permitidas por el perfil y la política pública vigente; no expone el perfil ni valores crudos.
+          items: { $ref: "#/components/schemas/PublicSpaceAttribute" }
+        cancellation_policy:
+          type: 'null'
+          description: No informada porque no existe configuración pública.
+        guarantee:
+          type: 'null'
+          description: No informada porque no existe configuración pública.
         rate_unit: { type: string, enum: [ hora, dia, mes ] }
         base_price_clp: { type: integer, format: int64 }
         currency: { type: string, const: CLP }
@@ -5779,6 +5791,31 @@ components:
         images: { type: array, items: { $ref: "#/components/schemas/PublicSpaceImageRef" } }
         weekly_schedule: { $ref: "#/components/schemas/PublicWeeklySchedule" }
         verification: { $ref: "#/components/schemas/PublicDocumentVerification" }
+    PublicSpaceHost:
+      type: object
+      additionalProperties: false
+      required: [ name, joined_at, spaces_count, identity_verified ]
+      properties:
+        name: { type: [ string, "null" ] }
+        joined_at: { type: string, format: date-time }
+        spaces_count: { type: integer, minimum: 0 }
+        identity_verified: { type: boolean }
+    PublicSpaceAttribute:
+      type: object
+      additionalProperties: false
+      required: [ code, label, type, order, value ]
+      properties:
+        code: { type: string }
+        label: { type: string }
+        type: { type: string, enum: [ boolean, integer, number, enum, enum_list ] }
+        order: { type: integer }
+        value:
+          oneOf:
+            - { type: boolean }
+            - { type: number }
+            - { type: string }
+            - { type: array, items: { type: string } }
+        unit: { type: string }
     PublicWeeklySchedule:
       type: object
       additionalProperties: false

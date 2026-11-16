@@ -52,7 +52,7 @@ test("marketplace routes use the Go public catalog without local listing fixture
   assert.match(home, /publicCatalog\.spaces/);
   assert.match(explore, /spacesFromParams/);
   assert.match(detail, /publicCatalog\.space/);
-  assert.match(detail, /MediaGallery/);
+  assert.match(detail, /(?:PublicSpaceMarketplaceGallery|MediaGallery)/);
   assert.match(grid, /PublicCatalogCard/);
   assert.match(
     await read("src/app/(marketplace)/products/page.tsx"),

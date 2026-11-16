@@ -433,7 +433,12 @@ func TestPublicDetailIncludesRequiredEmptyFieldsAndCanonicalizesID(t *testing.T)
 	if response.Code != http.StatusOK || repo.detailCalls != 1 || repo.detailID != spaceID || usageRules != "" || string(envelope.Data["features"]) != "[]" || string(envelope.Data["images"]) != "[]" {
 		t.Fatalf("status=%d calls=%d id=%q usage_rules=%q features=%s images=%s body=%s", response.Code, repo.detailCalls, repo.detailID, usageRules, envelope.Data["features"], envelope.Data["images"], response.Body.String())
 	}
-	assertPublicJSONKeys(t, envelope.Data, "space_id", "verification", "category_code", "category_name", "title", "description", "area_m2", "rate_unit", "base_price_clp", "currency", "estimated_total_clp", "features", "images", "usage_rules")
+	assertPublicJSONKeys(t, envelope.Data, "space_id", "verification", "category_code", "category_name", "title", "description", "area_m2", "capacity_max", "host", "cancellation_policy", "guarantee", "attributes", "rate_unit", "base_price_clp", "currency", "estimated_total_clp", "features", "images", "usage_rules")
+	for key, want := range map[string]string{"capacity_max": "0", "host": "null", "cancellation_policy": "null", "guarantee": "null", "attributes": "[]"} {
+		if got := string(envelope.Data[key]); got != want {
+			t.Errorf("%s=%s want %s", key, got, want)
+		}
+	}
 }
 
 func TestPublicDetailRejectsMalformedIdentifiersAndQueryBeforeRepository(t *testing.T) {
