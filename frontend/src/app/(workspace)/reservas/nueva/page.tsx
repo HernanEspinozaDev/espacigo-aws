@@ -84,25 +84,27 @@ export default async function NuevaReservaPage({
             </dd>
           </div>
         </dl>
-        <p className="mt-6">
-          La selección no confirma disponibilidad, reserva, pago ni firma.
-        </p>
-        <p className="mt-3">
-          La continuación comercial no está habilitada en este corte.
-        </p>
+        <div className="mt-8 border-t border-border pt-6">
+          <BookingQuoteCard
+            spaceId={selection.spaceId}
+            defaultRateUnit={selection.rateUnit}
+            initialStartDate={selection.startAt}
+            initialDurationUnits={selection.duration}
+          />
+        </div>
         <nav
-          className="mt-6 flex flex-wrap gap-4"
+          className="mt-6 flex flex-wrap gap-4 text-sm"
           aria-label="Opciones para esta selección"
         >
           <Link
             href={`/espacios/${selection.spaceId}?${rentalQuery}`}
-            className="underline"
+            className="underline text-muted-foreground hover:text-foreground"
           >
             Volver a la publicación
           </Link>
           <Link
             href={`/acceso?return_to=${encodeURIComponent(canonicalHref)}`}
-            className="underline"
+            className="underline text-muted-foreground hover:text-foreground"
           >
             Iniciar sesión
           </Link>

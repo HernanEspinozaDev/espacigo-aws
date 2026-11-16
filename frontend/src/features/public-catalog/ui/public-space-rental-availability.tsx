@@ -71,6 +71,16 @@ export function PublicSpaceRentalAvailability({
   useEffect(() => {
     selectionChange.current = onSelectionChange;
   }, [onSelectionChange]);
+
+  const notifySelection = (sel: MarketplaceBookingSelection | null) => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("espacigo:marketplace-selection", {
+          detail: sel,
+        }),
+      );
+    }
+  };
   const selectionKey = `${selectedDate ?? ""}|${duration}|${selectedInterval?.start_at ?? ""}|${selectedInterval?.end_at ?? ""}`;
   const sessionKey =
     authSnapshot.status === "authenticated"
@@ -172,6 +182,7 @@ export function PublicSpaceRentalAvailability({
   const beginAvailabilityQuery = () => {
     generation.current += 1;
     selectionChange.current?.(null);
+    notifySelection(null);
     setLoading(true);
     setError(null);
     setIntervals([]);
@@ -200,6 +211,7 @@ export function PublicSpaceRentalAvailability({
           setIntervals([]);
           setAvailabilityTimeZone(null);
           selectionChange.current?.(null);
+          notifySelection(null);
           return;
         }
         setIntervals(result.value.items);
@@ -222,6 +234,15 @@ export function PublicSpaceRentalAvailability({
               endAt: matchingInterval.end_at,
               timeZone: result.value.time_zone,
             });
+            notifySelection({
+              spaceId,
+              date: selectedDate,
+              duration,
+              rateUnit,
+              startAt: matchingInterval.start_at,
+              endAt: matchingInterval.end_at,
+              timeZone: result.value.time_zone,
+            });
           }
           pendingRentalSelection.current = undefined;
         }
@@ -233,6 +254,7 @@ export function PublicSpaceRentalAvailability({
         setIntervals([]);
         setAvailabilityTimeZone(null);
         selectionChange.current?.(null);
+        notifySelection(null);
       })
       .finally(() => {
         if (generation.current === currentOp) {
@@ -262,6 +284,7 @@ export function PublicSpaceRentalAvailability({
       return d.toLocaleTimeString("es-CL", {
         hour: "2-digit",
         minute: "2-digit",
+        hour12: false,
         timeZone: availabilityTimeZone ?? undefined,
       });
     } catch {
@@ -394,16 +417,28 @@ export function PublicSpaceRentalAvailability({
                       if (selectedInterval?.start_at !== it.start_at)
                         clearQuoteForSelection();
                       setSelectedInterval(it);
-                      if (availabilityTimeZone)
-                        selectionChange.current?.({
-                          spaceId,
-                          date: selectedDate,
-                          duration,
-                          rateUnit,
-                          startAt: it.start_at,
-                          endAt: it.end_at,
-                          timeZone: availabilityTimeZone,
-                        });
+                      if (availabilityTimeZone) {
+                        if (selectedDate) {
+                          selectionChange.current?.({
+                            spaceId,
+                            date: selectedDate,
+                            duration,
+                            rateUnit,
+                            startAt: it.start_at,
+                            endAt: it.end_at,
+                            timeZone: availabilityTimeZone,
+                          });
+                          notifySelection({
+                            spaceId,
+                            date: selectedDate,
+                            duration,
+                            rateUnit,
+                            startAt: it.start_at,
+                            endAt: it.end_at,
+                            timeZone: availabilityTimeZone,
+                          });
+                        }
+                      }
                     }}
                     className={`min-h-11 rounded-lg border p-2 text-center text-xs sm:text-sm font-medium transition-colors ${
                       selected

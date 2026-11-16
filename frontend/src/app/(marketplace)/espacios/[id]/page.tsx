@@ -153,6 +153,8 @@ export default async function PublicSpacePage({
   return (
     <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
       <PublicSpaceMarketplaceLayout
+        basePriceCLP={space.base_price_clp}
+        rateUnit={space.rate_unit}
         summary={
           <PublicSpaceSummary
             title={title}

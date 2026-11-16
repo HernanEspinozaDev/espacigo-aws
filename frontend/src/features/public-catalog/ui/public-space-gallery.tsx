@@ -101,7 +101,11 @@ export function PublicSpaceMarketplaceGallery({
                 key={`${image.src}-${index}`}
                 type="button"
                 onClick={(event) => open(index, event.currentTarget)}
-                aria-label={`Ver imagen ${index + 1} de ${count}`}
+                aria-label={
+                  cell === 3 && count > 4
+                    ? `+${count - 4} fotos, ver imagen ${index + 1} de ${count}`
+                    : `Ver imagen ${index + 1} de ${count}`
+                }
                 className="relative aspect-square min-h-28 overflow-hidden bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 <PublicMediaImage

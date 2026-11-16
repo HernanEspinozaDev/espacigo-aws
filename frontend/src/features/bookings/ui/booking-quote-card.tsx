@@ -23,6 +23,8 @@ interface BookingQuoteCardProps {
   spaceTitle?: string;
   defaultRateUnit?: RateUnit;
   defaultUnitPriceClp?: number;
+  initialStartDate?: string;
+  initialDurationUnits?: number;
   onReservationCreated?: (reservationId: string) => void;
 }
 
@@ -31,6 +33,8 @@ export function BookingQuoteCard({
   spaceTitle,
   defaultRateUnit = "hora",
   defaultUnitPriceClp,
+  initialStartDate,
+  initialDurationUnits,
   onReservationCreated,
 }: BookingQuoteCardProps) {
   const router = useRouter();
@@ -51,8 +55,17 @@ export function BookingQuoteCard({
 
   const [spaceId, setSpaceId] = useState(initialSpaceId);
   const [rateUnit, setRateUnit] = useState<RateUnit>(defaultRateUnit);
-  const [durationUnits, setDurationUnits] = useState<number>(1);
+  const [durationUnits, setDurationUnits] = useState<number>(
+    initialDurationUnits ?? 1,
+  );
   const [startDate, setStartDate] = useState<string>(() => {
+    if (initialStartDate) {
+      const d = new Date(initialStartDate);
+      if (!isNaN(d.getTime())) {
+        const pad = (n: number) => String(n).padStart(2, "0");
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      }
+    }
     const d = new Date();
     d.setDate(d.getDate() + 1);
     d.setHours(9, 0, 0, 0);
