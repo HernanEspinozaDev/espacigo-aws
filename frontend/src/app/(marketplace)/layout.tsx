@@ -10,7 +10,6 @@ const links = [
   { href: "/categorias", label: "Categorías" },
   { href: "/arriendos", label: "Arriendos residenciales" },
   { href: "/como-funciona", label: "Cómo funciona" },
-  { href: "/acceso", label: "Iniciar sesión" },
 ];
 
 export default function MarketplaceLayout({
