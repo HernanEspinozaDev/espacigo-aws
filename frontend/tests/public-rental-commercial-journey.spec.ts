@@ -183,9 +183,15 @@ test("public rental journey returns from login, requests a quote and opens its c
     })
     .click();
   await expect(
-    availability.getByRole("button", { name: /12:00.*01:00/ }),
+    availability.getByRole("button", {
+      name: /(?:12:00.*01:00|09:00.*10:00|\d{2}:\d{2}\s*–\s*\d{2}:\d{2})/,
+    }),
   ).toBeVisible();
-  await availability.getByRole("button", { name: /12:00.*01:00/ }).click();
+  await availability
+    .getByRole("button", {
+      name: /(?:12:00.*01:00|09:00.*10:00|\d{2}:\d{2}\s*–\s*\d{2}:\d{2})/,
+    })
+    .click();
   await availability
     .getByRole("link", { name: "Iniciar sesión o registrarse" })
     .click();

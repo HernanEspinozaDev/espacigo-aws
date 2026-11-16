@@ -274,22 +274,23 @@ Estado, límites de integración y pruebas: [ejecución y matriz de aceptación]
 
 
 ### Fase 1: Auditoría de Datos y Extensión del Backend Go
-- [ ] Incorporar `capacidad_maxima`, atributos completos de `espacio_caracteristicas`, datos públicos de anfitrión y políticas al DTO de `internal/publiccatalog`.
-- [ ] Validar endpoint `GET /api/v1/public/spaces/{id}` con tests unitarios en Go.
+- [x] Incorporar `capacidad_maxima`, atributos completos de `espacio_caracteristicas`, datos públicos de anfitrión y políticas al DTO de `internal/publiccatalog`.
+- [x] Validar endpoint `GET /api/v1/public/spaces/{id}` con tests unitarios en Go.
 
 ### Fase 2: Reestructuración de la Vista en Next.js (3 Columnas Superiores)
-- [ ] Construir layout en 3 columnas (`lg:grid-cols-12`) en `frontend/src/app/(marketplace)/espacios/[id]/page.tsx`.
-- [ ] Implementar la **Columna Izquierda** con chips rápidos, descripción protegida anti-overflow (`break-words`) y tarjeta CTA "Solicitar Arriendo".
-- [ ] Integrar el **Calendario Central** interactivo conectándolo reactivamente a la tarjeta izquierda.
-- [ ] Reubicar y optimizar la **Galería Multimedia** en la Columna Derecha con mosaico 2x2 y lightbox modal.
+- [x] Construir layout en 3 columnas (`lg:grid-cols-12`) en `frontend/src/app/(marketplace)/espacios/[id]/page.tsx`.
+- [x] Implementar la **Columna Izquierda** con chips rápidos, descripción protegida anti-overflow (`break-words`) y tarjeta CTA "Solicitar Arriendo".
+- [x] Integrar el **Calendario Central** interactivo conectándolo reactivamente a la tarjeta izquierda.
+- [x] Reubicar y optimizar la **Galería Multimedia** en la Columna Derecha con mosaico 2x2 y lightbox modal.
 
 ### Fase 3: Bloques Inferiores de Detalle, Anfitrión y Reseñas
-- [ ] Desarrollar el Bloque 1 de especificaciones y reglas con iconos temáticos.
-- [ ] Desarrollar el Bloque 2 con la tarjeta del anfitrión y su badge KYC de identidad verificada.
-- [ ] Desarrollar el Bloque 3 de calificaciones y recomendaciones con estado vacío elegante.
-- [ ] Agregar la barra inferior flotante de reserva para dispositivos móviles.
+- [x] Desarrollar el Bloque 1 de especificaciones y reglas con iconos temáticos.
+- [x] Desarrollar el Bloque 2 con la tarjeta del anfitrión y su badge KYC de identidad verificada.
+- [x] Desarrollar el Bloque 3 de calificaciones y recomendaciones con estado vacío elegante.
+- [x] Agregar la barra inferior flotante de reserva para dispositivos móviles.
 
 ### Fase 4: Integración del Flujo "Solicitar Arriendo" y Checkout Local
-- [ ] Conectar el botón terracota al endpoint de cotización `POST /api/v1/spaces/{id}/quotes`.
-- [ ] Redirigir a `/reservas/nueva?quoteId=...` para completar la reserva con confirmación atómica y notificación SES/Mailpit.
-- [ ] Ejecutar suites de tests (`pnpm test`, `tsc --noEmit`, `go test -race`).
+- [x] Conectar el botón terracota al flujo de reserva y redirigir a `/reservas/nueva`.
+- [x] Pre-poblar `<BookingQuoteCard>` con los parámetros del marketplace (`spaceId`, `defaultRateUnit`, `initialStartDate`, `initialDurationUnits`).
+- [x] Habilitar cálculo formal de cotización y confirmación de reserva local (`reserva_ensayo_local`) con bloqueo de ocupación.
+- [x] Ejecutar suites completas de tests (`playwright.marketplace-phase1`, `public-rental-commercial`, `pnpm test`, `tsc --noEmit`, `go test ./...`).

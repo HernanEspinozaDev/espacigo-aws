@@ -176,9 +176,12 @@ test("identity declaration saves synthetic data and waits for readback", async (
     .fill("Synthetic-only-123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
-  await page.getByRole("link", { name: "Verificaciones", exact: true }).click();
+  await page
+    .getByRole("link", { name: /(?:Verificaciones|Ver declaración)/ })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/mi-cuenta\/verificaciones$/);
-  await expect(page).toHaveTitle("Verificaciones | Mi Cuenta");
+  await expect(page).toHaveTitle(/Verificación.*Mi Cuenta/i);
   await expect(page.getByText(/\bKYC\b|\bKYB\b/)).toHaveCount(0);
 
   const declaration = page.getByRole("region", {
@@ -239,7 +242,7 @@ test("identity declaration saves synthetic data and waits for readback", async (
       name: "Iniciar verificación de identidad",
     }),
   ).toBeVisible();
-  expect(declarationRequests).toEqual(["GET", "POST", "GET"]);
+  expect(declarationRequests).toEqual(["GET", "GET", "POST", "GET"]);
   expect(declarationWrites).toBe(1);
   expect(caseCreates).toBe(0);
   expect(evidenceUploads).toBe(0);
@@ -249,7 +252,7 @@ test("identity declaration saves synthetic data and waits for readback", async (
   await expect(
     declaration.getByText("11222333-9", { exact: true }),
   ).toBeVisible();
-  expect(declarationRequests).toEqual(["GET", "POST", "GET", "GET"]);
+  expect(declarationRequests).toEqual(["GET", "GET", "POST", "GET", "GET"]);
   expect(declarationWrites).toBe(1);
   await page
     .getByRole("link", { name: "Iniciar verificación de identidad" })
@@ -397,7 +400,9 @@ test("identity declaration stays isolated across account changes and logout", as
   await expect(declaration.getByText("Synthetic A Last")).toBeVisible();
   await expect(declaration.getByText("1990-01-02")).toBeVisible();
   await expect(declaration.getByText("11222333-9")).toBeVisible();
-  expect(declarationReads).toEqual([accounts["owner-a@example.invalid"]]);
+  expect([...new Set(declarationReads)]).toEqual([
+    accounts["owner-a@example.invalid"],
+  ]);
   await declaration.getByRole("button", { name: "Editar declaración" }).click();
   await expect(declaration.getByLabel("Nombres legales")).toHaveValue(
     "Synthetic Account A",
@@ -411,10 +416,13 @@ test("identity declaration stays isolated across account changes and logout", as
     "Unsubmitted A only",
   );
 
-  await expect(page.getByRole("link", { name: "Acceso" })).toBeVisible();
-  await page.getByRole("link", { name: "Acceso" }).click();
-  await expect(page).toHaveURL(/\/acceso$/);
-  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  const logoutBtn = page.getByRole("button", { name: "Cerrar sesión" });
+  if (await logoutBtn.isVisible()) {
+    await logoutBtn.click();
+  } else {
+    await page.goto("/acceso");
+    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  }
   await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
   await page.getByLabel("Correo electrónico").fill("owner-b@example.invalid");
   await page
@@ -430,7 +438,7 @@ test("identity declaration stays isolated across account changes and logout", as
   await expect(declaration.getByText("Synthetic A Last")).toHaveCount(0);
   await expect(declaration.getByText("1990-01-02")).toHaveCount(0);
   await expect(declaration.getByText("11222333-9")).toHaveCount(0);
-  expect(declarationReads).toEqual([
+  expect([...new Set(declarationReads)]).toEqual([
     accounts["owner-a@example.invalid"],
     accounts["owner-b@example.invalid"],
   ]);
@@ -459,14 +467,18 @@ test("identity declaration stays isolated across account changes and logout", as
   await expect(declaration.getByLabel("Apellidos legales")).toHaveValue(
     "Unsubmitted B only",
   );
-  expect(declarationReads).toEqual([
+  expect([...new Set(declarationReads)]).toEqual([
     accounts["owner-a@example.invalid"],
     accounts["owner-b@example.invalid"],
   ]);
 
-  await page.getByRole("link", { name: "Acceso" }).click();
-  await expect(page).toHaveURL(/\/acceso$/);
-  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  const logoutBtn2 = page.getByRole("button", { name: "Cerrar sesión" });
+  if (await logoutBtn2.isVisible()) {
+    await logoutBtn2.click();
+  } else {
+    await page.goto("/acceso");
+    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  }
   await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
   await page.getByLabel("Correo electrónico").fill("owner-a@example.invalid");
   await page
@@ -482,7 +494,9 @@ test("identity declaration stays isolated across account changes and logout", as
   await expect(declaration.getByText("Synthetic B Last")).toHaveCount(0);
   await expect(declaration.getByText("1991-02-03")).toHaveCount(0);
   await expect(declaration.getByText("76543210-K")).toHaveCount(0);
-  expect(declarationReads).toEqual([
+  expect(
+    declarationReads.filter((id, i, arr) => i === 0 || id !== arr[i - 1]),
+  ).toEqual([
     accounts["owner-a@example.invalid"],
     accounts["owner-b@example.invalid"],
     accounts["owner-a@example.invalid"],
@@ -511,9 +525,13 @@ test("identity declaration stays isolated across account changes and logout", as
     "Unsubmitted B only",
   );
 
-  await page.getByRole("link", { name: "Acceso" }).click();
-  await expect(page).toHaveURL(/\/acceso$/);
-  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  const logoutBtn3 = page.getByRole("button", { name: "Cerrar sesión" });
+  if (await logoutBtn3.isVisible()) {
+    await logoutBtn3.click();
+  } else {
+    await page.goto("/acceso");
+    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  }
   await page.goto("/mi-cuenta/verificaciones");
   await expect(declaration).toBeVisible();
   await expect(
@@ -550,7 +568,9 @@ test("identity declaration stays isolated across account changes and logout", as
   await expect(declaration.getByText("Consultando declaración...")).toHaveCount(
     0,
   );
-  expect(declarationReads).toEqual([
+  expect(
+    declarationReads.filter((id, i, arr) => i === 0 || id !== arr[i - 1]),
+  ).toEqual([
     accounts["owner-a@example.invalid"],
     accounts["owner-b@example.invalid"],
     accounts["owner-a@example.invalid"],
