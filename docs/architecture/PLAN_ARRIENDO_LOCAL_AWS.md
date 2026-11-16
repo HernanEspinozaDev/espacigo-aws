@@ -125,14 +125,20 @@ flowchart TD
 - [x] **Recepción y Liquidación Final Post-Disputa**: Anfitrión confirma recepción (`POST /.../reception`), liberando el calendario GiST en `public.ocupacion`, y ejecuta liquidación final (`POST /.../settlement`) transicionando la reserva a `cerrada`.
 - [x] **Verificación UI Frontend**: Renderizado reactivo verificado en `BookingDisputesPanel` (`/reservas/{id}` y `/anfitrion/reservas/{id}`) y en el panel global `/administracion/disputas`.
 
+### Fase 8 (Fase B): Cancelaciones de Arriendo, Devoluciones y Desbloqueo de Calendario (100% Validado)
+- [x] **Consulta de Previsualización de Reembolso (`cancellation-preview`)**: `GET /api/v1/local/booking-trial/reservations/{id}/cancellation-preview` validando elegibilidad (`eligible: true`), fecha límite (`deadline`), política (`local_flexible_v1`) y monto total de reembolso a favor del arrendatario ($70.000 CLP).
+- [x] **Cancelación Post-Pago por Arrendatario**: `POST /api/v1/local/booking-trial/reservations/{id}/cancel` con motivo formal, transicionando a `cancelada_arrendatario`, cerrando garantías, cancelando contratos y liberando atómicamente la ocupación en `public.ocupacion` (`activo = false`).
+- [x] **Gestión y Simulación de Devolución Soberana**: Generación de `public.reserva_devolucion_ensayo` en `pendiente`, seguida por su ejecución exitosa (`POST /.../refund`) transicionando a `completada` y despachando alertas transaccionales SES a Mailpit (`:8025`).
+- [x] **Rechazo / Cancelación por el Anfitrión**: `POST /api/v1/local/booking-trial/reservations/{id}/decision` con `decision: "rechazar"`, transicionando a `rechazada_arrendador`, registrando devolución simulada en `public.reserva_pago_ensayo` y desactivando de inmediato la reserva en `public.ocupacion`.
+- [x] **Cancelación Pre-Pago**: Cancelación antes de transferir fondos, liberando la retención de calendario de inmediato sin generar deuda ni reembolsos (`refund_state: "no_aplica"`).
+- [x] **Integración y Panel UI**: Visualización verificada en `ReservationLifecyclePanel` (`/reservas/{id}`) con botones de "Consultar Política de Reembolso", desglose de penalización/devolución y "Simular Devolución Exitosa".
+
 ### Roadmap de Siguientes Fases
-- [ ] **Fase B: Cancelaciones de Arriendo y Políticas de Devolución**:
-  - Cancelación antes del inicio del arriendo (`POST /api/v1/local/booking-trial/reservations/{id}/cancel`) por arrendatario o anfitrión.
-  - Evaluación de retenciones según política de cancelación (`local_flexible_v1`), registro de reembolsos en `public.reserva_devolucion_ensayo` y liberación atómica de `public.ocupacion`.
 - [ ] **Fase C: Gestión Multimedia de Espacios (Host Space Wizard)**:
   - Creación y edición de espacios comerciales desde la interfaz de anfitrión (`/anfitrion/espacios/nuevo` y `/anfitrion/espacios/{id}/editar`).
   - Subida directa y procesamiento WebP de fotografías hacia el bucket local `espacigo-media-local` vía adaptador `s3storage.MediaStore`.
 - [ ] **Fase D: Despliegue de Infraestructura Cloud en AWS (Ohio us-east-2)**:
   - Validación de módulos OpenTofu/Terraform en `infra/terraform/environments/aws-main`.
   - Configuración del Free Tier en AWS (RDS PostgreSQL 18 `db.t4g.micro`, S3, SES, ECS Fargate).
+
 
