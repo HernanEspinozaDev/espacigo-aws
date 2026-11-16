@@ -106,8 +106,8 @@ Logs finales: `/home/nandev/.hermes/cache/scratch/espacigo-resume-gates/`; `brow
 | Arriendos: pagos/contratos/comprobantes | **Parcial** | Conservar etiquetas sintéticas y contratos actuales; no equiparar simulación con operación comercial | Aceptación local persistida de los estados y documentos exigidos por el plan, separada de proveedores reales |
 | Calendarios: contrato mensual y estados error/vacío | **Ya finalizado** para transporte/render | Mantener endpoint canónico, generación OpenAPI y fail-closed | Ninguno para esta aceptación; no implica autoridad global de inventario/precio |
 | Calendarios: intervalos y restricciones V98 | **Parcial** | Lecturas y `IntervalAvailable` ya filtran V98; mensual, quote trial y commit requieren equivalencia completa | Horarios, DST, overrides y concurrencia comprobados en una única traza persistida |
-| Calendarios: configuración de anfitrión | **Parcial** | Cerrar contrato privado de lectura/escritura, CAS, semántica batch y carga tras recarga | Anfitrión edita regla/override/precio, readback Go/Postgres y reflejo público comprobados en navegador |
-| Ambos: aceptación integral de dos cuentas | **Falta construir** como evidencia actual | No sustituir DB por mocks ni reserva por href | Journey anfitrión → público → quote → solicitud → ocupación/cancelación sobre el artefacto final |
+| Calendarios: configuración de anfitrión | **Parcial; regla base nativa verificada** | Escritura de regla, CAS obsoleto, recarga, horario semanal y publicación comprobados mediante BFF/Go/PostgreSQL; faltan mutación/reversión nativas de overrides y tarifa especial | Completar excepciones, precios y concurrencia entre dos escritores; la prueba de revisión antigua no equivale a una carrera concurrente |
+| Ambos: aceptación integral de dos cuentas | **Parcial; cotización bloqueada por KYC** | Creados anfitrión y dos arrendatarios locales; falta elegibilidad vigente, no autorizarla por inferencia ni sustituirla con mocks | Journey público → quote → solicitud → ocupación/no solapamiento en mismo/diferente día → cancelación, con readback PostgreSQL |
 
 **Siguiente trabajo asignado:** contraste de precio variable con constraints efectivos y contrato privado del calendario anfitrión, en dos auditorías focales sin escrituras. La incidencia recurrente del worker `private media cleanup pass failed` permanece abierta; health 200 no la resuelve. No se alteraron sus permisos ni roles.
 
@@ -155,3 +155,35 @@ Evidencia: `/home/nandev/.hermes/cache/scratch/espacigo-host-config-gates/`: `ho
 3. Precio diario personalizado coherente con el quote y sus restricciones/snapshot inmutable, incluida la semántica de hora/mes.
 4. Solicitud real de ensayo → ocupación → rechazo de solapamiento → cancelación/liberación; pagos/documentos sintéticos con sus gates propios.
 5. Incidencia del cleanup worker y formato preexistente fuera de este corte.
+
+## Publicación y aceptación nativa del calendario — 2026-11-16
+
+**Código publicado:** `00986814fc3fed5f34f4957fbd17e1782ebfe9b6`, `main` de `HernanEspinozaDev/espacigo-aws`; SHA remoto leído después del push y autor/committer confirmados como `HernanEspinozaDev`. Se conservaron los cambios previos de Gemini. Los 58 paths del checkpoint fueron contrastados con el índice congelado; `.local/` quedó excluida. La revisión frontend pasó; la observación CAS hipotética de backend fue adjudicada sin cambiar código: el catálogo real no contiene un trigger de actualización automática de revisión y la escritura permanece bajo el mismo `FOR UPDATE` hasta commit. El primer revisor ejecutó comandos de lectura pese a su restricción de herramientas; la adjudicación acotada sólo leyó archivos y declaró `executed_commands: []`.
+
+### Lo que sí se ejecutó sobre PostgreSQL real
+
+Objetivo único: API `127.0.0.1:8080` y DB Docker `espacigo_aws_local`, sin cuentas AWS reales. Se usó el build aislado `:4318` a través de una entrada HTTPS loopback `:4210`, para ejercer las cookies `__Host-` y el BFF reales. No hubo mocks del gateway ni respuestas API fabricadas.
+
+- Registro normal de **tres cuentas sintéticas nuevas**: anfitrión, arrendatario A y arrendatario B; aceptación de términos vigentes, correo verificado por Mailpit, login y perfil confirmados mediante GET y estado `activo` leído en DB. Contraseñas/tokens sólo en el fixture privado ignorado, con archivo `0600` y directorio `0700`.
+- Borrador horario nuevo creado por API, tarifa **12.000 CLP/hora**, sin modificar cuentas o espacios preexistentes. Identificador público de prueba: `7aec3e2d-8ac8-441c-a906-18020289b0d0`.
+- En el navegador anfitrión se guardó la regla **lunes a domingo, 10:00–18:00**, precio de calendario 12.000, estadía 1–30. PUT con `If-Match` observado → 200 → GET independiente 200 → recarga de página conserva 10:00–18:00. Una escritura explícita con la revisión anterior respondió **412** y el GET posterior conservó la revisión y la regla nuevas. Esto prueba rechazo de revisión obsoleta, no una carrera simultánea.
+- El horario semanal habitual se guardó desde su pestaña y luego se publicó el espacio desde la interfaz. Ambos PUT devolvieron 200; el PUT semanal utilizó el ETag devuelto por la configuración previa. GET posterior: siete días con tramo 10:00–18:00 y estado `activa`. Son operaciones distintas del guardado de la regla de inventario, no una escritura única ficticia.
+- Postcheck SQL independiente: **1 regla base y 1 configuración semanal**, con valores 10:00–18:00 y precio 12.000. El GET semanal usa el envelope real `data.days[].periods[]`, no el modelo UI `weekly_slots`: se corrigió una aserción del harness después del primer guardado sin repetir esa mutación.
+- Navegador público **390 px**: el 17 de noviembre de 2026 aparece `AVAILABLE`; mes e intervalos responden 200. API devuelve 13 alternativas de dos horas. Se seleccionó **10:00–12:00 America/Santiago**, conservando exactamente `2026-11-17T13:00:00Z`–`2026-11-17T15:00:00Z` en la CTA. Cero mutaciones, cero solicitudes externas y sin desborde horizontal. Capturas anfitrión/móvil inspeccionadas visualmente. Son alternativas disponibles, **no 13 reservas ni tickets vendidos**.
+
+### Bloqueo de las reservas solicitadas
+
+La primera cotización real de A para ese intervalo respondió **404 `not_found`**. La consulta trial exige elegibilidad KYC vigente del anfitrión y el commit de reserva revalida ambas partes. Las cuentas recién registradas no tienen esa elegibilidad: verificar correo no equivale a aprobar identidad.
+
+Se preguntó por autorización específica para preparar KYC sintético exclusivamente en estas tres cuentas. La solicitud **quedó sin respuesta por timeout**; no se aprobó KYC, no se cambiaron roles/controles y no se usaron cuentas existentes como sustitución. El postcheck SQL del espacio confirma **0 cotizaciones, 0 reservas y 0 ocupaciones**. Por tanto, **no están probados** todavía dos arrendatarios en horas diferentes del mismo día ni en fechas distintas; no se declara ese flujo terminado.
+
+El contrato actual admite `hora/dia/mes`, no una unidad `semana`. No se ejecutaron reservas diarias o semanales ni se afirma que un precio del calendario sea una cotización. Próximo gate, condicionado a decisión de KYC: preparar la elegibilidad sintética expresamente autorizada o completar la verificación normal; después ejecutar cuatro solicitudes no solapadas A/B en dos fechas, leer reservas y rangos de ocupación desde DB y probar rechazo de solapamiento. Mantener el namespace trial visible y separado del arriendo/pago comercial.
+
+Receipts, scripts y capturas nativos permanecen en `.local/testing/ticket-native-20261116/`, ignorado; no versionar el fixture con credenciales. El gateway HTTPS temporal se retira al cerrar este corte; API, frontend y los registros nuevos se conservan para continuación.
+
+### CI del SHA publicado
+
+- Application quality: **success**, run `43931181525`.
+- Infrastructure as Code Quality: **success**, run `43931181609`.
+- Frontend architecture and quality: **failure**, run `43931181650`; `pnpm format:check` identifica nueve archivos de formato fuera del checkpoint de código. No es un fallo de los tres tests de calendario, repetidos 3/3 antes del push.
+- Workflow DB: **failure**, run `43931178770`, sin jobs; causa no adjudicada en este corte. No afirmar CI completamente verde ni despliegue por el push.
