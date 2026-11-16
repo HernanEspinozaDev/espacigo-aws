@@ -133,12 +133,23 @@ flowchart TD
 - [x] **Cancelación Pre-Pago**: Cancelación antes de transferir fondos, liberando la retención de calendario de inmediato sin generar deuda ni reembolsos (`refund_state: "no_aplica"`).
 - [x] **Integración y Panel UI**: Visualización verificada en `ReservationLifecyclePanel` (`/reservas/{id}`) con botones de "Consultar Política de Reembolso", desglose de penalización/devolución y "Simular Devolución Exitosa".
 
+### Fase 9 (Fase C): Gestión Multimedia de Espacios y Wizard de Anfitrión (100% Validado)
+- [x] **Creación de Borrador de Espacio**: `POST /api/v1/spaces` permitiendo creación integral con metadatos técnicos (categoría `inmuebles`, 52 m², capacidad 4 personas, $48.000 CLP/día, descripción técnica $\ge$ 100 caracteres).
+- [x] **Subida Fotográfica y Procesamiento WebP en S3 MediaStore**: `POST /api/v1/spaces/{spaceID}/gallery` multipart con encabezado de idempotencia (`Idempotency-Key`). El backend Go procesa las imágenes y genera automáticamente variantes WebP de alta fidelidad (`display` y `thumbnail`) persistidas de forma soberana en el bucket S3 local `espacigo-media-local` (`s3://espacigo-media-local/users/{owner}/spaces/{spaceId}/images/v2/{photoId}/...`).
+- [x] **Selección de Portada con Control de Concurrencia Optimista (CAS)**: `PUT /api/v1/spaces/{spaceID}/cover` validando encabezado `If-Match` fuerte contra la revisión actual del espacio, fijando la foto de portada de manera atómica.
+- [x] **Publicación de Espacio y Activación Comercial**: `PUT /api/v1/spaces/{spaceID}/publication` con zona horaria (`America/Santiago`), validando precondiciones y transicionando el estado de `borrador` a `activa`.
+- [x] **Catálogo Público y Visualización Marketplace**: `GET /api/v1/public/spaces/{spaceID}` retornando metadatos completos, insignias de anfitrión verificado y las URLs de galería optimizadas (`source: "media"`).
+- [x] **Rutas SSR y Wizard UI Verificadas**:
+  - Catálogo público SSR: `GET /espacios/{spaceID}` (200 OK)
+  - Listado de espacios del anfitrión: `GET /anfitrion/espacios` (200 OK)
+  - Editor de espacio: `GET /anfitrion/espacios/{spaceID}/editar` (200 OK)
+  - Wizard de nuevo espacio: `GET /anfitrion/espacios/nuevo` (200 OK)
+- [x] **Batería de Pruebas Automatizadas E2E Playwright**: Ejecución exitosa de `playwright.marketplace-phase1.config.ts` (8/8 tests passed), verificando layout de tres columnas, mosaico de imágenes, lightbox accesible por teclado, navegación resiliente y sincronización de llamadas a la acción (CTAs) desktop y mobile.
+
 ### Roadmap de Siguientes Fases
-- [ ] **Fase C: Gestión Multimedia de Espacios (Host Space Wizard)**:
-  - Creación y edición de espacios comerciales desde la interfaz de anfitrión (`/anfitrion/espacios/nuevo` y `/anfitrion/espacios/{id}/editar`).
-  - Subida directa y procesamiento WebP de fotografías hacia el bucket local `espacigo-media-local` vía adaptador `s3storage.MediaStore`.
 - [ ] **Fase D: Despliegue de Infraestructura Cloud en AWS (Ohio us-east-2)**:
   - Validación de módulos OpenTofu/Terraform en `infra/terraform/environments/aws-main`.
   - Configuración del Free Tier en AWS (RDS PostgreSQL 18 `db.t4g.micro`, S3, SES, ECS Fargate).
+
 
 
