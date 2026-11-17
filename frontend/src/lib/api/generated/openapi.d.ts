@@ -327,6 +327,223 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/local/early-rentals/capabilities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar capacidades del flujo temprano de arriendo
+     * @description Disponible sólo en el runtime local autenticado. La bandera LOCAL_EARLY_RENTAL_FLOW_ENABLED está apagada por defecto; al estar apagada responde enabled=false. Si se solicita activación antes de que el flujo completo esté listo, responde 503 y no anuncia capacidades habilitadas. No crea oferta, no confirma identidad documental y no inicia pagos.
+     */
+    get: operations["getLocalEarlyRentalCapabilities"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar ofertas tempranas propias como arrendatario o arrendador
+     * @description Devuelve sólo operaciones donde la sesión autenticada es participante. Si se omite role, incluye las operaciones propias de ambas perspectivas y cada elemento identifica actor_role; si se especifica, filtra por el rol del actor en esa oferta. Nunca permite consultar otra cuenta. El cursor queda vinculado por Go al actor y filtros.
+     */
+    get: operations["listLocalEarlyRentals"];
+    put?: never;
+    /**
+     * Crear oferta temprana y retener el intervalo horario
+     * @description Deriva al arrendatario de la sesión. Revalida publicación, modalidad hora, horario, ocupación y tarifa dentro de la transacción. Rechaza fechas cruzadas por tarifa personalizada del calendario. No crea una reserva legacy ni representa identidad, firma o pago real.
+     */
+    post: operations["createLocalEarlyRental"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    /**
+     * Leer oferta temprana propia
+     * @description Sólo un participante puede leer el detalle. No incluye RUT, documentos ni decisiones KYC.
+     */
+    get: operations["getLocalEarlyRental"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/identity-confirmations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Confirmar identidad sólo para esta operación de ensayo
+     * @description Registra la intención del participante autenticado. No modifica KYC, identidad documental ni capacidades globales de la cuenta.
+     */
+    post: operations["confirmLocalEarlyRentalIdentity"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/contract-acceptances": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Aceptar la versión exacta del contrato de ensayo
+     * @description Ambas partes deben aceptar el mismo número de versión y digest antes de habilitar el pago. No constituye firma electrónica ni contrato legal certificado.
+     */
+    post: operations["acceptLocalEarlyRentalContract"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/payment-sent": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Marcar el pago como enviado en el ensayo
+     * @description Sólo el arrendatario puede marcar envío después de ambas aceptaciones. No se conecta a un proveedor ni mueve fondos.
+     */
+    post: operations["markLocalEarlyRentalPaymentSent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/payment-received": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Marcar el pago como recibido y confirmar ocupación
+     * @description Sólo el arrendador puede marcar recepción después del envío del arrendatario y antes del deadline. La transición y conversión de la ocupación comparten transacción.
+     */
+    post: operations["markLocalEarlyRentalPaymentReceived"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/reject": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Rechazar una oferta temprana pendiente */
+    post: operations["rejectLocalEarlyRental"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Cancelar una oferta temprana aún no confirmada */
+    post: operations["cancelLocalEarlyRental"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/events": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Leer la línea de tiempo compartida de la oferta */
+    get: operations["listLocalEarlyRentalEvents"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rental-transactions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar movimientos de ensayo propios con perspectiva bilateral
+     * @description Devuelve sólo movimientos propios. Si se omite role, incluye egresos e ingresos de la cuenta; si se especifica, filtra por el rol del actor en cada oferta. actor_role y perspective expresan esa perspectiva; la consulta no representa saldo bancario ni liquidación.
+     */
+    get: operations["listLocalEarlyRentalTransactions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/global/me": {
     parameters: {
       query?: never;
@@ -3712,6 +3929,234 @@ export interface components {
     RentalQuoteEnvelope: {
       data: components["schemas"]["RentalQuote"];
     };
+    LocalEarlyRentalCapabilities: {
+      enabled: boolean;
+      /** @constant */
+      flow_version: "manual_early_v1";
+      supported_rate_units: "hora"[];
+      /** @constant */
+      hold_ttl_seconds: 1800;
+    };
+    LocalEarlyRentalCapabilitiesEnvelope: {
+      data: components["schemas"]["LocalEarlyRentalCapabilities"];
+    };
+    CreateLocalEarlyRentalRequest: {
+      /** Format: uuid */
+      space_id: string;
+      /**
+       * Format: date-time
+       * @description RFC 3339 instant from the authoritative public availability response.
+       */
+      start_at: string;
+      /**
+       * Format: date-time
+       * @description Exclusive RFC 3339 end instant.
+       */
+      end_at: string;
+    };
+    EmptyCommand: Record<string, never>;
+    LocalEarlyRentalContractAcceptanceRequest: {
+      /** Format: int64 */
+      contract_version: number | string;
+      /** @description SHA-256 hexadecimal digest of the exact immutable terms text. */
+      contract_digest: string;
+    };
+    LocalEarlyRentalReasonRequest: {
+      /** @enum {string} */
+      reason_code:
+        | "condiciones_no_aceptadas"
+        | "cambio_de_planes"
+        | "error_en_la_oferta"
+        | "otro";
+    };
+    /** @enum {string} */
+    LocalEarlyRentalRole: "arrendatario" | "arrendador";
+    LocalEarlyRentalTimestampPair: {
+      /** Format: date-time */
+      arrendatario: string | null;
+      /** Format: date-time */
+      arrendador: string | null;
+    };
+    LocalEarlyRentalContract: {
+      /** Format: int64 */
+      version: number | string;
+      digest: string;
+      /** @description Plain text for the simulated agreement; not a legal instrument or electronic signature. */
+      terms_text: string;
+      acceptances: components["schemas"]["LocalEarlyRentalTimestampPair"];
+    };
+    LocalEarlyRentalPayment: {
+      /** Format: uuid */
+      id: string;
+      /** Format: int64 */
+      amount_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** @enum {string} */
+      state: "enviado" | "recibido" | "anulado" | "vencido";
+      /** Format: date-time */
+      sent_at: string | null;
+      /** Format: date-time */
+      received_at: string | null;
+    };
+    LocalEarlyRentalDetail: {
+      /** Format: uuid */
+      id: string;
+      /** @constant */
+      flow_type: "manual_early_v1";
+      actor_role: components["schemas"]["LocalEarlyRentalRole"];
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** @constant */
+      rate_unit: "hora";
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /**
+       * Format: int64
+       * @enum {integer}
+       */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      /** @enum {string} */
+      state:
+        | "pendiente_identidad"
+        | "pendiente_contrato"
+        | "pendiente_envio_pago"
+        | "pendiente_recepcion_pago"
+        | "confirmado"
+        | "rechazado"
+        | "cancelado"
+        | "vencido";
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: int64 */
+      last_event_sequence: number | string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      identity_confirmations: components["schemas"]["LocalEarlyRentalTimestampPair"];
+      contract: components["schemas"]["LocalEarlyRentalContract"];
+      payment: components["schemas"]["LocalEarlyRentalPayment"] | null;
+      allowed_actions: (
+        | "confirmar_identidad_simulada"
+        | "aceptar_contrato"
+        | "marcar_pago_enviado"
+        | "marcar_pago_recibido"
+        | "rechazar"
+        | "cancelar"
+      )[];
+    };
+    LocalEarlyRentalEnvelope: {
+      data: components["schemas"]["LocalEarlyRentalDetail"];
+    };
+    LocalEarlyRentalSummary: {
+      /** Format: uuid */
+      id: string;
+      actor_role: components["schemas"]["LocalEarlyRentalRole"];
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** @enum {string} */
+      state:
+        | "pendiente_identidad"
+        | "pendiente_contrato"
+        | "pendiente_envio_pago"
+        | "pendiente_recepcion_pago"
+        | "confirmado"
+        | "rechazado"
+        | "cancelado"
+        | "vencido";
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    LocalEarlyRentalList: {
+      items: components["schemas"]["LocalEarlyRentalSummary"][];
+      next_cursor: string | null;
+    };
+    LocalEarlyRentalListEnvelope: {
+      data: components["schemas"]["LocalEarlyRentalList"];
+    };
+    LocalEarlyRentalEvent: {
+      /** Format: int64 */
+      sequence: number | string;
+      /** @enum {string} */
+      kind:
+        | "oferta_creada"
+        | "identidad_simulada_confirmada"
+        | "contrato_aceptado"
+        | "pago_marcado_enviado"
+        | "pago_marcado_recibido"
+        | "oferta_rechazada"
+        | "oferta_cancelada"
+        | "oferta_vencida";
+      /** @enum {string} */
+      actor_role: "arrendatario" | "arrendador" | "sistema";
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: date-time */
+      occurred_at: string;
+      /** Format: int64 */
+      contract_version: number | string | null;
+      /** Format: uuid */
+      payment_id: string | null;
+    };
+    LocalEarlyRentalEvents: {
+      items: components["schemas"]["LocalEarlyRentalEvent"][];
+    };
+    LocalEarlyRentalEventsEnvelope: {
+      data: components["schemas"]["LocalEarlyRentalEvents"];
+    };
+    LocalEarlyRentalTransaction: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      early_rental_id: string;
+      actor_role: components["schemas"]["LocalEarlyRentalRole"];
+      /** @enum {string} */
+      perspective: "egreso" | "ingreso";
+      space_title: string;
+      /** Format: int64 */
+      amount_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** @enum {string} */
+      state: "enviado" | "recibido" | "anulado" | "vencido";
+      /** Format: date-time */
+      sent_at: string | null;
+      /** Format: date-time */
+      received_at: string | null;
+    };
+    LocalEarlyRentalTransactions: {
+      items: components["schemas"]["LocalEarlyRentalTransaction"][];
+      next_cursor: string | null;
+    };
+    LocalEarlyRentalTransactionsEnvelope: {
+      data: components["schemas"]["LocalEarlyRentalTransactions"];
+    };
     RentalContractPartyPreview: {
       /** @enum {string} */
       role: "arrendador" | "arrendatario";
@@ -6352,6 +6797,18 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
+    /** @description Detalle actualizado; verificarlo mediante GET antes de presentar el comando como confirmado. */
+    LocalEarlyRentalMutation: {
+      headers: {
+        ETag: string;
+        "Cache-Control"?: "no-store";
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["LocalEarlyRentalEnvelope"];
+      };
+    };
     /** @description Usar Content-Type application/json. */
     UnsupportedMediaType: {
       headers: {
@@ -7628,6 +8085,363 @@ export interface operations {
       422: components["responses"]["RentalUnprocessableEntity"];
       500: components["responses"]["RentalInternalServerError"];
       503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getLocalEarlyRentalCapabilities: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Capacidades vigentes para la sesión autenticada. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalCapabilitiesEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      405: components["responses"]["MethodNotAllowed"];
+      500: components["responses"]["InternalServerError"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listLocalEarlyRentals: {
+    parameters: {
+      query?: {
+        role?: "arrendatario" | "arrendador";
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Bandeja autorizada y no-cacheable. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalListEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+    };
+  };
+  createLocalEarlyRental: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateLocalEarlyRentalRequest"];
+      };
+    };
+    responses: {
+      /** @description Oferta creada con snapshot y retención atómica. */
+      201: {
+        headers: {
+          Location: string;
+          ETag: string;
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getLocalEarlyRental: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Snapshot y estado compartido desde la perspectiva del actor autenticado. */
+      200: {
+        headers: {
+          ETag: string;
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  confirmLocalEarlyRentalIdentity: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        /** @description ETag fuerte observado en el detalle. */
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyCommand"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  acceptLocalEarlyRentalContract: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        /** @description ETag fuerte observado en el detalle. */
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalEarlyRentalContractAcceptanceRequest"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  markLocalEarlyRentalPaymentSent: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        /** @description ETag fuerte observado en el detalle. */
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyCommand"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  markLocalEarlyRentalPaymentReceived: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        /** @description ETag fuerte observado en el detalle. */
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyCommand"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  rejectLocalEarlyRental: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalEarlyRentalReasonRequest"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  cancelLocalEarlyRental: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["LocalEarlyRentalReasonRequest"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listLocalEarlyRentalEvents: {
+    parameters: {
+      query?: {
+        after?: number | string;
+      };
+      header?: never;
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Eventos allowlisted en orden de secuencia. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalEventsEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listLocalEarlyRentalTransactions: {
+    parameters: {
+      query?: {
+        role?: "arrendatario" | "arrendador";
+        state?: "enviado" | "recibido" | "anulado" | "vencido";
+        cursor?: string;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Movimientos propios paginados y no-cacheables. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LocalEarlyRentalTransactionsEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   getGlobalAdminMe: {
