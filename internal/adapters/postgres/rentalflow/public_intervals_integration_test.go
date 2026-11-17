@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/earlyrental"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/jackc/pgx/v5"
@@ -102,6 +103,27 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	if _, err = migrator.Run(ctx, dbURL.String(), migrationPrefix); err != nil {
 		t.Fatal(err)
 	}
+	var calendarMigration *migrator.Migration
+	for i := range migrations {
+		if migrations[i].Version == 98 {
+			calendarMigration = &migrations[i]
+			break
+		}
+	}
+	if calendarMigration == nil {
+		t.Fatal("V98 space inventory and calendar migration is required")
+	}
+	calendarDB, err := pgx.Connect(ctx, dbURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := calendarDB.Exec(ctx, string(calendarMigration.SQL)); err != nil {
+		_ = calendarDB.Close(ctx)
+		t.Fatalf("apply V98 calendar tables to disposable repository fixture: %v", err)
+	}
+	if err := calendarDB.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
 	pool, err := pgxpool.New(ctx, dbURL.String())
 	if err != nil {
 		t.Fatal(err)
@@ -109,14 +131,21 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	defer pool.Close()
 
 	ownerID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	renterID := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	spaceID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-test-hash','activo')`, ownerID, ownerID+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria) VALUES($1,$2,'oficina','Oficina de prueba',$3,20,4,'No fumar','hora',9000,'Dirección sintética','borrador','UTC')`, spaceID, ownerID, strings.Repeat("Descripción sintética. ", 6)); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-test-hash','activo')`, renterID, renterID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria) VALUES($1,$2,'oficina','Oficina de prueba',$3,20,4,'No fumar','hora',9000,'Dirección sintética','activa','UTC')`, spaceID, ownerID, strings.Repeat("Descripción sintética. ", 6)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',9000)`, spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_regla_disponibilidad(espacio_id,hora_apertura,hora_cierre,tarifa_base_dia) VALUES($1,'00:00','24:00',9000)`, spaceID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,6 +172,40 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	interval := rentalflow.Interval{StartAt: date.Add(14 * time.Hour), EndAt: date.Add(15 * time.Hour)}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := repo.ResolveEarlyRentalOfferSnapshot(ctx, tx, renterID, spaceID, interval)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("resolve early-rental snapshot without a custom tariff: %v", err)
+	}
+	if resolved.HostID != ownerID || resolved.Input.SpaceID.String() != spaceID || resolved.Input.UnitPriceCLP != 9000 ||
+		resolved.Input.Units != 1 || resolved.Input.CalendarRateOverride != earlyrental.CalendarRateOverrideAbsent ||
+		!resolved.Input.StartAt.Equal(interval.StartAt) || !resolved.Input.EndAt.Equal(interval.EndAt) {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("resolved early-rental snapshot = %#v, want authoritative host, base price and clear override status", resolved)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_calendario_override(espacio_id,fecha,estado,tarifa_personalizada_clp) VALUES($1,$2,'disponible',15000)`, spaceID, dateText); err != nil {
+		t.Fatal(err)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = repo.ResolveEarlyRentalOfferSnapshot(ctx, tx, renterID, spaceID, interval)
+	_ = tx.Rollback(ctx)
+	if !errors.Is(err, rentalflow.ErrConflict) {
+		t.Fatalf("custom-tariff snapshot error = %v, want conflict", err)
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM public.espacio_calendario_override WHERE espacio_id=$1 AND fecha=$2`, spaceID, dateText); err != nil {
+		t.Fatal(err)
+	}
 	got, err := repo.PublicIntervals(ctx, rentalflow.Listing{
 		ID: spaceID, RateUnit: "hora", TimeZone: "UTC",
 	}, dateText, 1)
@@ -155,6 +218,33 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	}
 	if len(got) != 1 || !got[0].StartAt.Equal(date.Add(14*time.Hour)) || !got[0].EndAt.Equal(date.Add(15*time.Hour)) {
 		t.Fatalf("public intervals = %#v, want only 14:00-15:00 after schedule and occupied range filtering", got)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.espacio_horario_semanal_tramo(espacio_id,dia_iso,orden,apertura_minuto,cierre_minuto) VALUES($1,$2,2,1380,1440)`, spaceID, weekday); err != nil {
+		t.Fatal(err)
+	}
+	nextDateText := date.AddDate(0, 0, 1).Format("2006-01-02")
+	if _, err := pool.Exec(ctx, `INSERT INTO public.espacio_calendario_override(espacio_id,fecha,estado,tarifa_personalizada_clp) VALUES($1,$2,'disponible',15000)`, spaceID, nextDateText); err != nil {
+		t.Fatal(err)
+	}
+	boundaryInterval := rentalflow.Interval{StartAt: date.Add(23 * time.Hour), EndAt: date.AddDate(0, 0, 1)}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = repo.ResolveEarlyRentalOfferSnapshot(ctx, tx, renterID, spaceID, boundaryInterval)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("next-date custom tariff should not affect an interval ending at local midnight: %v", err)
+	}
+	if resolved.Input.CalendarRateOverride != earlyrental.CalendarRateOverrideAbsent || !resolved.Input.EndAt.Equal(boundaryInterval.EndAt) {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("midnight boundary snapshot = %#v, want following date excluded", resolved)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM public.espacio_calendario_override WHERE espacio_id=$1 AND fecha=$2`, spaceID, nextDateText); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.espacio_horario_semanal_tramo(espacio_id,dia_iso,orden,apertura_minuto,cierre_minuto) VALUES($1,6,1,1380,1440)`, spaceID); err != nil {
 		t.Fatal(err)
@@ -174,6 +264,9 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	}
 	if foldTimeZone != "America/Santiago" {
 		t.Fatalf("DST fold listing timezone=%q, want America/Santiago", foldTimeZone)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.espacio_regla_disponibilidad SET hora_apertura='23:00',hora_cierre='24:00' WHERE espacio_id=$1`, spaceID); err != nil {
+		t.Fatal(err)
 	}
 	dstIntervals, err := repo.PublicIntervals(ctx, rentalflow.Listing{
 		ID: spaceID, RateUnit: "hora", TimeZone: "America/Santiago",
@@ -197,6 +290,9 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO public.espacio_horario_semanal_tramo(espacio_id,dia_iso,orden,apertura_minuto,cierre_minuto) VALUES($1,7,1,0,120)`, spaceID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE public.espacio_regla_disponibilidad SET hora_apertura='00:00',hora_cierre='02:00' WHERE espacio_id=$1`, spaceID); err != nil {
+		t.Fatal(err)
+	}
 	gapIntervals, err := repo.PublicIntervals(ctx, rentalflow.Listing{
 		ID: spaceID, RateUnit: "hora", TimeZone: "America/Santiago",
 	}, "2026-09-06", 1)
@@ -214,6 +310,9 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM public.ocupacion WHERE espacio_id=$1`, spaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE public.espacio_regla_disponibilidad SET hora_apertura='00:00',hora_cierre='24:00' WHERE espacio_id=$1`, spaceID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,intervalo,tipo,motivo) VALUES('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',$1,tstzrange($2::timestamptz,$3::timestamptz,'[)'),'bloqueo_manual','Bloqueo sintético del segundo día')`, spaceID, "2030-04-02T12:00:00Z", "2030-04-02T13:00:00Z"); err != nil {

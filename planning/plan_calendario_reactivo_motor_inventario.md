@@ -9,6 +9,8 @@
 
 ## 1. Visión y Diagnóstico del Problema
 
+> **Integración aprobada, en curso en E1/E2:** el [plan de arriendo temprano por confirmaciones manuales](plan_arriendo_temprano_confirmaciones_manuales.md) conserva PostgreSQL y `ocupacion` como autoridad compartida del calendario. Define identidad simulada, aceptación bilateral antes de pago y enviado/recibido con histórico de ambos usuarios. El primer modelo de dominio Go no cambia todavía el motor ni prueba persistencia; la delta de `ocupacion` y su migración siguen en revisión.
+
 ### 1.1 Diagnóstico del Calendario Actual
 1. **Colisión de Encabezados:** Los días de la semana utilizan cadenas largas (`"Miércoles"`, `"Domingo"`), provocando desbordamiento y encimamiento (`MiércolesJueves`, `SábadoDomingo`) en pantallas medianas y dentro del layout de tres columnas del marketplace.
 2. **Celdas con Texto Truncado Ilegible:** Las celdas inyectan textos de estado extensos (`"Parcialmente disponible"`, `"Fuera del horizonte..."`, `"Sin información"`), truncándose en `Parci...` o `Sin in...` dentro de cajas de ~40px.

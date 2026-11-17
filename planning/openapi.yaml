@@ -1037,6 +1037,292 @@ paths:
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /local/early-rentals/capabilities:
+    get:
+      operationId: getLocalEarlyRentalCapabilities
+      tags: [ M06 local ]
+      summary: Consultar capacidades del flujo temprano de arriendo
+      description: >-
+        Disponible sólo en el runtime local autenticado. La bandera LOCAL_EARLY_RENTAL_FLOW_ENABLED está apagada por defecto; al estar apagada responde enabled=false. Si se solicita activación antes de que el flujo completo esté listo, responde 503 y no anuncia capacidades habilitadas. No crea oferta, no confirma identidad documental y no inicia pagos.
+      responses:
+        "200":
+          description: Capacidades vigentes para la sesión autenticada.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalCapabilitiesEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals:
+    get:
+      operationId: listLocalEarlyRentals
+      tags: [ M06 local ]
+      summary: Listar ofertas tempranas propias como arrendatario o arrendador
+      description: >-
+        Devuelve sólo operaciones donde la sesión autenticada es participante. Si se omite role, incluye las operaciones propias de ambas perspectivas y cada elemento identifica actor_role; si se especifica, filtra por el rol del actor en esa oferta. Nunca permite consultar otra cuenta. El cursor queda vinculado por Go al actor y filtros.
+      parameters:
+        - { name: role, in: query, required: false, schema: { type: string, enum: [ arrendatario, arrendador ] } }
+        - { name: cursor, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 2048 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        "200":
+          description: Bandeja autorizada y no-cacheable.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalListEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createLocalEarlyRental
+      tags: [ M06 local ]
+      summary: Crear oferta temprana y retener el intervalo horario
+      description: >-
+        Deriva al arrendatario de la sesión. Revalida publicación, modalidad hora, horario, ocupación y tarifa dentro de la transacción. Rechaza fechas cruzadas por tarifa personalizada del calendario. No crea una reserva legacy ni representa identidad, firma o pago real.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateLocalEarlyRentalRequest" }
+      responses:
+        "201":
+          description: Oferta creada con snapshot y retención atómica.
+          headers:
+            Location: { required: true, schema: { type: string } }
+            ETag: { required: true, schema: { type: string } }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}:
+    parameters:
+      - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getLocalEarlyRental
+      tags: [ M06 local ]
+      summary: Leer oferta temprana propia
+      description: Sólo un participante puede leer el detalle. No incluye RUT, documentos ni decisiones KYC.
+      responses:
+        "200":
+          description: Snapshot y estado compartido desde la perspectiva del actor autenticado.
+          headers:
+            ETag: { required: true, schema: { type: string } }
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /local/early-rentals/{earlyRentalID}/identity-confirmations:
+    post:
+      operationId: confirmLocalEarlyRentalIdentity
+      tags: [ M06 local ]
+      summary: Confirmar identidad sólo para esta operación de ensayo
+      description: Registra la intención del participante autenticado. No modifica KYC, identidad documental ni capacidades globales de la cuenta.
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, description: ETag fuerte observado en el detalle., schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyCommand" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/contract-acceptances:
+    post:
+      operationId: acceptLocalEarlyRentalContract
+      tags: [ M06 local ]
+      summary: Aceptar la versión exacta del contrato de ensayo
+      description: Ambas partes deben aceptar el mismo número de versión y digest antes de habilitar el pago. No constituye firma electrónica ni contrato legal certificado.
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, description: ETag fuerte observado en el detalle., schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LocalEarlyRentalContractAcceptanceRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/payment-sent:
+    post:
+      operationId: markLocalEarlyRentalPaymentSent
+      tags: [ M06 local ]
+      summary: Marcar el pago como enviado en el ensayo
+      description: Sólo el arrendatario puede marcar envío después de ambas aceptaciones. No se conecta a un proveedor ni mueve fondos.
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, description: ETag fuerte observado en el detalle., schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyCommand" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/payment-received:
+    post:
+      operationId: markLocalEarlyRentalPaymentReceived
+      tags: [ M06 local ]
+      summary: Marcar el pago como recibido y confirmar ocupación
+      description: Sólo el arrendador puede marcar recepción después del envío del arrendatario y antes del deadline. La transición y conversión de la ocupación comparten transacción.
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, description: ETag fuerte observado en el detalle., schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyCommand" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/reject:
+    post:
+      operationId: rejectLocalEarlyRental
+      tags: [ M06 local ]
+      summary: Rechazar una oferta temprana pendiente
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LocalEarlyRentalReasonRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/cancel:
+    post:
+      operationId: cancelLocalEarlyRental
+      tags: [ M06 local ]
+      summary: Cancelar una oferta temprana aún no confirmada
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
+        - { name: If-Match, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LocalEarlyRentalReasonRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/events:
+    get:
+      operationId: listLocalEarlyRentalEvents
+      tags: [ M06 local ]
+      summary: Leer la línea de tiempo compartida de la oferta
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: after, in: query, required: false, schema: { type: integer, format: int64, minimum: 0 } }
+      responses:
+        "200":
+          description: Eventos allowlisted en orden de secuencia.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalEventsEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /local/early-rental-transactions:
+    get:
+      operationId: listLocalEarlyRentalTransactions
+      tags: [ M06 local ]
+      summary: Consultar movimientos de ensayo propios con perspectiva bilateral
+      description: Devuelve sólo movimientos propios. Si se omite role, incluye egresos e ingresos de la cuenta; si se especifica, filtra por el rol del actor en cada oferta. actor_role y perspective expresan esa perspectiva; la consulta no representa saldo bancario ni liquidación.
+      parameters:
+        - { name: role, in: query, required: false, schema: { type: string, enum: [ arrendatario, arrendador ] } }
+        - { name: state, in: query, required: false, schema: { type: string, enum: [ enviado, recibido, anulado, vencido ] } }
+        - { name: cursor, in: query, required: false, schema: { type: string, minLength: 1, maxLength: 2048 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        "200":
+          description: Movimientos propios paginados y no-cacheables.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalEarlyRentalTransactionsEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /admin/global/me:
     get:
       operationId: getGlobalAdminMe
@@ -5707,6 +5993,201 @@ components:
       required: [ data ]
       properties:
         data: { $ref: "#/components/schemas/RentalQuote" }
+    LocalEarlyRentalCapabilities:
+      type: object
+      additionalProperties: false
+      required: [ enabled, flow_version, supported_rate_units, hold_ttl_seconds ]
+      properties:
+        enabled: { type: boolean }
+        flow_version: { type: string, const: manual_early_v1 }
+        supported_rate_units:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { type: string, const: hora }
+        hold_ttl_seconds: { type: integer, const: 1800 }
+    LocalEarlyRentalCapabilitiesEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/LocalEarlyRentalCapabilities" }
+    CreateLocalEarlyRentalRequest:
+      type: object
+      additionalProperties: false
+      required: [ space_id, start_at, end_at ]
+      properties:
+        space_id: { type: string, format: uuid }
+        start_at: { type: string, format: date-time, description: RFC 3339 instant from the authoritative public availability response. }
+        end_at: { type: string, format: date-time, description: Exclusive RFC 3339 end instant. }
+    EmptyCommand:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+    LocalEarlyRentalContractAcceptanceRequest:
+      type: object
+      additionalProperties: false
+      required: [ contract_version, contract_digest ]
+      properties:
+        contract_version: { type: integer, format: int64, minimum: 1 }
+        contract_digest: { type: string, pattern: "^[0-9a-f]{64}$", description: SHA-256 hexadecimal digest of the exact immutable terms text. }
+    LocalEarlyRentalReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [ reason_code ]
+      properties:
+        reason_code:
+          type: string
+          enum: [ condiciones_no_aceptadas, cambio_de_planes, error_en_la_oferta, otro ]
+    LocalEarlyRentalRole:
+      type: string
+      enum: [ arrendatario, arrendador ]
+    LocalEarlyRentalTimestampPair:
+      type: object
+      additionalProperties: false
+      required: [ arrendatario, arrendador ]
+      properties:
+        arrendatario: { type: [ string, "null" ], format: date-time }
+        arrendador: { type: [ string, "null" ], format: date-time }
+    LocalEarlyRentalContract:
+      type: object
+      additionalProperties: false
+      required: [ version, digest, terms_text, acceptances ]
+      properties:
+        version: { type: integer, format: int64, minimum: 1 }
+        digest: { type: string, pattern: "^[0-9a-f]{64}$" }
+        terms_text: { type: string, minLength: 1, maxLength: 20000, description: Plain text for the simulated agreement; not a legal instrument or electronic signature. }
+        acceptances: { $ref: "#/components/schemas/LocalEarlyRentalTimestampPair" }
+    LocalEarlyRentalPayment:
+      type: object
+      additionalProperties: false
+      required: [ id, amount_clp, currency, state, sent_at, received_at ]
+      properties:
+        id: { type: string, format: uuid }
+        amount_clp: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, const: CLP }
+        state: { type: string, enum: [ enviado, recibido, anulado, vencido ] }
+        sent_at: { type: [ string, "null" ], format: date-time }
+        received_at: { type: [ string, "null" ], format: date-time }
+    LocalEarlyRentalDetail:
+      type: object
+      additionalProperties: false
+      required: [ id, flow_type, actor_role, space_id, space_title, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, state, revision, last_event_sequence, created_at, updated_at, expires_at, identity_confirmations, contract, payment, allowed_actions ]
+      properties:
+        id: { type: string, format: uuid }
+        flow_type: { type: string, const: manual_early_v1 }
+        actor_role: { $ref: "#/components/schemas/LocalEarlyRentalRole" }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        rate_unit: { type: string, const: hora }
+        unit_price_clp: { type: integer, format: int64, minimum: 5001 }
+        currency: { type: string, const: CLP }
+        units: { type: integer, format: int64, enum: [ 1, 2, 4 ] }
+        subtotal_clp: { type: integer, format: int64, minimum: 1 }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string, minLength: 1, maxLength: 100 }
+        state: { type: string, enum: [ pendiente_identidad, pendiente_contrato, pendiente_envio_pago, pendiente_recepcion_pago, confirmado, rechazado, cancelado, vencido ] }
+        revision: { type: integer, format: int64, minimum: 1 }
+        last_event_sequence: { type: integer, format: int64, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        identity_confirmations: { $ref: "#/components/schemas/LocalEarlyRentalTimestampPair" }
+        contract: { $ref: "#/components/schemas/LocalEarlyRentalContract" }
+        payment: { oneOf: [ { $ref: "#/components/schemas/LocalEarlyRentalPayment" }, { type: "null" } ] }
+        allowed_actions:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [ confirmar_identidad_simulada, aceptar_contrato, marcar_pago_enviado, marcar_pago_recibido, rechazar, cancelar ] }
+    LocalEarlyRentalEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/LocalEarlyRentalDetail" }
+    LocalEarlyRentalSummary:
+      type: object
+      additionalProperties: false
+      required: [ id, actor_role, space_id, space_title, start_at, end_at, subtotal_clp, currency, state, revision, created_at, expires_at ]
+      properties:
+        id: { type: string, format: uuid }
+        actor_role: { $ref: "#/components/schemas/LocalEarlyRentalRole" }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        subtotal_clp: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, const: CLP }
+        state: { type: string, enum: [ pendiente_identidad, pendiente_contrato, pendiente_envio_pago, pendiente_recepcion_pago, confirmado, rechazado, cancelado, vencido ] }
+        revision: { type: integer, format: int64, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    LocalEarlyRentalList:
+      type: object
+      additionalProperties: false
+      required: [ items, next_cursor ]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/LocalEarlyRentalSummary" } }
+        next_cursor: { type: [ string, "null" ], minLength: 1, maxLength: 2048 }
+    LocalEarlyRentalListEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/LocalEarlyRentalList" }
+    LocalEarlyRentalEvent:
+      type: object
+      additionalProperties: false
+      required: [ sequence, kind, actor_role, revision, occurred_at, contract_version, payment_id ]
+      properties:
+        sequence: { type: integer, format: int64, minimum: 1 }
+        kind: { type: string, enum: [ oferta_creada, identidad_simulada_confirmada, contrato_aceptado, pago_marcado_enviado, pago_marcado_recibido, oferta_rechazada, oferta_cancelada, oferta_vencida ] }
+        actor_role: { type: string, enum: [ arrendatario, arrendador, sistema ] }
+        revision: { type: integer, format: int64, minimum: 1 }
+        occurred_at: { type: string, format: date-time }
+        contract_version: { type: [ integer, "null" ], format: int64, minimum: 1 }
+        payment_id: { type: [ string, "null" ], format: uuid }
+    LocalEarlyRentalEvents:
+      type: object
+      additionalProperties: false
+      required: [ items ]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/LocalEarlyRentalEvent" } }
+    LocalEarlyRentalEventsEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/LocalEarlyRentalEvents" }
+    LocalEarlyRentalTransaction:
+      type: object
+      additionalProperties: false
+      required: [ id, early_rental_id, actor_role, perspective, space_title, amount_clp, currency, state, sent_at, received_at ]
+      properties:
+        id: { type: string, format: uuid }
+        early_rental_id: { type: string, format: uuid }
+        actor_role: { $ref: "#/components/schemas/LocalEarlyRentalRole" }
+        perspective: { type: string, enum: [ egreso, ingreso ] }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        amount_clp: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, const: CLP }
+        state: { type: string, enum: [ enviado, recibido, anulado, vencido ] }
+        sent_at: { type: [ string, "null" ], format: date-time }
+        received_at: { type: [ string, "null" ], format: date-time }
+    LocalEarlyRentalTransactions:
+      type: object
+      additionalProperties: false
+      required: [ items, next_cursor ]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/LocalEarlyRentalTransaction" } }
+        next_cursor: { type: [ string, "null" ], minLength: 1, maxLength: 2048 }
+    LocalEarlyRentalTransactionsEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/LocalEarlyRentalTransactions" }
     RentalContractPartyPreview:
       type: object
       additionalProperties: false
@@ -8523,6 +9004,15 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    LocalEarlyRentalMutation:
+      description: Detalle actualizado; verificarlo mediante GET antes de presentar el comando como confirmado.
+      headers:
+        ETag: { required: true, schema: { type: string } }
+        Cache-Control: { schema: { type: string, const: no-store } }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/LocalEarlyRentalEnvelope" }
     UnsupportedMediaType:
       description: Usar Content-Type application/json.
       headers:

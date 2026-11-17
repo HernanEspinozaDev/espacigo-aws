@@ -171,6 +171,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
+	earlyRentalActivationRequested, err := localEarlyRentalActivationRequested(os.Getenv)
+	if err != nil {
+		return errors.New("invalid local early rental configuration")
+	}
 	if usesDedicatedStartup(runtimeProfileValue) {
 		cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
 		if err != nil {
@@ -271,6 +275,11 @@ func run() error {
 			return errors.New("local authentication initialization failed")
 		}
 		localIdentityService = service
+		if localEarlyRentalRuntime(os.Getenv) {
+			if err := registerLocalEarlyRentalCapabilitiesRoute(mux, service, earlyRentalActivationRequested, cfg.allowedOrigins); err != nil {
+				return errors.New("local early rental capabilities route registration failed")
+			}
+		}
 		documentVerificationRepository := documentverificationpg.New(pool)
 		documentVerificationService, err := documentverification.NewService(documentVerificationRepository)
 		if err != nil {

@@ -8,6 +8,8 @@
 
 ## 1. Contexto Histórico y Diagnóstico: ¿Por qué quedó incompleto en espaciGo?
 
+> **Nueva fase temprana aprobada y en curso — 2026-11-16:** el [plan de confirmaciones manuales](plan_arriendo_temprano_confirmaciones_manuales.md) define identidad simulada por casilla, contrato aceptado por ambas partes **antes del pago**, pago enviado/recibido e histórico bilateral persistente. El primer modelo de dominio está iniciado; no está integrado ni persistido. Ese orden nuevo no debe confundirse con el ensayo pago→aprobación→firmas documentado históricamente aquí. Se conserva este roadmap y su evidencia; la referencia no cambia el flujo anterior.
+
 En el proyecto original `espaciGo`, el flujo de arriendo se detuvo en una **demostración en memoria efímera (`cmd/rentaldemo`, DEMO-00 a DEMO-05)** debido a severas restricciones de entorno:
 1. **Gates de Release y Cloud Build**: Cualquier modificación a la base de datos requería pasar por pipelines de Cloud SQL (`release_main.py`), validaciones de watermark estrictas, preflights de ledger y restricciones de despliegue GCP que impedían iterar ágilmente.
 2. **Dependencias Comerciales Bloqueantes**: Se exigía verificación KYC real (Didit), firma electrónica con proveedores externos y pasarelas de pago reales (MercadoPago/Transbank) que bloqueaban el avance de las reservas.
