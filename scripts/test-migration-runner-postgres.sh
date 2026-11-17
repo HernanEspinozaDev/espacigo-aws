@@ -180,10 +180,76 @@ PY
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
   TEST_RENTALFLOW_POSTGRES_ISOLATION_TOKEN="$ISOLATION_TOKEN" \
   TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR&sslmode=disable" \
-  go test -race -count=1 -timeout=3m ./internal/adapters/postgres/rentalflow > "$TMP_DIR/rentalflow.log" 2>&1 || {
+  go test -race -json -count=1 -timeout=3m ./internal/adapters/postgres/rentalflow > "$TMP_DIR/rentalflow.log" 2>&1 || {
     cat "$TMP_DIR/rentalflow.log" >&2
     exit 1
   }
 cat "$TMP_DIR/rentalflow.log"
+python3 - "$TMP_DIR/rentalflow.log" <<'PY'
+import json, sys
+root = 'TestPostgresEarlyRentalInitialInsert'
+required = [root] + [f'{root}/{name}' for name in (
+    'SuccessCommit', 'CallerRollback', 'ActualOccupancyFailure', 'EventInsertFailure',
+)] + ['TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy']
+read_offer_root = 'TestPostgresEarlyRentalReadOffer'
+read_offer_cases = [
+    'InitialBothParticipants',
+    'NonParticipantHidden',
+    'InactiveActorHidden',
+    'BlockedActorHidden',
+    'PersistedSnapshotNotCurrentListing',
+    'CurrentIdentityConfirmation',
+]
+required += [read_offer_root] + [f'{read_offer_root}/{name}' for name in read_offer_cases]
+lock_root = 'TestPostgresEarlyRentalCreateKeyLock'
+lock_cases = [
+    'SameActorKeyCommitRelease',
+    'SameActorKeyRollbackRelease',
+    'DifferentActorAndKeyNoBlocking',
+    'DifferentActorAndKeyNoBlocking/DifferentKey',
+    'DifferentActorAndKeyNoBlocking/DifferentActor',
+    'CanceledWaiterReleasesLocks',
+]
+required += [lock_root] + [f'{lock_root}/{name}' for name in lock_cases]
+replay_root = 'TestPostgresEarlyRentalCreateReplayLookup'
+replay_cases = [
+    'MissingNoWrites',
+    'MatchingKeyReturnsOriginal',
+    'ChangedFingerprintConflict',
+    'AmbiguousSameFingerprint',
+    'AmbiguousDifferentFingerprint',
+    'ActorAndOpaqueKeyIsolation',
+]
+required += [replay_root] + [f'{replay_root}/{name}' for name in replay_cases]
+claim_root = 'TestPostgresEarlyRentalCreateClaim'
+claim_cases = [
+    'CommitMetadataAndReplay', 'MissingOffer', 'WrongActor', 'DuplicateKey', 'CallerRollback',
+]
+required += [claim_root] + [f'{claim_root}/{name}' for name in claim_cases]
+protocol_root = 'TestPostgresEarlyRentalCreateProtocol'
+protocol_cases = ['SameKeySamePayload', 'SameKeyDifferentPayload']
+required += [protocol_root] + [f'{protocol_root}/{name}' for name in protocol_cases]
+required += [
+    'TestPostgresEarlyRentalReadOffer/InactiveCounterpartVisible',
+    'TestPostgresEarlyRentalReadCanceledSentPayment',
+]
+resolver_root = 'TestPostgresEarlyRentalSnapshotRuntime'
+required += [resolver_root] + [f'{resolver_root}/{name}' for name in (
+    'MigrationOnlyDeniesListingRead', 'SnapshotAvailable', 'CustomTariffConflict',
+)]
+actions = {}
+with open(sys.argv[1]) as source:
+    for line in source:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get('Test') in required and event.get('Action') in ('pass', 'fail', 'skip'):
+            actions[event['Test']] = event['Action']
+missing = sorted(name for name in required if actions.get(name) != 'pass')
+if missing:
+    raise SystemExit('Required rentalflow cases missing/failed/skipped: ' + ', '.join(missing))
+print('PASS: required rentalflow cases passed: ' + ', '.join(required) + '; fixture is V1..V61 plus exact V99 DDL, not migration history; no persistent database apply.')
+PY
 echo 'PASS: disposable PostgreSQL runner (V1-V98, V75 upgrade, V96-to-V97 authority lifecycle, V97-to-V98 expand, V84 legacy recovery/finalization, quotes/suppression, plan/no-op/failure/checksum/concurrency) and rentalflow availability integration on V1-V61; cleanup checked separately on exit.'
 fi
