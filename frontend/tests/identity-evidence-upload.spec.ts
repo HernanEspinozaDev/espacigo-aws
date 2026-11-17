@@ -196,7 +196,10 @@ test("owner validates identity evidence and submits only three clean roles", asy
     .fill("Synthetic-only-123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
-  await page.getByRole("link", { name: /^Documentos/ }).first().click();
+  await page
+    .getByRole("link", { name: /^Documentos/ })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/mi-cuenta\/documentos$/);
   await expect(
     page

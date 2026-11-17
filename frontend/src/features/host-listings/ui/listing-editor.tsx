@@ -2115,95 +2115,135 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         {activeTab === "availability" && accessToken && currentListing && (
           <div className="space-y-6">
             <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                Bloqueos manuales por fecha
-              </CardTitle>
-              <CardDescription>
-                Consulta y registra bloqueos privados en la zona horaria del
-                espacio ({currentListing.time_zone ?? "sin configurar"}). Estos
-                bloqueos no son reservas ni representan ocupación confirmada.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {calendarRevisionStale && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
-                >
-                  Este espacio cambió. Recarga la página antes de crear bloqueos
-                  manuales.
-                </div>
-              )}
-              <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-                <div className="space-y-2">
-                  <Label htmlFor="calendar-from">Desde</Label>
-                  <Input
-                    id="calendar-from"
-                    type="date"
-                    value={calendarFrom}
-                    onChange={(event) => setCalendarFrom(event.target.value)}
-                    disabled={calendarLoading || calendarSaving}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="calendar-to">Hasta</Label>
-                  <Input
-                    id="calendar-to"
-                    type="date"
-                    value={calendarTo}
-                    onChange={(event) => setCalendarTo(event.target.value)}
-                    disabled={calendarLoading || calendarSaving}
-                  />
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void refreshManualBlocks()}
-                  disabled={
-                    calendarLoading ||
-                    calendarSaving ||
-                    !accessToken ||
-                    !isValidIanaTimeZone(currentListing.time_zone)
-                  }
-                >
-                  {calendarLoading ? "Actualizando…" : "Actualizar fechas"}
-                </Button>
-              </div>
-
-              {(!currentListing.time_zone ||
-                !isValidIanaTimeZone(currentListing.time_zone)) && (
-                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                  <p>
-                    Guarda una zona horaria IANA válida antes de consultar o
-                    crear bloqueos por fecha.
-                  </p>
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  Bloqueos manuales por fecha
+                </CardTitle>
+                <CardDescription>
+                  Consulta y registra bloqueos privados en la zona horaria del
+                  espacio ({currentListing.time_zone ?? "sin configurar"}).
+                  Estos bloqueos no son reservas ni representan ocupación
+                  confirmada.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {calendarRevisionStale && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                  >
+                    Este espacio cambió. Recarga la página antes de crear
+                    bloqueos manuales.
+                  </div>
+                )}
+                <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                  <div className="space-y-2">
+                    <Label htmlFor="calendar-from">Desde</Label>
+                    <Input
+                      id="calendar-from"
+                      type="date"
+                      value={calendarFrom}
+                      onChange={(event) => setCalendarFrom(event.target.value)}
+                      disabled={calendarLoading || calendarSaving}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="calendar-to">Hasta</Label>
+                    <Input
+                      id="calendar-to"
+                      type="date"
+                      value={calendarTo}
+                      onChange={(event) => setCalendarTo(event.target.value)}
+                      disabled={calendarLoading || calendarSaving}
+                    />
+                  </div>
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setActiveTab("schedule")}
+                    onClick={() => void refreshManualBlocks()}
+                    disabled={
+                      calendarLoading ||
+                      calendarSaving ||
+                      !accessToken ||
+                      !isValidIanaTimeZone(currentListing.time_zone)
+                    }
                   >
-                    Configurar zona horaria
+                    {calendarLoading ? "Actualizando…" : "Actualizar fechas"}
                   </Button>
                 </div>
-              )}
 
-              <form
-                onSubmit={handleCreateManualBlock}
-                className="space-y-4 rounded-xl border p-4"
-              >
-                <h3 className="font-semibold">Agregar bloqueo manual</h3>
-                <div className="grid gap-4 sm:grid-cols-2">
+                {(!currentListing.time_zone ||
+                  !isValidIanaTimeZone(currentListing.time_zone)) && (
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                    <p>
+                      Guarda una zona horaria IANA válida antes de consultar o
+                      crear bloqueos por fecha.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setActiveTab("schedule")}
+                    >
+                      Configurar zona horaria
+                    </Button>
+                  </div>
+                )}
+
+                <form
+                  onSubmit={handleCreateManualBlock}
+                  className="space-y-4 rounded-xl border p-4"
+                >
+                  <h3 className="font-semibold">Agregar bloqueo manual</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="calendar-block-start">
+                        Fecha y hora de inicio *
+                      </Label>
+                      <Input
+                        id="calendar-block-start"
+                        type="datetime-local"
+                        value={calendarStart}
+                        onChange={(event) =>
+                          setCalendarStart(event.target.value)
+                        }
+                        required
+                        disabled={
+                          isPending ||
+                          calendarSaving ||
+                          calendarLoading ||
+                          !accessToken
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="calendar-block-end">
+                        Fecha y hora de término *
+                      </Label>
+                      <Input
+                        id="calendar-block-end"
+                        type="datetime-local"
+                        value={calendarEnd}
+                        onChange={(event) => setCalendarEnd(event.target.value)}
+                        required
+                        disabled={
+                          isPending ||
+                          calendarSaving ||
+                          calendarLoading ||
+                          !accessToken
+                        }
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-2">
-                    <Label htmlFor="calendar-block-start">
-                      Fecha y hora de inicio *
-                    </Label>
+                    <Label htmlFor="calendar-block-reason">Motivo *</Label>
                     <Input
-                      id="calendar-block-start"
-                      type="datetime-local"
-                      value={calendarStart}
-                      onChange={(event) => setCalendarStart(event.target.value)}
+                      id="calendar-block-reason"
+                      value={calendarReason}
+                      onChange={(event) =>
+                        setCalendarReason(event.target.value)
+                      }
                       required
+                      aria-describedby="calendar-block-reason-hint"
                       disabled={
                         isPending ||
                         calendarSaving ||
@@ -2211,138 +2251,108 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                         !accessToken
                       }
                     />
+                    <p
+                      id="calendar-block-reason-hint"
+                      className="text-xs text-muted-foreground"
+                    >
+                      Obligatorio, hasta 500 caracteres.
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="calendar-block-end">
-                      Fecha y hora de término *
-                    </Label>
-                    <Input
-                      id="calendar-block-end"
-                      type="datetime-local"
-                      value={calendarEnd}
-                      onChange={(event) => setCalendarEnd(event.target.value)}
-                      required
-                      disabled={
-                        isPending ||
-                        calendarSaving ||
-                        calendarLoading ||
-                        !accessToken
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="calendar-block-reason">Motivo *</Label>
-                  <Input
-                    id="calendar-block-reason"
-                    value={calendarReason}
-                    onChange={(event) => setCalendarReason(event.target.value)}
-                    required
-                    aria-describedby="calendar-block-reason-hint"
+                  <Button
+                    type="submit"
                     disabled={
                       isPending ||
                       calendarSaving ||
                       calendarLoading ||
-                      !accessToken
+                      returnsBusy ||
+                      returnsUncertainBusy ||
+                      galleryBusy ||
+                      !accessToken ||
+                      calendarRevisionStale ||
+                      !isValidIanaTimeZone(currentListing.time_zone)
                     }
-                  />
-                  <p
-                    id="calendar-block-reason-hint"
-                    className="text-xs text-muted-foreground"
                   >
-                    Obligatorio, hasta 500 caracteres.
-                  </p>
-                </div>
-                <Button
-                  type="submit"
-                  disabled={
-                    isPending ||
-                    calendarSaving ||
-                    calendarLoading ||
-                    returnsBusy ||
-                    returnsUncertainBusy ||
-                    galleryBusy ||
-                    !accessToken ||
-                    calendarRevisionStale ||
-                    !isValidIanaTimeZone(currentListing.time_zone)
-                  }
-                >
-                  {calendarSaving ? "Guardando…" : "Crear bloqueo"}
-                </Button>
-              </form>
+                    {calendarSaving ? "Guardando…" : "Crear bloqueo"}
+                  </Button>
+                </form>
 
-              {calendarError && (
-                <p role="alert" className="text-sm text-red-800">
-                  {calendarError}
-                </p>
-              )}
-              {calendarNotice && (
-                <p role="status" className="text-sm text-emerald-700">
-                  {calendarNotice}
-                </p>
-              )}
-
-              <section
-                aria-labelledby="calendar-blocks-heading"
-                className="space-y-3"
-              >
-                <h3 id="calendar-blocks-heading" className="font-semibold">
-                  Bloqueos del período
-                </h3>
-                {calendarLoading ? (
-                  <p role="status" className="text-sm text-muted-foreground">
-                    Cargando bloqueos…
+                {calendarError && (
+                  <p role="alert" className="text-sm text-red-800">
+                    {calendarError}
                   </p>
-                ) : manualBlocks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No hay bloqueos manuales para mostrar en este período.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border rounded-xl border">
-                    {manualBlocks.map((block) => (
-                      <li
-                        key={block.id}
-                        className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="min-w-0 space-y-1">
-                          <p className="font-medium">{block.reason}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {new Date(block.start_at).toLocaleString("es-CL", {
-                              timeZone: block.time_zone,
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}{" "}
-                            –{" "}
-                            {new Date(block.end_at).toLocaleString("es-CL", {
-                              timeZone: block.time_zone,
-                              dateStyle: "medium",
-                              timeStyle: "short",
-                            })}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          aria-label={`Eliminar bloqueo ${block.reason}`}
-                          onClick={() => void handleDeleteManualBlock(block.id)}
-                          disabled={
-                            calendarSaving ||
-                            calendarLoading ||
-                            calendarDeletingId !== null ||
-                            !accessToken
-                          }
-                        >
-                          {calendarDeletingId === block.id
-                            ? "Eliminando…"
-                            : "Eliminar"}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
                 )}
-              </section>
-            </CardContent>
-          </Card>
+                {calendarNotice && (
+                  <p role="status" className="text-sm text-emerald-700">
+                    {calendarNotice}
+                  </p>
+                )}
+
+                <section
+                  aria-labelledby="calendar-blocks-heading"
+                  className="space-y-3"
+                >
+                  <h3 id="calendar-blocks-heading" className="font-semibold">
+                    Bloqueos del período
+                  </h3>
+                  {calendarLoading ? (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      Cargando bloqueos…
+                    </p>
+                  ) : manualBlocks.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No hay bloqueos manuales para mostrar en este período.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border rounded-xl border">
+                      {manualBlocks.map((block) => (
+                        <li
+                          key={block.id}
+                          className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="min-w-0 space-y-1">
+                            <p className="font-medium">{block.reason}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {new Date(block.start_at).toLocaleString(
+                                "es-CL",
+                                {
+                                  timeZone: block.time_zone,
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                },
+                              )}{" "}
+                              –{" "}
+                              {new Date(block.end_at).toLocaleString("es-CL", {
+                                timeZone: block.time_zone,
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            aria-label={`Eliminar bloqueo ${block.reason}`}
+                            onClick={() =>
+                              void handleDeleteManualBlock(block.id)
+                            }
+                            disabled={
+                              calendarSaving ||
+                              calendarLoading ||
+                              calendarDeletingId !== null ||
+                              !accessToken
+                            }
+                          >
+                            {calendarDeletingId === block.id
+                              ? "Eliminando…"
+                              : "Eliminar"}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </CardContent>
+            </Card>
             <div className="mt-6">
               <HostAvailabilityCalendar
                 spaceId={listingId}

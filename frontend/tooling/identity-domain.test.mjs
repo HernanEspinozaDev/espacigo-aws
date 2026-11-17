@@ -40,10 +40,7 @@ await compile(
   "src/features/public-catalog/domain/availability-return.ts",
   "availability-return.mjs",
 );
-await compile(
-  "src/features/public-catalog/domain/media.ts",
-  "media.mjs",
-);
+await compile("src/features/public-catalog/domain/media.ts", "media.mjs");
 await compile(
   "src/features/public-catalog/domain/marketplace-booking-selection.ts",
   "marketplace-booking-selection.mjs",

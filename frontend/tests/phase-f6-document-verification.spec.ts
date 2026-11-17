@@ -428,9 +428,7 @@ test("owner completes the six document operations and downloads only a clean spa
     `GET /api/backend/document-verification/space-cases/${caseId}/files/${fileId}/content`,
   ]);
   expect(
-    documentRequests.every(
-      ({ authorization }) => authorization === undefined,
-    ),
+    documentRequests.every(({ authorization }) => authorization === undefined),
   ).toBe(true);
   expect(
     documentRequests
@@ -693,9 +691,7 @@ test("identity creation shows role-aware capture without exposing a download", a
     ),
   ).toBe(false);
   expect(
-    documentRequests.every(
-      ({ authorization }) => authorization === undefined,
-    ),
+    documentRequests.every(({ authorization }) => authorization === undefined),
   ).toBe(true);
   expect(
     documentRequests.filter(

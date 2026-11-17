@@ -194,15 +194,22 @@ export function PublicSpaceDetails({
         className="min-w-0 space-y-4"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="public-space-reviews-heading" className="text-xl font-semibold">
+          <h2
+            id="public-space-reviews-heading"
+            className="text-xl font-semibold"
+          >
             Reseñas y recomendaciones
           </h2>
           {reviews && reviews.count > 0 ? (
             <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-900 border border-amber-200">
-              <Star className="size-4 fill-amber-500 text-amber-500" aria-hidden="true" />
+              <Star
+                className="size-4 fill-amber-500 text-amber-500"
+                aria-hidden="true"
+              />
               <span>{reviews.average.toFixed(1)}</span>
               <span className="text-muted-foreground font-normal">
-                ({reviews.count} {reviews.count === 1 ? "evaluación" : "evaluaciones"})
+                ({reviews.count}{" "}
+                {reviews.count === 1 ? "evaluación" : "evaluaciones"})
               </span>
             </div>
           ) : null}
@@ -229,7 +236,9 @@ export function PublicSpaceDetails({
                 >
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold">Arrendatario verificado</span>
+                      <span className="text-sm font-semibold">
+                        Arrendatario verificado
+                      </span>
                       <div className="flex items-center gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
                           <Star
@@ -245,7 +254,9 @@ export function PublicSpaceDetails({
                       </div>
                     </div>
                     {rev.comment ? (
-                      <p className={`${dynamicText} text-sm text-foreground/90 leading-relaxed`}>
+                      <p
+                        className={`${dynamicText} text-sm text-foreground/90 leading-relaxed`}
+                      >
                         &ldquo;{rev.comment}&rdquo;
                       </p>
                     ) : null}
@@ -271,8 +282,12 @@ export function PublicSpaceDetails({
             <p
               className={`${dynamicText} flex items-start gap-2 text-sm text-muted-foreground`}
             >
-              <CircleHelp aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-              Las evaluaciones provienen exclusivamente de arrendatarios que completaron un arriendo real.
+              <CircleHelp
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0"
+              />
+              Las evaluaciones provienen exclusivamente de arrendatarios que
+              completaron un arriendo real.
             </p>
           </>
         )}
