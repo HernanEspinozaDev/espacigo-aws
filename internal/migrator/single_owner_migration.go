@@ -25,6 +25,7 @@ type SingleOwnerMigrationTarget struct {
 	SessionUser      string
 	OccupancyOwner   string
 	LedgerOwner      string
+	EffectiveRole    string
 }
 
 // SingleOwnerMigrationContract binds SQL bytes, not a Git commit. An operational
@@ -39,9 +40,10 @@ type SingleOwnerMigrationContract struct {
 }
 
 type SingleOwnerMigrationResult struct {
-	Contract  SingleOwnerMigrationContract
-	Committed bool
-	Verified  bool
+	Contract        SingleOwnerMigrationContract
+	Committed       bool
+	Verified        bool
+	CommitUncertain bool
 }
 
 func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrations []Migration) error {
@@ -70,8 +72,11 @@ func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrat
 	ip := net.ParseIP(t.Host)
 	localHost := filepath.IsAbs(t.Host) || (ip != nil && ip.IsLoopback())
 	cluster, err := strconv.ParseUint(t.SystemIdentifier, 10, 64)
-	if !localHost || t.Port == 0 || t.Database == "" || t.DatabaseOID == 0 || err != nil || cluster == 0 || t.ServerVersionNum < 180000 || t.ServerVersionNum >= 190000 || !validDatabaseRoleName(t.SessionUser) || !validDatabaseRoleName(t.OccupancyOwner) || !validDatabaseRoleName(t.LedgerOwner) {
+	if !localHost || t.Port == 0 || t.Database == "" || t.DatabaseOID == 0 || err != nil || cluster == 0 || t.ServerVersionNum < 180000 || t.ServerVersionNum >= 190000 || !validDatabaseRoleName(t.SessionUser) || !validDatabaseRoleName(t.OccupancyOwner) || !validDatabaseRoleName(t.LedgerOwner) || (t.EffectiveRole != "" && !validDatabaseRoleName(t.EffectiveRole)) {
 		return errors.New("single-owner migration requires an exact local PostgreSQL 18 target and owners")
+	}
+	if t.EffectiveRole != "" && (t.EffectiveRole != t.OccupancyOwner || t.EffectiveRole != t.LedgerOwner) {
+		return errors.New("single-owner effective role must own occupancy and migration ledger")
 	}
 	return nil
 }
@@ -83,6 +88,20 @@ func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrat
 // operational prerequisites. The caller must close this dedicated connection.
 // A commit error is ambiguous and must be reconciled by a fresh read, not replay.
 func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract) (SingleOwnerMigrationResult, error) {
+	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, nil)
+}
+
+// RunSingleOwnerMigrationWithAuthority requires a real before/after catalog
+// gate under the writer's lock and transaction, and again after commit. It never
+// grants authority or retries an uncertain commit.
+func RunSingleOwnerMigrationWithAuthority(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract, guard func(context.Context, pgx.Tx, bool) error) (SingleOwnerMigrationResult, error) {
+	if guard == nil {
+		return SingleOwnerMigrationResult{Contract: contract}, errors.New("operational migration requires a nonnil authority gate")
+	}
+	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, guard)
+}
+
+func runSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract, guard func(context.Context, pgx.Tx, bool) error) (SingleOwnerMigrationResult, error) {
 	result := SingleOwnerMigrationResult{Contract: contract}
 	if ctx == nil || conn == nil || conn.IsClosed() || conn.PgConn().TxStatus() != 'I' {
 		return result, errors.New("single-owner migration requires an idle dedicated connection")
@@ -103,14 +122,23 @@ func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir s
 		return result, err
 	}
 	defer func() { _ = release(context.Background()) }()
-	tx, err := conn.Begin(ctx)
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return result, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	if contract.Target.EffectiveRole != "" {
+		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+			return result, err
+		}
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{contract.Target.EffectiveRole}.Sanitize()); err != nil {
+			return result, fmt.Errorf("set single-owner effective role: %w", err)
+		}
+	}
 	if err := guardSingleOwnerTarget(ctx, tx, contract.Target); err != nil {
 		return result, err
 	}
+
 	// Stabilize the legacy relation's ownership and the exact ledger while both
 	// role-separated DDL and ledger insertion remain in this one transaction.
 	if _, err := tx.Exec(ctx, "LOCK TABLE public.ocupacion, public.schema_migrations IN ACCESS EXCLUSIVE MODE"); err != nil {
@@ -135,6 +163,11 @@ func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir s
 	if err := guardAppliedSchemaObjects(ctx, tx, history); err != nil {
 		return result, err
 	}
+	if guard != nil {
+		if err := guard(ctx, tx, false); err != nil {
+			return result, fmt.Errorf("pre-DDL authority gate: %w", err)
+		}
+	}
 	runnerDigest, err := executableChecksum()
 	if err != nil {
 		return result, err
@@ -155,22 +188,43 @@ func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir s
 	if err := verifySingleOwnerLedger(ctx, tx, migrations); err != nil {
 		return result, err
 	}
+	if guard != nil {
+		if err := guard(ctx, tx, true); err != nil {
+			return result, fmt.Errorf("precommit authority gate: %w", err)
+		}
+	}
+	result.CommitUncertain = true
 	if err := tx.Commit(ctx); err != nil {
 		return result, fmt.Errorf("single-owner migration commit outcome requires reconciliation: %w", err)
 	}
+	result.CommitUncertain = false
 	result.Committed = true
 	// A separate read-only transaction checks committed state, not merely values
 	// visible to the writer before commit. Failure preserves Committed=true.
-	post, err := conn.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	post, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return result, fmt.Errorf("committed migration postcheck: %w", err)
 	}
 	defer func() { _ = post.Rollback(context.Background()) }()
+	if contract.Target.EffectiveRole != "" {
+		if _, err := post.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+			return result, err
+		}
+		if _, err := post.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{contract.Target.EffectiveRole}.Sanitize()); err != nil {
+			return result, fmt.Errorf("set postcheck effective role: %w", err)
+		}
+	}
 	if err := guardSingleOwnerTarget(ctx, post, contract.Target); err != nil {
 		return result, err
 	}
+
 	if err := verifySingleOwnerLedger(ctx, post, migrations); err != nil {
 		return result, err
+	}
+	if guard != nil {
+		if err := guard(ctx, post, true); err != nil {
+			return result, fmt.Errorf("committed migration authority readback: %w", err)
+		}
 	}
 	result.Verified = true
 	return result, nil
@@ -178,6 +232,10 @@ func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir s
 
 func guardSingleOwnerTarget(ctx context.Context, q queryRower, expected SingleOwnerMigrationTarget) error {
 	actual := SingleOwnerMigrationTarget{Host: expected.Host, Port: expected.Port}
+	wantCurrent := expected.SessionUser
+	if expected.EffectiveRole != "" {
+		wantCurrent = expected.EffectiveRole
+	}
 	var currentUser string
 	err := q.QueryRow(ctx, `SELECT current_database(), d.oid,
 		(SELECT system_identifier::text FROM pg_catalog.pg_control_system()),
@@ -188,7 +246,10 @@ func guardSingleOwnerTarget(ctx context.Context, q queryRower, expected SingleOw
 	if err != nil {
 		return fmt.Errorf("read single-owner migration target: %w", err)
 	}
-	if actual != expected || currentUser != expected.SessionUser {
+	if expected.EffectiveRole != "" {
+		actual.EffectiveRole = currentUser
+	}
+	if actual != expected || currentUser != wantCurrent {
 		return errors.New("single-owner migration target, effective role or owners differ from reviewed contract")
 	}
 	return nil

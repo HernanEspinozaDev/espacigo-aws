@@ -64,7 +64,7 @@ func TestCurrentSchemaMigrationKYCThroughV96(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(u.Query().Get("host"), ".espacigo-migration-ci")); err != nil {
 		t.Fatal("disposable CI marker is missing")
 	}
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -981,7 +981,7 @@ func TestCurrentSchemaMigrationV19WeeklyHours(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(u.Query().Get("host"), ".espacigo-migration-ci")); err != nil {
 		t.Fatal("disposable CI marker is missing")
 	}
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}

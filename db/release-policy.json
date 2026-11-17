@@ -12,6 +12,12 @@
     }
   },
   "review_required_migrations": {
+    "V000099__early_rental_manual_contract.sql": {
+      "checksum": "ff466a678929b32d413128f1a885b9bfce3177c5176be1d7ab3ea2d2eab1fa29",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Local E1 manual early-rental aggregate, bilateral evidence and legacy occupancy constraints. Exact-target single-owner runner, independent authority profiles, provenance, validated backup and explicit confirmation are mandatory; never a generic automatic applying release. No ownership transfer or role elevation."
+    },
     "V000085__identity_encrypted_declarations_and_minimal_events.sql": {
       "checksum": "7b78094558e2d9bde7804919b01c54d34caf2ac31ac34fb1b86a63999aeeaf51",
       "strategy": "security-tightening",

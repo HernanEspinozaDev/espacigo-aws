@@ -40,7 +40,7 @@ func withEarlyRentalCandidate(t *testing.T, extra func(*testing.T, context.Conte
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		t.Fatal("requires regular mode-0600 isolated-target marker")
 	}
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil || len(all) != 98 {
 		t.Fatalf("requires exact V1..V98 inventory: %v", err)
 	}

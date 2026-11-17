@@ -22,7 +22,7 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(u.Query().Get("host"), ".espacigo-migration-ci")); err != nil {
 		t.Fatal("disposable CI marker is missing")
 	}
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 					assertV97AuthorityLifecycle(t, ctx, admin, databaseURL, migrationURL, all[:97])
 				})
 				t.Run("v98-expand", func(t *testing.T) {
-				assertV98SpaceInventoryMigration(t, ctx, admin, migrationURL, all)
+					assertV98SpaceInventoryMigration(t, ctx, admin, migrationURL, all)
 				})
 				plan, err := Plan(ctx, migrationURL, prefix(98), "espacigo_schema_owner")
 				if err != nil {

@@ -18,7 +18,7 @@ func TestV84AuthorityManifestConstants(t *testing.T) {
 }
 
 func TestV84AuthorityHelperRejectsUnknownModeAfterManifestCheck(t *testing.T) {
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}

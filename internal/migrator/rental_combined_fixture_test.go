@@ -56,7 +56,7 @@ func establishRentalCombinedFixture(t *testing.T, ctx context.Context, targetURL
 			t.Fatalf("combined fixture migration inventory is not contiguous at index %d", i)
 		}
 	}
-	packaged, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	packaged, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil || len(packaged) != len(migrations) {
 		t.Fatalf("read combined fixture packaged source: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestRentalCombinedFixtureOptIn(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(u.Query().Get("host"), rentalCombinedFixtureMarker)); err != nil {
 		t.Fatal("disposable CI marker is missing")
 	}
-	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	all, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}

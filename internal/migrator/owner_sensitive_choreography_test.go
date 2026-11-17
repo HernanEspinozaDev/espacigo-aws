@@ -93,7 +93,7 @@ CREATE FUNCTION public.finalize_pending_suppression_cleanup(uuid,timestamptz) RE
 					t.Fatalf("prepare disposable owner/ledger fixture: %v", err)
 				}
 
-				source, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+				source, err := discoverLegacyV98Migrations(filepath.Join("..", "..", "db", "migrations"))
 				if err != nil || len(source) != 98 {
 					t.Fatalf("discover verified V1..V98 source: count=%d err=%v", len(source), err)
 				}

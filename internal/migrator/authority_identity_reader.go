@@ -32,6 +32,12 @@ func CaptureSingleOwnerAuthorityIdentity(ctx context.Context, tx pgx.Tx, scope A
 }
 
 func captureSingleOwnerAuthorityIdentity(ctx context.Context, q authorityIdentityQueryer, scope AuthorityIdentityScope) (AuthorityIdentitySnapshot, error) {
+	return captureAuthorityIdentityTransaction(ctx, q, scope, true)
+}
+
+// Only the operational runner's in-transaction authority gate uses requireReadOnly=false.
+// Public capture APIs remain read-only; a writer must be SERIALIZABLE.
+func captureAuthorityIdentityTransaction(ctx context.Context, q authorityIdentityQueryer, scope AuthorityIdentityScope, requireReadOnly bool) (AuthorityIdentitySnapshot, error) {
 	zero := AuthorityIdentitySnapshot{}
 	if ctx == nil || q == nil {
 		return zero, errors.New("identity capture requires context and caller-owned transaction")
@@ -64,7 +70,7 @@ func captureSingleOwnerAuthorityIdentity(ctx context.Context, q authorityIdentit
 	if err := q.QueryRow(ctx, `SELECT pg_catalog.current_setting('transaction_read_only') OPERATOR(pg_catalog.=) 'on', pg_catalog.current_setting('transaction_isolation'), pg_catalog.current_setting('server_version_num')::pg_catalog.int4, (pg_catalog.current_schemas(true))[1]::pg_catalog.text`).Scan(&readOnly, &isolation, &version, &firstSchema); err != nil {
 		return zero, fmt.Errorf("check transaction and server version: %w", err)
 	}
-	if !readOnly || (isolation != "repeatable read" && isolation != "serializable") {
+	if (requireReadOnly && !readOnly) || (isolation != "repeatable read" && isolation != "serializable") || (!readOnly && isolation != "serializable") {
 		return zero, errors.New("identity capture requires a read-only repeatable-read or serializable transaction")
 	}
 	if version < 180000 || version >= 190000 {

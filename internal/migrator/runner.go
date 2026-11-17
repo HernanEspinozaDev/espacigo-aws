@@ -267,6 +267,31 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 			return Result{}, err
 		}
 	}
+	// The canonical E1 delta is deliberately not a generic applying migration.
+	// Reject before ledger initialization or applying an earlier prefix; only the
+	// dedicated source/backup/authority-gated command may execute it.
+	for _, m := range migrations {
+		if m.Version != 99 || m.Name != "V000099__early_rental_manual_contract.sql" {
+			continue
+		}
+		var exists bool
+		if err := conn.QueryRow(ctx, `SELECT pg_catalog.to_regclass('public.schema_migrations') IS NOT NULL`).Scan(&exists); err != nil {
+			return Result{}, err
+		}
+		if !exists {
+			return Result{}, errors.New("V99 requires the dedicated E1 operation; generic migration application is disabled")
+		}
+		h, err := readHistory(ctx, conn)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := verifyHistory(migrations, h); err != nil {
+			return Result{}, err
+		}
+		if len(h) < 99 {
+			return Result{}, errors.New("V99 requires the dedicated E1 operation; generic migration application is disabled")
+		}
+	}
 
 	if err := guardHistoryInitialization(ctx, conn); err != nil {
 		return Result{}, err

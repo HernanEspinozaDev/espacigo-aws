@@ -152,6 +152,19 @@ acl_required = {f'TestRunnerAuthorityACLReaderPostgres/{name}' for name in [
     'foreign-database-no-partial', 'invalid-scope-no-partial', 'canceled-no-partial',
 ]}
 required.update(acl_required)
+extended_authority_required = {f'TestRunnerAuthorityDefaultACLReaderPostgres/{name}' for name in [
+    'captures-explicit-all-object-classes-and-global-scope',
+    'absent-owner-defaults-explicit-empty-observation', 'explicit-empty-function-default',
+    'rejects-missing-owner-with-zero-observation',
+]}
+extended_authority_required.update(['TestRunnerAuthorityEffectiveReaderPostgres','TestRunnerAuthorityACLCatalogPostgres'])
+required.update(extended_authority_required)
+operational_required={f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['early-advance-is-rejected-atomically','schema-bilateral-lifecycle','generic-runner-refuses-v99','generic-applied-v99-is-noop']}
+operational_required.update(f'TestRunnerSingleOwnerEffectiveRolePostgres/{name}' for name in ['success','missing-membership','wrong-owner','role-not-restored','ddl-rollback','ledger-rollback','before-authority-rollback','after-authority-rollback','committed-postcheck-failure'])
+operational_required.add('TestRunnerEarlyRentalOperationalCandidatePostgres/empty-database-generic-refusal')
+operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['terminal-reason-required','terminal-reasons-preserved','expiration-respects-deadline'])
+operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/catalog-refuses-missing-trigger' for baseline in (0,75))
+required.update(operational_required)
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:
@@ -161,7 +174,7 @@ with open(sys.argv[1]) as source:
 missing = sorted(name for name in required if actions.get(name) != 'pass')
 if missing:
     raise SystemExit('Early-rental candidate evidence missing/failed/skipped: ' + ', '.join(missing))
-print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases, authority identity reader {len(identity_required)} and scoped ACL reader {len(acl_required)} required native cases executed, none skipped; no persistent migration allocated.')
+print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases, authority identity reader {len(identity_required)}, scoped ACL reader {len(acl_required)}, extended authority {len(extended_authority_required)} and operational SQL/role gates {len(operational_required)} required native cases executed, none skipped; canonical V99 exercised only in disposable fixtures, no persistent migration applied.')
 PY
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \

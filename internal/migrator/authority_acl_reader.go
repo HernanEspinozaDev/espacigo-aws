@@ -23,6 +23,10 @@ func CaptureScopedAuthorityACLs(ctx context.Context, tx pgx.Tx, objects []Author
 	return captureScopedAuthorityACLs(ctx, tx, objects)
 }
 func captureScopedAuthorityACLs(ctx context.Context, q authorityIdentityQueryer, objects []AuthorityObjectRef) (AuthorityACLObservation, error) {
+	return captureScopedAuthorityACLTransaction(ctx, q, objects, true)
+}
+
+func captureScopedAuthorityACLTransaction(ctx context.Context, q authorityIdentityQueryer, objects []AuthorityObjectRef, requireReadOnly bool) (AuthorityACLObservation, error) {
 	zero := AuthorityACLObservation{}
 	if len(objects) == 0 {
 		return zero, errors.New("ACL capture requires an explicit nonempty object scope")
@@ -32,7 +36,7 @@ func captureScopedAuthorityACLs(ctx context.Context, q authorityIdentityQueryer,
 			return zero, errors.New("ACL scope contains invalid UTF-8 or NUL")
 		}
 	}
-	identity, err := captureSingleOwnerAuthorityIdentity(ctx, q, AuthorityIdentityScope{Objects: objects})
+	identity, err := captureAuthorityIdentityTransaction(ctx, q, AuthorityIdentityScope{Objects: objects}, requireReadOnly)
 	if err != nil {
 		return zero, err
 	}
