@@ -379,6 +379,7 @@ Separar propietarios de archivos por dominio/DB, contrato/adapter, UI e históri
 - [x] **E1-O2a — Modelo/comparador de autoridad:** snapshots explícitos, duplicados y deriva comprobados; misma revisión favorable. No es lector ni prueba de cobertura de catálogos PostgreSQL.
 - [x] **E1-O1b — Staging offline:** materializa SQL capturado/verificado en un directorio privado nuevo; readback de disco, cancelación y cleanup acotado probados. Revisión correctiva `deleg_3d8628d6` favorable; aún sin CLI.
 - [x] **E1-O2b1 — Lector parcial de identidades:** roles, membresías en ambas direcciones y owners canónicos en transacción read-only estable; seis casos PostgreSQL obligatorios pasaron sin skips. No incluye ACL/defaults/probes.
+- [x] **E1-O2b2a — ACL de objetos y columnas:** cinco clases explícitas, estado raw y tuples con grantor/PUBLIC/grant-option; quince casos PostgreSQL obligatorios, protección contra shadowing y revisión `deleg_350bcaa7` favorable. No incluye default ACL global/por esquema, probes efectivos ni cobertura completa del catálogo.
 - [ ] **E1-O1–O6:** integración y cierre operativo descritos abajo. **E1 completa permanece abierta.**
 - [x] **E2-D1 — Dominio puro:** `NewOffer`, `Apply`, `Expire`, revisión, contrato/digest, roles y TTL en `internal/earlyrental`; no escribe PostgreSQL.
 - [x] **E2-D2 — Helpers HTTP:** decoders, proyecciones, ETag/idempotency header y cursor AES-GCM en `internal/earlyrental/transport/http`; no equivalen a endpoints ni replay durable.
@@ -437,7 +438,21 @@ La verificación combinada final se repitió desde fuente aislada con los siete 
 
 O2b1 devuelve un tipo parcial explícito, nunca un snapshot de autoridad completo con ACL/probes falsamente vacíos. **O2b2** deberá añadir ACL/defaults/privilegios efectivos, comprobar cobertura de catálogos y fijar el perfil operativo revisado. O1b tampoco equivale al CLI O4. No se ha conectado a la base restringida ni se asignó versión real de migración.
 
-La CI del checkpoint `9b8691b` confirmó éxito de Database migration quality, Application quality e Infrastructure as Code Quality; frontend sigue fallando por formato en la capa no modificada. La corrección del workflow de base ya tiene evidencia remota de éxito, separada de los nuevos cambios aún locales.
+#### Corte O2b2a — ACL de objetos y columnas
+
+Desde `115c361` limpio se asignó `deleg_ab566976`: un trabajador posee exclusivamente `authority_acl_reader.go` y su test unitario; otro audita sólo fuentes para dividir defaults, privilegios efectivos y cobertura de catálogos. El padre posee las pruebas PostgreSQL, checker y plan. **No se marca O2b2 completada.**
+
+El primer corte captura ACL de objetos explícitos database/schema/relation/sequence/function y columnas ordinarias no eliminadas. Conserva grantor, PUBLIC, grant-option y la diferencia raw null/empty/explicit, normalizando sólo ACL nula de objeto mediante el default correcto de su clase. La observación es parcial y no se convierte en contrato completo ni autoriza operación. Para secuencias, `acldefault` usa `s` minúscula (no `S`, que corresponde a foreign server); el caso nativo exige SELECT, UPDATE y USAGE para evitar que un default de otra clase pase por coincidencia parcial.
+
+Se ejecutó el corte en copia de fuente aislada. La revisión inicial `deleg_a86d3fba` fue favorable, pero la ampliación nativa del padre reprodujo cuatro fallos de suplantación por `search_path`: settings falsificados, base ajena aceptada, lookup path no confiable y `cardinality` falsificada. Se calificaron las funciones/tipos del guard con `pg_catalog`, se exige que sea el primer esquema efectivo sin modificar la transacción del llamador, y se calificaron `current_database` y `cardinality`. Los cuatro negativos/regresiones se incorporaron al checker obligatorio.
+
+La revisión correctiva `deleg_056d880e` objetó el esquema posterior a `pg_catalog`. El padre concretó un RED nativo con `acl_probe.=(oid,int4)` y `search_path=pg_catalog,acl_probe`: la comparación `x.grantee=0` escogía ese operador y terminaba rechazando la lectura por tuplas duplicadas, sin devolver resultado parcial. Se fijó esa comparación a `OPERATOR(pg_catalog.=)` con cero tipado `pg_catalog.oid`; el caso `ignore-shadowed-oid-operator` es obligatorio y pasa con las funciones y el operador maliciosos presentes.
+
+Tras esta corrección pasaron race de paquetes completos (`internal/migrator`, `cmd/dbmigrate`, `cmd/api`), vet, build API y harness PostgreSQL desechable: **82 casos de esquema + 6 de identidad + 15 ACL**, ninguno omitido; también pasó integración rentalflow y se verificó eliminación del contenedor y scratch propios. El checker rechazó cada ACL ausente/skipped en **31 escenarios sintéticos**, evidencia separada de PostgreSQL real. La reevaluación `deleg_350bcaa7` leyó el fix y devolvió `passed=true`, sin bloqueadores concretos; fuente funcional congelada en hashes privados. **O2b2a queda completada para su alcance parcial y aprobada para publicación, no O2b2 ni E1 operativa.**
+
+Defaults globales/por esquema, probes efectivos, reconciliación de columnas `aclitem[]` y perfil operativo siguen en cortes posteriores de O2b2; CLI/backup/aplicación no están habilitados. No se inspeccionó la base restringida ni se añadieron migraciones aplicables.
+
+La CI del checkpoint `9b8691b` confirmó éxito de Database migration quality, Application quality e Infrastructure as Code Quality; frontend sigue fallando por formato en la capa no modificada. En `115c361`, infraestructura pasó y frontend volvió a fallar `format:check` sobre los mismos nueve archivos ajenos; base/aplicación seguían en curso en la lectura inicial. La corrección del workflow de base tiene evidencia remota histórica de éxito, separada del corte nuevo.
 
 #### Seguimiento de CI del checkpoint `2e5f4f0`
 

@@ -18,6 +18,7 @@ func (authorityIdentityTestRow) Scan(dest ...any) error {
 	*(dest[0].(*bool)) = false
 	*(dest[1].(*string)) = "read committed"
 	*(dest[2].(*int)) = 180000
+	*(dest[3].(*string)) = "pg_catalog"
 	return nil
 }
 func (authorityIdentityTestTx) QueryRow(context.Context, string, ...any) pgx.Row {
@@ -109,7 +110,7 @@ type authorityIdentityCatalogTx struct {
 func (q *authorityIdentityCatalogTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	q.calls++
 	if strings.Contains(sql, "current_setting") {
-		return authorityIdentityValueRow{values: []any{true, "repeatable read", 180000}}
+		return authorityIdentityValueRow{values: []any{true, "repeatable read", 180000, "pg_catalog"}}
 	}
 	if len(args) != 1 || args[0] != "public" {
 		return authorityIdentityValueRow{err: errors.New("unexpected object scope")}

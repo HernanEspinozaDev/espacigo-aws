@@ -60,7 +60,8 @@ func captureSingleOwnerAuthorityIdentity(ctx context.Context, q authorityIdentit
 	var readOnly bool
 	var isolation string
 	var version int
-	if err := q.QueryRow(ctx, `SELECT current_setting('transaction_read_only') = 'on', current_setting('transaction_isolation'), current_setting('server_version_num')::int`).Scan(&readOnly, &isolation, &version); err != nil {
+	var firstSchema string
+	if err := q.QueryRow(ctx, `SELECT pg_catalog.current_setting('transaction_read_only') OPERATOR(pg_catalog.=) 'on', pg_catalog.current_setting('transaction_isolation'), pg_catalog.current_setting('server_version_num')::pg_catalog.int4, (pg_catalog.current_schemas(true))[1]::pg_catalog.text`).Scan(&readOnly, &isolation, &version, &firstSchema); err != nil {
 		return zero, fmt.Errorf("check transaction and server version: %w", err)
 	}
 	if !readOnly || (isolation != "repeatable read" && isolation != "serializable") {
@@ -68,6 +69,9 @@ func captureSingleOwnerAuthorityIdentity(ctx context.Context, q authorityIdentit
 	}
 	if version < 180000 || version >= 190000 {
 		return zero, fmt.Errorf("identity capture requires PostgreSQL 18, got version number %d", version)
+	}
+	if firstSchema != "pg_catalog" {
+		return zero, errors.New("identity capture requires pg_catalog first in the effective search path")
 	}
 	out := AuthorityIdentitySnapshot{Roles: []AuthorityRole{}, Objects: []AuthorityObject{}, Memberships: []AuthorityMembership{}}
 	rows, err := q.Query(ctx, `SELECT r.rolname, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls, r.rolcanlogin, r.rolinherit FROM pg_catalog.pg_roles r WHERE r.rolname = ANY($1::text[]) ORDER BY r.rolname`, scope.Roles)
@@ -94,7 +98,7 @@ func captureSingleOwnerAuthorityIdentity(ctx context.Context, q authorityIdentit
 		var sql string
 		switch ref.Class {
 		case "database":
-			sql = `SELECT d.datname, pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname=$1 AND d.datname=current_database()`
+			sql = `SELECT d.datname, pg_catalog.pg_get_userbyid(d.datdba) FROM pg_catalog.pg_database d WHERE d.datname=$1 AND d.datname=pg_catalog.current_database()`
 		case "schema":
 			sql = `SELECT n.nspname, pg_catalog.pg_get_userbyid(n.nspowner) FROM pg_catalog.pg_namespace n WHERE n.nspname=$1`
 		case "relation":

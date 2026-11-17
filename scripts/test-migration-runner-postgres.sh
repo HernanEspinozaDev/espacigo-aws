@@ -142,6 +142,16 @@ identity_required = {f'TestRunnerAuthorityIdentityReaderPostgres/{name}' for nam
     'missing-role-no-partial', 'missing-object-no-partial', 'foreign-database-no-partial',
 ]}
 required.update(identity_required)
+acl_required = {f'TestRunnerAuthorityACLReaderPostgres/{name}' for name in [
+    'reject-shadowed-transaction-guard', 'reject-untrusted-search-path',
+    'identity-reject-shadowed-current-database', 'ignore-shadowed-cardinality',
+    'ignore-shadowed-oid-operator',
+    'null-acl-builtins-and-columns', 'explicit-public-column-and-grant-option',
+    'empty-acl-distinct-from-null', 'quoted-canonical-identity',
+    'reject-read-write', 'reject-read-committed', 'missing-object-no-partial',
+    'foreign-database-no-partial', 'invalid-scope-no-partial', 'canceled-no-partial',
+]}
+required.update(acl_required)
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:
@@ -151,7 +161,7 @@ with open(sys.argv[1]) as source:
 missing = sorted(name for name in required if actions.get(name) != 'pass')
 if missing:
     raise SystemExit('Early-rental candidate evidence missing/failed/skipped: ' + ', '.join(missing))
-print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases and authority identity reader {len(identity_required)} required native cases executed, none skipped; no persistent migration allocated.')
+print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases, authority identity reader {len(identity_required)} and scoped ACL reader {len(acl_required)} required native cases executed, none skipped; no persistent migration allocated.')
 PY
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
