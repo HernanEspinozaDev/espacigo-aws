@@ -21,9 +21,72 @@ var migrationACLStaticExecPrivilege = regexp.MustCompile(`(?is)\b(?:GRANT|REVOKE
 var migrationACLExecConcat = regexp.MustCompile(`(?is)\bEXECUTE\s+'(?:''|[^'])*'\s*(?:\|\||\+)`)
 var migrationACLExecACLConcat = regexp.MustCompile(`(?is)\bEXECUTE\s+'(?:''|[^'])*\b(?:GRANT|REVOKE)\b(?:''|[^'])*'\s*(?:\|\||\+)`)
 var migrationACLExecClause = regexp.MustCompile(`(?is)\bEXECUTE\s+'(?:''|[^'])*'\s+(?:INTO|USING)\b`)
+var migrationACLRoleRestoreCall = regexp.MustCompile(`(?is)^EXECUTE\s+pg_catalog\.format\s*\(\s*'SET LOCAL ROLE %I'\s*,\s*[a-z_][a-z0-9_]*\s*\)\s*(?:;|$)`)
+var migrationACLIfBoundary = regexp.MustCompile(`(?is)\bEND\s+IF\b|\bIF\b`)
+var migrationACLThen = regexp.MustCompile(`(?is)\bTHEN\b`)
+var migrationACLGuardStatements = regexp.MustCompile(`(?is)^\s*(?:(?:RAISE\s+EXCEPTION\b[^;]*)?;\s*)*$`)
+
+// Mask only the complete, known role-restoration expression. Looking up EXECUTE
+// in masked code prevents a quoted example/comment from becoming an allowlist.
+// Concatenation, different templates and expression arguments remain unsupported.
+func maskMigrationACLRoleRestores(source string) string {
+	out := []byte(source)
+	for _, loc := range migrationACLExecWord.FindAllStringIndex(maskACLQuotedTokens(source), -1) {
+		call := migrationACLRoleRestoreCall.FindStringIndex(source[loc[0]:])
+		if call == nil {
+			continue
+		}
+		for i := loc[0]; i < loc[0]+call[1]; i++ {
+			if out[i] != '\n' {
+				out[i] = ' '
+			}
+		}
+	}
+	return string(out)
+}
+
+// An assertion that can only abort the transaction does not condition a later
+// committed ACL effect. Strip only IF blocks made of RAISE EXCEPTION, known role
+// restores, and nested blocks of those same forms. RETURN, assignments, alternate
+// branches, ACL commands and arbitrary EXECUTE calls must retain their guards.
+func migrationACLWithoutGuardBranches(body string) string {
+	out := []byte(body)
+	code := []byte(maskACLQuotedTokens(maskMigrationACLRoleRestores(body)))
+	// These constructs can catch an assertion or skip an otherwise static ACL.
+	// Do not normalize guards when their enclosing control flow is unmodeled.
+	withoutAbort := regexp.MustCompile(`(?is)\bRAISE\s+EXCEPTION\b`).ReplaceAllString(string(code), " ")
+	if regexp.MustCompile(`(?is)\b(?:LOOP|CASE|EXCEPTION|RETURN|EXIT|CONTINUE)\b`).MatchString(withoutAbort) {
+		return body
+	}
+	var starts []int
+	for _, loc := range migrationACLIfBoundary.FindAllStringIndex(string(code), -1) {
+		if strings.EqualFold(string(code[loc[0]:loc[1]]), "IF") {
+			starts = append(starts, loc[0])
+			continue
+		}
+		if len(starts) == 0 {
+			continue
+		}
+		start := starts[len(starts)-1]
+		starts = starts[:len(starts)-1]
+		then := migrationACLThen.FindStringIndex(string(code[start:loc[0]]))
+		if then == nil || !migrationACLGuardStatements.Match(code[start+then[1]:loc[0]]) {
+			continue
+		}
+		for i := start; i < loc[1]; i++ {
+			if code[i] != '\n' {
+				code[i], out[i] = ' ', ' '
+			}
+		}
+	}
+	return string(out)
+}
 
 func migrationACLRefForGrantee(grantee string) *regexp.Regexp {
-	return regexp.MustCompile(`(?is)\b(?:GRANT|REVOKE)\b[^;]*?\b(?:TO|FROM)\s+` + regexp.QuoteMeta(grantee) + `\b[^;]*`)
+	// Detect targets at any list position, including unsupported quoted forms,
+	// so the strict parser rejects them rather than silently omitting an effect.
+	role := `(?:[a-z_][a-z0-9_]*|"(?:""|[^"])*")`
+	return regexp.MustCompile(`(?is)\b(?:GRANT|REVOKE)\b[^;]*?\b(?:TO|FROM)\s+(?:` + role + `\s*,\s*)*(?:` + regexp.QuoteMeta(grantee) + `\b|"` + regexp.QuoteMeta(grantee) + `")[^;]*`)
 }
 
 func migrationACLExecutableSources(source, grantee string) ([]string, []string, error) {
@@ -340,6 +403,7 @@ func migrationACLRoleCondition(source, grantee string) (string, map[string]struc
 		if !found || !targetRef.MatchString(body) {
 			continue
 		}
+		body = migrationACLWithoutGuardBranches(body)
 		masked := maskACLQuotedTokens(body)
 		if !regexp.MustCompile(`(?is)\bIF\b`).MatchString(masked) {
 			unconditionalProceduralEffect = true
@@ -484,6 +548,7 @@ func migrationACLEffectSignature(effect RuntimeACLEffect) string {
 }
 
 func rejectUnsupportedMigrationACL(version int, text, grantee string) error {
+	text = maskMigrationACLRoleRestores(text)
 	lower := strings.ToLower(text)
 	targetRef := migrationACLRefForGrantee(grantee)
 	if grantee != "espacigo_runtime" && migrationACLExecACLConcat.MatchString(text) {

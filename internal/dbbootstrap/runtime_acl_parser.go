@@ -204,7 +204,7 @@ func normalizeACLGrantee(grantee string) (string, error) {
 
 func parseACLStatementsForGrantee(source, grantee string) ([]RuntimeACLEffect, error) {
 	var out []RuntimeACLEffect
-	statementPattern := regexp.MustCompile(`(?is)^(GRANT|REVOKE)\s+(.+?)\s+(ON\s+(TABLE|SEQUENCE|FUNCTION|SCHEMA)\s+|ON\s+)(.+?)\s+(TO|FROM)\s+` + regexp.QuoteMeta(grantee) + `(?:\s+(WITH GRANT OPTION))?(?:\s+(CASCADE|RESTRICT))?$`)
+	statementPattern := regexp.MustCompile(`(?is)^(GRANT|REVOKE)\s+(.+?)\s+(ON\s+(TABLE|SEQUENCE|FUNCTION|SCHEMA)\s+|ON\s+)(.+?)\s+(TO|FROM)\s+([a-z_][a-z0-9_]*(?:\s*,\s*[a-z_][a-z0-9_]*)*)(?:\s+(WITH GRANT OPTION))?(?:\s+(CASCADE|RESTRICT))?$`)
 	statements, err := splitACLStatements(source)
 	if err != nil {
 		return nil, err
@@ -218,12 +218,23 @@ func parseACLStatementsForGrantee(source, grantee string) ([]RuntimeACLEffect, e
 		if m == nil {
 			return nil, fmt.Errorf("unsupported ACL statement for %s: %q", grantee, stmt)
 		}
-		act, rawPrivileges, kind, objects, direction, option := strings.ToUpper(m[1]), strings.TrimSpace(m[2]), strings.ToUpper(m[4]), strings.TrimSpace(m[5]), strings.ToUpper(m[6]), strings.EqualFold(m[7], "WITH GRANT OPTION")
-		revokeBehavior := strings.ToUpper(m[8])
+		seenRoles := make(map[string]bool)
+		for _, role := range strings.Split(m[7], ",") {
+			normalized, err := normalizeACLGrantee(strings.ToLower(strings.TrimSpace(role)))
+			if err != nil || seenRoles[normalized] || normalized == "current_user" || normalized == "current_role" || normalized == "session_user" {
+				return nil, fmt.Errorf("unsupported or duplicate ACL grantee")
+			}
+			seenRoles[normalized] = true
+		}
+		if !seenRoles[grantee] {
+			return nil, fmt.Errorf("ACL statement does not target %s", grantee)
+		}
+		act, rawPrivileges, kind, objects, direction, option := strings.ToUpper(m[1]), strings.TrimSpace(m[2]), strings.ToUpper(m[4]), strings.TrimSpace(m[5]), strings.ToUpper(m[6]), strings.EqualFold(m[8], "WITH GRANT OPTION")
+		revokeBehavior := strings.ToUpper(m[9])
 		if act == "GRANT" && direction != "TO" || act == "REVOKE" && direction != "FROM" {
 			return nil, fmt.Errorf("invalid ACL direction")
 		}
-		if act == "GRANT" && m[8] != "" || act == "REVOKE" && strings.EqualFold(m[7], "WITH GRANT OPTION") {
+		if act == "GRANT" && m[9] != "" || act == "REVOKE" && strings.EqualFold(m[8], "WITH GRANT OPTION") {
 			return nil, fmt.Errorf("invalid action-specific ACL option")
 		}
 		if kind == "" {
