@@ -136,6 +136,12 @@ for suite, suite_cases in [
     ('TestRunnerEarlyRentalEvidenceCandidatePostgres', evidence),
 ]:
     required.update(f'{suite}/baseline-{baseline}/{case}' for baseline in (0, 75) for case in suite_cases)
+schema_required_count = len(required)
+identity_required = {f'TestRunnerAuthorityIdentityReaderPostgres/{name}' for name in [
+    'read-only-repeatable-identity', 'reject-read-write', 'reject-read-committed',
+    'missing-role-no-partial', 'missing-object-no-partial', 'foreign-database-no-partial',
+]}
+required.update(identity_required)
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:
@@ -145,7 +151,7 @@ with open(sys.argv[1]) as source:
 missing = sorted(name for name in required if actions.get(name) != 'pass')
 if missing:
     raise SystemExit('Early-rental candidate evidence missing/failed/skipped: ' + ', '.join(missing))
-print(f'PASS: early-rental schema/integrity/evidence candidates {len(required)} required fresh/upgrade cases executed, none skipped; no persistent migration allocated.')
+print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases and authority identity reader {len(identity_required)} required native cases executed, none skipped; no persistent migration allocated.')
 PY
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
