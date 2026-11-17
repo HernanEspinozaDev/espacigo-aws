@@ -105,6 +105,48 @@ elif [[ "$SCOPE" == v76 ]]; then
 elif [[ "$SCOPE" == authority-window ]]; then
   echo 'PASS: isolated PostgreSQL 18.7 V95/V96 authority-window checks plus owner-sensitive migration choreography, transactional rollback, ownership and ledger readback; no persistent database touched.'
 else
+  python3 - "$TMP_DIR/results.jsonl" <<'PY'
+import json, sys
+root = 'TestRunnerEarlyRentalSchemaCandidatePostgres'
+cases = ['commit-valid-pair-independent-session', 'legacy-preserved']
+cases += ['rollback-' + name for name in [
+    'no-link', 'no-offer', 'space-mismatch', 'range-mismatch', 'id-mismatch',
+    'second-inverse-link', 'partial-null', 'wrong-type',
+    'reservation-with-reason', 'hold-without-expiry', 'overlap-sqlstate',
+]]
+required = {f'{root}/baseline-{baseline}/{case}' for baseline in (0, 75) for case in cases}
+integrity = [
+    'snapshot', 'parts', 'participants', 'contract-version', 'contract-text',
+    'contract-digest', 'interval', 'deadline', 'pending-confirmed-with-hold',
+    'pending-confirmed-consistent', 'terminal-release', 'terminal-without-release',
+    'terminal-expiry-mismatch',
+]
+evidence = [
+    'schema-bilateral-lifecycle',
+    'confirmation-participant-and-exact-contract', 'payment-snapshot-parties-and-order',
+    'events-actor-sequence-and-append-only', 'idempotency-unique-key-and-fingerprint',
+]
+evidence += ['event-integrity-' + name for name in [
+    'gap', 'missing-confirmation', 'wrong-confirmation-actor', 'wrong-confirmation-kind',
+    'missing-payment', 'prior-state', 'event-without-revision', 'revision-without-event',
+    'wrong-next-state', 'missing-initial-event',
+]]
+for suite, suite_cases in [
+    ('TestRunnerEarlyRentalIntegrityCandidatePostgres', integrity),
+    ('TestRunnerEarlyRentalEvidenceCandidatePostgres', evidence),
+]:
+    required.update(f'{suite}/baseline-{baseline}/{case}' for baseline in (0, 75) for case in suite_cases)
+actions = {}
+with open(sys.argv[1]) as source:
+    for line in source:
+        event = json.loads(line)
+        if event.get('Test') and event.get('Action') in ('pass', 'fail', 'skip'):
+            actions[event['Test']] = event['Action']
+missing = sorted(name for name in required if actions.get(name) != 'pass')
+if missing:
+    raise SystemExit('Early-rental candidate evidence missing/failed/skipped: ' + ', '.join(missing))
+print(f'PASS: early-rental schema/integrity/evidence candidates {len(required)} required fresh/upgrade cases executed, none skipped; no persistent migration allocated.')
+PY
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
   TEST_RENTALFLOW_POSTGRES_ISOLATION_TOKEN="$ISOLATION_TOKEN" \
