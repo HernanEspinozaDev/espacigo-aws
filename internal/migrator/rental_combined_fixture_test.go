@@ -48,8 +48,8 @@ func establishRentalCombinedFixture(t *testing.T, ctx context.Context, targetURL
 	if err := admin.QueryRow(ctx, `SELECT current_database(),session_user,current_user`).Scan(&database, &sessionUser, &currentUser); err != nil || database != admin.Config().Database || sessionUser != "postgres" || currentUser != "postgres" {
 		t.Fatalf("combined fixture effective target identity mismatch: %v", err)
 	}
-	if len(migrations) != 97 {
-		t.Fatalf("combined fixture requires the complete exact V1..V97 inventory, got %d", len(migrations))
+	if len(migrations) != 98 {
+		t.Fatalf("combined fixture requires the complete exact V1..V98 inventory, got %d", len(migrations))
 	}
 	for i, m := range migrations {
 		if m.Version != int64(i+1) {
@@ -329,8 +329,8 @@ func TestRentalCombinedFixtureOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 97 {
-		t.Fatalf("expected complete V1..V97 inventory, got %d", len(all))
+	if len(all) != 98 {
+		t.Fatalf("expected complete V1..V98 inventory, got %d", len(all))
 	}
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		admin := connectTestDB(t, ctx, databaseURL)
@@ -353,15 +353,18 @@ func TestRentalCombinedFixtureOptIn(t *testing.T) {
 			}
 		})
 		t.Run("v97-upgrade", func(t *testing.T) {
-			assertV97AuthorityLifecycle(t, ctx, admin, databaseURL, migrationURL, all)
+			assertV97AuthorityLifecycle(t, ctx, admin, databaseURL, migrationURL, all[:97])
+		})
+		t.Run("v98-expand", func(t *testing.T) {
+			assertV98SpaceInventoryMigration(t, ctx, admin, migrationURL, all)
 		})
 		var create, userRef, spaceRef, legacyReadable bool
 		if err := admin.QueryRow(ctx, `SELECT has_schema_privilege('espacigo_schema_owner','public','CREATE'),has_column_privilege('espacigo_schema_owner','public.usuario','id','REFERENCES'),has_column_privilege('espacigo_schema_owner','public.espacio','id','REFERENCES'),has_table_privilege('espacigo_runtime','public.identity_verification_attempts','SELECT')`).Scan(&create, &userRef, &spaceRef, &legacyReadable); err != nil || create || userRef || spaceRef || legacyReadable {
 			t.Fatalf("V97 temporary authority or identity legacy access left open: create=%t userRef=%t spaceRef=%t legacy=%t err=%v", create, userRef, spaceRef, legacyReadable, err)
 		}
-		post, err := Plan(ctx, migrationURL, prefixMigrationDirForCombined(t, all, 97), "espacigo_schema_owner")
-		if err != nil || len(post.Applied) != 97 || len(post.Pending) != 0 {
-			t.Fatalf("V97 ledger postcheck failed: %+v err=%v", post, err)
+		post, err := Plan(ctx, migrationURL, prefixMigrationDirForCombined(t, all, 98), "espacigo_schema_owner")
+		if err != nil || len(post.Applied) != 98 || len(post.Pending) != 0 {
+			t.Fatalf("V98 schema postcheck failed: %+v err=%v", post, err)
 		}
 		t.Run("commercial-quote-persistence", func(t *testing.T) {
 			assertCommercialQuotePersistenceWithExistingRuntimeACL(t, ctx, databaseURL, admin)

@@ -22,8 +22,8 @@ func TestV84AuthorityHelperRejectsUnknownModeAfterManifestCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) < 97 {
-		t.Fatalf("expected shared V1..V97 candidate inventory, got %d migrations", len(all))
+	if len(all) < 98 {
+		t.Fatalf("expected shared V1..V98 candidate inventory, got %d migrations", len(all))
 	}
 	dir := t.TempDir()
 	for _, migration := range all[:84] {

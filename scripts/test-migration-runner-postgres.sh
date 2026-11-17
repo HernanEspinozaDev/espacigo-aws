@@ -8,7 +8,7 @@ case "$SCOPE" in
   full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
   v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
-  authority-window) GO_TEST_PATTERN='^TestNativeKYCAuthorityWindowPostgres$' ;;
+  authority-window) GO_TEST_PATTERN='^Test(NativeKYCAuthorityWindow|OwnerSensitiveMigrationChoreography)Postgres$' ;;
   *) echo 'usage: test-migration-runner-postgres.sh [full|v19|v76|authority-window]' >&2; exit 2 ;;
 esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
@@ -103,7 +103,7 @@ if [[ "$SCOPE" == v19 ]]; then
 elif [[ "$SCOPE" == v76 ]]; then
   echo 'PASS: isolated disposable PostgreSQL V1-V68-to-V76 gallery capacity transition (10 to 30), concurrent 30th slot, and 31st-slot rejection.'
 elif [[ "$SCOPE" == authority-window ]]; then
-  echo 'PASS: isolated PostgreSQL 18.7 target-pinned V95/V96 preparation/finalization, wrong-target no-DDL, separate temporary CREATE closure, successful migration boundaries, retry and readback; no persistent database touched.'
+  echo 'PASS: isolated PostgreSQL 18.7 V95/V96 authority-window checks plus owner-sensitive migration choreography, transactional rollback, ownership and ledger readback; no persistent database touched.'
 else
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
@@ -114,5 +114,5 @@ else
     exit 1
   }
 cat "$TMP_DIR/rentalflow.log"
-echo 'PASS: disposable PostgreSQL runner (V1-V97, V75 upgrade, V96-to-V97 authority lifecycle, V84 legacy recovery/finalization, quotes/suppression, plan/no-op/failure/checksum/concurrency) and rentalflow availability integration on V1-V61; cleanup checked separately on exit.'
+echo 'PASS: disposable PostgreSQL runner (V1-V98, V75 upgrade, V96-to-V97 authority lifecycle, V97-to-V98 expand, V84 legacy recovery/finalization, quotes/suppression, plan/no-op/failure/checksum/concurrency) and rentalflow availability integration on V1-V61; cleanup checked separately on exit.'
 fi

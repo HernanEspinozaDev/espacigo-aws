@@ -10,8 +10,8 @@ func TestRentalSharedHistoryPreservesAppliedIdentityPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) < 97 {
-		t.Fatalf("shared history must contain applied V1-V96 plus rental V97, got %d migrations", len(migrations))
+	if len(migrations) < 98 {
+		t.Fatalf("shared history must contain applied V1-V96, rental V97, and current V98, got %d migrations", len(migrations))
 	}
 	history := make([]HistoryEntry, 0, 96)
 	for i := 0; i < 96; i++ {

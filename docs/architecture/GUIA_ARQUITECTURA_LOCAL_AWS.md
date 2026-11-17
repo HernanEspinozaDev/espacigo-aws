@@ -65,7 +65,7 @@ flowchart TB
 |---|---|---|---|
 | **Cómputo Backend** | AWS ECS Fargate en subnets privadas de VPC tras ALB. | Binario Go nativo (`cmd/api`) en `http://127.0.0.1:8080`. | **95%** (Mismo código Go, mismos handlers). |
 | **Cómputo Frontend** | Next.js en Vercel o contenedor ECS con CloudFront. | Next.js en modo desarrollo en `http://127.0.0.1:3000`. | **98%** (Mismo código React y rutas BFF). |
-| **Base de Datos** | Amazon RDS PostgreSQL 18 (`db.t4g.micro`) provisionado con Terraform. | Contenedor Docker PostgreSQL 18 (`espacigo_localbackend_20261024-database-1`). | **100%** (Misma versión del motor y 97 migraciones). |
+| **Base de Datos** | Amazon RDS PostgreSQL 18 (`db.t4g.micro`) provisionado con Terraform. | Contenedor Docker PostgreSQL 18 (`espacigo_localbackend_20261024-database-1`). | **100%** (Misma versión del motor y 98 migraciones versionadas en el checkout). |
 | **Almacenamiento (S3)** | Amazon S3 con cifrado SSE-KMS, Versioning y Bloqueo Público. | S3 en `aws-emulator:9297` (`espacigo-media-local`, `espacigo-evidence-local`, etc.). | **95%** (Mismo AWS SDK v2, llamadas idénticas). |
 | **Configuración (SSM)** | AWS Systems Manager Parameter Store (`/espacigo/prod/*`). | SSM Parameter Store en `aws-emulator` (`/espacigo/local/*`). | **100%** (Mismos parámetros creados con Terraform). |
 | **Correos (SES)** | Amazon Simple Email Service (SES) con dominio verificado. | Servidor SMTP Mailpit local en `:1025` con UI web en `:8025`. | **95%** (Inspección inmediata de HTML sin spam). |

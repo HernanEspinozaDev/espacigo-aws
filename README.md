@@ -35,7 +35,7 @@ Esta edición elimina por completo cualquier dependencia de proveedores de nube 
 │                                      │ espacigo_aws_   │  │ S3 Buckets (5)│  │
 │                                      │ local           │  │ SSM Params(13)│  │
 │                                      │ Roles aislados  │  │ CW Logs (4)   │  │
-│                                      │ 97 migraciones  │  │ IAM Roles (2) │  │
+│                                      │ 98 migraciones  │  │ IAM Roles (2) │  │
 │                                      └─────────────────┘  └───────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```

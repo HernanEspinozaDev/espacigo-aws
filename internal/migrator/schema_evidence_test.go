@@ -45,7 +45,7 @@ func TestRunnerSchemaEvidenceReadonlyBlocksWritingSelect(t *testing.T) {
 	})
 }
 
-func assertPackagedCatalogRead(t *testing.T, ctx context.Context, databaseURL string) {
+func assertPackagedCatalogRead(t *testing.T, ctx context.Context, databaseURL string, expectedLedgerCount int) {
 	t.Helper()
 	conn := connectTestDB(t, ctx, databaseURL)
 	defer conn.Close(context.Background())
@@ -77,7 +77,7 @@ func assertPackagedCatalogRead(t *testing.T, ctx context.Context, databaseURL st
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(source)
-	if d.Query != hex.EncodeToString(digest[:]) || d.Target.Readonly != "on" || d.Target.User != "espacigo_schema_owner" || d.Ledger.Count != 97 {
+	if d.Query != hex.EncodeToString(digest[:]) || d.Target.Readonly != "on" || d.Target.User != "espacigo_schema_owner" || d.Ledger.Count != expectedLedgerCount {
 		t.Fatalf("incomplete restricted catalog: %+v", d)
 	}
 }

@@ -71,7 +71,7 @@ func TestRunnerV84AuthorityRecoveryPostgres(t *testing.T) {
 	databaseURL.Path = "/" + target
 	targetURL := databaseURL.String()
 	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
-	if err != nil || len(all) != 97 || inventoryFingerprint(all[:84]) != v84AuthorityInventory {
+	if err != nil || len(all) != 98 || inventoryFingerprint(all[:84]) != v84AuthorityInventory {
 		t.Fatalf("pinned V84 migration inventory unavailable: %v", err)
 	}
 	v84Inventory := all[:84]

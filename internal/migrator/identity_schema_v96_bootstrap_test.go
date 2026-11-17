@@ -69,7 +69,7 @@ func TestCurrentSchemaMigrationKYCThroughV96(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A new migration needs a reviewed fresh/upgrade recipe, not silent omission.
-	if len(all) != 97 {
+	if len(all) != 98 {
 		t.Fatal("update the reviewed current-schema bootstrap recipe for the new inventory")
 	}
 	// This historical KYC recipe is intentionally bounded before rental V97.
@@ -204,6 +204,9 @@ GRANT espacigo_runtime TO espacigo_api_login WITH ADMIN FALSE, INHERIT FALSE, SE
 				}
 				if _, err := Run(ctx, databaseURL, prefix(80)); err != nil {
 					t.Fatal(err)
+				}
+				if err := dbbootstrap.GrantRuntimePermissions(ctx, admin); err != nil {
+					t.Fatalf("install maintained pre-identity runtime ACL baseline: %v", err)
 				}
 				if baseline == 76 {
 					t.Run("native-role-transition-contract", func(t *testing.T) {
@@ -868,7 +871,7 @@ GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;`)
 						t.Fatalf("restricted V96 release no-op failed: %v", err)
 					}
 				})
-				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL.String()) })
+				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL.String(), 96) })
 				t.Run("api-schema-contract", func(t *testing.T) {
 					assertRuntimeAPISchemaContract(t, ctx, databaseURL, admin)
 				})
@@ -982,7 +985,7 @@ func TestCurrentSchemaMigrationV19WeeklyHours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 96 {
+	if len(all) != 98 {
 		t.Fatal("update the reviewed migration inventory before running the V19-prefix test")
 	}
 	v19Dir := t.TempDir()

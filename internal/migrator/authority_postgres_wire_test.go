@@ -26,11 +26,11 @@ func assertPostgresAuthorityPythonWire(t *testing.T, ctx context.Context, migrat
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if version == 84 {
+	if version >= 84 && version <= 88 {
 		if _, ok := decoded["ddl_authority"]; !ok {
 			t.Fatalf("PostgreSQL authority Go JSON missing ddl_authority before V%d", version)
 		}
-	} else {
+	} else if version == 95 || version == 96 {
 		if _, ok := decoded["identity_ddl_authority"]; !ok {
 			t.Fatalf("PostgreSQL authority Go JSON missing identity_ddl_authority before V%d", version)
 		}

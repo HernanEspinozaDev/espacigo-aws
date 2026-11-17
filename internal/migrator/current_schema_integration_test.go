@@ -27,7 +27,7 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A new migration needs a reviewed fresh/upgrade recipe, not silent omission.
-	if len(all) != 97 {
+	if len(all) != 98 {
 		t.Fatal("update the reviewed current-schema bootstrap recipe for the new inventory")
 	}
 	prefix := func(last int) string {
@@ -47,13 +47,16 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 				defer admin.Close(context.Background())
 				migrationURL, before := establishRentalCombinedFixture(t, ctx, databaseURL, admin, all, baseline)
 				t.Run("v97-upgrade", func(t *testing.T) {
-					assertV97AuthorityLifecycle(t, ctx, admin, databaseURL, migrationURL, all)
+					assertV97AuthorityLifecycle(t, ctx, admin, databaseURL, migrationURL, all[:97])
 				})
-				plan, err := Plan(ctx, migrationURL, prefix(97), "espacigo_schema_owner")
+				t.Run("v98-expand", func(t *testing.T) {
+				assertV98SpaceInventoryMigration(t, ctx, admin, migrationURL, all)
+				})
+				plan, err := Plan(ctx, migrationURL, prefix(98), "espacigo_schema_owner")
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !plan.ReadOnly || len(plan.Applied) != 97 || len(plan.Pending) != 0 {
+				if !plan.ReadOnly || len(plan.Applied) != 98 || len(plan.Pending) != 0 {
 					t.Fatalf("incomplete postcheck: %#v", plan)
 				}
 				for i, entry := range before {
@@ -61,21 +64,21 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 						t.Fatal("upgrade rewrote the existing migration ledger")
 					}
 				}
-				result, err := RunWithRole(ctx, migrationURL, prefix(97), "espacigo_schema_owner")
+				result, err := RunWithRole(ctx, migrationURL, prefix(98), "espacigo_schema_owner")
 				if err != nil || len(result.Applied) != 0 {
 					t.Fatalf("reapply was not a no-op: %v", err)
 				}
 				t.Run("release-noop", func(t *testing.T) {
 					conn := connectTestDB(t, ctx, migrationURL)
 					defer conn.Close(context.Background())
-					report, err := runReleaseWithConn(ctx, conn, prefix(97), "espacigo_schema_owner", ReleaseContract{
-						SourceSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InventorySHA256: inventoryFingerprint(all), ExpectedApplied: 97, Database: admin.Config().Database,
+					report, err := runReleaseWithConn(ctx, conn, prefix(98), "espacigo_schema_owner", ReleaseContract{
+						SourceSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InventorySHA256: inventoryFingerprint(all), ExpectedApplied: 98, Database: admin.Config().Database,
 					})
-					if err != nil || len(report.Applied) != 0 || len(report.After.Applied) != 97 || len(report.After.Pending) != 0 {
-						t.Fatalf("restricted V97 release no-op failed: %v", err)
+					if err != nil || len(report.Applied) != 0 || len(report.After.Applied) != 98 || len(report.After.Pending) != 0 {
+						t.Fatalf("restricted V98 release no-op failed: %v", err)
 					}
 				})
-				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL) })
+				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL, 98) })
 				t.Run("api-schema-contract", func(t *testing.T) {
 					assertRuntimeAPISchemaContract(t, ctx, databaseURL, admin)
 				})
