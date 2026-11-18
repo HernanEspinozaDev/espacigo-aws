@@ -22,7 +22,7 @@ resource "aws_vpc_security_group_egress_rule" "nat_outbound_all" {
 
 resource "aws_instance" "nat" {
   ami                         = data.aws_ssm_parameter.al2023_arm64.value
-  instance_type               = "t4g.nano"
+  instance_type               = "t4g.micro"
   subnet_id                   = aws_subnet.public[0].id
   vpc_security_group_ids      = [aws_security_group.nat.id]
   associate_public_ip_address = true
