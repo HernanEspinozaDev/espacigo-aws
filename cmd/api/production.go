@@ -12,9 +12,15 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
@@ -61,42 +67,77 @@ func validateProductionRuntime(getenv func(string) string, profile runtimeProfil
 	return nil
 }
 
-// Production exposes the public catalog and availability. The local startup
-// mounts the rehearsal routes separately, including synthetic verification.
-func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) error {
+// Production exposes the public catalog, availability, and identity/auth
+// routes backed by Zoho SMTP. The local startup mounts rehearsal routes separately.
+func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
 	key, err := productionCursorKey(getenv)
 	if err != nil {
-		return errors.New("production catalog requires a private cursor key file")
+		return nil, errors.New("production catalog requires a private cursor key file")
 	}
 	evidence, err := newRuntimeFileStore(ctx, getenv, "")
 	if err != nil {
-		return errors.New("production catalog evidence storage initialization failed")
+		return nil, errors.New("production catalog evidence storage initialization failed")
 	}
 	mediaStore, err := newRuntimeMediaStore(ctx, getenv, "")
 	if err != nil {
-		return errors.New("production catalog media storage initialization failed")
+		return nil, errors.New("production catalog media storage initialization failed")
 	}
 	catalog, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), key, evidence, mediaStore)
 	if err != nil {
-		return errors.New("production public catalog initialization failed")
+		return nil, errors.New("production public catalog initialization failed")
 	}
 	if err := mountPublicCatalogRoutes(mux, publiccataloghttp.New(catalog, cfg.allowedOrigins...), true, false, false); err != nil {
-		return err
+		return nil, err
 	}
 	spaceService, err := spaces.NewService(spacespg.New(pool, credentials.Generator{}))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registerPublicSpaceMonthRoute(mux, spaceshttp.NewHandler(nil, spaceService, cfg.allowedOrigins))
 	availabilityRepo, err := rentalflowpg.NewRepository(pool, nil, time.Now)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	availability, err := rentalflow.NewAvailabilityService(availabilityRepo, availabilityRepo, time.Now)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins))
+	if err := mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins)); err != nil {
+		return nil, err
+	}
+	return mountProductionAuth(mux, pool, cfg, getenv)
+}
+
+func mountProductionAuth(mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
+	mailer, err := productionAuthMailer(cfg.frontendPublicOrigin, getenv)
+	if err != nil {
+		return nil, err
+	}
+	repo := identitypg.NewIdentityRepository(pool)
+	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, mailer, devauth.NewIPLimiter(20), credentials.Generator{}, time.Now)
+	if err != nil {
+		return nil, errors.New("production authentication initialization failed")
+	}
+	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+	return service, nil
+}
+
+func productionAuthMailer(publicOrigin string, getenv func(string) string) (identity.AuthenticationMailer, error) {
+	host := strings.TrimSpace(getenv("AUTH_SMTP_HOST"))
+	if host == "" {
+		return zohoauth.UnavailableMailer{}, nil
+	}
+	return zohoauth.New(zohoauth.Config{
+		Host:         host,
+		Port:         strings.TrimSpace(getenv("AUTH_SMTP_PORT")),
+		Security:     strings.TrimSpace(getenv("AUTH_SMTP_SECURITY")),
+		Username:     strings.TrimSpace(getenv("AUTH_SMTP_USERNAME")),
+		Password:     strings.TrimSpace(getenv("AUTH_SMTP_ECS_PASSWORD")),
+		PasswordFile: strings.TrimSpace(getenv("AUTH_SMTP_PASSWORD_FILE")),
+		From:         strings.TrimSpace(getenv("AUTH_SMTP_FROM")),
+		FromName:     "EspaciGo",
+		PublicOrigin: publicOrigin,
+	})
 }
 
 func productionCursorKey(getenv func(string) string) ([]byte, error) {

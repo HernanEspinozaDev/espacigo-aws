@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
+)
 
 func TestValidateProductionRuntime(t *testing.T) {
 	for _, tc := range []struct {
@@ -35,5 +39,36 @@ func TestValidateProductionRuntime(t *testing.T) {
 				t.Fatalf("unexpected production configuration result: %v", err)
 			}
 		})
+	}
+}
+
+func TestProductionAuthMailer(t *testing.T) {
+	mailer, err := productionAuthMailer("https://espacigo.testingpage.store", func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("expected unconfigured SMTP to fall back cleanly: %v", err)
+	}
+	if _, ok := mailer.(zohoauth.UnavailableMailer); !ok {
+		t.Fatalf("expected UnavailableMailer when AUTH_SMTP_HOST is empty, got %T", mailer)
+	}
+
+	env := map[string]string{
+		"AUTH_SMTP_HOST":         "smtp.zoho.com",
+		"AUTH_SMTP_PORT":         "587",
+		"AUTH_SMTP_SECURITY":     "starttls",
+		"AUTH_SMTP_USERNAME":     "contacto@hotusoft.com",
+		"AUTH_SMTP_FROM":         "contacto@hotusoft.com",
+		"AUTH_SMTP_ECS_PASSWORD": "zoho-app-password-test",
+	}
+	mailer, err = productionAuthMailer("https://espacigo.testingpage.store", func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatalf("expected valid Zoho ECS configuration to succeed: %v", err)
+	}
+	if _, ok := mailer.(*zohoauth.Mailer); !ok {
+		t.Fatalf("expected *zohoauth.Mailer, got %T", mailer)
+	}
+
+	delete(env, "AUTH_SMTP_ECS_PASSWORD")
+	if _, err := productionAuthMailer("https://espacigo.testingpage.store", func(k string) string { return env[k] }); err == nil {
+		t.Fatal("expected error when AUTH_SMTP_HOST is set without password")
 	}
 }
