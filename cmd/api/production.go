@@ -15,14 +15,29 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
+	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
+	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
+	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
@@ -71,8 +86,8 @@ func validateProductionRuntime(getenv func(string) string, profile runtimeProfil
 	return nil
 }
 
-// Production exposes the public catalog, availability, and identity/auth
-// routes backed by Zoho SMTP. The local startup mounts rehearsal routes separately.
+// Production exposes the public catalog, availability, host space management,
+// profile/privacy, and identity/auth routes backed by Zoho SMTP.
 func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
 	key, err := productionCursorKey(getenv)
 	if err != nil {
@@ -86,6 +101,10 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, errors.New("production catalog media storage initialization failed")
 	}
+	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, getenv)
+	if err != nil {
+		return nil, err
+	}
 	catalog, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), key, evidence, mediaStore)
 	if err != nil {
 		return nil, errors.New("production public catalog initialization failed")
@@ -97,7 +116,44 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
-	registerPublicSpaceMonthRoute(mux, spaceshttp.NewHandler(nil, spaceService, cfg.allowedOrigins))
+	calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
+	if err != nil {
+		return nil, errors.New("production calendar initialization failed")
+	}
+	pricingService, err := pricing.NewService(pricingpg.New(pool), calendarService, credentials.Generator{})
+	if err != nil {
+		return nil, errors.New("production pricing initialization failed")
+	}
+	spacesHandler := spaceshttp.NewHandlerWithPricing(authService, spaceService, cfg.allowedOrigins, calendarService, pricingService)
+	mux.Handle("/api/v1/spaces", spacesHandler)
+	mux.Handle("/api/v1/spaces/", spacesHandler)
+	registerPublicSpaceMonthRoute(mux, spacesHandler)
+	ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
+	ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(authService, ownerWeeklyHoursService, cfg.allowedOrigins)
+	registerOwnerWeeklyHoursRoutes(mux, ownerWeeklyHoursHandler)
+	galleryService, err := gallery.NewService(gallerypg.New(pool), evidence, credentials.Generator{}, time.Now)
+	if err != nil {
+		return nil, errors.New("production gallery initialization failed")
+	}
+	mediaService, err := media.NewService(mediapg.New(pool), mediaStore, credentials.Generator{}, time.Now)
+	if err != nil {
+		return nil, errors.New("production media initialization failed")
+	}
+	galleryHandler := galleryhttp.NewHandlerWithMedia(authService, galleryService, mediaService, cfg.allowedOrigins)
+	mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/variants/{variant}", galleryHandler)
+	mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/publication", galleryHandler)
+	m02Service, err := m02local.New(pool, evidence, time.Now)
+	if err != nil {
+		return nil, errors.New("production account media initialization failed")
+	}
+	m02Handler := m02local.NewHandlerWithMedia(authService, m02Service, mediaService, cfg.allowedOrigins)
+	mux.Handle("/api/v1/profile/photo", m02Handler)
+	mux.Handle("/api/v1/profile/photo/", m02Handler)
+	mux.Handle("/api/v1/payout-account", m02Handler)
 	availabilityRepo, err := rentalflowpg.NewRepository(pool, nil, time.Now)
 	if err != nil {
 		return nil, err
@@ -109,10 +165,17 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err := mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins)); err != nil {
 		return nil, err
 	}
-	return mountProductionAuth(mux, pool, cfg, getenv)
+	return authService, nil
 }
 
-func mountProductionAuth(mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
+func mountProductionAuth(
+	mux *http.ServeMux,
+	pool *pgxpool.Pool,
+	cfg config,
+	evidence runtimeFileStore,
+	mediaStore media.ObjectStore,
+	getenv func(string) string,
+) (*identity.AuthenticationService, error) {
 	mailer, err := productionAuthMailer(cfg.frontendPublicOrigin, getenv)
 	if err != nil {
 		return nil, err
@@ -121,6 +184,11 @@ func mountProductionAuth(mux *http.ServeMux, pool *pgxpool.Pool, cfg config, get
 	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, mailer, devauth.NewIPLimiter(20), credentials.Generator{}, time.Now)
 	if err != nil {
 		return nil, errors.New("production authentication initialization failed")
+	}
+	archiveRepo := ownerexport.NewWithMediaStore(pool, evidence, mediaStore)
+	privacyService, err := privacy.NewService(repo, archiveRepo)
+	if err != nil {
+		return nil, errors.New("production privacy initialization failed")
 	}
 	verificationRepo := verificationpg.New(pool)
 	verificationService, err := verification.NewService(verificationRepo, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
@@ -137,7 +205,7 @@ func mountProductionAuth(mux *http.ServeMux, pool *pgxpool.Pool, cfg config, get
 	})
 	mux.Handle("/api/v1/verifications", quickVerificationHandler)
 	mux.Handle("/api/v1/verifications/", quickVerificationHandler)
-	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
 	return service, nil
 }
 
