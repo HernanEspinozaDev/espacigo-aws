@@ -87,7 +87,7 @@ resource "aws_iam_role_policy" "app_runtime" {
     Version = "2012-10-17"
     Statement = [{
       Effect   = "Allow"
-      Action   = "s3:GetObject"
+      Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
       Resource = [for key in ["evidence", "media"] : "${module.s3_storage.bucket_arns[key]}/*"]
     }]
   })
