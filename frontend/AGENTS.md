@@ -5,10 +5,8 @@ Estas instrucciones se aplican a `frontend/` y complementan el `AGENTS.md` raíz
 ## Alcance vigente
 
 - El frontend Angular fue rechazado y será sustituido por una aplicación Next.js nueva.
-- Trabajar exclusivamente en la rama `frontend-next-hermes` y en su worktree aislado.
-- Para esta rama, el usuario autorizó a `HernanEspinozaDev` a desarrollar, commitear y publicar directamente.
-- No escribir en `main`, abrir PR, fusionar, desplegar ni probar online sin autorización posterior expresa.
-- Todo desarrollo y prueba debe ejecutarse localmente con datos sintéticos.
+- Desarrollar en `desarrollo-local` con el stack local y datos sintéticos. Promover a `main` por PR cuando pase la CI.
+- El despliegue de producción se ejecuta desde `main` mediante el workflow de GitHub Actions identificado en la guía raíz.
 - No usar el navegador o las pestañas del usuario; Playwright solo contra URL y puerto locales comprobados.
 - No modificar backend, SQL, Terraform, IAM, AWS, volúmenes o datos persistentes por inferencia desde una tarea frontend.
 

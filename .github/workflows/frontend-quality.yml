@@ -1,9 +1,8 @@
 name: Frontend architecture and quality
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
   push:
-    branches: [main]
+    branches: [desarrollo-local]
 permissions:
   contents: read
 jobs:
@@ -37,4 +36,6 @@ jobs:
         working-directory: frontend
       - run: pnpm test
         working-directory: frontend
+        env:
+          TMPDIR: ${{ runner.temp }}
       - run: bash scripts/verify-network-isolation.sh

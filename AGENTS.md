@@ -1,25 +1,34 @@
-# AGENTS.md — Guía de Arquitectura y Operaciones para Agentes de IA
+# AGENTS.md — Entornos y ramas de EspaciGo
 
-> **IMPORTANTE PARA TODOS LOS AGENTES DE IA (Antigravity, Codex, Claude, Gemini, etc.):**
-> 1. **NUNCA solicites credenciales IAM de AWS ni intentes conectar a cuentas AWS reales.** Este repositorio (`espacigo-aws`) opera **100% de manera local** y soberana utilizando `aws-emulator` (`Account: 000000000000`), Docker PostgreSQL 18 y Mailpit.
-> 2. **CERO dependencias de Google Cloud Platform (GCP).** No existen Cloud Run, Cloud SQL, Cloud Storage ni Cloud Build. Todo rastro de GCP fue purgado.
-> 3. **Todos los accesos, contraseñas y certificados locales ya están disponibles en el entorno.** No necesitas pedir permisos ni credenciales al usuario. Consulta la sección de accesos más abajo.
+## Flujo obligatorio
+
+| Rama | Entorno | Operación |
+| --- | --- | --- |
+| `desarrollo-local` | AWS Emulator, PostgreSQL y Mailpit locales | Cambios de código e infraestructura, fixtures y pruebas de desarrollo. |
+| `main` | Producción en AWS real | Recibe cambios mediante PR desde `desarrollo-local` con CI aprobada. GitHub Actions inicia la entrega continua del SHA integrado. |
+
+1. Trabaja y prueba en `desarrollo-local`. Publica esa rama y promueve a `main` por PR con merge commit para conservar la relación entre ambas ramas. Usa Conventional Commits.
+2. Ejecuta `scripts/local-dev.sh` y usa credenciales del emulador sólo para desarrollo local. Mantén `.local/`, dumps, tokens y llaves fuera de Git.
+3. Opera producción mediante el pipeline AWS de `main`. GitHub Actions asume un rol limitado vía OIDC y restringido al entorno `produccion`. Para operaciones humanas, usa AWS CLI v2 con `aws login` y un perfil de producción explícito en la Región seleccionada. Mantén las sesiones, los endpoints y los secretos separados de los del emulador.
+4. Mantén Go en AWS SDK v2. Usa endpoint local y `UsePathStyle` para S3 emulado. Usa la resolución estándar de AWS para producción. Conserva la arquitectura AWS del repositorio.
+5. Mantén las funciones de ensayo y los datos sintéticos en el entorno local. La demo de arriendo usa un pago de prueba y una bandera de arranque local.
+6. Sigue el [plan de despliegue y CI/CD](docs/operations/aws-production-deployment.md) para preparar el destino de AWS, activar el pipeline y recuperar un despliegue.
 
 ---
 
-## 1. Contexto de Arquitectura: ¿Por qué trabajamos con `aws-emulator`?
+## 1. Entorno de desarrollo con `aws-emulator`
 
 El proyecto original (`espaciGo`) estaba fuertemente acoplado a Google Cloud Platform (Cloud SQL, Cloud Run, Cloud Storage, y pipelines estrictos de Cloud Build con `release_main.py`). Esto provocaba:
 - **Bloqueo continuo en desarrollo**: Cualquier cambio en la base de datos o API requería preflights complejos, validación de ledgers y aprobaciones de infraestructura en la nube.
 - **Costos y límites en pruebas**: Servicios externos como KYC (Didit) y webhooks exigían URLs HTTPS públicas hacia internet y pagos por transacción, impidiendo probar el flujo en `localhost`.
 - **Falta de soberanía local**: No se podía correr el sistema completo de forma autosuficiente sin conexión a internet ni dependencias cloud.
 
-### La Solución en `espacigo-aws`:
-Se migró la arquitectura a **AWS-Native** y se desacopló para correr íntegramente en el equipo local mediante **`aws-emulator`** (`v1.0.385` en `https://127.0.0.1:9297`).
+### Servicios locales en `espacigo-aws`
+El entorno de desarrollo corre localmente mediante `aws-emulator` en `https://127.0.0.1:9297`.
 Esto proporciona:
-- **Más del 95% de paridad con AWS Real**: Los servicios S3, SSM Parameter Store, CloudWatch Logs e IAM corren localmente respondiendo a llamadas del AWS SDK for Go v2 y AWS CLI.
+- **Servicios AWS emulados**: Los servicios S3, SSM Parameter Store, CloudWatch Logs e IAM corren localmente respondiendo a llamadas del AWS SDK for Go v2 y AWS CLI.
 - **Velocidad y libertad total**: Podemos crear migraciones de base de datos (`db/migrations/`), ejecutar pruebas E2E, modificar modelos y subir archivos multimedia a S3 local sin costo ni latencia de red.
-- **Aislamiento Criptográfico**: Las credenciales locales (`~/.aws/emulator/9297.env`) aíslan completamente el emulador de cualquier cuenta AWS real (como la cuenta `805068224315`).
+- **Aislamiento Criptográfico**: Las credenciales locales (`~/.aws/emulator/9297.env`) aíslan completamente el emulador de los perfiles de producción.
 
 ---
 
@@ -32,7 +41,7 @@ Todos los servicios y secretos necesarios para levantar, probar y auditar la pla
 | **Frontend Web (Next.js)** | [http://127.0.0.1:3000](http://127.0.0.1:3000) | HTTP :3000 | No requiere autenticación previa para navegar. |
 | **Backend API (Go)** | [http://127.0.0.1:8080](http://127.0.0.1:8080) | HTTP :8080 | Expone `/api/v1/...` (consumido vía BFF Next.js). |
 | **AWS Emulator** | `https://127.0.0.1:9297` | HTTPS :9297 | `Account: 000000000000`, CA TLS: `~/.aws/emulator/9297/ca.pem`, Env: `~/.aws/emulator/9297.env`. |
-| **PostgreSQL 18** | `127.0.0.1:5432` / `172.24.0.3:5432` | TCP :5432 | DB: `espacigo_aws_local`<br/>Admin: `espacigo_admin`<br/>App Login: `espacigo_api_login`<br/>Runtime: `espacigo_runtime` |
+| **PostgreSQL 18** | `127.0.0.1:5432` | TCP :5432 | DB: `espacigo_aws_local`<br/>Admin: `espacigo_admin`<br/>App Login: `espacigo_api_login`<br/>Runtime: `espacigo_runtime` |
 | **Mailpit (SES / Emails)** | [http://127.0.0.1:8025](http://127.0.0.1:8025) (Web UI)<br/>`127.0.0.1:1025` (SMTP) | HTTP :8025<br/>SMTP :1025 | Bandeja de entrada web para inspeccionar correos de verificación y arriendos. |
 
 ### Ubicación de Secretos y Certificados (No se comitean)
@@ -85,9 +94,3 @@ El script [`scripts/local-dev.sh`](./scripts/local-dev.sh) es la herramienta cen
 ```
 
 ---
-
-## 5. Reglas de Contribución para Agentes
-1. **No inventes dependencias de GCP**: No agregues librerías de `cloud.google.com/go/*` ni reintroduzcas scripts de Cloud Build.
-2. **Usa el AWS SDK v2**: En código Go, interactúa con S3 usando `github.com/aws/aws-sdk-go-v2` con `UsePathStyle: true` y el endpoint del emulador.
-3. **Mantén `.local/` fuera de git**: Todo secreto, dump o token privado debe permanecer en `.local/` (ignorado por `.gitignore`).
-4. **Commits en `main`**: Este repositorio trabaja directamente sobre la rama `main`. Realiza commits limpios y descriptivos siguiendo Conventional Commits (`feat:`, `fix:`, `docs:`, etc.).

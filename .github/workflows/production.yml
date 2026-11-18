@@ -1,0 +1,80 @@
+name: Producción AWS
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    uses: ./.github/workflows/application-quality.yml
+  database:
+    uses: ./.github/workflows/database-quality.yml
+  frontend:
+    uses: ./.github/workflows/frontend-quality.yml
+  infrastructure:
+    uses: ./.github/workflows/iac-quality.yml
+
+  release-ready:
+    name: release-ready
+    runs-on: ubuntu-24.04
+    needs: [application, database, frontend, infrastructure]
+    if: always()
+    steps:
+      - name: Verificar rama de origen y resultados de CI
+        env:
+          EVENT: ${{ github.event_name }}
+          SOURCE: ${{ github.head_ref }}
+          SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          REPOSITORY: ${{ github.repository }}
+          CHECKS: ${{ toJSON(needs) }}
+        run: |
+          if [[ "$EVENT" == pull_request && ( "$SOURCE" != desarrollo-local || "$SOURCE_REPOSITORY" != "$REPOSITORY" ) ]]; then
+            echo "Los cambios a main se promueven desde desarrollo-local de este repositorio."
+            exit 1
+          fi
+          jq -e 'all(.[]; .result == "success")' <<<"$CHECKS"
+
+  deploy:
+    name: Desplegar en ECS
+    needs: release-ready
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: produccion
+    concurrency:
+      group: espacigo-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      EXPECTED_AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      AWS_IGNORE_CONFIGURED_ENDPOINT_URLS: 'true'
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      ECS_MIGRATOR_TASK: ${{ vars.ECS_MIGRATOR_TASK }}
+      ECS_MIGRATOR_NETWORK: ${{ vars.ECS_MIGRATOR_NETWORK }}
+      ECR_API_REPOSITORY: ${{ vars.ECR_API_REPOSITORY }}
+      ECR_WEB_REPOSITORY: ${{ vars.ECR_WEB_REPOSITORY }}
+      ECR_MIGRATOR_REPOSITORY: ${{ vars.ECR_MIGRATOR_REPOSITORY }}
+      PRODUCTION_HEALTH_URL: ${{ vars.PRODUCTION_HEALTH_URL }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e
+        with:
+          driver-opts: image=moby/buildkit@sha256:054d632d0d7e94b11cdc6048674773499a5170cf7d8ce0c326daaff6be43c8e0
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+      - run: bash scripts/deploy-aws-production.sh

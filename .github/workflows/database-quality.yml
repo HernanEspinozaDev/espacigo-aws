@@ -1,8 +1,9 @@
 name: Database migration quality
 
 on:
+  workflow_call:
   push:
-    branches: [main, 'codex/**']
+    branches: [desarrollo-local, 'codex/**']
   workflow_dispatch:
 
 permissions:

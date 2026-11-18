@@ -17,6 +17,7 @@ func main() {
 	inventoryOnly := flag.Bool("inventory-only", false, "print the offline migration inventory without reading connection settings or contacting a database")
 	schemaOnly := flag.Bool("schema-evidence-only", false, "print the packaged IMG-01 catalog evidence in a read-only transaction")
 	planOnly := flag.Bool("plan-only", false, "print the read-only applied/pending migration inventory without executing SQL")
+	requireCurrent := flag.Bool("require-current", false, "fail a read-only plan if the migration ledger is absent or has pending migrations")
 	releaseMode := flag.Bool("release", false, "apply a pinned private Cloud SQL release and print its checked result")
 	releaseSHA := flag.String("release-source-sha", "", "full source SHA embedded in the release image")
 	releaseInventory := flag.String("release-inventory-sha256", "", "reviewed migration inventory fingerprint")
@@ -46,6 +47,10 @@ func main() {
 	v84AuthorityBaseline := flag.String("v84-authority-baseline", "", "expected V84 authority baseline SHA-256 for finalize")
 	confirmV84Authority := flag.String("confirm-v84-authority", "", "must exactly equal espacigo_dms_stage_20261020")
 	flag.Parse()
+	if *requireCurrent && !*planOnly {
+		fmt.Fprintln(os.Stderr, "-require-current requires -plan-only")
+		os.Exit(2)
+	}
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
 		os.Exit(2)
@@ -426,6 +431,10 @@ func main() {
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(plan); err != nil {
 			fmt.Fprintln(os.Stderr, "could not encode migration plan")
+			os.Exit(1)
+		}
+		if *requireCurrent && (!plan.HistoryExists || len(plan.Pending) != 0) {
+			fmt.Fprintln(os.Stderr, "production schema is not current")
 			os.Exit(1)
 		}
 		return

@@ -1,10 +1,9 @@
 name: Application quality
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_call:
   push:
-    branches: [main]
+    branches: [desarrollo-local]
 
 permissions:
   contents: read
