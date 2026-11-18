@@ -7,6 +7,7 @@ DB_CONTAINER="espacigo_localbackend_20261024-database-1"
 DB_NAME="espacigo_aws_local"
 DB_HOST="172.24.0.3"
 DB_PORT="5432"
+MIGRATOR_PASSWORD_FILE="${REPO_ROOT}/.local/secrets/migrator_password"
 
 ensure_env() {
   if [[ -f "$EMULATOR_ENV" ]]; then
@@ -102,6 +103,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo
 EOF
   fi
 
+  cmd_migrator_setup
+
   # Asegurar Mailpit para captura de correos
   if ! curl -fsS "http://127.0.0.1:8025/api/v1/info" >/dev/null 2>&1; then
     docker rm -f espacigo-mailpit >/dev/null 2>&1 || true
@@ -118,6 +121,105 @@ ENV
 
   echo "=== Bootstrap completado exitosamente ==="
 }
+
+local_migration_host() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER"
+}
+
+cmd_migrator_setup() {
+  local host password
+  host="$(local_migration_host)"
+  docker exec -i "$DB_CONTAINER" sh -ec '
+    PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+  ' sh "$DB_NAME" <<'SQL'
+DO $setup$
+BEGIN
+    IF current_database() <> 'espacigo_aws_local' OR session_user <> 'espacigo_admin' THEN
+        RAISE EXCEPTION 'Unexpected local migration target';
+    END IF;
+    IF (SELECT count(*) FROM pg_roles
+        WHERE rolname IN ('espacigo_migrator_login', 'espacigo_schema_owner')
+          AND rolcanlogin = (rolname = 'espacigo_migrator_login')
+          AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)) <> 2 THEN
+        RAISE EXCEPTION 'Unexpected local migration roles';
+    END IF;
+    IF (SELECT count(*) FROM pg_auth_members
+        WHERE member = 'espacigo_migrator_login'::regrole) > 1
+        OR EXISTS (SELECT 1 FROM pg_auth_members
+                   WHERE member = 'espacigo_migrator_login'::regrole
+                     AND (roleid <> 'espacigo_schema_owner'::regrole
+                          OR admin_option OR inherit_option OR NOT set_option)) THEN
+        RAISE EXCEPTION 'Unexpected local migration memberships';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = 'espacigo_migrator_login'::regrole) THEN
+        GRANT espacigo_schema_owner TO espacigo_migrator_login
+            WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END IF;
+END
+$setup$;
+SQL
+  python3 - "$MIGRATOR_PASSWORD_FILE" <<'PYTHON'
+import os
+import secrets
+import stat
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+except FileExistsError:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+        raise SystemExit("El archivo de contraseña local debe ser privado, regular y pertenecer al operador")
+else:
+    with os.fdopen(fd, "w") as file:
+        file.write(secrets.token_urlsafe(48) + "\n")
+PYTHON
+  password="$(cat "$MIGRATOR_PASSWORD_FILE")"
+  if [[ ! "$password" =~ ^[A-Za-z0-9_-]{64}$ ]]; then
+    echo "ERROR: formato inesperado en la credencial local del migrador." >&2
+    return 1
+  fi
+  if ! PGPASSWORD="$password" psql -h "$host" -p "$DB_PORT" -XqAtw -U espacigo_migrator_login \
+    -d "$DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then
+    printf '\\password espacigo_migrator_login\n%s\n%s\n' "$password" "$password" |
+      docker exec -i "$DB_CONTAINER" sh -ec '
+        PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+      ' sh "$DB_NAME"
+  fi
+  local identity
+  identity="$(PGPASSWORD="$password" psql -h "$host" -p "$DB_PORT" -XqAtw -v ON_ERROR_STOP=1 \
+    -U espacigo_migrator_login -d "$DB_NAME" -c 'SET ROLE espacigo_schema_owner; SELECT session_user, current_user')"
+  [[ "$identity" == 'espacigo_migrator_login|espacigo_schema_owner' ]]
+  echo "Login local verificado: $identity"
+}
+
+cmd_migrator_enable_ddl() {
+  docker exec -i "$DB_CONTAINER" sh -ec '
+    PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+  ' sh "$DB_NAME" < "${REPO_ROOT}/db/bootstrap/migration-owner.sql"
+  echo "DDL habilitado para el propietario de migraciones en PostgreSQL local."
+}
+
+cmd_migrations() (
+  local host passfile
+  host="$(local_migration_host)"
+  if [[ ! -r "$MIGRATOR_PASSWORD_FILE" ]]; then
+    echo "ERROR: ejecuta migrator-setup para preparar la credencial local." >&2
+    return 1
+  fi
+  umask 077
+  passfile="$(mktemp "${REPO_ROOT}/.local/secrets/migrator.XXXXXX")"
+  trap 'rm -f -- "$passfile"' EXIT
+  printf '%s:%s:%s:%s:%s\n' "$host" "$DB_PORT" "$DB_NAME" espacigo_migrator_login \
+    "$(cat "$MIGRATOR_PASSWORD_FILE")" > "$passfile"
+  cd "$REPO_ROOT"
+  env -u PGPASSWORD -u PGSERVICE -u PGSERVICEFILE -u PGOPTIONS -u PGHOSTADDR \
+    PGPASSFILE="$passfile" DATABASE_CONNECTION_MODE=direct DATABASE_PASSWORD_FILE='' \
+    DATABASE_URL="postgres://espacigo_migrator_login@$host:$DB_PORT/$DB_NAME?sslmode=disable" \
+    DATABASE_SET_ROLE=espacigo_schema_owner go run ./cmd/dbmigrate "$@"
+)
 
 cmd_test() {
   echo "=== [EspaciGo AWS] Ejecutando Pruebas de Calidad e Integración ==="
@@ -192,7 +294,14 @@ cmd_web() {
   export PORT="3000"
   (
     cd "${REPO_ROOT}/frontend"
-    npm run dev -- -p 3000
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm dev -- -p 3000
+    elif command -v corepack >/dev/null 2>&1; then
+      corepack pnpm dev -- -p 3000
+    else
+      echo "ERROR: pnpm no está disponible en PATH (packageManager fijado en frontend/package.json)." >&2
+      return 127
+    fi
   )
 }
 
@@ -203,6 +312,10 @@ Uso: $0 <comando>
 Comandos disponibles:
   status     Verifica el estado del emulador AWS, PostgreSQL, Mailpit y componentes locales.
   bootstrap  Aprovisiona los buckets S3, parámetros SSM, logs IAM, roles y Mailpit.
+  migrator-setup  Prepara y comprueba el login local dedicado a migraciones.
+  migrator-enable-ddl  Habilita el DDL del rol local después de V100.
+  migrate-plan    Muestra migraciones locales aplicadas y pendientes.
+  migrate         Aplica migraciones locales con el login dedicado.
   test       Ejecuta los tests de Go (S3/cifrado) y tests del frontend Next.js.
   api        Inicia la API Go con todas las variables de entorno necesarias para registro y login.
   web        Inicia el frontend Next.js conectado al backend Go local.
@@ -213,6 +326,10 @@ EOF
 case "${1:-}" in
   status) cmd_status ;;
   bootstrap) cmd_bootstrap ;;
+  migrator-setup) cmd_migrator_setup ;;
+  migrator-enable-ddl) cmd_migrator_enable_ddl ;;
+  migrate-plan) cmd_migrations -plan-only ;;
+  migrate) cmd_migrations ;;
   test) cmd_test ;;
   api) cmd_api ;;
   web) cmd_web ;;
