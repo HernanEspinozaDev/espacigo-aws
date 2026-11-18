@@ -265,9 +265,11 @@ func run() error {
 	} = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if production {
-		if err := mountProductionCatalog(context.Background(), mux, pool, cfg, os.Getenv); err != nil {
-			return err
+		authService, prodErr := mountProductionCatalog(context.Background(), mux, pool, cfg, os.Getenv)
+		if prodErr != nil {
+			return prodErr
 		}
+		localIdentityService = authService
 	}
 	if prototypeEnabled {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))

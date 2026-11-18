@@ -31,7 +31,7 @@ import (
 var espacigoLogoPNG []byte
 
 type Config struct {
-	Host, Port, Security, Username, PasswordFile, From, FromName, PublicOrigin string
+	Host, Port, Security, Username, Password, PasswordFile, From, FromName, PublicOrigin string
 }
 
 type Mailer struct {
@@ -68,16 +68,21 @@ func New(config Config) (*Mailer, error) {
 		(config.Security != "starttls" && config.Security != "tls") ||
 		(config.Port == "587" && config.Security != "starttls") || (config.Port == "465" && config.Security != "tls") ||
 		identity.ValidateEmail(config.Username) != nil || identity.ValidateEmail(config.From) != nil ||
-		config.PasswordFile == "" || !validOrigin(config.PublicOrigin) {
+		(config.PasswordFile == "" && strings.TrimSpace(config.Password) == "") ||
+		(config.PasswordFile != "" && strings.TrimSpace(config.Password) != "") ||
+		!validOrigin(config.PublicOrigin) {
 		return nil, errors.New("zoho SMTP configuration is incomplete or invalid")
 	}
-	secret, err := os.ReadFile(config.PasswordFile)
-	if err != nil {
-		return nil, errors.New("zoho SMTP credential file unavailable")
-	}
-	password := strings.TrimSpace(string(secret))
-	if password == "" {
-		return nil, errors.New("zoho SMTP credential file is empty")
+	password := strings.TrimSpace(config.Password)
+	if config.PasswordFile != "" {
+		secret, err := os.ReadFile(config.PasswordFile)
+		if err != nil {
+			return nil, errors.New("zoho SMTP credential file unavailable")
+		}
+		password = strings.TrimSpace(string(secret))
+		if password == "" {
+			return nil, errors.New("zoho SMTP credential file is empty")
+		}
 	}
 	return &Mailer{config: config, password: password}, nil
 }
