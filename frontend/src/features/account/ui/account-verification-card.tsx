@@ -131,7 +131,9 @@ function AuthenticatedAccountVerificationCard({
         );
         return;
       }
-      const eligibilityResult = await apiClient.GET("/verifications/eligibility");
+      const eligibilityResult = await apiClient.GET(
+        "/verifications/eligibility",
+      );
       const items = eligibilityResult.data?.items ?? [];
       const kycVerified = items.some(
         (item) => item.type === "kyc" && item.eligible === true,

@@ -228,7 +228,12 @@ export function BookingQuoteCard({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <p className="font-medium">Atención</p>
-            <p>{formatBookingError(localError || error, "Ha ocurrido un error al procesar la reserva.")}</p>
+            <p>
+              {formatBookingError(
+                localError || error,
+                "Ha ocurrido un error al procesar la reserva.",
+              )}
+            </p>
           </div>
         </div>
       )}
