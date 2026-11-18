@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -18,6 +19,7 @@ import (
 	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
+	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
@@ -27,6 +29,8 @@ import (
 	rentalflowhttp "github.com/HernanEspinozaDev/espaciGo/internal/rentalflow/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
+	verificationhttp "github.com/HernanEspinozaDev/espaciGo/internal/verification/transport/http"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -118,8 +122,74 @@ func mountProductionAuth(mux *http.ServeMux, pool *pgxpool.Pool, cfg config, get
 	if err != nil {
 		return nil, errors.New("production authentication initialization failed")
 	}
+	verificationRepo := verificationpg.New(pool)
+	verificationService, err := verification.NewService(verificationRepo, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
+	if err != nil {
+		return nil, errors.New("production verification initialization failed")
+	}
+	baseVerificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins)
+	quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
+			handleProductionQuickVerification(w, r, service, verificationService, verificationRepo)
+			return
+		}
+		baseVerificationHandler.ServeHTTP(w, r)
+	})
+	mux.Handle("/api/v1/verifications", quickVerificationHandler)
+	mux.Handle("/api/v1/verifications/", quickVerificationHandler)
 	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
 	return service, nil
+}
+
+func handleProductionQuickVerification(
+	w http.ResponseWriter,
+	r *http.Request,
+	auth *identity.AuthenticationService,
+	service *verification.Service,
+	repo *verificationpg.Repository,
+) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	header := strings.TrimSpace(r.Header.Get("Authorization"))
+	parts := strings.SplitN(header, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "unauthenticated", "message": "Credencial ausente, incorrecta o expirada."}})
+		return
+	}
+	principal, err := auth.Authorize(r.Context(), identity.Secret(strings.TrimSpace(parts[1])), "", identity.UserOperation)
+	if err != nil {
+		status := http.StatusUnauthorized
+		code := "unauthenticated"
+		if errors.Is(err, identity.ErrForbidden) {
+			status = http.StatusForbidden
+			code = "forbidden"
+		}
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": "No fue posible autorizar la solicitud."}})
+		return
+	}
+	var in struct {
+		Type string `json:"type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "invalid_json", "message": "Solicitud inválida."}})
+		return
+	}
+	item, err := service.Start(r.Context(), principal.AccountID, in.Type, r.Header.Get("Idempotency-Key"))
+	if err != nil {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "invalid_value", "message": "No fue posible iniciar la verificación."}})
+		return
+	}
+	if item.State == "en_revision" {
+		if approved, reviewErr := repo.Review(r.Context(), item.ID, principal.AccountID, true, "", time.Now); reviewErr == nil {
+			item = approved
+		}
+	}
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(item)
 }
 
 func productionAuthMailer(publicOrigin string, getenv func(string) string) (identity.AuthenticationMailer, error) {

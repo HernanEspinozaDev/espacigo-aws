@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { VerificationFlow } from "@/features/verifications/verification-flow";
-import { VerificationsView } from "@/features/verifications/ui/verifications-view";
+import { AccountVerificationCard } from "@/features/account/ui/account-verification-card";
 
 export const metadata: Metadata = {
-  title: "Verificación de Cuenta y Espacios | Mi Cuenta | EspaciGo",
+  title: "Verificación de Cuenta | Mi Cuenta | EspaciGo",
   description:
-    "Verifica tu identidad de usuario y acredita tus espacios de manera fácil y segura en EspaciGo.",
+    "Verifica tu cuenta de usuario de manera rápida y sencilla en EspaciGo.",
   robots: {
     index: false,
     follow: false,
@@ -17,16 +16,15 @@ export default function VerificacionesPage() {
     <div className="space-y-8">
       <div className="border-b border-border/60 pb-5">
         <h1 className="text-2xl font-bold tracking-tight text-foreground">
-          Verificación de cuenta y espacios
+          Verificación de cuenta
         </h1>
         <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
-          Comprueba tu identidad oficial para realizar reservas seguras y
-          acredita la titularidad de tus espacios para publicar en EspaciGo.
+          Activa la verificación rápida de tu cuenta marcando la casilla para
+          operar en EspaciGo sin pasos adicionales.
         </p>
       </div>
 
-      <VerificationFlow />
-      <VerificationsView />
+      <AccountVerificationCard showDeclarationLink={false} />
     </div>
   );
 }

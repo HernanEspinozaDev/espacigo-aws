@@ -11,6 +11,7 @@ export function useActionCredential(
   onCapture?: (credential: ActionCredential | null) => void,
 ) {
   const [credential, setCredential] = useState<ActionCredential | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const credentialRef = useRef<ActionCredential | null>(null);
   const capturedRef = useRef<ActionCredential | null>(null);
   const mountedRef = useRef(false);
@@ -38,6 +39,7 @@ export function useActionCredential(
       capturedRef.current = next;
       credentialRef.current = next;
       setCredential(next);
+      setIsInitializing(false);
       onCaptureRef.current?.(next);
     };
 
@@ -47,7 +49,10 @@ export function useActionCredential(
     } else {
       const captured = capturedRef.current;
       queueMicrotask(() => {
-        if (mountedRef.current) setCredential(captured);
+        if (mountedRef.current) {
+          setCredential(captured);
+          setIsInitializing(false);
+        }
       });
     }
 
@@ -79,5 +84,5 @@ export function useActionCredential(
     setCredential(null);
   }
 
-  return { credential, setManual, clear };
+  return { credential, isInitializing, setManual, clear };
 }
