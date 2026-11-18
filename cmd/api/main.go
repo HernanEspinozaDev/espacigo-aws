@@ -496,8 +496,15 @@ func run() error {
 			return err
 		}
 		verificationHandler := verificationhttp.NewHandlerWithDeclarationWithoutExternalProvider(service, verificationService, cfg.allowedOrigins, evidenceService, declarationService)
-		mux.Handle("/api/v1/verifications", verificationHandler)
-		mux.Handle("/api/v1/verifications/", verificationHandler)
+		quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
+				handleQuickVerification(w, r, service, verificationService, verificationRepository)
+				return
+			}
+			verificationHandler.ServeHTTP(w, r)
+		})
+		mux.Handle("/api/v1/verifications", quickVerificationHandler)
+		mux.Handle("/api/v1/verifications/", quickVerificationHandler)
 		mux.Handle("/api/v1/admin/verifications", verificationHandler)
 		mux.Handle("/api/v1/admin/verifications/", verificationHandler)
 		spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
