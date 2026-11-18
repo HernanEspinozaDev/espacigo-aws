@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile, mkdtemp, symlink, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
 const folder = await mkdtemp(
-  path.join(process.env.TMPDIR, "public-month-adapter-"),
+  path.join(process.env.TMPDIR ?? os.tmpdir(), "public-month-adapter-"),
 );
 await symlink(
   path.resolve("node_modules"),
