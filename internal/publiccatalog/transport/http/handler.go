@@ -117,6 +117,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	const imagesPrefix = "/api/v1/public/spaces/"
+	const hostAvatarSuffix = "/host/avatar"
+	if strings.HasPrefix(r.URL.Path, imagesPrefix) && strings.HasSuffix(r.URL.Path, hostAvatarSuffix) {
+		spaceID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, imagesPrefix), hostAvatarSuffix)
+		if spaceID == "" || strings.Contains(spaceID, "/") || r.URL.RawQuery != "" {
+			publicError(w, http.StatusNotFound)
+			return
+		}
+		item, blob, err := h.service.HostAvatarContent(r.Context(), spaceID)
+		if errors.Is(err, publiccatalog.ErrNotFound) {
+			publicError(w, http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			publicError(w, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", item.MIME)
+		w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
+		w.Header().Set("Content-Disposition", "inline; filename=host-avatar.webp")
+		w.Header().Set("ETag", `"`+item.SHA256+`"`)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(blob)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, imagesPrefix) && strings.Contains(strings.TrimPrefix(r.URL.Path, imagesPrefix), "/images/") {
 		if r.URL.RawQuery != "" {
 			publicError(w, 404)

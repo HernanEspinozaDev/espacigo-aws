@@ -2292,6 +2292,16 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/public/spaces/{spaceID}/host/avatar",
+    operationId: "getPublicHostAvatar",
+    query: [],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json", "image/webp"],
+  },
+  {
+    method: "GET",
     path: "/public/spaces/{spaceID}/images/{imageID}",
     operationId: "getPublicSpaceImage",
     query: [],

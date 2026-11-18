@@ -744,6 +744,16 @@ func (r *revocableMediaRepository) PublicMediaVariant(_ context.Context, _, _, v
 	return r.item, nil
 }
 
+func (r *revocableMediaRepository) PublicHostAvatar(context.Context, string) (publiccatalog.PublicImage, error) {
+	if r.err != nil {
+		return publiccatalog.PublicImage{}, r.err
+	}
+	if !r.visible {
+		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+	}
+	return r.item, nil
+}
+
 type publicMediaObjectStore struct {
 	body       []byte
 	key        string
@@ -778,6 +788,32 @@ type publicImageFileStore struct{ getCalls int }
 func (s *publicImageFileStore) Get(context.Context, string) ([]byte, error) {
 	s.getCalls++
 	return nil, publiccatalog.ErrNotFound
+}
+
+func TestPublicHostAvatarIsScopedToCurrentPublicListing(t *testing.T) {
+	const spaceID = "00000000-0000-4000-8000-000000000001"
+	body := []byte("avatar-webp")
+	digest := sha256.Sum256(body)
+	key := "media/v1/profiles/00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000004/1/avatar.webp"
+	repo := &revocableMediaRepository{item: publiccatalog.PublicImage{MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), ObjectKey: key, Generation: 3}, visible: true}
+	store := &publicMediaObjectStore{body: body, key: key, generation: 3}
+	service, err := publiccatalog.NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), &publicImageFileStore{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(service)
+	path := "/api/v1/public/spaces/" + spaceID + "/host/avatar"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/webp" || response.Body.String() != string(body) {
+		t.Fatalf("avatar response status=%d mime=%q body=%q", response.Code, response.Header().Get("Content-Type"), response.Body.String())
+	}
+	repo.visible = false
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	if response.Code != http.StatusNotFound || store.getCalls != 1 {
+		t.Fatalf("withdrawn listing avatar status=%d storage reads=%d", response.Code, store.getCalls)
+	}
 }
 
 func TestPublicMediaImageIsNotCachedAndRevocationTakesEffect(t *testing.T) {

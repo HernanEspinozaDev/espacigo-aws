@@ -1820,6 +1820,18 @@ paths:
       responses:
         "200": { description: Detalle público minimizado, content: { application/json: { schema: { $ref: "#/components/schemas/PublicSpaceDetailEnvelope" } } } }
         "404": { $ref: "#/components/responses/NotFound" }
+  /public/spaces/{spaceID}/host/avatar:
+    get:
+      operationId: getPublicHostAvatar
+      security: []
+      tags: [ Public catalog ]
+      summary: Mostrar avatar del anfitrión de una publicación vigente
+      description: Revalida que el espacio siga publicado y entrega solo la variante avatar WebP, sin exponer claves internas.
+      parameters:
+        - { in: path, name: spaceID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Avatar WebP público, no cacheable, content: { image/webp: { schema: { type: string, format: binary } } } }
+        "404": { $ref: "#/components/responses/NotFound" }
   /public/spaces/{spaceID}/images/{imageID}:
     get:
       operationId: getPublicSpaceImage
@@ -6408,9 +6420,10 @@ components:
     PublicSpaceHost:
       type: object
       additionalProperties: false
-      required: [ name, joined_at, spaces_count, identity_verified ]
+      required: [ name, avatar_url, joined_at, spaces_count, identity_verified ]
       properties:
         name: { type: [ string, "null" ] }
+        avatar_url: { type: [ string, "null" ], format: uri-reference }
         joined_at: { type: string, format: date-time }
         spaces_count: { type: integer, minimum: 0 }
         identity_verified: { type: boolean }
