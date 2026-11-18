@@ -29,14 +29,32 @@ function humanize(code: string): string {
     : code;
 }
 
+const attributeValueLabels = new Map([
+  ["automovil", "Automóvil"],
+  ["calefaccion", "Calefacción"],
+  ["camion", "Camión"],
+  ["carbon", "Carbón"],
+  ["electrica", "Eléctrica"],
+  ["furgon", "Furgón"],
+  ["lena", "Leña"],
+  ["mesa_reunion", "Mesa de reunión"],
+  ["porton_automatico", "Portón automático"],
+  ["porton_manual", "Portón manual"],
+  ["suv", "SUV"],
+  ["vehiculo_liviano", "Vehículo liviano"],
+  ["ventilacion_mecanica", "Ventilación mecánica"],
+]);
+
 export function formatAttributeLabel(
   code: string,
   schema?: Pick<CategoryProfileSchema, "attributes">,
 ): string {
-  return (
+  const label =
     schema?.attributes.find((attribute) => attribute.code === code)?.label ||
-    humanize(code)
-  );
+    code;
+  return label.includes("_") || label === code
+    ? (attributeValueLabels.get(label) ?? humanize(label))
+    : label;
 }
 
 export function formatAttributeValue(
@@ -48,7 +66,8 @@ export function formatAttributeValue(
     return value
       .map((item) => formatAttributeValue(item, definition))
       .join(", ");
-  if (typeof value === "string") return humanize(value);
+  if (typeof value === "string")
+    return attributeValueLabels.get(value) ?? humanize(value);
   if (typeof value === "number")
     return new Intl.NumberFormat("es-CL").format(value);
   return "";

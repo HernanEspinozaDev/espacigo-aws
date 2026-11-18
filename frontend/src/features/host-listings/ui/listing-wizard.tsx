@@ -470,7 +470,7 @@ export function ListingWizard() {
       // Redirigir al editor tras el alta dentro de mi cuenta
       clearPartialDraftRecoveryPending();
       startTransition(() => {
-        router.push(`/anfitrion/espacios/${created.id}/editar`);
+        router.push(`/anfitrion/espacios/${created.id}/editar?tab=fotos`);
       });
     } catch (err) {
       if (createdDraftId) {
@@ -660,7 +660,7 @@ export function ListingWizard() {
                   <option value="">-- Selecciona una categoría --</option>
                   {snapshot.categories.map((cat: Category) => (
                     <option key={cat.code} value={cat.code}>
-                      {cat.name} ({cat.code})
+                      {cat.name}
                     </option>
                   ))}
                 </select>
@@ -971,6 +971,10 @@ export function ListingWizard() {
                 currentSchema.attributes.length > 0 ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border">
                     {currentSchema.attributes.map((def) => {
+                      const label = formatAttributeLabel(
+                        def.code,
+                        currentSchema,
+                      );
                       const attrVal = dynamicAttributes[def.code];
                       const fieldId = `attr-${def.code}`;
 
@@ -984,7 +988,7 @@ export function ListingWizard() {
                               htmlFor={fieldId}
                               className="text-sm cursor-pointer"
                             >
-                              {def.label} {def.required && "*"}
+                              {label} {def.required && "*"}
                             </Label>
                             <input
                               id={fieldId}
@@ -1020,7 +1024,7 @@ export function ListingWizard() {
                               htmlFor={fieldId}
                               className="text-xs font-semibold"
                             >
-                              {def.label} {def.unit ? `(${def.unit})` : ""}{" "}
+                              {label} {def.unit ? `(${def.unit})` : ""}{" "}
                               {def.required && "*"}
                             </Label>
                             <Input
@@ -1054,7 +1058,7 @@ export function ListingWizard() {
                                   : undefined
                               }
                               placeholder={
-                                def.description || `Ingrese ${def.label}`
+                                def.description || `Ingrese ${label}`
                               }
                             />
                             {fieldErrors[`attribute:${def.code}`] && (
@@ -1095,7 +1099,7 @@ export function ListingWizard() {
                             className="space-y-2 rounded-lg border bg-background p-3"
                           >
                             <legend className="px-1 text-xs font-semibold">
-                              {def.label} {def.required && "*"}
+                              {label} {def.required && "*"}
                             </legend>
                             <div className="space-y-2">
                               {def.options.map((option, optionIndex) => {
@@ -1142,7 +1146,7 @@ export function ListingWizard() {
                                       htmlFor={optionId}
                                       className="cursor-pointer text-sm"
                                     >
-                                      {option}
+                                      {formatAttributeValue(option)}
                                     </Label>
                                   </div>
                                 );
@@ -1167,7 +1171,7 @@ export function ListingWizard() {
                               htmlFor={fieldId}
                               className="text-xs font-semibold"
                             >
-                              {def.label} {def.required && "*"}
+                              {label} {def.required && "*"}
                             </Label>
                             <select
                               id={fieldId}
@@ -1192,7 +1196,7 @@ export function ListingWizard() {
                               <option value="">-- Selecciona --</option>
                               {def.options.map((opt) => (
                                 <option key={opt} value={opt}>
-                                  {opt}
+                                  {formatAttributeValue(opt)}
                                 </option>
                               ))}
                             </select>
@@ -1523,9 +1527,8 @@ export function ListingWizard() {
                 Paso 5: Resumen y confirmación de alta
               </CardTitle>
               <CardDescription>
-                Revisa todos los datos ingresados antes de crear el borrador
-                privado. Si el resultado queda incierto, comprueba tus espacios
-                antes de repetir el alta.
+                Revisa tus datos antes de crear el borrador privado. Después
+                podrás agregar las fotografías para publicarlo.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

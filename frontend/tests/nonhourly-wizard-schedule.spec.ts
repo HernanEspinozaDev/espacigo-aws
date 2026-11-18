@@ -155,7 +155,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
       .fill(
         "Descripción sintética suficientemente extensa para completar la creación del inmueble, con información clara sobre su uso y características principales.",
       );
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await page.locator("#wizard-region").selectOption("13");
     await page.locator("#wizard-comuna").selectOption("13101");
     await page.locator("#wizard-address").fill("Av. de prueba 100, Santiago");
@@ -172,10 +172,10 @@ for (const rateUnit of ["dia", "mes"] as const) {
         await page.locator(`#attr-${attribute.code}-option-0`).check();
       else await control.fill("1");
     }
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await page.locator("#wizard-rate-unit").selectOption(rateUnit);
     await page.locator("#wizard-price").fill("5001");
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(page.locator("#wizard-timezone")).toBeVisible();
     await expect(page.locator("#wizard-timezone")).toHaveValue(
       "America/Santiago",
@@ -186,7 +186,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
         exact: false,
       }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
     await expect(page.locator("main")).toContainText(
       "Horario semanal no aplicable a tarifas por día o mes",

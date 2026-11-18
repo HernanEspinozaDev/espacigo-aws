@@ -407,11 +407,14 @@ test("@phase7 @controlled editor saves an IANA zone, preserves fractional slots 
   await expect(
     page.getByRole("button", { name: "Guardar horarios" }),
   ).toBeDisabled();
-  const pendingAvailabilityPanel = page.getByRole("tabpanel", {
+  const pendingAvailabilityPanel = page.getByRole("region", {
     name: "Disponibilidad por fecha",
   });
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
-  await expect.poll(() => manualBlockListReads).toBe(1);
+  const readsBeforePendingBlocks = manualBlockListReads;
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
+  await expect
+    .poll(() => manualBlockListReads)
+    .toBe(readsBeforePendingBlocks + 1);
   const pendingDelete = pendingAvailabilityPanel.getByRole("button", {
     name: "Eliminar bloqueo Bloque fixture existente",
   });
@@ -507,11 +510,14 @@ test("@phase7 @controlled editor saves an IANA zone, preserves fractional slots 
       { weekday: 7, periods: [] },
     ],
   });
-  const availabilityPanel = page.getByRole("tabpanel", {
+  const availabilityPanel = page.getByRole("region", {
     name: "Disponibilidad por fecha",
   });
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
-  await expect.poll(() => manualBlockListReads).toBe(2);
+  const readsBeforeStaleBlocks = manualBlockListReads;
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
+  await expect
+    .poll(() => manualBlockListReads)
+    .toBe(readsBeforeStaleBlocks + 1);
   await expect(availabilityPanel.getByRole("alert")).toContainText(
     "Este espacio cambió. Recarga la página antes de crear bloqueos manuales.",
   );
@@ -537,11 +543,14 @@ test("@phase7 @controlled editor saves an IANA zone, preserves fractional slots 
   await expect(
     page.getByRole("heading", { name: "Espacio prueba" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
-  await expect.poll(() => manualBlockListReads).toBe(4);
+  const readsBeforeConflictReload = manualBlockListReads;
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
+  await expect
+    .poll(() => manualBlockListReads)
+    .toBe(readsBeforeConflictReload + 1);
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("button", { name: "Crear bloqueo" }),
   ).toBeEnabled();
   expect(manualBlockPosts).toHaveLength(0);
@@ -793,7 +802,7 @@ test("@phase7 @controlled editor saves an IANA zone, preserves fractional slots 
   await expect(
     page.getByRole("button", { name: "Martes", exact: true }),
   ).toBeDisabled();
-  await page.locator("#panel-schedule form").evaluate((form) => {
+  await page.locator("#panel-schedule > form").evaluate((form) => {
     (form as HTMLFormElement).requestSubmit();
   });
   await expect(

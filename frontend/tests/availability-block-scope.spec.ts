@@ -252,7 +252,7 @@ test("@controlled pending manual-block refresh stays scoped when navigating betw
   await expect(
     page.getByRole("heading", { name: "Espacio de calendario A" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await firstSpaceReadHeld;
 
   await page.getByRole("link", { name: "Mis Espacios", exact: true }).click();
@@ -269,7 +269,7 @@ test("@controlled pending manual-block refresh stays scoped when navigating betw
   await expect(
     page.getByText(`Zona: ${timeZone}`, { exact: true }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(
     page.getByText("Bloque exclusivo del espacio B", { exact: true }),
   ).toBeVisible();

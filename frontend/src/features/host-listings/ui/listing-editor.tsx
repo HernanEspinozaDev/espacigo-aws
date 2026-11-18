@@ -40,6 +40,10 @@ import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError } from "@/lib/api/errors";
+import {
+  formatAttributeLabel,
+  formatAttributeValue,
+} from "../domain/attribute-formatting";
 import { listingErrorMessage } from "../domain/listing-error-message";
 import { timeZoneOptionsForCurrentValue } from "../domain/chile-time-zones";
 import { localDateTimeToUtcISOString } from "../domain/local-date-time";
@@ -70,9 +74,10 @@ import { HostAvailabilityCalendar } from "./host-availability-calendar";
 
 interface ListingEditorProps {
   readonly listingId: string;
+  readonly startWithPhotos?: boolean;
 }
 
-type TabKey = "info" | "pricing" | "schedule" | "availability" | "photos";
+type TabKey = "info" | "pricing" | "schedule" | "photos";
 const weeklyScheduleUnavailableMessage =
   "No se pudo cargar el horario semanal. Recarga la página antes de editarlo.";
 
@@ -194,7 +199,10 @@ function mapDraftServerFieldErrors(
   );
 }
 
-export function ListingEditor({ listingId }: ListingEditorProps) {
+export function ListingEditor({
+  listingId,
+  startWithPhotos = false,
+}: ListingEditorProps) {
   const router = useRouter();
   const { accessToken, snapshot: authSnapshot } = useAuth();
   const {
@@ -223,7 +231,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     deleteListing,
   } = useHostListings();
 
-  const [activeTab, setActiveTab] = useState<TabKey>("info");
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    startWithPhotos ? "photos" : "info",
+  );
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
@@ -1180,7 +1190,15 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           aria-controls="panel-schedule"
           aria-selected={activeTab === "schedule"}
           disabled={galleryBusy || returnsUncertainBusy}
-          onClick={() => setActiveTab("schedule")}
+          onClick={() => {
+            setActiveTab("schedule");
+            if (
+              currentListing?.time_zone &&
+              isValidIanaTimeZone(currentListing.time_zone)
+            ) {
+              void refreshManualBlocks();
+            }
+          }}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "schedule"
               ? "border-primary text-primary font-semibold"
@@ -1189,32 +1207,6 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         >
           <Calendar className="size-4" aria-hidden="true" />
           Calendario y horarios
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          id="tab-availability"
-          aria-controls="panel-availability"
-          aria-selected={activeTab === "availability"}
-          disabled={
-            galleryBusy ||
-            returnsUncertainBusy ||
-            !accessToken ||
-            !currentListing
-          }
-          onClick={() => {
-            setActiveTab("availability");
-            void refreshManualBlocks();
-          }}
-          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
-            activeTab === "availability"
-              ? "border-primary text-primary font-semibold"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          <Calendar className="size-4" aria-hidden="true" />
-          Disponibilidad por fecha
         </button>
 
         <button
@@ -1558,6 +1550,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-lg border">
                       {currentSchema.attributes.map((def) => {
+                        const label = formatAttributeLabel(
+                          def.code,
+                          currentSchema,
+                        );
                         const val = attributes[def.code];
                         const inputId = `attr-editor-${encodeURIComponent(def.code)}`;
                         const attributeError =
@@ -1577,7 +1573,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                   htmlFor={inputId}
                                   className="text-xs cursor-pointer"
                                 >
-                                  {def.label}
+                                  {label}
                                 </Label>
                                 <input
                                   id={inputId}
@@ -1618,7 +1614,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 htmlFor={inputId}
                                 className="text-xs font-semibold"
                               >
-                                {def.label} {def.unit ? `(${def.unit})` : ""}
+                                {label} {def.unit ? `(${def.unit})` : ""}
                               </Label>
                               <Input
                                 id={inputId}
@@ -1667,7 +1663,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                           return (
                             <fieldset key={def.code} className="space-y-2">
                               <legend className="text-xs font-semibold">
-                                {def.label}
+                                {label}
                               </legend>
                               <div className="space-y-2">
                                 {def.options.map((option, index) => {
@@ -1722,7 +1718,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                         htmlFor={optionId}
                                         className="text-xs cursor-pointer"
                                       >
-                                        {option}
+                                        {formatAttributeValue(option)}
                                       </Label>
                                     </div>
                                   );
@@ -1747,7 +1743,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 htmlFor={inputId}
                                 className="text-xs font-semibold"
                               >
-                                {def.label}
+                                {label}
                               </Label>
                               <select
                                 id={inputId}
@@ -1769,7 +1765,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 <option value="">-- Selecciona --</option>
                                 {def.options.map((opt) => (
                                   <option key={opt} value={opt}>
-                                    {opt}
+                                    {formatAttributeValue(opt)}
                                   </option>
                                 ))}
                               </select>
@@ -1989,6 +1985,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         id="panel-schedule"
         aria-labelledby="tab-schedule"
         hidden={activeTab !== "schedule"}
+        className="space-y-6"
       >
         {activeTab === "schedule" && (
           <form onSubmit={handleSaveSchedule}>
@@ -2104,16 +2101,8 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             </Card>
           </form>
         )}
-      </div>
-
-      <div
-        role="tabpanel"
-        id="panel-availability"
-        aria-labelledby="tab-availability"
-        hidden={activeTab !== "availability"}
-      >
-        {activeTab === "availability" && accessToken && currentListing && (
-          <div className="space-y-6">
+        {activeTab === "schedule" && accessToken && currentListing && (
+          <section aria-label="Disponibilidad por fecha" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">
@@ -2179,13 +2168,6 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       Guarda una zona horaria IANA válida antes de consultar o
                       crear bloqueos por fecha.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setActiveTab("schedule")}
-                    >
-                      Configurar zona horaria
-                    </Button>
                   </div>
                 )}
 
@@ -2364,11 +2346,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                 disabled={isPending}
               />
             </div>
-          </div>
+          </section>
         )}
       </div>
 
-      {/* PESTAÑA 5: Fotografías y Portada */}
+      {/* Fotografías y portada */}
       <div
         role="tabpanel"
         id="panel-photos"
