@@ -213,3 +213,11 @@ Comprueba el identificador devuelto por STS y el servicio ECS antes de habilitar
 3. Actualiza el servicio con `aws ecs update-service`, espera a que ECS reporte estabilidad y comprueba que la revisión activa es la nueva y que la URL HTTPS responde. Ante un fallo, el circuit breaker de ECS aplica rollback de rollout. Si falla la comprobación externa y el servicio sigue en la revisión nueva, el script restaura la anterior. Revisa eventos del servicio y logs. La base se recupera con el procedimiento de restauración o una migración correctiva si hiciera falta. [ECS update-service](https://docs.aws.amazon.com/cli/latest/reference/ecs/update-service.html)
 
 En un destino compatible con OIDC, deja ese workflow de entrega deshabilitado hasta comprobar infraestructura, perfil de aplicación, ledger y acceso OIDC. Después activa `AWS_DEPLOY_ENABLED=true` en el repositorio y ejecuta manualmente **Producción AWS** sobre `main` para registrar la primera entrega validada. Las integraciones posteriores disparan el despliegue automáticamente.
+
+## Transición planificada de correo (`espacigo.cl` con Amazon SES / pago por uso)
+
+La salida inicial de autenticación utiliza Zoho SMTP (`contacto@hotusoft.com`) a través de una instancia NAT `t4g.micro` cubierta por el Free Tier. Cuando se incorpore el dominio definitivo `espacigo.cl` (`contacto@espacigo.cl`), la entrega de correos de verificación y recuperación pasará a un esquema **100% por uso** sin instancias EC2 encendidas 24/7:
+
+1. Verificar el dominio `espacigo.cl` en **Amazon SES** (registros DKIM/SPF/DMARC en el DNS del dominio) y solicitar salida de sandbox de SES para el remitente `contacto@espacigo.cl`.
+2. Reemplazar el envío SMTP directo desde Fargate por un adaptador o invocación asíncrona vía **AWS Lambda** / **Amazon SES** (cobrando únicamente por correo enviado e invocación ejecutada, sin costo fijo mensual).
+3. Retirar la instancia NAT `t4g.micro` (`infra/terraform/environments/aws-main/nat.tf`) una vez que Fargate no requiera salida directa a `smtp.zoho.com`.
