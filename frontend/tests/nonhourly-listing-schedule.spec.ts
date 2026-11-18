@@ -175,9 +175,9 @@ for (const rateUnit of ["dia", "mes"] as const) {
     await expect(timezone).toHaveValue("America/Santiago");
     await timezone.selectOption("America/Punta_Arenas");
     await page.getByRole("button", { name: /Guardar zona horaria/i }).click();
-    await expect(page.getByRole("main").getByRole("status")).toContainText(
-      /zona horaria/i,
-    );
+    await expect(
+      page.getByRole("status").filter({ hasText: "Zona horaria guardada." }),
+    ).toBeVisible();
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatchObject({
       path: `/api/backend/spaces/${id}/availability`,

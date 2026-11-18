@@ -78,9 +78,7 @@ async function enter(page: Page) {
   await page.waitForURL(
     (u) => u.pathname === `/anfitrion/espacios/${spaceId}/editar`,
   );
-  await page
-    .getByRole("tab", { name: /Bloqueos|Disponibilidad por fecha/ })
-    .click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
 }
 const overrideDate = `${new Date().toISOString().slice(0, 7)}-17`;
 const initial: components["schemas"]["OwnCalendarConfiguration"] = {
@@ -236,7 +234,7 @@ for (const width of [1440, 390]) {
     expect(gets).toBeGreaterThanOrEqual(2);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page
-      .getByRole("tab", { name: "Disponibilidad por fecha", exact: true })
+      .getByRole("tab", { name: "Calendario y horarios", exact: true })
       .click();
     await expect(page.getByLabel("Hora apertura", { exact: true })).toHaveValue(
       "11:00",

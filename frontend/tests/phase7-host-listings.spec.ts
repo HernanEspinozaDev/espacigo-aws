@@ -8,6 +8,7 @@ import {
 import AxeBuilder from "@axe-core/playwright";
 import { createBffFixtureState } from "./helpers/bff-fixture";
 import categoryProfileFixture from "./fixtures/category-profiles-v1.json";
+import { formatAttributeValue } from "../src/features/host-listings/domain/attribute-formatting";
 import type { CategoryProfileSchema } from "../src/features/host-listings/domain/types";
 import { isAllowedLocalResource } from "./helpers/local-resource-origin";
 
@@ -809,7 +810,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
 
   // PASO 1: Tipo y Resumen
   await expect(page.locator("#wizard-category")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   const categoryField = page.locator("#wizard-category");
   await expect(categoryField).toHaveAttribute("aria-invalid", "true");
   const categoryDescription =
@@ -818,13 +819,16 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(page.locator("#wizard-category-error")).toBeVisible();
   await expect(categoryField).toBeFocused();
   expect(createPostCount).toBe(0);
+  await expect(categoryField.locator('option[value="oficina"]')).toHaveText(
+    "Oficinas y Cowork",
+  );
   await categoryField.selectOption("oficina");
   await expect(categoryField).not.toHaveAttribute("aria-invalid", "true");
   const titleField = page.locator("#wizard-title");
   await expect(titleField).not.toHaveAttribute("maxlength", /.+/);
   await titleField.fill("😀".repeat(71));
   await page.locator("#wizard-description").fill("d".repeat(100));
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(titleField).toHaveAttribute("aria-invalid", "true");
   const titleErrorId = await titleField.getAttribute("aria-describedby");
   expect(titleErrorId).toBeTruthy();
@@ -839,7 +843,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await descriptionField.fill(
     `${" ".repeat(3)}${"d".repeat(99)}${" ".repeat(2)}`,
   );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(descriptionField).toHaveAttribute("aria-invalid", "true");
   const descriptionErrorId =
     await descriptionField.getAttribute("aria-describedby");
@@ -858,7 +862,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await page
     .locator("#wizard-description")
     .fill("Espacio moderno full equipado con luz natural");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.locator("#wizard-description-error")).toContainText(
     /100 caracteres/i,
   );
@@ -871,7 +875,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     .fill(
       "Espacio moderno full equipado con luz natural para realizar reuniones y actividades de trabajo colaborativo.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
@@ -890,7 +894,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await page.locator("#wizard-area").fill("0");
   await page.locator("#wizard-capacity").fill("6");
   await page.locator("#wizard-address").fill("😀".repeat(501));
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   const addressField = page.locator("#wizard-address");
   await expect(addressField).toHaveAttribute("aria-invalid", "true");
   const addressErrorId = await addressField.getAttribute("aria-describedby");
@@ -903,7 +907,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     page.getByText("Paso 3: Tarifas iniciales y condiciones"),
   ).toHaveCount(0);
   await page.locator("#wizard-address").fill("Av. Apoquindo 3000, Las Condes");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   const areaField = page.locator("#wizard-area");
   await expect(areaField).toHaveAttribute("aria-invalid", "true");
   const areaErrorId = await areaField.getAttribute("aria-describedby");
@@ -915,7 +919,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await page.locator("#wizard-capacity").fill("6");
   const dynamicNumberField = page.locator("#attr-puestos_trabajo");
   await dynamicNumberField.fill("0");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
@@ -937,7 +941,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(dynamicNumberField).not.toHaveAttribute("aria-invalid", "true");
   await expect(dynamicError).toHaveCount(0);
   await page.locator("#wizard-capacity").fill("0");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   const capacityField = page.locator("#wizard-capacity");
   await expect(capacityField).toHaveAttribute("aria-invalid", "true");
   const capacityErrorId = await capacityField.getAttribute("aria-describedby");
@@ -952,10 +956,13 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   const wifiCheckbox = page.locator("#attr-wifi");
   await expect(wifiCheckbox).toBeVisible();
   await wifiCheckbox.check();
-  const calefaccion = page.getByLabel("calefaccion", { exact: true });
+  await expect(
+    page.getByLabel("Aire acondicionado", { exact: true }),
+  ).toBeVisible();
+  const calefaccion = page.getByLabel("Calefacción", { exact: true });
   await expect(calefaccion).toBeVisible();
   await calefaccion.check();
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
 
   // PASO 3: Tarifas y Reglas
   await expect(
@@ -968,7 +975,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await page.locator("#wizard-rate-unit").selectOption("hora");
   const priceField = page.locator("#wizard-price");
   await priceField.fill("5000");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 3: Tarifas iniciales y condiciones"),
   ).toBeVisible();
@@ -991,7 +998,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toHaveCount(0);
   const rulesField = page.locator("#wizard-usage-rules");
   await rulesField.fill("ñ".repeat(250));
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 3: Tarifas iniciales y condiciones"),
   ).toBeVisible();
@@ -1010,7 +1017,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(
     page.getByRole("alert").filter({ hasText: /reglas de uso compuestas/i }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
 
   // PASO 4: Disponibilidad semanal
   await expect(
@@ -1041,7 +1048,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     "Pacific/Easter",
   ]) {
     await timezoneField.selectOption(timeZone);
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(
       page.getByText("Paso 5: Resumen y confirmación de alta"),
     ).toBeVisible();
@@ -1064,7 +1071,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(mondayEnd).toHaveValue("18:00");
   await mondayStart.fill("19:00");
   await mondayEnd.fill("08:00");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 4: Disponibilidad semanal y zona horaria"),
   ).toBeVisible();
@@ -1090,7 +1097,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(
     page.getByRole("alert").filter({ hasText: /tramo|horario/i }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
 
   // PASO 5: Confirmación
   await expect(
@@ -1127,6 +1134,9 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
       .locator("h1"),
   ).toHaveText("Oficina Ejecutiva El Golf");
+  await expect(
+    page.getByLabel("Subir fotografías", { exact: true }),
+  ).toBeEnabled();
   const editorUrl = page.url();
   const workspaceLogo = page.getByRole("link", {
     name: "EspaciGo, volver al inicio",
@@ -1173,7 +1183,8 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
       .locator("h1"),
   ).toHaveText("Oficina Ejecutiva El Golf");
-  await expect(page.getByLabel("calefaccion", { exact: true })).toBeChecked();
+  await page.getByRole("tab", { name: "Información y atributos" }).click();
+  await expect(page.getByLabel("Calefacción", { exact: true })).toBeChecked();
   await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(page.locator("#editor-timezone")).toHaveValue(
     "America/Coyhaique",
@@ -2069,10 +2080,10 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   );
 
   // 1. Pestaña Información: validación común antes de guardar contenido
-  const calefaccion = page.getByLabel("calefaccion", { exact: true });
+  const calefaccion = page.getByLabel("Calefacción", { exact: true });
   await expect(calefaccion).toBeVisible();
   await expect(calefaccion).toBeChecked();
-  await page.getByLabel("ventilacion_mecanica", { exact: true }).check();
+  await page.getByLabel("Ventilación mecánica", { exact: true }).check();
   await page.locator("#editor-title").fill(`${"😀".repeat(70)} `);
   await page.locator("#editor-desc").fill("Descripción breve no válida");
   const contentPutCountBeforeInvalid = putContentBody;
@@ -3987,7 +3998,7 @@ test("@phase7 @controlled quincho sin parrilla: pone solo el contador en cero y 
     .fill(
       "Quincho amplio para reuniones familiares y celebraciones, con instalaciones cómodas, buena iluminación y un espacio agradable para compartir durante todo el día.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
@@ -4040,7 +4051,7 @@ test("@phase7 @controlled estacionamiento v1: renderiza el perfil local sin crea
         label: "Vehículos admitidos",
         type: "enum_list",
         order: 3,
-        options: ["motocicleta", "automovil", "suv", "furgon"],
+        options: ["Motocicleta", "Automóvil", "SUV", "Furgón"],
         filter_candidate: false,
       },
       {
@@ -4102,7 +4113,7 @@ test("@phase7 @controlled estacionamiento v1: renderiza el perfil local sin crea
     .fill(
       "Estacionamiento amplio y seguro, con acceso cómodo y espacio bien iluminado. Este perfil permite revisar las características dinámicas del lugar antes de completar la publicación del anuncio.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
@@ -4117,7 +4128,7 @@ test("@phase7 @controlled estacionamiento v1: renderiza el perfil local sin crea
     await expect(input).toHaveAttribute("step", "0.01");
   }
   const vehicleGroup = page.getByRole("group", { name: "Vehículos admitidos" });
-  for (const option of ["motocicleta", "automovil", "suv", "furgon"])
+  for (const option of ["Motocicleta", "Automóvil", "SUV", "Furgón"])
     await expect(vehicleGroup.getByLabel(option)).toBeVisible();
   const access = page.getByLabel("Tipo de acceso");
   for (const option of ["abierto", "porton_manual", "porton_automatico"])
@@ -4181,7 +4192,7 @@ for (const category of profileFixtureCategories) {
       .fill(
         "Espacio sintético usado para verificar que cada perfil vigente presenta todos sus controles, opciones y límites declarados sin crear ni modificar una publicación.",
       );
-    await page.getByRole("button", { name: "Siguiente" }).click();
+    await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(
       page.getByText("Paso 2: Ubicación y características"),
     ).toBeVisible();
@@ -4222,7 +4233,7 @@ for (const category of profileFixtureCategories) {
         );
         for (const option of attribute.options ?? [])
           await expect(
-            control.getByRole("option", { name: option, exact: true }),
+            control.locator(`option[value="${option}"]`),
           ).toHaveCount(1);
       } else {
         expect(attribute.type, `${category.code}: ${attribute.code}`).toBe(
@@ -4234,7 +4245,10 @@ for (const category of profileFixtureCategories) {
         await expect(group).toBeVisible();
         for (const option of attribute.options ?? [])
           await expect(
-            group.getByRole("checkbox", { name: option, exact: true }),
+            group.getByRole("checkbox", {
+              name: formatAttributeValue(option),
+              exact: true,
+            }),
           ).toBeVisible();
       }
       if (attribute.required) {
@@ -4285,7 +4299,7 @@ test("@phase7 @controlled perfil sala_multiproposito v1: bloquea el avance y aso
     .fill(
       "Espacio sintético para verificar la validación de atributos contra el perfil versionado sin crear ni modificar un anuncio real.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
@@ -4295,7 +4309,7 @@ test("@phase7 @controlled perfil sala_multiproposito v1: bloquea el avance y aso
   await page.locator("#wizard-capacity").fill("4");
   const chairs = page.getByLabel("Sillas disponibles");
   await chairs.fill("-1");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
 
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
@@ -4350,12 +4364,15 @@ test("@phase7 @controlled el asistente espera el perfil dinámico antes de valid
     .fill(
       "Espacio sintético para verificar que el asistente espera el perfil dinámico antes de validar los atributos específicos y permitir continuar.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await schemaRequested;
   await expect(
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
-  const nextButton = page.getByRole("button", { name: "Siguiente" });
+  const nextButton = page.getByRole("button", {
+    name: "Siguiente",
+    exact: true,
+  });
   await expect(nextButton).toBeDisabled();
 
   releaseSchema();
@@ -4398,13 +4415,16 @@ test("@phase7 @controlled si falla el perfil dinámico, el wizard permite reinte
     .fill(
       "Espacio sintético para verificar el mensaje y la recuperación cuando el servicio de perfiles no está disponible temporalmente.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page
       .getByRole("alert")
       .filter({ hasText: "No se pudo cargar el perfil de esta categoría." }),
   ).toBeVisible();
-  const nextButton = page.getByRole("button", { name: "Siguiente" });
+  const nextButton = page.getByRole("button", {
+    name: "Siguiente",
+    exact: true,
+  });
   await expect(nextButton).toBeDisabled();
 
   await page.getByRole("button", { name: "Reintentar perfil" }).click();
@@ -4509,22 +4529,22 @@ test("@phase7 @controlled cambiar categoría elimina atributos dinámicos anteri
     .fill(
       "Descripción sintética para probar que al cambiar de una oficina con Wi-Fi a estacionamiento el atributo anterior no se filtre en el borrador creado.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByLabel(wifi!.label)).toBeVisible();
   await page.getByLabel(wifi!.label).check();
 
   await page.getByRole("button", { name: "Atrás" }).click();
   await page.locator("#wizard-category").selectOption(newCategory);
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByLabel(access!.label)).toBeVisible();
   await page.locator("#wizard-address").fill("Dirección sintética 123");
   await page.locator("#wizard-region").selectOption("13");
   await page.locator("#wizard-comuna").selectOption("13114");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 3: Tarifas")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 4: Disponibilidad semanal")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByText("Paso 5: Resumen y confirmación de alta"),
   ).toBeVisible();

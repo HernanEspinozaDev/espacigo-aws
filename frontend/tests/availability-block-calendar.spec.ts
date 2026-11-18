@@ -397,7 +397,7 @@ test("@controlled host creates a private date availability block", async ({
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await page.waitForURL(`**/anfitrion/espacios/${spaceId}/editar`);
 
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(
     page.getByText("Mantenimiento de prueba", { exact: true }),
   ).toBeVisible();
@@ -423,7 +423,7 @@ test("@controlled host creates a private date availability block", async ({
   await page.getByRole("button", { name: "Actualizar fechas" }).click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("Selecciona un rango de fechas válido.");
   await expect(
@@ -440,7 +440,7 @@ test("@controlled host creates a private date availability block", async ({
   await page.getByRole("button", { name: "Actualizar fechas" }).click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("Selecciona un rango de fechas válido.");
   await expect(
@@ -457,7 +457,7 @@ test("@controlled host creates a private date availability block", async ({
   await page.getByRole("button", { name: "Actualizar fechas" }).click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("Selecciona un rango de fechas válido.");
   expect(listReads).toBe(readsBeforeInvalidRange);
@@ -483,7 +483,7 @@ test("@controlled host creates a private date availability block", async ({
     .click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("La fecha y hora de término debe ser posterior al inicio.");
   expect(attempts).toHaveLength(0);
@@ -501,7 +501,7 @@ test("@controlled host creates a private date availability block", async ({
     .click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("La fecha y hora de término debe ser posterior al inicio.");
   expect(attempts).toHaveLength(0);
@@ -519,7 +519,7 @@ test("@controlled host creates a private date availability block", async ({
     .click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("El motivo es obligatorio y no puede superar 500 caracteres.");
   expect(attempts).toHaveLength(0);
@@ -549,7 +549,7 @@ test("@controlled host creates a private date availability block", async ({
       .click();
     await expect(
       page
-        .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+        .getByRole("region", { name: "Disponibilidad por fecha" })
         .getByRole("alert"),
     ).toHaveText(
       "La hora local no existe o se repite por un cambio horario. Elige otra hora.",
@@ -589,7 +589,7 @@ test("@controlled host creates a private date availability block", async ({
     .click();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText(
     "El intervalo coincide con una ocupación activa. Elige otro rango.",
@@ -619,7 +619,7 @@ test("@controlled host creates a private date availability block", async ({
   ).toBeVisible();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("No fue posible completar la operación. Intenta nuevamente.");
   expect(writes[0]).toEqual({
@@ -647,7 +647,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect.poll(() => listReads).toBe(readsBeforeCreateReadbackFailure + 2);
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveCount(0);
   await expect(
@@ -660,7 +660,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect(
     page.getByRole("heading", { name: "Espacio sintético para calendario" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBeGreaterThan(readsBeforeReload);
   await expect(
     page.getByText("Evento privado sintético", { exact: true }),
@@ -677,7 +677,7 @@ test("@controlled host creates a private date availability block", async ({
   ).toBeVisible();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("No fue posible completar la operación. Intenta nuevamente.");
   await expect(
@@ -689,7 +689,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect.poll(() => listReads).toBe(readsBeforeDeleteReadbackFailure + 2);
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveCount(0);
   await expect(
@@ -702,14 +702,13 @@ test("@controlled host creates a private date availability block", async ({
   await expect(
     page.getByRole("heading", { name: "Espacio sintético para calendario" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(
     page.getByText(
       "Guarda una zona horaria IANA válida antes de consultar o crear bloqueos por fecha.",
     ),
   ).toBeVisible();
   expect(listReads).toBe(readsWithoutTimeZone);
-  await page.getByRole("button", { name: "Configurar zona horaria" }).click();
   await expect(
     page.getByRole("tab", { name: "Calendario y horarios" }),
   ).toHaveAttribute("aria-selected", "true");
@@ -733,7 +732,7 @@ test("@controlled host creates a private date availability block", async ({
 
   const readsBeforeInvalidStoredZone = listReads;
   const blockAttemptsBeforeInvalidStoredZone = attempts.length;
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(
     page.getByText(
       "Guarda una zona horaria IANA válida antes de consultar o crear bloqueos por fecha.",
@@ -769,7 +768,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect(
     page.getByRole("heading", { name: "Espacio sintético para calendario" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeValidZoneReload + 1);
   await expect(
     page.getByRole("button", { name: "Actualizar fechas", exact: true }),
@@ -779,7 +778,7 @@ test("@controlled host creates a private date availability block", async ({
   ).toBeEnabled();
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveCount(0);
   expect(attempts).toHaveLength(blockAttemptsBeforeInvalidStoredZone);
@@ -804,7 +803,7 @@ test("@controlled host creates a private date availability block", async ({
   const attemptsBeforeStaleRangeRace = attempts.length;
   const deletionsBeforeStaleRangeRace = deletions.length;
   holdNextBlockListRead = true;
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeStaleRangeRace + 1);
   expect(releaseHeldBlockListReads).toHaveLength(1);
   blocks.push({
@@ -816,7 +815,7 @@ test("@controlled host creates a private date availability block", async ({
     reason: "Bloque externo sintético",
     created_at: "2026-11-11T12:00:00Z",
   });
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeStaleRangeRace + 2);
   await expect(
     page.getByText("Bloque externo sintético", { exact: true }),
@@ -909,7 +908,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect.poll(() => listReads).toBe(readsBeforeRefreshFailure + 1);
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveText("No fue posible completar la operación. Intenta nuevamente.");
   await expect(
@@ -933,7 +932,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect.poll(() => listReads).toBe(readsBeforeRefreshFailure + 2);
   await expect(
     page
-      .getByRole("tabpanel", { name: "Disponibilidad por fecha" })
+      .getByRole("region", { name: "Disponibilidad por fecha" })
       .getByRole("alert"),
   ).toHaveCount(0);
   await expect(
@@ -980,7 +979,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect(
     page.getByRole("heading", { name: "Espacio sintético para calendario" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeFinalReload + 1);
   await expect(
     page.getByText("Mantenimiento de prueba", { exact: true }),
@@ -1001,7 +1000,6 @@ test("@controlled host creates a private date availability block", async ({
   ).toBeVisible();
   await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(page.locator("#editor-timezone")).toHaveValue("Asia/Kathmandu");
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeKathmanduReload + 1);
 
   const attemptsBeforeKathmanduBlock = attempts.length;
@@ -1053,7 +1051,6 @@ test("@controlled host creates a private date availability block", async ({
   ).toBeVisible();
   await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect(page.locator("#editor-timezone")).toHaveValue(timeZone);
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeDstReload + 1);
   await page.getByLabel("Desde", { exact: true }).fill("2026-09-05");
   await page.getByLabel("Hasta", { exact: true }).fill("2026-09-06");
@@ -1204,7 +1201,7 @@ test("@controlled host creates a private date availability block", async ({
   await expect(page.locator("#editor-timezone")).toHaveValue("Pacific/Easter");
 
   const readsBeforeSavedZoneBlock = listReads;
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeSavedZoneBlock + 1);
   await page.getByLabel("Desde", { exact: true }).fill("2026-12-24");
   await page.getByLabel("Hasta", { exact: true }).fill("2026-12-26");
@@ -1268,7 +1265,6 @@ test("@controlled host creates a private date availability block", async ({
   await expect(page.locator("#editor-timezone")).toHaveValue(
     "America/Santiago",
   );
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeUnsavedZoneTab + 1);
   await page.getByLabel("Desde", { exact: true }).fill("2026-12-26");
   await page.getByLabel("Hasta", { exact: true }).fill("2026-12-26");
@@ -1343,11 +1339,11 @@ test("@controlled host creates a private date availability block", async ({
     scheduleMutationsBeforeStaleZoneConflict + 1,
   );
 
-  const availabilityPanel = page.getByRole("tabpanel", {
+  const availabilityPanel = page.getByRole("region", {
     name: "Disponibilidad por fecha",
   });
   const readsBeforeStaleZonePanel = listReads;
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeStaleZonePanel + 1);
   await expect(availabilityPanel.getByRole("alert")).toHaveText(
     "Este espacio cambió. Recarga la página antes de crear bloqueos manuales.",
@@ -1394,7 +1390,6 @@ test("@controlled host creates a private date availability block", async ({
   await expect(page.locator("#editor-timezone")).toHaveValue(
     "America/Santiago",
   );
-  await page.getByRole("tab", { name: "Disponibilidad por fecha" }).click();
   await expect.poll(() => listReads).toBe(readsBeforeStaleZoneReload + 1);
   await expect(
     availabilityPanel.getByRole("button", { name: "Crear bloqueo" }),
