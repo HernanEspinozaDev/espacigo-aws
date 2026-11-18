@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	"image/png"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -1050,6 +1052,55 @@ func TestReplacementRejectsMalformedAndOversizedMultipart(t *testing.T) {
 	}
 	if mediaRepo.reserveCalls != 0 || objectStore.putCalls != 0 {
 		t.Fatalf("invalid requests reached media pipeline: reserves=%d writes=%d", mediaRepo.reserveCalls, objectStore.putCalls)
+	}
+}
+
+func TestGalleryAcceptsLargePhotosWithoutWritableTempDirectory(t *testing.T) {
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	galleryPath := "/api/v1/spaces/" + testSpace + "/gallery"
+	var raw bytes.Buffer
+	encoder := png.Encoder{CompressionLevel: png.NoCompression}
+	if err := encoder.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 550, 550))); err != nil {
+		t.Fatal(err)
+	}
+	if raw.Len() <= 1<<20 || raw.Len() > media.MaxInputBytes {
+		t.Fatalf("expected a valid image above the former 1 MiB buffer, got %d bytes", raw.Len())
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPut} {
+		t.Run(method, func(t *testing.T) {
+			handler, repo, _ := newReplacementHandlerForTest(t, now)
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			part, err := writer.CreateFormFile("image", "synthetic.png")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := part.Write(raw.Bytes()); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			path := galleryPath
+			if method == http.MethodPut {
+				path += "/" + testPhoto + "/content"
+			}
+			request := httptest.NewRequest(method, path, &body)
+			request.Header.Set("Authorization", "Bearer synthetic-test-token")
+			request.Header.Set("Content-Type", writer.FormDataContentType())
+			request.Header.Set("Idempotency-Key", "upload-large-image-key")
+			if method == http.MethodPut {
+				tag := base64.RawURLEncoding.EncodeToString([]byte(testSpace + "\x00" + now.Format(time.RFC3339Nano)))
+				request.Header.Set("If-Match", `"`+tag+`"`)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusCreated || repo.finalizeCalls != 1 {
+				t.Fatalf("upload status=%d body=%s finalize=%d", response.Code, response.Body.String(), repo.finalizeCalls)
+			}
+		})
 	}
 }
 
