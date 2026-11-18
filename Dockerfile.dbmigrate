@@ -8,9 +8,11 @@ ENV CGO_ENABLED=0 \
     GOARCH=amd64
 WORKDIR /src
 COPY go.mod go.sum ./
+COPY third_party/pdfcpu/go.mod third_party/pdfcpu/go.sum ./third_party/pdfcpu/
 RUN go mod download
 COPY cmd/dbmigrate ./cmd/dbmigrate
 COPY internal/migrator ./internal/migrator
+COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY db/migrations/*.sql /out/migrations/
 RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate
 
