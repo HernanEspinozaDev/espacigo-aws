@@ -58,3 +58,9 @@ variable "migrator_seed_image" {
   type        = string
   default     = null
 }
+
+variable "app_seed_images" {
+  description = "Promoted API and web ECR digests for the initial ECS task."
+  type        = object({ api = string, web = string })
+  default     = null
+}

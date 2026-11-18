@@ -5,7 +5,7 @@ locals {
 }
 
 data "aws_ecs_cluster" "production" {
-  count        = local.provision_migrator ? 1 : 0
+  count        = local.provision_migrator || local.provision_app ? 1 : 0
   cluster_name = "espacigo-production"
 }
 
