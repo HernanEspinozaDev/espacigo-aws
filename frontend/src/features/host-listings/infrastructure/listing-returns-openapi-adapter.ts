@@ -8,15 +8,23 @@ export class ListingReturnsOpenApiAdapter implements ListingReturnsPort {
     token: AccessToken,
     spaceId: string,
   ): Promise<ListingReturnsResult> {
-    const { data, error } = await apiClient.GET(
+    const { data, error, response } = await apiClient.GET(
       "/local/booking-trial/spaces/{spaceID}/returns",
       {
         params: { path: { spaceID: spaceId } },
         headers: { Authorization: `Bearer ${token}` },
       },
     );
-    if (error || !data) throw new Error("No fue posible cargar entregas.");
-    return data.data;
+    if (response?.status === 404) {
+      return { space_id: spaceId, items: [] };
+    }
+    if (error || !data?.data) {
+      throw new Error("No fue posible cargar entregas.");
+    }
+    return {
+      space_id: data.data.space_id ?? spaceId,
+      items: Array.isArray(data.data.items) ? data.data.items : [],
+    };
   }
   async confirmVacancy(
     token: AccessToken,
