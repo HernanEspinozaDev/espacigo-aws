@@ -76,7 +76,9 @@ export async function LegalDocument({
         <span aria-hidden="true"> / </span>
         <span aria-current="page">{document.title}</span>
       </nav>
-      {item.synthetic ? (
+      {item.synthetic &&
+      (item.code.startsWith("evaluacion-") ||
+        item.code.startsWith("sintetico-")) ? (
         <p
           role="note"
           className="mb-6 rounded-xl border border-border bg-secondary/40 p-4 text-sm text-muted-foreground"
