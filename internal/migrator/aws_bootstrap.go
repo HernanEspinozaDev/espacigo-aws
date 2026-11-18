@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -115,7 +114,7 @@ func ensureAWSBootstrapRoles(ctx context.Context, conn *pgx.Conn) error {
 
 // ApplyAWSV83RuntimeACL installs the canonical application ACL once at the
 // reviewed baseline, before later migrations narrow individual privileges.
-func ApplyAWSV83RuntimeACL(ctx context.Context, config *pgx.ConnConfig, password, dir string) error {
+func ApplyAWSV83RuntimeACL(ctx context.Context, config *pgx.ConnConfig, password, dir string, apply func(context.Context, pgx.Tx) error) error {
 	migrations, err := DiscoverMigrations(dir)
 	if err != nil {
 		return err
@@ -147,6 +146,6 @@ func ApplyAWSV83RuntimeACL(ctx context.Context, config *pgx.ConnConfig, password
 		if err := verifyCompleteHistory(migrations[:83], history, 83); err != nil {
 			return err
 		}
-		return dbbootstrap.GrantRuntimePermissions(ctx, tx)
+		return apply(ctx, tx)
 	})
 }

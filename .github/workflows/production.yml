@@ -40,6 +40,31 @@ jobs:
           fi
           jq -e 'all(.[]; .result == "success")' <<<"$CHECKS"
 
+  publish-to-codepipeline:
+    name: Entregar el commit aprobado a CodePipeline
+    needs: release-ready
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: espacigo-aws-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Avanzar la referencia de publicación
+        shell: bash
+        run: |
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [[ "$main_sha" != "$GITHUB_SHA" ]]; then
+            echo "main ya avanzó. Su commit actual debe completar su propia CI."
+            exit 0
+          fi
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/publicacion-aws" \
+            -f sha="$GITHUB_SHA" -F force=false --jq '.object.sha'
+
   deploy:
     name: Desplegar en ECS
     needs: release-ready

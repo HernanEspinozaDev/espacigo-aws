@@ -1,0 +1,51 @@
+version: 0.2
+env:
+  shell: bash
+  variables:
+    GOTOOLCHAIN: auto
+phases:
+  install:
+    runtime-versions:
+      golang: 1.27
+      nodejs: 24.21.0
+    commands:
+      - apt-get update -qq
+      - apt-get install -y --no-install-recommends poppler-utils
+      - go version
+      - export PATH="$(go env GOROOT)/bin:$PATH"
+      - node --version
+      - |
+        export HOME="$(getent passwd "$(id -u)" | cut -d: -f6)"
+      - unset GOPATH GOMODCACHE
+      - go mod download
+      - env -i PATH="$PATH" HOME="$HOME" GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local go build -o /tmp/espacigo-rentaldemo-check ./cmd/rentaldemo
+      - env -i PATH="$PATH" HOME="$HOME" GOPROXY=off GOTOOLCHAIN=local go build -o /tmp/espacigo-rentaldemo-check ./cmd/rentaldemo
+      - npm install --global pnpm@12.15.0 --no-audit --no-fund
+      - pnpm --dir frontend install --frozen-lockfile
+  build:
+    commands:
+      - test "$CODEBUILD_RESOLVED_SOURCE_VERSION" = "$EXPECTED_SOURCE_SHA"
+      - printf 'Validated source SHA %s\n' "$CODEBUILD_RESOLVED_SOURCE_VERSION"
+      - |
+        set -euo pipefail
+        if [ "$(id -u)" = 0 ]; then
+          useradd --create-home espacigo-ci
+          install -d -o espacigo-ci -g espacigo-ci /home/espacigo-ci/src
+          cp -a "$CODEBUILD_SRC_DIR/." /home/espacigo-ci/src/
+          chown -R espacigo-ci:espacigo-ci /home/espacigo-ci/src
+          go_root="$(go env GOROOT)"
+          if ! runuser -u espacigo-ci -- test -x "$go_root/bin/go"; then
+            cp -a "$go_root" /home/espacigo-ci/go-toolchain
+            go_root=/home/espacigo-ci/go-toolchain
+            chown -R espacigo-ci:espacigo-ci "$go_root"
+          fi
+          cd /home/espacigo-ci/src
+          runuser -u espacigo-ci -- env GOTOOLCHAIN=local "$go_root/bin/go" test ./...
+          cd "$CODEBUILD_SRC_DIR"
+        else
+          go test ./...
+        fi
+      - go vet ./...
+      - go build ./...
+      - pnpm --dir frontend typecheck
+      - TMPDIR=/tmp pnpm --dir frontend test

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/jackc/pgx/v5"
 )
@@ -56,7 +57,9 @@ func runAWSMigration(output io.Writer, migrationDir, mode string, getenv func(st
 	ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
 	defer cancel()
 	if mode == "aws-runtime-v83" {
-		return migrator.ApplyAWSV83RuntimeACL(ctx, config, password, migrationDir)
+		return migrator.ApplyAWSV83RuntimeACL(ctx, config, password, migrationDir, func(ctx context.Context, tx pgx.Tx) error {
+			return dbbootstrap.GrantRuntimePermissions(ctx, tx)
+		})
 	}
 	if mode == "aws-bootstrap-v80" {
 		result, err := migrator.RunAWSBootstrap(ctx, config, password, migrationDir)
