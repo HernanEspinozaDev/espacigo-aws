@@ -65,6 +65,12 @@ jobs:
           attests: |
             type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
             type=provenance,mode=min
+      - name: Build and inspect the database migration image without publishing
+        run: |
+          set -o pipefail
+          docker buildx build --file Dockerfile.dbmigrate --platform linux/amd64 --load --tag espacigo-dbmigrate:ci .
+          docker run --rm --network none espacigo-dbmigrate:ci -inventory-only |
+            jq -e '.format == "espacigo.migrations.inventory.v1" and (.migrations | length > 0)'
       - name: Remove temporary OCI images and attestations
         if: always()
         run: rm -f "$RUNNER_TEMP/espacigo-api.oci.tar" "$RUNNER_TEMP/espacigo-web.oci.tar"
