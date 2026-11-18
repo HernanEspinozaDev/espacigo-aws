@@ -172,6 +172,12 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
+	production := os.Getenv("APP_PROFILE") == productionAppProfile
+	if production {
+		if err := validateProductionRuntime(os.Getenv, runtimeProfileValue); err != nil {
+			return err
+		}
+	}
 	earlyRentalActivationRequested, err := localEarlyRentalActivationRequested(os.Getenv)
 	if err != nil {
 		return errors.New("invalid local early rental configuration")
@@ -258,6 +264,11 @@ func run() error {
 		SendLocalBookingNotice(context.Context, string, string, string) error
 	} = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
+	if production {
+		if err := mountProductionCatalog(context.Background(), mux, pool, cfg, os.Getenv); err != nil {
+			return err
+		}
+	}
 	if prototypeEnabled {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
 		if err != nil || limit < 1 || limit > 1000 {
@@ -539,7 +550,7 @@ func run() error {
 		}
 		localBookingTrialEnabled := os.Getenv("LOCAL_BOOKING_TRIAL") == "1"
 		if publicCatalogEnabled || localBookingTrialEnabled || commercialFlowEnabled {
-			publicCatalogMasterKey, err = localPublicCatalogKey(os.Getenv("LOCAL_PUBLIC_CATALOG_CURSOR_KEY_FILE"))
+			publicCatalogMasterKey, err = readPublicCatalogCursorKey(os.Getenv("LOCAL_PUBLIC_CATALOG_CURSOR_KEY_FILE"))
 			if err != nil {
 				return err
 			}
@@ -820,7 +831,10 @@ func run() error {
 		return errors.New("background worker registry is invalid")
 	}
 	apiHandler := handlerForRuntimeProfile(runtimeProfileValue, mux)
-	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, apiHandler, cfg.allowedOrigins...))
+	if localIdentityService != nil {
+		apiHandler = identityhttp.RestrictedAccountMiddleware(localIdentityService, apiHandler, cfg.allowedOrigins...)
+	}
+	server := newHTTPServer(cfg.httpAddr, apiHandler)
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- server.ListenAndServe()

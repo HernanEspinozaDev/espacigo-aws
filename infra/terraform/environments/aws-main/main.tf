@@ -1,5 +1,15 @@
 terraform {
-  required_version = ">= 1.9.0"
+  required_version = ">= 1.10.0"
+
+  backend "s3" {
+    bucket              = "espacigo-terraform-state-805068224315-us-east-2"
+    key                 = "aws-main/terraform.tfstate"
+    region              = "us-east-2"
+    encrypt             = true
+    use_lockfile        = true
+    allowed_account_ids = ["805068224315"]
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -26,10 +36,11 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  selected_azs = slice(data.aws_availability_zones.available.names, 0, 2)
+  workload_az   = data.aws_availability_zones.available.names[0]
+  rds_subnet_az = data.aws_availability_zones.available.names[1]
 }
 
-# 2. Red VPC (2 Subnets públicas, 2 Subnets privadas aisladas, IGW y S3 Gateway Endpoint)
+# Una zona para las cargas y una segunda subred privada exigida por RDS.
 resource "aws_vpc" "main" {
   cidr_block           = "10.20.0.0/16"
   enable_dns_hostnames = true
@@ -49,11 +60,11 @@ resource "aws_internet_gateway" "gw" {
 }
 
 resource "aws_subnet" "public" {
-  count                   = 2
+  count                   = 1
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.20.${count.index}.0/24"
-  availability_zone       = local.selected_azs[count.index]
-  map_public_ip_on_launch = true
+  availability_zone       = local.workload_az
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "espacigo-public-subnet-${count.index + 1}-${var.environment}"
@@ -64,7 +75,7 @@ resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.20.${count.index + 10}.0/24"
-  availability_zone = local.selected_azs[count.index]
+  availability_zone = count.index == 0 ? local.workload_az : local.rds_subnet_az
 
   tags = {
     Name = "espacigo-private-subnet-${count.index + 1}-${var.environment}"
@@ -85,7 +96,7 @@ resource "aws_route_table" "public" {
 }
 
 resource "aws_route_table_association" "public" {
-  count          = 2
+  count          = length(aws_subnet.public)
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
@@ -109,7 +120,7 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [aws_route_table.public.id, aws_route_table.private.id]
+  route_table_ids   = [aws_route_table.private.id]
 
   tags = {
     Name = "espacigo-s3-endpoint-${var.environment}"
@@ -123,15 +134,15 @@ resource "aws_security_group" "ecs_task" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "Ingreso HTTP desde Cloudflare al frontend Next.js"
-    from_port   = 4000
-    to_port     = 4000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    description     = "Next.js solo desde el balanceador"
+    from_port       = 4000
+    to_port         = 4000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
   }
 
   egress {
-    description = "Salida general para HTTPS y SMTP Zoho 587"
+    description = "Salida sujeta a las rutas de la subred privada"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -181,19 +192,20 @@ resource "aws_db_subnet_group" "rds" {
 resource "aws_db_instance" "postgres" {
   identifier                  = "espacigo-db-${var.environment}"
   engine                      = "postgres"
-  engine_version              = "18.1"
+  engine_version              = "18.6"
   instance_class              = var.rds_instance_class
   allocated_storage           = 20
   max_allocated_storage       = 50
   storage_type                = "gp3"
-  multi_az                    = var.rds_multi_az
+  multi_az                    = false
+  availability_zone           = local.workload_az
   db_subnet_group_name        = aws_db_subnet_group.rds.name
   vpc_security_group_ids      = [aws_security_group.rds.id]
   publicly_accessible         = false
   storage_encrypted           = true
   auto_minor_version_upgrade  = true
   allow_major_version_upgrade = false
-  backup_retention_period     = 7
+  backup_retention_period     = 1
   backup_window               = "06:00-07:00"
   maintenance_window          = "Sun:07:00-Sun:08:00"
   copy_tags_to_snapshot       = true
@@ -201,13 +213,9 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot         = false
   final_snapshot_identifier   = "espacigo-final-snapshot-${var.environment}"
 
-  db_name  = "espacigo_${var.environment}"
-  username = "espacigo_admin"
-  password = "change-me-via-secretsmanager-or-cli"
-
-  lifecycle {
-    ignore_changes = [password]
-  }
+  db_name                     = "espacigo_${var.environment}"
+  username                    = "espacigo_admin"
+  manage_master_user_password = true
 
   tags = {
     Name = "espacigo-rds-${var.environment}"
@@ -237,6 +245,33 @@ module "iam" {
   account_id  = data.aws_caller_identity.current.account_id
   aws_region  = var.aws_region
   bucket_arns = values(module.s3_storage.bucket_arns)
+}
+
+resource "aws_iam_role_policy" "ecs_pull_images" {
+  name = "espacigo-ecs-pull-images"
+  role = module.iam.ecs_task_execution_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer"
+        ]
+        Resource = [for repo in ["espacigo-api", "espacigo-web", "espacigo-dbmigrate"] :
+          "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${repo}"
+        ]
+      }
+    ]
+  })
 }
 
 # 8. Módulo SSM Parameters

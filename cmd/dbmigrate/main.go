@@ -18,6 +18,9 @@ func main() {
 	schemaOnly := flag.Bool("schema-evidence-only", false, "print the packaged IMG-01 catalog evidence in a read-only transaction")
 	planOnly := flag.Bool("plan-only", false, "print the read-only applied/pending migration inventory without executing SQL")
 	requireCurrent := flag.Bool("require-current", false, "fail a read-only plan if the migration ledger is absent or has pending migrations")
+	awsBootstrap := flag.Bool("aws-bootstrap-v80", false, "initialize the canonical V1..V80 RDS ledger before the owner handoff")
+	awsRuntime := flag.Bool("aws-runtime-v83", false, "install the initial API runtime grants on the reviewed RDS V83 baseline")
+	awsRelease := flag.Bool("aws-release", false, "apply policy-approved expansion migrations to the initialized production RDS database")
 	releaseMode := flag.Bool("release", false, "apply a pinned private Cloud SQL release and print its checked result")
 	releaseSHA := flag.String("release-source-sha", "", "full source SHA embedded in the release image")
 	releaseInventory := flag.String("release-inventory-sha256", "", "reviewed migration inventory fingerprint")
@@ -54,6 +57,25 @@ func main() {
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
 		os.Exit(2)
+	}
+	if *awsRelease || *awsBootstrap || *awsRuntime {
+		mode := "aws-release"
+		if *awsBootstrap {
+			mode = "aws-bootstrap-v80"
+		} else if *awsRuntime {
+			mode = "aws-runtime-v83"
+		}
+		exclusive := true
+		flag.Visit(func(f *flag.Flag) { exclusive = exclusive && (f.Name == mode || f.Name == "dir") })
+		if !exclusive {
+			fmt.Fprintln(os.Stderr, "AWS migration requires one exclusive mode")
+			os.Exit(2)
+		}
+		if err := runAWSMigration(os.Stdout, *migrationDir, mode, os.Getenv); err != nil {
+			fmt.Fprintf(os.Stderr, "AWS migration failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	var nativeModeSelected, recoveryModeSelected bool
 	flag.Visit(func(f *flag.Flag) {
@@ -424,7 +446,16 @@ func main() {
 			fmt.Fprintln(os.Stderr, "-confirm-f5-admin-migration is valid only for migration execution")
 			os.Exit(2)
 		}
-		plan, err := migrator.Plan(ctx, settings.databaseURL, *migrationDir, settings.setRole)
+		databaseURL := settings.databaseURL
+		var password string
+		if settings.passwordFile != "" {
+			databaseURL, password, err = settings.databaseURLAndPasswordFile()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(2)
+			}
+		}
+		plan, err := migrator.PlanWithPassword(ctx, databaseURL, password, *migrationDir, settings.setRole)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "migration plan failed: %v\n", err)
 			os.Exit(1)

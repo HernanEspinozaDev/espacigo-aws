@@ -148,6 +148,11 @@ output "ecs_task_execution_role_arn" {
   value       = aws_iam_role.ecs_task_execution_role.arn
 }
 
+output "ecs_task_execution_role_name" {
+  description = "Nombre del rol de ejecución de tareas ECS"
+  value       = aws_iam_role.ecs_task_execution_role.name
+}
+
 output "api_task_role_arn" {
   description = "ARN del rol de runtime de la API Go"
   value       = aws_iam_role.api_task_role.arn

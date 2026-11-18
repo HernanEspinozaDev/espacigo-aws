@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"strings"
 	"time"
@@ -22,6 +21,7 @@ type E1MigrationOperation struct {
 	After         SingleOwnerAuthorityProfile
 	Backup        MigrationBackupReceipt
 	RestoreBinary string
+	RDS           *E1RDSTransport `json:",omitempty"`
 }
 
 type E1MigrationReport struct {
@@ -37,18 +37,26 @@ type E1MigrationReport struct {
 // ObserveE1MigrationAuthority returns unapproved metadata only. It does not
 // learn/approve a profile and cannot stage or apply SQL.
 func ObserveE1MigrationAuthority(ctx context.Context, target SingleOwnerMigrationTarget, scope SingleOwnerAuthorityProfile) (SingleOwnerAuthorityObservation, error) {
+	return ObserveE1OperationAuthority(ctx, E1MigrationOperation{
+		Migration: SingleOwnerMigrationContract{Target: target}, Before: scope,
+	})
+}
+
+// ObserveE1OperationAuthority reads the operation's scope over its pinned transport.
+func ObserveE1OperationAuthority(ctx context.Context, op E1MigrationOperation) (SingleOwnerAuthorityObservation, error) {
 	zero := SingleOwnerAuthorityObservation{}
+	target, scope := op.Migration.Target, op.Before
 	if target.SessionUser != "espacigo_migrator_login" || target.EffectiveRole != "espacigo_schema_owner" || target.OccupancyOwner != target.EffectiveRole || target.LedgerOwner != target.EffectiveRole {
 		return zero, errors.New("E1 inspection requires the named existing migrator/schema owner")
 	}
 	if err := validateOperationalAuthorityProfile(scope); err != nil {
 		return zero, err
 	}
-	cfg, err := e1ConnectionConfig(target)
+	cfg, err := e1ConnectionConfig(op)
 	if err != nil {
 		return zero, err
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := connectE1(ctx, cfg, op.RDS != nil)
 	if err != nil {
 		return zero, errors.New("E1 inspection connection failed")
 	}
@@ -66,13 +74,13 @@ func validateE1Operation(op E1MigrationOperation) error {
 	if !validDatabaseRoleName(t.Database) || t.SessionUser != "espacigo_migrator_login" || t.EffectiveRole != "espacigo_schema_owner" || t.OccupancyOwner != t.EffectiveRole || t.LedgerOwner != t.EffectiveRole {
 		return errors.New("E1 requires the existing non-admin migrator and one unchanged schema owner")
 	}
-	if !((net.ParseIP(t.Host) != nil && net.ParseIP(t.Host).IsLoopback()) || strings.HasPrefix(t.Host, "/")) {
-		return errors.New("E1 transport must be explicit local loopback or Unix socket")
+	if err := validateE1Transport(op); err != nil {
+		return err
 	}
 	if op.Backup.SourceCommit != op.Source.Commit || op.Backup.Database != t.Database || op.Backup.DatabaseOID != t.DatabaseOID || op.Backup.SystemIdentifier != t.SystemIdentifier || op.Backup.ServerVersionNum != t.ServerVersionNum {
 		return errors.New("backup provenance differs from the reviewed source/target")
 	}
-	if op.Source.InventorySHA256 != op.Migration.InventorySHA256 {
+	if int64(len(op.Source.Entries)) == op.Migration.Version && op.Source.InventorySHA256 != op.Migration.InventorySHA256 {
 		return errors.New("source and execution inventory differ")
 	}
 	for _, p := range []SingleOwnerAuthorityProfile{op.Before, op.After} {
@@ -90,7 +98,11 @@ func validateE1Operation(op E1MigrationOperation) error {
 	return nil
 }
 
-func e1ConnectionConfig(t SingleOwnerMigrationTarget) (*pgx.ConnConfig, error) {
+func e1ConnectionConfig(op E1MigrationOperation) (*pgx.ConnConfig, error) {
+	if err := validateE1Transport(op); err != nil {
+		return nil, err
+	}
+	t := op.Migration.Target
 	for _, v := range os.Environ() {
 		k, _, _ := strings.Cut(v, "=")
 		if strings.HasPrefix(k, "PG") {
@@ -99,7 +111,7 @@ func e1ConnectionConfig(t SingleOwnerMigrationTarget) (*pgx.ConnConfig, error) {
 	}
 	cfg, err := pgx.ParseConfig("sslmode=disable")
 	if err != nil {
-		return nil, errors.New("construct local E1 connection")
+		return nil, errors.New("construct E1 connection configuration")
 	}
 	cfg.Host = t.Host
 	cfg.Port = t.Port
@@ -110,7 +122,24 @@ func e1ConnectionConfig(t SingleOwnerMigrationTarget) (*pgx.ConnConfig, error) {
 	cfg.Fallbacks = nil
 	cfg.ConnectTimeout = 5 * time.Second
 	cfg.RuntimeParams = map[string]string{"application_name": "espacigo-e1-migrator", "search_path": "public"}
+	if op.RDS != nil {
+		if err := configureE1RDS(cfg, *op.RDS); err != nil {
+			return nil, err
+		}
+	}
 	return cfg, nil
+}
+
+func connectE1(ctx context.Context, cfg *pgx.ConnConfig, rds bool) (*pgx.Conn, error) {
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err == nil && rds {
+		err = verifyE1RDSTLS(conn, cfg.Host)
+		if err != nil {
+			_ = conn.Close(context.Background())
+			return nil, err
+		}
+	}
+	return conn, err
 }
 
 func beginE1Inspection(ctx context.Context, conn *pgx.Conn, target SingleOwnerMigrationTarget) (pgx.Tx, error) {
@@ -168,6 +197,24 @@ func inspectE1State(ctx context.Context, conn *pgx.Conn, op E1MigrationOperation
 	return CompareSingleOwnerAuthorityProfile(profile, actual)
 }
 
+// verifyE1OperationSource verifies every migration in the pinned commit, then
+// isolates the explicitly authorized prefix. A newer SQL file in main cannot
+// be omitted from provenance checks or included in this single-version operation.
+func verifyE1OperationSource(ctx context.Context, repoDir string, op E1MigrationOperation) ([]Migration, error) {
+	full, err := VerifyMigrationSource(ctx, repoDir, op.Source)
+	if err != nil {
+		return nil, err
+	}
+	if op.Migration.Version < 1 || op.Migration.Version > int64(len(full)) {
+		return nil, errors.New("E1 version is outside the verified source inventory")
+	}
+	prefix := full[:op.Migration.Version]
+	if err := validateSingleOwnerMigrationContractForTransport(op.Migration, prefix, op.RDS != nil); err != nil {
+		return nil, err
+	}
+	return prefix, nil
+}
+
 // RunE1MigrationOperation stages reviewed source and validates a real archive
 // before opening a database connection. apply=false is read-only preflight.
 // No catch/retry replays a writer. A commit/postcheck error must be reconciled.
@@ -176,23 +223,24 @@ func RunE1MigrationOperation(ctx context.Context, repoDir, stageDir string, op E
 	if err := validateE1Operation(op); err != nil {
 		return report, err
 	}
-	inventory, err := StageVerifiedMigrationSource(ctx, repoDir, op.Source, stageDir)
+	verified, err := verifyE1OperationSource(ctx, repoDir, op)
 	if err != nil {
 		return report, err
 	}
-	if err := validateSingleOwnerMigrationContract(op.Migration, inventory); err != nil {
+	inventory, err := stageVerifiedMigrationInventory(ctx, verified, stageDir)
+	if err != nil {
 		return report, err
 	}
 	if err := ValidateMigrationBackupArchive(ctx, op.Backup, op.RestoreBinary); err != nil {
 		return report, err
 	}
-	cfg, err := e1ConnectionConfig(op.Migration.Target)
+	cfg, err := e1ConnectionConfig(op)
 	if err != nil {
 		return report, err
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := connectE1(ctx, cfg, op.RDS != nil)
 	if err != nil {
-		return report, errors.New("connect to the exact local E1 transport failed")
+		return report, errors.New("connect to the reviewed E1 transport failed")
 	}
 	defer conn.Close(context.Background())
 	if err := inspectE1State(ctx, conn, op, inventory, false); err != nil {
@@ -223,7 +271,7 @@ func RunE1MigrationOperation(ctx context.Context, repoDir, stageDir string, op E
 		}
 		return CompareSingleOwnerAuthorityProfile(profile, actual)
 	}
-	applied, err := RunSingleOwnerMigrationWithAuthority(ctx, conn, stageDir, op.Migration, guard)
+	applied, err := runSingleOwnerMigration(ctx, conn, stageDir, op.Migration, guard, op.RDS != nil)
 	report.Committed = applied.Committed
 	report.CommitOutcome = "not_committed"
 	if applied.CommitUncertain {
@@ -236,7 +284,7 @@ func RunE1MigrationOperation(ctx context.Context, repoDir, stageDir string, op E
 		return report, err
 	}
 	// Fresh connection, not only a new transaction on the writer.
-	reader, err := pgx.ConnectConfig(ctx, cfg)
+	reader, err := connectE1(ctx, cfg, op.RDS != nil)
 	if err != nil {
 		return report, errors.New("E1 committed; independent postcheck connection failed; do not replay")
 	}
@@ -255,18 +303,15 @@ func VerifyE1MigrationOperation(ctx context.Context, repoDir string, op E1Migrat
 	if err := validateE1Operation(op); err != nil {
 		return report, err
 	}
-	inventory, err := VerifyMigrationSource(ctx, repoDir, op.Source)
+	inventory, err := verifyE1OperationSource(ctx, repoDir, op)
 	if err != nil {
 		return report, err
 	}
-	if err := validateSingleOwnerMigrationContract(op.Migration, inventory); err != nil {
-		return report, err
-	}
-	cfg, err := e1ConnectionConfig(op.Migration.Target)
+	cfg, err := e1ConnectionConfig(op)
 	if err != nil {
 		return report, err
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := connectE1(ctx, cfg, op.RDS != nil)
 	if err != nil {
 		return report, errors.New("E1 readback connection failed")
 	}

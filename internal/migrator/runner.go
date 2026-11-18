@@ -102,9 +102,18 @@ type migrationRange struct{ minApplied, maxVersion int64 }
 // transaction. It does not create a history table, acquire an advisory lock,
 // or execute migration SQL.
 func Plan(ctx context.Context, databaseURL, migrationDir, setRole string) (PlanResult, error) {
+	return PlanWithPassword(ctx, databaseURL, "", migrationDir, setRole)
+}
+
+// PlanWithPassword accepts a password separately from the connection URL.
+// An empty password preserves pgx's usual credential resolution.
+func PlanWithPassword(ctx context.Context, databaseURL, password, migrationDir, setRole string) (PlanResult, error) {
 	config, err := pgx.ParseConfig(databaseURL)
 	if err != nil {
 		return PlanResult{}, errors.New("invalid database connection configuration")
+	}
+	if password != "" {
+		config.Password = password
 	}
 	return planWithConfig(ctx, config, migrationDir, setRole)
 }
@@ -171,9 +180,12 @@ func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, s
 		report.Pending = append(report.Pending, MigrationSummary{Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum})
 	}
 	var needsV84Authority, needsIdentityTailAuthority bool
-	for _, pending := range report.Pending {
-		needsV84Authority = needsV84Authority || needsIdentityDDLAuthority(pending.Version, pending.Name)
-		needsIdentityTailAuthority = needsIdentityTailAuthority || needsIdentityTailDDLAuthority(pending.Version, pending.Name)
+	// A fresh database has no identity schema or ledger to inspect yet.
+	if report.HistoryExists {
+		for _, pending := range report.Pending {
+			needsV84Authority = needsV84Authority || needsIdentityDDLAuthority(pending.Version, pending.Name)
+			needsIdentityTailAuthority = needsIdentityTailAuthority || needsIdentityTailDDLAuthority(pending.Version, pending.Name)
+		}
 	}
 	if needsV84Authority || needsIdentityTailAuthority {
 		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {

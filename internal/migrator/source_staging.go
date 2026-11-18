@@ -16,6 +16,10 @@ func StageVerifiedMigrationSource(ctx context.Context, repoDir string, manifest 
 	if err != nil {
 		return nil, err
 	}
+	return stageVerifiedMigrationInventory(ctx, verified, destination)
+}
+
+func stageVerifiedMigrationInventory(ctx context.Context, verified []Migration, destination string) ([]Migration, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("staging context canceled: %w", err)
 	}

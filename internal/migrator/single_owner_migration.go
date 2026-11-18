@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// SingleOwnerMigrationTarget must be supplied from a separately reviewed local
+// SingleOwnerMigrationTarget must be supplied from a separately reviewed
 // preflight, not learned from the execution connection and silently accepted.
 // Cluster identifier and database OID distinguish same-name replacement targets.
 type SingleOwnerMigrationTarget struct {
@@ -47,6 +47,15 @@ type SingleOwnerMigrationResult struct {
 }
 
 func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrations []Migration) error {
+	return validateSingleOwnerMigrationContractForTransport(c, migrations, false)
+}
+
+func singleOwnerLocalHost(host string) bool {
+	ip := net.ParseIP(host)
+	return filepath.IsAbs(host) || (ip != nil && ip.IsLoopback())
+}
+
+func validateSingleOwnerMigrationContractForTransport(c SingleOwnerMigrationContract, migrations []Migration, rds bool) error {
 	if !validHex(c.InventorySHA256, 64) || !validHex(c.Checksum, 64) || c.Version < 2 {
 		return errors.New("single-owner migration requires exact inventory, version and SQL checksum")
 	}
@@ -69,11 +78,13 @@ func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrat
 		return errors.New("single-owner migration requires one reviewed DO $migration$ block")
 	}
 	t := c.Target
-	ip := net.ParseIP(t.Host)
-	localHost := filepath.IsAbs(t.Host) || (ip != nil && ip.IsLoopback())
+	allowedHost := singleOwnerLocalHost(t.Host)
+	if rds {
+		allowedHost = validateE1RDSTarget(t) && c.Version == 99 && c.Name == e1Version99Name && c.Checksum == e1Version99Checksum
+	}
 	cluster, err := strconv.ParseUint(t.SystemIdentifier, 10, 64)
-	if !localHost || t.Port == 0 || t.Database == "" || t.DatabaseOID == 0 || err != nil || cluster == 0 || t.ServerVersionNum < 180000 || t.ServerVersionNum >= 190000 || !validDatabaseRoleName(t.SessionUser) || !validDatabaseRoleName(t.OccupancyOwner) || !validDatabaseRoleName(t.LedgerOwner) || (t.EffectiveRole != "" && !validDatabaseRoleName(t.EffectiveRole)) {
-		return errors.New("single-owner migration requires an exact local PostgreSQL 18 target and owners")
+	if !allowedHost || t.Port == 0 || t.Database == "" || t.DatabaseOID == 0 || err != nil || cluster == 0 || t.ServerVersionNum < 180000 || t.ServerVersionNum >= 190000 || !validDatabaseRoleName(t.SessionUser) || !validDatabaseRoleName(t.OccupancyOwner) || !validDatabaseRoleName(t.LedgerOwner) || (t.EffectiveRole != "" && !validDatabaseRoleName(t.EffectiveRole)) {
+		return errors.New("single-owner migration requires an exact PostgreSQL 18 target and owners")
 	}
 	if t.EffectiveRole != "" && (t.EffectiveRole != t.OccupancyOwner || t.EffectiveRole != t.LedgerOwner) {
 		return errors.New("single-owner effective role must own occupancy and migration ledger")
@@ -88,7 +99,7 @@ func validateSingleOwnerMigrationContract(c SingleOwnerMigrationContract, migrat
 // operational prerequisites. The caller must close this dedicated connection.
 // A commit error is ambiguous and must be reconciled by a fresh read, not replay.
 func RunSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract) (SingleOwnerMigrationResult, error) {
-	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, nil)
+	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, nil, false)
 }
 
 // RunSingleOwnerMigrationWithAuthority requires a real before/after catalog
@@ -98,10 +109,10 @@ func RunSingleOwnerMigrationWithAuthority(ctx context.Context, conn *pgx.Conn, m
 	if guard == nil {
 		return SingleOwnerMigrationResult{Contract: contract}, errors.New("operational migration requires a nonnil authority gate")
 	}
-	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, guard)
+	return runSingleOwnerMigration(ctx, conn, migrationDir, contract, guard, false)
 }
 
-func runSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract, guard func(context.Context, pgx.Tx, bool) error) (SingleOwnerMigrationResult, error) {
+func runSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir string, contract SingleOwnerMigrationContract, guard func(context.Context, pgx.Tx, bool) error, rds bool) (SingleOwnerMigrationResult, error) {
 	result := SingleOwnerMigrationResult{Contract: contract}
 	if ctx == nil || conn == nil || conn.IsClosed() || conn.PgConn().TxStatus() != 'I' {
 		return result, errors.New("single-owner migration requires an idle dedicated connection")
@@ -110,12 +121,20 @@ func runSingleOwnerMigration(ctx context.Context, conn *pgx.Conn, migrationDir s
 	if err != nil {
 		return result, err
 	}
-	if err := validateSingleOwnerMigrationContract(contract, migrations); err != nil {
+	if err := validateSingleOwnerMigrationContractForTransport(contract, migrations, rds); err != nil {
 		return result, err
 	}
 	cfg := conn.Config()
 	if cfg.Host != contract.Target.Host || cfg.Port != contract.Target.Port || cfg.Database != contract.Target.Database || cfg.User != contract.Target.SessionUser {
 		return result, errors.New("single-owner migration connection differs from reviewed target")
+	}
+	if rds {
+		if guard == nil {
+			return result, errors.New("E1 RDS requires a before/after authority gate")
+		}
+		if err := verifyE1RDSTLS(conn, contract.Target.Host); err != nil {
+			return result, err
+		}
 	}
 	release, err := AcquireMigrationAdvisoryLock(ctx, conn)
 	if err != nil {

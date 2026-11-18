@@ -6,10 +6,11 @@ cd "$ROOT_DIR"
 SCOPE="${1:-full}"
 case "$SCOPE" in
   full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
+  aws-bootstrap) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
   v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
   authority-window) GO_TEST_PATTERN='^Test(NativeKYCAuthorityWindow|OwnerSensitiveMigrationChoreography)Postgres$' ;;
-  *) echo 'usage: test-migration-runner-postgres.sh [full|v19|v76|authority-window]' >&2; exit 2 ;;
+  *) echo 'usage: test-migration-runner-postgres.sh [full|aws-bootstrap|v19|v76|authority-window]' >&2; exit 2 ;;
 esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 if [[ "$SCOPE" == authority-window ]]; then
@@ -98,7 +99,20 @@ env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTION
     cat "$TMP_DIR/results.jsonl" >&2
     exit 1
   }
-if [[ "$SCOPE" == v19 ]]; then
+if [[ "$SCOPE" == aws-bootstrap ]]; then
+  python3 - "$TMP_DIR/results.jsonl" <<'PY'
+import json, sys
+with open(sys.argv[1]) as results:
+    ran = any(
+        event.get("Test") == "TestRunnerAWSBootstrapReferenceCatalogPostgres"
+        and event.get("Action") == "pass"
+        for event in map(json.loads, results)
+    )
+if not ran:
+    raise SystemExit("AWS bootstrap rehearsal was not executed successfully")
+print("PASS: exact V1-V100 migration ledger and reference-only bootstrap")
+PY
+elif [[ "$SCOPE" == v19 ]]; then
   echo 'PASS: isolated disposable PostgreSQL V1-V19 weekly-hours migration and trigger tests.'
 elif [[ "$SCOPE" == v76 ]]; then
   echo 'PASS: isolated disposable PostgreSQL V1-V68-to-V76 gallery capacity transition (10 to 30), concurrent 30th slot, and 31st-slot rejection.'

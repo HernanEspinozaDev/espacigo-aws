@@ -87,19 +87,25 @@ func TestRunnerRefusesToInitializeLedgerBesideExistingApplicationObjects(t *test
 
 func TestPlanOnlyDoesNotInitializeLedgerOrExecutePendingMigrations(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
-		dir := t.TempDir()
-		writeMigration(t, dir, "V000001__plan_probe.sql", "CREATE TABLE public.plan_probe (id integer PRIMARY KEY);\n")
+		dir := filepath.Join("..", "..", "db", "migrations")
+		migrations, err := DiscoverMigrations(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
 		plan, err := Plan(ctx, databaseURL, dir, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !plan.ReadOnly || plan.SessionUser == "" || plan.CurrentUser == "" || plan.SessionUser != plan.CurrentUser || plan.HistoryExists || len(plan.Applied) != 0 || len(plan.Pending) != 1 || plan.Pending[0].Version != 1 {
+		if !plan.ReadOnly || plan.SessionUser == "" || plan.SessionUser != plan.CurrentUser || plan.HistoryExists || len(plan.Applied) != 0 {
+			t.Fatalf("unexpected read-only plan: %#v", plan)
+		}
+		if len(plan.Pending) != len(migrations) || plan.DDLAuthority != nil || plan.IdentityDDLAuthority != nil {
 			t.Fatalf("unexpected read-only plan: %#v", plan)
 		}
 		conn := connectTestDB(t, ctx, databaseURL)
 		defer conn.Close(context.Background())
 		var historyExists, migrationObjectExists bool
-		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL, to_regclass('public.plan_probe') IS NOT NULL`).Scan(&historyExists, &migrationObjectExists); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL, to_regclass('public.espacio') IS NOT NULL`).Scan(&historyExists, &migrationObjectExists); err != nil {
 			t.Fatal(err)
 		}
 		if historyExists || migrationObjectExists {

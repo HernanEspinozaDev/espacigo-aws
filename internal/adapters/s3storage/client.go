@@ -25,11 +25,25 @@ const (
 	defaultRegion      = "us-east-1"
 )
 
-// NewClient creates an S3 client configured for aws-emulator by default.
-// It honors AWS_ENDPOINT_URL, AWS_REGION, AWS_CA_BUNDLE, and
-// AWS_SHARED_CREDENTIALS_FILE, falling back to ~/.aws/emulator/9297 defaults
-// and path-style addressing without ever enabling InsecureSkipVerify.
+// NewClient uses regional AWS S3 in production and aws-emulator otherwise.
+// For the emulator, it honors AWS endpoint, region, CA and credentials overrides
+// and falls back to ~/.aws/emulator/9297 defaults with path-style addressing.
 func NewClient(ctx context.Context) (*s3.Client, error) {
+	if os.Getenv("APP_PROFILE") == "production" {
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithSharedConfigFiles([]string{}),
+			config.WithSharedCredentialsFiles([]string{}),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if cfg.Region == "" {
+			return nil, errors.New("production S3 requires an AWS region")
+		}
+		return s3.NewFromConfig(cfg, func(o *s3.Options) {
+			o.BaseEndpoint = nil
+		}), nil
+	}
 	endpoint := strings.TrimSpace(os.Getenv("AWS_ENDPOINT_URL"))
 	if endpoint == "" {
 		endpoint = defaultEndpointURL

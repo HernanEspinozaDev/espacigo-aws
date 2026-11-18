@@ -13,8 +13,11 @@ RUN mkdir -p /out \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/privacy-cleanup-worker ./cmd/privacy-cleanup-worker \
     && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/netprobe ./cmd/netprobe
 
+ADD --chmod=0444 --checksum=sha256:d46e1bdfda05c8e7644e50930806a19b139a222542bf0348082fb59ece2b5fa5 https://truststore.pki.rds.amazonaws.com/us-east-2/us-east-2-bundle.pem /out/rds-ca.pem
+
 FROM scratch AS api
 COPY --from=api-build --chown=65532:65532 /out/api /api
+COPY --from=api-build /out/rds-ca.pem /etc/ssl/rds-ca.pem
 COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY db/migrations /migrations
 USER 65532:65532

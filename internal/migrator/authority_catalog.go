@@ -71,7 +71,9 @@ func requireV84Catalog(a V84DDLAuthority) error {
 	if c.HelperRole != (V84RoleAttributes{}) || c.DatabaseOwner == "" || c.DatabaseCreate || c.DatabaseOwner == a.SessionUser || c.DatabaseOwner == a.CurrentUser {
 		return errors.New("V84 reachable helper or database authority is unsafe")
 	}
-	if a.PublicSchemaOwner != "pg_database_owner" || a.UsuarioOwner != a.LedgerOwner || (a.UsuarioOwner != "postgres" && a.UsuarioOwner != "espacigo_schema_owner") {
+	reviewedRDSOwner := a.database == "espacigo_prod" && c.DatabaseOwner == "espacigo_admin" && a.UsuarioOwner == c.DatabaseOwner
+	if a.PublicSchemaOwner != "pg_database_owner" || a.UsuarioOwner != a.LedgerOwner ||
+		(a.UsuarioOwner != "postgres" && a.UsuarioOwner != "espacigo_schema_owner" && !reviewedRDSOwner) {
 		return errors.New("V84 object owners require a reviewed authority profile")
 	}
 	if len(c.ACL) == 0 {

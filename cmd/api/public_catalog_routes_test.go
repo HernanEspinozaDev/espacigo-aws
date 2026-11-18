@@ -15,7 +15,7 @@ func TestStandaloneCatalogKeyRequiresPrivateRegularStableFile(t *testing.T) {
 	if err := os.WriteFile(p, []byte(strings.Repeat("ab", 32)), 0600); err != nil {
 		t.Fatal(err)
 	}
-	key, err := localPublicCatalogKey(p)
+	key, err := readPublicCatalogCursorKey(p)
 	if err != nil || len(key) != 32 {
 		t.Fatal("private stable key rejected")
 	}
@@ -23,13 +23,13 @@ func TestStandaloneCatalogKeyRequiresPrivateRegularStableFile(t *testing.T) {
 	if err = os.Symlink(p, link); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = localPublicCatalogKey(link); err == nil {
+	if _, err = readPublicCatalogCursorKey(link); err == nil {
 		t.Fatal("symlink key accepted")
 	}
 	if err = os.Chmod(p, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = localPublicCatalogKey(p); err == nil {
+	if _, err = readPublicCatalogCursorKey(p); err == nil {
 		t.Fatal("public key file accepted")
 	}
 	if err = os.Chmod(p, 0600); err != nil {
@@ -38,10 +38,10 @@ func TestStandaloneCatalogKeyRequiresPrivateRegularStableFile(t *testing.T) {
 	if err = os.WriteFile(p, []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = localPublicCatalogKey(p); err == nil {
+	if _, err = readPublicCatalogCursorKey(p); err == nil {
 		t.Fatal("invalid key accepted")
 	}
-	if _, err = localPublicCatalogKey("relative"); err == nil {
+	if _, err = readPublicCatalogCursorKey("relative"); err == nil {
 		t.Fatal("relative key accepted")
 	}
 }

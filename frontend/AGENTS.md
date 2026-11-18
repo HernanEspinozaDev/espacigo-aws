@@ -5,8 +5,8 @@ Estas instrucciones se aplican a `frontend/` y complementan el `AGENTS.md` raíz
 ## Alcance vigente
 
 - El frontend Angular fue rechazado y será sustituido por una aplicación Next.js nueva.
-- Desarrollar en `desarrollo-local` con el stack local y datos sintéticos. Promover a `main` por PR cuando pase la CI.
-- El despliegue de producción se ejecuta desde `main` mediante el workflow de GitHub Actions identificado en la guía raíz.
+- Desarrollar en `desarrollo-local` con el stack local y datos sintéticos. Promover a `main` sólo tras pasar la CI y recibir la autorización de promoción indicada en la guía raíz.
+- GitHub Actions ejecuta la CI y AWS CodePipeline valida el código de `main` antes de la entrega.
 - No usar el navegador o las pestañas del usuario; Playwright solo contra URL y puerto locales comprobados.
 - No modificar backend, SQL, Terraform, IAM, AWS, volúmenes o datos persistentes por inferencia desde una tarea frontend.
 

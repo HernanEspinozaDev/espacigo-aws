@@ -1,0 +1,59 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  build:
+    commands:
+      - |
+        set -euo pipefail
+        export AWS_IGNORE_CONFIGURED_ENDPOINT_URLS=true
+        : "${EXPECTED_AWS_ACCOUNT_ID:?}" "${EXPECTED_AWS_REGION:?}" "${EXPECTED_SOURCE_SHA:?}"
+        [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+        [[ "$CODEBUILD_RESOLVED_SOURCE_VERSION" == "$EXPECTED_SOURCE_SHA" ]]
+        [[ "$AWS_DEFAULT_REGION" == "$EXPECTED_AWS_REGION" ]]
+        [[ "$(aws sts get-caller-identity --query Account --output text)" == "$EXPECTED_AWS_ACCOUNT_ID" ]]
+
+        registry="$EXPECTED_AWS_ACCOUNT_ID.dkr.ecr.$EXPECTED_AWS_REGION.amazonaws.com"
+        tag="$EXPECTED_SOURCE_SHA-cb$CODEBUILD_BUILD_NUMBER"
+        api="$registry/espacigo-api"
+        web="$registry/espacigo-web"
+        migrator="$registry/espacigo-dbmigrate"
+
+        export DOCKER_BUILDKIT=1
+        docker build --platform linux/amd64 --target api --tag "$api:$tag" .
+        docker build --platform linux/amd64 --file frontend/Dockerfile --tag "$web:$tag" frontend
+        docker build --platform linux/amd64 --file Dockerfile.dbmigrate --tag "$migrator:$tag" .
+        docker run --rm --network none "$migrator:$tag" -inventory-only |
+          jq -e '.format == "espacigo.migrations.inventory.v1" and (.migrations | length > 0)' >/dev/null
+
+        aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+        publish() {
+          local repository="$1"
+          local image="$registry/$repository" digest
+          docker push "$image:$tag" >&2
+          digest="$(aws ecr describe-images --repository-name "$repository" \
+            --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || return 1
+          printf '%s@%s\n' "$image" "$digest"
+        }
+
+        api_image="$(publish espacigo-api)"
+        web_image="$(publish espacigo-web)"
+        migrator_image="$(publish espacigo-dbmigrate)"
+        mkdir .espacigo-release
+        jq -n --arg api "$api_image" --arg web "$web_image" \
+          '[{name:"api",imageUri:$api},{name:"web",imageUri:$web}]' \
+          > .espacigo-release/imagedefinitions.json
+        jq -n --arg sha "$EXPECTED_SOURCE_SHA" --arg tag "$tag" \
+          --arg api "$api_image" --arg web "$web_image" --arg migrator "$migrator_image" \
+          '{sha:$sha,tag:$tag,images:{api:$api,web:$web,dbmigrate:$migrator}}' \
+          > .espacigo-release/release.json
+        cat .espacigo-release/release.json
+
+artifacts:
+  base-directory: .espacigo-release
+  files:
+    - imagedefinitions.json
+    - release.json

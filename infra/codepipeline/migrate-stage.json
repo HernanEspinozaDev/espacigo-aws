@@ -1,0 +1,25 @@
+{
+  "name": "Migrate",
+  "actions": [
+    {
+      "name": "ApplyApprovedMigrations",
+      "actionTypeId": {
+        "category": "Build",
+        "owner": "AWS",
+        "provider": "CodeBuild",
+        "version": "1"
+      },
+      "runOrder": 1,
+      "configuration": {
+        "ProjectName": "espacigo-main-migrate",
+        "PrimarySource": "SourceArchive",
+        "EnvironmentVariables": "[{\"name\":\"EXPECTED_SOURCE_SHA\",\"value\":\"#{SourceVariables.CommitId}\",\"type\":\"PLAINTEXT\"}]"
+      },
+      "inputArtifacts": [
+        {"name": "SourceArchive"},
+        {"name": "ReleaseManifest"}
+      ],
+      "outputArtifacts": []
+    }
+  ]
+}

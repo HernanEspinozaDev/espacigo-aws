@@ -35,6 +35,7 @@ type V84RoleAttributes struct {
 }
 
 type V84DDLAuthority struct {
+	database            string
 	SessionUser         string               `json:"session_user"`
 	CurrentUser         string               `json:"current_user"`
 	CurrentSchema       string               `json:"current_schema"`
@@ -117,7 +118,8 @@ func readV84DDLAuthority(ctx context.Context, queryer migrationRowQueryer) (V84D
 	var authority V84DDLAuthority
 	var sessionRoleJSON, schemaOwnerRoleJSON []byte
 	err := queryer.QueryRow(ctx, `
-		SELECT session_user::text,
+		SELECT current_database()::text,
+		       session_user::text,
 		       current_user::text,
 		       COALESCE(current_schema(), ''),
 		       COALESCE((SELECT pg_catalog.jsonb_build_object(
@@ -157,6 +159,7 @@ func readV84DDLAuthority(ctx context.Context, queryer migrationRowQueryer) (V84D
 	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'checksum', 'INSERT') AND
 	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'runner_checksum', 'INSERT')))
 	`).Scan(
+		&authority.database,
 		&authority.SessionUser,
 		&authority.CurrentUser,
 		&authority.CurrentSchema,

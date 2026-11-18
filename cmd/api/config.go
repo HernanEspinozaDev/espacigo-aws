@@ -205,7 +205,15 @@ func loadConfigMode(getenv func(string) string, allowPassfile bool) (config, err
 		return config{}, errors.New("DATABASE_SSLCERT and DATABASE_SSLKEY must be configured together")
 	}
 	passwordPath := strings.TrimSpace(getenv("DATABASE_PASSWORD_FILE"))
-	if passwordPath == "" && !allowPassfile {
+	injectedPassword := getenv("DATABASE_ECS_PASSWORD")
+	if injectedPassword != "" {
+		if getenv("APP_PROFILE") != productionAppProfile || passwordPath != "" || allowPassfile ||
+			strings.TrimSpace(injectedPassword) == "" || strings.ContainsAny(injectedPassword, "\r\n\x00") {
+			return config{}, errors.New("invalid ECS PostgreSQL credential configuration")
+		}
+		cfg.dbPassword = injectedPassword
+	}
+	if passwordPath == "" && injectedPassword == "" && !allowPassfile {
 		return config{}, errors.New("DATABASE_PASSWORD_FILE is required")
 	}
 	if passwordPath != "" {

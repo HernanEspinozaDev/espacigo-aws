@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-func localPublicCatalogKey(path string) ([]byte, error) {
+func readPublicCatalogCursorKey(path string) ([]byte, error) {
 	fail := errors.New("standalone public catalog requires a private stable cursor key file")
 	if !filepath.IsAbs(path) {
 		return nil, fail

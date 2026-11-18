@@ -103,7 +103,7 @@ func run(args []string, out, errOut io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	if *mode == "inspect" {
-		observed, err := migrator.ObserveE1MigrationAuthority(ctx, op.Migration.Target, op.Before)
+		observed, err := migrator.ObserveE1OperationAuthority(ctx, op)
 		if err != nil {
 			fmt.Fprintln(errOut, err)
 			return 1

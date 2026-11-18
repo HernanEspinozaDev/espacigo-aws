@@ -98,3 +98,23 @@ func TestRequireV87DDLAuthorityUsesOwnerAndLedgerWithoutSchemaCreate(t *testing.
 		t.Fatal("V87 accepted authority without migration-ledger INSERT")
 	}
 }
+
+func TestV84RDSOwnershipRequiresTheProductionDatabase(t *testing.T) {
+	a := validV84DDLAuthority()
+	a.database = "espacigo_prod"
+	a.Catalog.DatabaseOwner = "espacigo_admin"
+	a.UsuarioOwner = "espacigo_admin"
+	a.LedgerOwner = "espacigo_admin"
+	if err := requireV84DDLAuthority(a); err != nil {
+		t.Fatalf("reviewed RDS owner rejected: %v", err)
+	}
+	a.database = "espacigo_aws_local"
+	if err := requireV84DDLAuthority(a); err == nil {
+		t.Fatal("RDS ownership exception accepted for another database")
+	}
+	a.database = "espacigo_prod"
+	a.Catalog.DatabaseOwner = "unrelated_owner"
+	if err := requireV84DDLAuthority(a); err == nil {
+		t.Fatal("RDS ownership exception accepted with an unrelated database owner")
+	}
+}

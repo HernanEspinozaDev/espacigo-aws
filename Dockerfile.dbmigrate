@@ -14,12 +14,15 @@ COPY cmd/dbmigrate ./cmd/dbmigrate
 COPY internal/migrator ./internal/migrator
 COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY db/migrations/*.sql /out/migrations/
+ADD --chmod=0444 --checksum=sha256:d46e1bdfda05c8e7644e50930806a19b139a222542bf0348082fb59ece2b5fa5 https://truststore.pki.rds.amazonaws.com/us-east-2/us-east-2-bundle.pem /out/rds-ca.pem
 RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate
 
 FROM scratch
 WORKDIR /app
 COPY --from=build /out/dbmigrate /app/dbmigrate
 COPY --from=build /out/migrations /app/db/migrations
+COPY db/release-policy.json /app/db/release-policy.json
 COPY --from=build /etc/ssl/cert.pem /etc/ssl/cert.pem
+COPY --from=build /out/rds-ca.pem /etc/ssl/rds-ca.pem
 USER 65532:65532
 ENTRYPOINT ["/app/dbmigrate"]

@@ -28,10 +28,10 @@ variable "rds_instance_class" {
   default     = "db.t4g.micro"
 }
 
-variable "rds_multi_az" {
-  description = "Activar Multi-AZ para RDS (desactivado inicialmente para AWS Free Plan < $30/mes)"
-  type        = bool
-  default     = false
+variable "public_tls_certificate_arn" {
+  description = "ARN del certificado ACM emitido en la región del proyecto. Null omite el NLB público."
+  type        = string
+  default     = null
 }
 
 variable "cors_allowed_origins" {
@@ -44,4 +44,17 @@ variable "frontend_public_origin" {
   description = "URL base pública del frontend en producción"
   type        = string
   default     = "https://espacigo.testingpage.store"
+}
+
+
+variable "enable_persistent_secretsmanager_endpoint" {
+  description = "Enable only when private production tasks require continuous access to Secrets Manager."
+  type        = bool
+  default     = false
+}
+
+variable "migrator_seed_image" {
+  description = "Digest of a promoted dbmigrate image used to register the private migration task. Null leaves the task unprovisioned."
+  type        = string
+  default     = null
 }

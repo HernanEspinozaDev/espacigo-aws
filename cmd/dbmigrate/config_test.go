@@ -27,11 +27,11 @@ func TestLoadConnectionSettingsPreservesLocalDatabaseURLMode(t *testing.T) {
 
 func TestLoadConnectionSettingsDirectModeWithRoleAndTimeout(t *testing.T) {
 	values := map[string]string{
-		"DATABASE_URL":            "postgres://migrator@localhost:5432/app?sslmode=disable",
+		"DATABASE_URL":             "postgres://migrator@localhost:5432/app?sslmode=disable",
 		"DATABASE_CONNECTION_MODE": "direct",
-		"DATABASE_PASSWORD_FILE":  "/run/secrets/database-migrator-password/password",
-		"DATABASE_SET_ROLE":       "espacigo_schema_owner",
-		"DBMIGRATE_TIMEOUT":       "4h",
+		"DATABASE_PASSWORD_FILE":   "/run/secrets/database-migrator-password/password",
+		"DATABASE_SET_ROLE":        "espacigo_schema_owner",
+		"DBMIGRATE_TIMEOUT":        "4h",
 	}
 	settings, err := loadConnectionSettings(func(key string) string { return values[key] })
 	if err != nil {
@@ -263,5 +263,36 @@ func TestValidateRuntimeACLAdminIdentityRejectsInsecurePassfileDirectory(t *test
 	validURL := "postgres://postgres@127.0.0.1:15434/espacigo_f5_gate_20261101?sslmode=disable"
 	if err := validateRuntimeACLAdminIdentity(validURL, "direct", ""); err == nil {
 		t.Fatal("accepted a private passfile inside a group/world-accessible directory")
+	}
+}
+
+func TestAWSMigrationPasswordSeparatesECSAndAdminCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "password")
+	if err := os.WriteFile(path, []byte("file-fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, file, injected, want string
+		admin, reject              bool
+	}{
+		{name: "release with injected password", injected: "ecs-fixture", want: "ecs-fixture"},
+		{name: "admin with file", file: path, admin: true, want: "file-fixture"},
+		{name: "admin with injected password", injected: "ecs-fixture", admin: true, reject: true},
+		{name: "two sources", file: path, injected: "ecs-fixture", reject: true},
+		{name: "multiline injection", injected: "ecs\nfixture", reject: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			password, err := awsMigrationPassword(connectionSettings{passwordFile: tc.file}, tc.admin,
+				func(string) string { return tc.injected })
+			if tc.reject {
+				if err == nil {
+					t.Fatal("unexpected credential accepted")
+				}
+				return
+			}
+			if err != nil || password != tc.want {
+				t.Fatal("expected credential source was unavailable")
+			}
+		})
 	}
 }

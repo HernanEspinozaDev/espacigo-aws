@@ -11,7 +11,9 @@ func authPrototypeEnabled(getenv func(string) string) (bool, error) {
 			return false, errors.New("cloud-test profile cannot combine with LOCAL_AUTH_PROTOTYPE")
 		}
 		return true, nil
+	case productionAppProfile:
+		return false, nil
 	default:
-		return false, errors.New("APP_PROFILE must be cloud-test when configured")
+		return false, errors.New("APP_PROFILE must be cloud-test or production when configured")
 	}
 }
