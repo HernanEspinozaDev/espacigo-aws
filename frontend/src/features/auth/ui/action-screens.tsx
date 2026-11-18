@@ -404,11 +404,22 @@ export function VerificationScreen() {
                 Confirmar con Token de Desarrollo (Mailpit)
               </h2>
               <p className="text-xs text-gray-600">
-                Copia los valores del correo capturado en Mailpit (<a href="http://127.0.0.1:8025" target="_blank" rel="noreferrer" className="text-orange-700 underline font-medium">http://127.0.0.1:8025</a>):
+                Copia los valores del correo capturado en Mailpit (
+                <a
+                  href="http://127.0.0.1:8025"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-orange-700 underline font-medium"
+                >
+                  http://127.0.0.1:8025
+                </a>
+                ):
               </p>
               <form onSubmit={handleManualSubmit} className="space-y-3">
                 {manualError ? (
-                  <p className="text-xs font-medium text-red-600">{manualError}</p>
+                  <p className="text-xs font-medium text-red-600">
+                    {manualError}
+                  </p>
                 ) : null}
                 <div className="space-y-1.5">
                   <Label

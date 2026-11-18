@@ -61,7 +61,10 @@ export function validateCsrfOrigin(
         parsedOrigin.hostname === "localhost") &&
       (host.startsWith("127.0.0.1") || host.startsWith("localhost"));
 
-    if (isLocalhost && (parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:")) {
+    if (
+      isLocalhost &&
+      (parsedOrigin.protocol === "http:" || parsedOrigin.protocol === "https:")
+    ) {
       return true;
     }
 

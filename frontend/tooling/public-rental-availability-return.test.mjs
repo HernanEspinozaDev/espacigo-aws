@@ -53,7 +53,9 @@ test("public rental login link uses the access screen's safe return_to contract"
     {
       "@/lib/api/clp": clp,
       "./availability-return": availabilityReturn,
-      "./media": { isPublicUuid: (v) => typeof v === "string" && v.length === 36 },
+      "./media": {
+        isPublicUuid: (v) => typeof v === "string" && v.length === 36,
+      },
     },
   );
   const { resolveReturnParam } = await loadModule(
