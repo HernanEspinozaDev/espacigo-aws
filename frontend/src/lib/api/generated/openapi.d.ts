@@ -424,9 +424,29 @@ export interface paths {
     put?: never;
     /**
      * Aceptar la versión exacta del contrato de ensayo
-     * @description Ambas partes deben aceptar el mismo número de versión y digest antes de habilitar el pago. No constituye firma electrónica ni contrato legal certificado.
+     * @description Guarda la aprobación y firma de prueba del participante para esta versión y digest. El pago se habilita con ambas confirmaciones.
      */
     post: operations["acceptLocalEarlyRentalContract"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/early-rentals/{earlyRentalID}/pay": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Procesar el pago local de prueba
+     * @description Sólo el arrendatario puede pagar después de ambas firmas de prueba. El procesador local confirma el arriendo y devuelve la invoice de prueba. Repetir el pago devuelve el mismo comprobante.
+     */
+    post: operations["payLocalEarlyRental"];
     delete?: never;
     options?: never;
     head?: never;
@@ -3999,6 +4019,19 @@ export interface components {
       /** Format: date-time */
       received_at: string | null;
     };
+    LocalEarlyRentalInvoice: {
+      number: string;
+      /** Format: uuid */
+      rental_id: string;
+      /** Format: uuid */
+      payment_id: string;
+      /** Format: int64 */
+      amount_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      approved_at: string;
+    };
     LocalEarlyRentalDetail: {
       /** Format: uuid */
       id: string;
@@ -4049,6 +4082,7 @@ export interface components {
       identity_confirmations: components["schemas"]["LocalEarlyRentalTimestampPair"];
       contract: components["schemas"]["LocalEarlyRentalContract"];
       payment: components["schemas"]["LocalEarlyRentalPayment"] | null;
+      invoice?: components["schemas"]["LocalEarlyRentalInvoice"];
       allowed_actions: (
         | "confirmar_identidad_simulada"
         | "aceptar_contrato"
@@ -8250,6 +8284,36 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": components["schemas"]["LocalEarlyRentalContractAcceptanceRequest"];
+      };
+    };
+    responses: {
+      200: components["responses"]["LocalEarlyRentalMutation"];
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  payLocalEarlyRental: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag fuerte observado en el detalle. */
+        "If-Match": string;
+      };
+      path: {
+        earlyRentalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["EmptyCommand"];
       };
     };
     responses: {

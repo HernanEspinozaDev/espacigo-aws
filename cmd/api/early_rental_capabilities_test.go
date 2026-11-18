@@ -72,7 +72,7 @@ func TestEarlyRentalCapabilitiesRouteIsRestrictedToStandardLocalRuntime(t *testi
 
 func TestEarlyRentalCapabilitiesRouteIsMountedAndNeverAdvertisesUnreadyFlow(t *testing.T) {
 	mux := http.NewServeMux()
-	if err := registerLocalEarlyRentalCapabilitiesRoute(mux, earlyRentalCapabilitiesAuthStub{}, false, nil); err != nil {
+	if err := registerLocalEarlyRentalCapabilitiesRoute(mux, earlyRentalCapabilitiesAuthStub{}, false, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/local/early-rentals/capabilities", nil)
@@ -84,7 +84,7 @@ func TestEarlyRentalCapabilitiesRouteIsMountedAndNeverAdvertisesUnreadyFlow(t *t
 	}
 
 	requested := http.NewServeMux()
-	if err := registerLocalEarlyRentalCapabilitiesRoute(requested, earlyRentalCapabilitiesAuthStub{}, true, nil); err != nil {
+	if err := registerLocalEarlyRentalCapabilitiesRoute(requested, earlyRentalCapabilitiesAuthStub{}, true, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	req = httptest.NewRequest(http.MethodGet, "/api/v1/local/early-rentals/capabilities", nil)

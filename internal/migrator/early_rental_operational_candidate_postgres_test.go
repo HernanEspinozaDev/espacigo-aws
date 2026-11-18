@@ -33,7 +33,7 @@ func TestRunnerEarlyRentalOperationalCandidatePostgres(t *testing.T) {
 		t.Fatal("requires regular mode-0600 isolated-target marker")
 	}
 	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
-	if err != nil || len(all) != 99 || all[98].Name != "V000099__early_rental_manual_contract.sql" {
+	if err != nil || len(all) < 99 || all[98].Name != "V000099__early_rental_manual_contract.sql" {
 		t.Fatalf("requires canonical V1..V99 inventory: %v", err)
 	}
 	canonical := all[98]

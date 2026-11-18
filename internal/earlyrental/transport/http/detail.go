@@ -39,7 +39,17 @@ type earlyRentalDetailView struct {
 	IdentityConfirmations earlyRentalTimestampPair  `json:"identity_confirmations"`
 	Contract              earlyRentalContractView   `json:"contract"`
 	Payment               *earlyRentalPaymentView   `json:"payment"`
+	Invoice               *earlyRentalInvoice       `json:"invoice,omitempty"`
 	AllowedActions        []earlyrental.CommandKind `json:"allowed_actions"`
+}
+
+type earlyRentalInvoice struct {
+	Number     string    `json:"number"`
+	RentalID   string    `json:"rental_id"`
+	PaymentID  string    `json:"payment_id"`
+	AmountCLP  int64     `json:"amount_clp"`
+	Currency   string    `json:"currency"`
+	ApprovedAt time.Time `json:"approved_at"`
 }
 
 type earlyRentalTimestampPair struct {
@@ -105,6 +115,12 @@ func projectEarlyRentalDetail(offer earlyrental.Offer, actorID string, createdAt
 		view.Payment = &earlyRentalPaymentView{
 			ID: offer.PaymentID, AmountCLP: snapshot.SubtotalCLP, Currency: snapshot.Currency, State: paymentState,
 			SentAt: participantTimeValue(offer.PaymentSentAt), ReceivedAt: participantTimeValue(offer.PaymentReceivedAt),
+		}
+	}
+	if offer.State == earlyrental.StateConfirmed && offer.PaymentReceivedAt != nil {
+		view.Invoice = &earlyRentalInvoice{
+			Number: "INV-TEST-" + offer.PaymentID, RentalID: offer.ID, PaymentID: offer.PaymentID,
+			AmountCLP: snapshot.SubtotalCLP, Currency: snapshot.Currency, ApprovedAt: offer.PaymentReceivedAt.UTC(),
 		}
 	}
 	return earlyRentalDetailEnvelope{Data: view}, nil

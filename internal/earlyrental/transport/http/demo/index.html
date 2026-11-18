@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arriendo de prueba | EspaciGo</title>
+  <link rel="stylesheet" href="./demo.css">
+  <script src="./demo.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <p class="brand">EspaciGo</p>
+    <h1>Arriendo de prueba</h1>
+    <p>Confirma los datos del arriendo y completa un pago en modo de prueba.</p>
+  </header>
+  <form id="login" class="card">
+    <h2>Inicia sesión</h2>
+    <label>Correo <input id="email" type="email" autocomplete="username" required></label>
+    <label>Contraseña <input id="password" type="password" autocomplete="current-password" required></label>
+    <button>Entrar</button>
+  </form>
+  <div id="workspace" hidden>
+    <button id="logout" type="button" class="secondary">Cerrar sesión</button>
+    <form id="open" class="card">
+      <label>ID del arriendo <input id="rental-id" required></label>
+      <button class="secondary">Abrir arriendo</button>
+    </form>
+    <section id="creation" class="card">
+      <h2>Elige una hora</h2>
+      <form id="availability">
+        <label>Espacio publicado <input id="space-id" list="spaces" placeholder="Busca un espacio o pega su UUID" required></label>
+        <datalist id="spaces"></datalist>
+        <label>Fecha <input id="date" type="date" required></label>
+        <button class="secondary">Ver horas disponibles</button>
+      </form>
+      <form id="create" hidden>
+        <label>Hora <select id="slot" required></select></label>
+        <button>Crear arriendo</button>
+      </form>
+    </section>
+    <section id="detail" hidden class="card">
+      <div class="heading-row">
+        <div><h2 id="space-title"></h2><p id="summary"></p></div>
+        <button id="refresh" type="button" class="secondary">Actualizar estado</button>
+      </div>
+      <p><a id="share">Enlace al arriendo</a></p>
+      <fieldset>
+        <legend>Identidad</legend>
+        <label class="check"><input id="identity" type="checkbox"> Verificar mi identidad</label>
+        <p id="identities"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Contrato de prueba</legend>
+        <p id="terms"></p>
+        <label class="check"><input id="approval" type="checkbox"> Apruebo el contrato</label>
+        <label class="check"><input id="signature" type="checkbox"> Firmo el contrato</label>
+        <button id="sign" type="button" class="secondary">Guardar aprobación y firma</button>
+        <p id="signatures"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Pago</legend>
+        <p id="payment-status"></p>
+        <button id="pay" type="button">Pagar</button>
+        <section id="invoice" hidden aria-labelledby="invoice-title">
+          <h3 id="invoice-title">Invoice de prueba</h3>
+          <dl>
+            <dt>Número</dt><dd id="invoice-number"></dd>
+            <dt>Monto</dt><dd id="invoice-total"></dd>
+            <dt>Fecha de aprobación</dt><dd id="invoice-date"></dd>
+            <dt>ID del pago</dt><dd id="invoice-payment"></dd>
+          </dl>
+        </section>
+      </fieldset>
+      <button id="new" type="button" class="secondary">Nuevo arriendo</button>
+    </section>
+  </div>
+  <p id="status" role="status" tabindex="-1"></p>
+</main>
+</body>
+</html>

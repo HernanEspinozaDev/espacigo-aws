@@ -68,6 +68,11 @@ type Command struct {
 	PaymentID        string
 }
 
+type Result struct {
+	Offer                Offer
+	CreatedAt, UpdatedAt time.Time
+}
+
 type Offer struct {
 	ID                string
 	HostID            string
@@ -148,10 +153,19 @@ type Event struct {
 // Apply validates one actor command and returns a new aggregate plus its event.
 // It never mutates the supplied offer; persistence must commit both atomically.
 func Apply(offer Offer, actorID string, command Command, now time.Time) (Offer, Event, error) {
+	return apply(offer, actorID, command, now, false)
+}
+
+// ApproveProcessedPayment applies an already verified processor approval.
+func ApproveProcessedPayment(offer Offer, now time.Time) (Offer, Event, error) {
+	return apply(offer, systemActorID, Command{Kind: CommandReceivePayment, ExpectedRevision: offer.Revision}, now, true)
+}
+
+func apply(offer Offer, actorID string, command Command, now time.Time, processorApproval bool) (Offer, Event, error) {
 	if !validOffer(offer) || actorID == "" || now.IsZero() {
 		return Offer{}, Event{}, ErrInvalid
 	}
-	if actorID != offer.HostID && actorID != offer.RenterID {
+	if !processorApproval && actorID != offer.HostID && actorID != offer.RenterID {
 		return Offer{}, Event{}, ErrForbidden
 	}
 	if command.ExpectedRevision != offer.Revision {
@@ -211,7 +225,7 @@ func Apply(offer Offer, actorID string, command Command, now time.Time) (Offer, 
 		paymentID := command.PaymentID
 		event.PaymentID = &paymentID
 	case CommandReceivePayment:
-		if actorID != offer.HostID {
+		if !processorApproval && actorID != offer.HostID {
 			return Offer{}, Event{}, ErrForbidden
 		}
 		if command.PaymentID != "" {

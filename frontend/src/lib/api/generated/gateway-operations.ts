@@ -1806,6 +1806,16 @@ export const gatewayOperations = [
   },
   {
     method: "POST",
+    path: "/local/early-rentals/{earlyRentalID}/pay",
+    operationId: "payLocalEarlyRental",
+    query: [],
+    headers: ["if-match"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
     path: "/local/early-rentals/{earlyRentalID}/payment-received",
     operationId: "markLocalEarlyRentalPaymentReceived",
     query: [],

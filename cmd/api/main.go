@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -203,6 +204,13 @@ func run() error {
 		return errors.New("invalid API configuration")
 	}
 	defer cfg.close()
+	if earlyRentalActivationRequested {
+		host, _, addrErr := net.SplitHostPort(cfg.httpAddr)
+		if addrErr != nil || !net.ParseIP(host).IsLoopback() {
+			return errors.New("local early rental requires a loopback HTTP address")
+		}
+		cfg.allowedOrigins = append(cfg.allowedOrigins, "http://"+cfg.httpAddr)
+	}
 	businessNow, err := businessclock.FromEnv(os.Getenv)
 	if err != nil {
 		return errors.New("invalid isolated business clock configuration")
@@ -275,11 +283,6 @@ func run() error {
 			return errors.New("local authentication initialization failed")
 		}
 		localIdentityService = service
-		if localEarlyRentalRuntime(os.Getenv) {
-			if err := registerLocalEarlyRentalCapabilitiesRoute(mux, service, earlyRentalActivationRequested, cfg.allowedOrigins); err != nil {
-				return errors.New("local early rental capabilities route registration failed")
-			}
-		}
 		documentVerificationRepository := documentverificationpg.New(pool)
 		documentVerificationService, err := documentverification.NewService(documentVerificationRepository)
 		if err != nil {
@@ -288,6 +291,11 @@ func run() error {
 		commercialQuoteRepository, err = rentalflowpg.NewRepository(pool, pool, time.Now)
 		if err != nil {
 			return errors.New("public rental availability persistence initialization failed")
+		}
+		if localEarlyRentalRuntime(os.Getenv) {
+			if err := registerLocalEarlyRental(mux, service, commercialQuoteRepository, pool, earlyRentalActivationRequested, cfg.allowedOrigins); err != nil {
+				return err
+			}
 		}
 		publicAvailabilityService, serviceErr := rentalflow.NewAvailabilityService(commercialQuoteRepository, commercialQuoteRepository, time.Now)
 		if serviceErr != nil {
@@ -557,13 +565,9 @@ func run() error {
 			if err != nil {
 				return errors.New("invalid local host response lifetime")
 			}
-			secretBytes, err := os.ReadFile(os.Getenv("LOCAL_PAYMENT_WEBHOOK_SECRET_FILE"))
+			paymentKey, err := localPaymentEventKey()
 			if err != nil {
-				return errors.New("local payment event authentication secret is unavailable")
-			}
-			paymentKey, err := hex.DecodeString(strings.TrimSpace(string(secretBytes)))
-			if err != nil || len(paymentKey) < 32 {
-				return errors.New("local payment event authentication secret is invalid")
+				return err
 			}
 			paymentAdapter, err := fakebooking.NewWithStoreAndClock(paymentKey, bookingpg.New(pool), businessNow)
 			if err != nil {
@@ -1094,4 +1098,16 @@ func checkEndpoint(target string) error {
 		return errors.New("health endpoint is not ready")
 	}
 	return nil
+}
+
+func localPaymentEventKey() ([]byte, error) {
+	secret, err := os.ReadFile(os.Getenv("LOCAL_PAYMENT_WEBHOOK_SECRET_FILE"))
+	if err != nil {
+		return nil, errors.New("local payment event authentication secret is unavailable")
+	}
+	key, err := hex.DecodeString(strings.TrimSpace(string(secret)))
+	if err != nil || len(key) < 32 {
+		return nil, errors.New("local payment event authentication secret is invalid")
+	}
+	return key, nil
 }

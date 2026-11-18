@@ -126,7 +126,7 @@ func readEarlyRentalEvents(ctx context.Context, tx pgx.Tx, actorID, offerID uuid
 		if !ok {
 			return invalid()
 		}
-		if event.Kind != earlyrental.EventOfferExpired && event.ActorID != host.String() && event.ActorID != renter.String() {
+		if event.ActorID != "system" && event.ActorID != host.String() && event.ActorID != renter.String() {
 			return invalid()
 		}
 		switch event.Kind {
@@ -135,7 +135,7 @@ func readEarlyRentalEvents(ctx context.Context, tx pgx.Tx, actorID, offerID uuid
 				return invalid()
 			}
 		case earlyrental.EventPaymentMarkedReceived:
-			if event.ActorID != host.String() {
+			if event.ActorID != host.String() && event.ActorID != "system" {
 				return invalid()
 			}
 		}

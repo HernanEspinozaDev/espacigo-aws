@@ -39,7 +39,7 @@ func mapEarlyRentalEventRecord(row earlyRentalEventRecord) (earlyrental.Event, b
 	if !validEarlyRentalStoredEventTransition(event) {
 		return earlyrental.Event{}, false
 	}
-	if event.Kind == earlyrental.EventOfferExpired {
+	if event.Kind == earlyrental.EventOfferExpired || (event.Kind == earlyrental.EventPaymentMarkedReceived && row.ActorID == "") {
 		if row.ActorID != "" {
 			return earlyrental.Event{}, false
 		}

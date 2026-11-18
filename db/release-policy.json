@@ -12,6 +12,12 @@
     }
   },
   "review_required_migrations": {
+    "V000100__early_rental_local_payment.sql": {
+      "checksum": "24554d7716ce5bcc8d5e3f50cbce2d2a39efaf3314132eccdad311d683644ea6",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Local early-rental processor receipts extend the V99 audit trail and preserve existing manual receipts."
+    },
     "V000099__early_rental_manual_contract.sql": {
       "checksum": "ff466a678929b32d413128f1a885b9bfce3177c5176be1d7ab3ea2d2eab1fa29",
       "strategy": "security-tightening",

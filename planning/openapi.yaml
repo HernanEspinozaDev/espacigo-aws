@@ -1159,7 +1159,7 @@ paths:
       operationId: acceptLocalEarlyRentalContract
       tags: [ M06 local ]
       summary: Aceptar la versión exacta del contrato de ensayo
-      description: Ambas partes deben aceptar el mismo número de versión y digest antes de habilitar el pago. No constituye firma electrónica ni contrato legal certificado.
+      description: Guarda la aprobación y firma de prueba del participante para esta versión y digest. El pago se habilita con ambas confirmaciones.
       parameters:
         - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
@@ -1169,6 +1169,31 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/LocalEarlyRentalContractAcceptanceRequest" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /local/early-rentals/{earlyRentalID}/pay:
+    post:
+      operationId: payLocalEarlyRental
+      tags: [ M06 local ]
+      summary: Procesar el pago local de prueba
+      description: Sólo el arrendatario puede pagar después de ambas firmas de prueba. El procesador local confirma el arriendo y devuelve la invoice de prueba. Repetir el pago devuelve el mismo comprobante.
+      parameters:
+        - { name: earlyRentalID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match, in: header, required: true, description: ETag fuerte observado en el detalle., schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmptyCommand" }
       responses:
         "200": { $ref: "#/components/responses/LocalEarlyRentalMutation" }
         "400": { $ref: "#/components/responses/BadRequest" }
@@ -6069,6 +6094,17 @@ components:
         state: { type: string, enum: [ enviado, recibido, anulado, vencido ] }
         sent_at: { type: [ string, "null" ], format: date-time }
         received_at: { type: [ string, "null" ], format: date-time }
+    LocalEarlyRentalInvoice:
+      type: object
+      additionalProperties: false
+      required: [ number, rental_id, payment_id, amount_clp, currency, approved_at ]
+      properties:
+        number: { type: string }
+        rental_id: { type: string, format: uuid }
+        payment_id: { type: string, format: uuid }
+        amount_clp: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, const: CLP }
+        approved_at: { type: string, format: date-time }
     LocalEarlyRentalDetail:
       type: object
       additionalProperties: false
@@ -6096,6 +6132,7 @@ components:
         identity_confirmations: { $ref: "#/components/schemas/LocalEarlyRentalTimestampPair" }
         contract: { $ref: "#/components/schemas/LocalEarlyRentalContract" }
         payment: { oneOf: [ { $ref: "#/components/schemas/LocalEarlyRentalPayment" }, { type: "null" } ] }
+        invoice: { $ref: "#/components/schemas/LocalEarlyRentalInvoice" }
         allowed_actions:
           type: array
           uniqueItems: true

@@ -163,6 +163,9 @@ func earlyRentalEventActorRole(offer earlyrental.Offer, event earlyrental.Event)
 	case earlyrental.EventOfferCreated, earlyrental.EventPaymentMarkedSent:
 		return earlyRentalRoleRenter, event.ActorID == offer.RenterID
 	case earlyrental.EventPaymentMarkedReceived:
+		if event.ActorID == earlyRentalSystemID {
+			return earlyRentalRoleSystem, true
+		}
 		return earlyRentalRoleHost, event.ActorID == offer.HostID
 	case earlyrental.EventOfferExpired:
 		return earlyRentalRoleSystem, event.ActorID == earlyRentalSystemID

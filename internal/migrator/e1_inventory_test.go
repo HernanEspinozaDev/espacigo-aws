@@ -12,7 +12,7 @@ func TestE1CanonicalMigrationIsManualAndMatchesReviewedSQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 99 || all[98].Version != 99 || all[98].Name != "V000099__early_rental_manual_contract.sql" {
+	if len(all) < 99 || all[98].Version != 99 || all[98].Name != "V000099__early_rental_manual_contract.sql" {
 		t.Fatal("E1 canonical inventory must be contiguous through V99")
 	}
 	candidate, err := os.ReadFile(filepath.Join("testdata", "early_rental_operational_candidate.sql"))

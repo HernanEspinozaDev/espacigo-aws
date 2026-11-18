@@ -144,7 +144,7 @@ cmd_api() {
 
   # Base de datos
   export DATABASE_CONNECTION_MODE="direct"
-  export DATABASE_HOST="$DB_HOST"
+  export DATABASE_HOST="${ESPACIGO_LOCAL_DB_HOST:-$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER")}"
   export DATABASE_PORT="$DB_PORT"
   export DATABASE_NAME="$DB_NAME"
   export DATABASE_USER="espacigo_api_login"
