@@ -4,8 +4,8 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 remote_url="${2:-}"
 case "$remote_url" in
-  https://github.com/HernanEspinozaDev/espaciGo|https://github.com/HernanEspinozaDev/espaciGo.git) ;;
-  *) echo 'Push rechazado: usa el remoto HTTPS verificado de HernanEspinozaDev/espaciGo.' >&2; exit 1 ;;
+  https://github.com/HernanEspinozaDev/espacigo-aws|https://github.com/HernanEspinozaDev/espacigo-aws.git) ;;
+  *) echo 'Push rechazado: usa el remoto HTTPS verificado de HernanEspinozaDev/espacigo-aws.' >&2; exit 1 ;;
 esac
 
 while read -r local_ref local_sha remote_ref remote_sha; do
