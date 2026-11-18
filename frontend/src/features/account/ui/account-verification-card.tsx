@@ -131,7 +131,23 @@ function AuthenticatedAccountVerificationCard({
         );
         return;
       }
-      setStatus({ kind: "ready", verified: true });
+      const eligibilityResult = await apiClient.GET("/verifications/eligibility");
+      const items = eligibilityResult.data?.items ?? [];
+      const kycVerified = items.some(
+        (item) => item.type === "kyc" && item.eligible === true,
+      );
+      const isApproved =
+        (result.data as { state?: string } | undefined)?.state === "aprobada";
+
+      if (kycVerified || isApproved) {
+        setChecked(true);
+        setStatus({ kind: "ready", verified: true });
+      } else {
+        setChecked(false);
+        setActionError(
+          "La verificación no pudo confirmarse de inmediato. Inténtalo de nuevo.",
+        );
+      }
     } catch (error: unknown) {
       if (isAbortError(error)) return;
       setChecked(false);

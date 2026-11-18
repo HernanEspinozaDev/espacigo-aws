@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -198,7 +199,7 @@ func mountProductionAuth(
 	baseVerificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins)
 	quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
-			handleProductionQuickVerification(w, r, service, verificationService, verificationRepo)
+			handleQuickVerification(w, r, service, verificationService, verificationRepo)
 			return
 		}
 		baseVerificationHandler.ServeHTTP(w, r)
@@ -209,12 +210,20 @@ func mountProductionAuth(
 	return service, nil
 }
 
-func handleProductionQuickVerification(
+type quickVerificationAuthorizer interface {
+	Authorize(ctx context.Context, token identity.Secret, requiredRole identity.Role, activity identity.ActivityKind) (identity.Principal, error)
+}
+
+type quickVerificationReviewer interface {
+	Review(ctx context.Context, id, reviewer string, approved bool, reason string, clock func() time.Time) (verification.Case, error)
+}
+
+func handleQuickVerification(
 	w http.ResponseWriter,
 	r *http.Request,
-	auth *identity.AuthenticationService,
+	auth quickVerificationAuthorizer,
 	service *verification.Service,
-	repo *verificationpg.Repository,
+	repo quickVerificationReviewer,
 ) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -254,6 +263,8 @@ func handleProductionQuickVerification(
 	if item.State == "en_revision" {
 		if approved, reviewErr := repo.Review(r.Context(), item.ID, principal.AccountID, true, "", time.Now); reviewErr == nil {
 			item = approved
+		} else {
+			log.Printf("quick verification review error: %v", reviewErr)
 		}
 	}
 	w.WriteHeader(http.StatusCreated)
