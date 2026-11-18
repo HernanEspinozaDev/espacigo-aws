@@ -1,0 +1,46 @@
+{
+  "scope": "Plataforma EspaciGo — Chile",
+  "status": "Política de privacidad y tratamiento de datos personales vigente desde el 18 de noviembre de 2026.",
+  "id": "00000000-0000-4000-8000-000000000102",
+  "code": "espacigo-privacidad-20261118-v1",
+  "type": "privacidad",
+  "title": "Política de privacidad",
+  "sections": [
+    {
+      "heading": "1. Responsable del tratamiento y compromiso de privacidad",
+      "body": "Esta Política de privacidad describe cómo EspaciGo recopila, utiliza, protege, conserva y permite gestionar los datos personales de los usuarios que visitan el catálogo, crean una cuenta, verifican su identidad, publican espacios o celebran contratos de arriendo en Chile. El tratamiento de datos personales se realiza conforme a la Ley N° 19.628 sobre Protección de la Vida Privada, los principios y estándares de actualización introducidos por la Ley N° 21.719 y las demás normas chilenas aplicables."
+    },
+    {
+      "heading": "2. Categorías de datos personales que recopilamos",
+      "body": "Recopilamos únicamente los datos necesarios para cada etapa del servicio: (a) Datos de cuenta y acceso: dirección de correo electrónico, contraseña almacenada exclusivamente mediante hash criptográfico (bcrypt), estado de verificación del correo y registro con sello de tiempo de la aceptación de Términos y Política de privacidad; (b) Datos de verificación de identidad y titularidad (KYC): nombre legal declarado, RUT chileno resguardado mediante huella criptográfica HMAC-SHA256 para prevenir duplicidad de cuentas, y evidencias documentales o biométricas requeridas para publicar o arrendar; (c) Datos de publicaciones, contratos y operaciones: características y fotografías de los espacios, comuna y región, cotizaciones, contratos de arriendo, comprobantes de pago, actas de entrega/recepción y antecedentes de disputas; (d) Datos técnicos y de seguridad: dirección IP para prevención de abuso y límites de tasa, identificadores de sesión y eventos de auditoría."
+    },
+    {
+      "heading": "3. Finalidades y bases de legitimación del tratamiento",
+      "body": "Tratamos tus datos personales sobre la base de tu consentimiento expreso al registrarte, la ejecución de medidas precontractuales y contractuales al publicar o arrendar un espacio, el cumplimiento de obligaciones legales y el interés legítimo en la seguridad de la plataforma. En particular, utilizamos la información para: autenticar tu acceso y enviar enlaces de verificación o recuperación; validar la identidad de Anfitriones y Arrendatarios; mostrar en el catálogo público únicamente la información comercial del espacio y su ubicación referencial (región y comuna) sin exponer datos privados antes de una reserva confirmada; formalizar y respaldar contratos de arriendo; gestionar cobros, garantías y disputas; y prevenir fraudes o accesos no autorizados."
+    },
+    {
+      "heading": "4. Comunicaciones transaccionales, infraestructura y encargados de tratamiento",
+      "body": "EspaciGo no vende, arrienda ni comercializa datos personales a terceros. Para operar el servicio utilizamos proveedores tecnológicos bajo estrictos controles de seguridad y confidencialidad: infraestructura en la nube de Amazon Web Services (bases de datos relacionales Amazon RDS PostgreSQL en subred privada, almacenamiento de objetos Amazon S3 con cifrado y bloqueo de acceso público, y gestión de credenciales en AWS Secrets Manager), servicios de envío de correo electrónico transaccional autenticado (Zoho Mail y Amazon SES) para notificaciones de cuenta y arriendo, y servicios especializados de verificación de identidad (Didit) cuando inicias un flujo KYC."
+    },
+    {
+      "heading": "5. Medidas de seguridad, cifrado y minimización de datos",
+      "body": "Aplicamos diseño seguro y privilegio mínimo en toda nuestra arquitectura: todas las conexiones utilizan cifrado TLS; las contraseñas nunca se almacenan en texto plano y los enlaces de verificación o recuperación emplean tokens de un solo uso con expiración acotada (24 horas para verificación y 15 minutos para recuperación); las fotografías públicas, evidencias operativas y documentos de verificación se almacenan en contenedores privados separados; las declaraciones de identidad sensibles se cifran en reposo y los archivos temporales de verificación documental se depuran automáticamente conforme a las políticas de retención una vez concluida su revisión."
+    },
+    {
+      "heading": "6. Conservación, retención y eliminación de la información",
+      "body": "Conservamos los datos de tu cuenta mientras la mantengas activa. Los documentos de verificación de identidad y las evidencias temporales están sujetos a ciclos automatizados de expiración y purga para evitar el almacenamiento innecesario de imágenes sensibles. Cuando solicitas la eliminación o supresión de tu cuenta, EspaciGo ejecuta la baja de tus credenciales y datos de perfil, conservando únicamente de forma bloqueada y por los plazos legales de prescripción aquellos registros estrictamente indispensables para respaldar contratos celebrados, obligaciones tributarias o disputas pendientes."
+    },
+    {
+      "heading": "7. Derechos del titular (Acceso, Rectificación, Cancelación, Oposición y Portabilidad)",
+      "body": "Como titular de tus datos personales puedes ejercer en cualquier momento tus derechos de acceso, rectificación, cancelación o supresión, oposición y portabilidad. Desde tu panel de cuenta en EspaciGo dispones de herramientas directas para consultar tus datos registrados, descargar un archivo estructurado de portabilidad con tu información y aceptaciones históricas, y registrar solicitudes formales de derechos o supresión de cuenta. Si mantienes reservas activas, contratos en curso o disputas abiertas, la supresión definitiva quedará sujeta al cierre de dichas obligaciones."
+    },
+    {
+      "heading": "8. Uso de cookies y sesiones técnicas",
+      "body": "EspaciGo utiliza únicamente cookies técnicas, almacenamiento de sesión y encabezados de seguridad estrictamente necesarios para mantener tu sesión autenticada, proteger los formularios contra falsificación de solicitudes y asegurar la continuidad del flujo de reserva. No utilizamos cookies de seguimiento publicitario de terceros ni perfiles comerciales externos."
+    },
+    {
+      "heading": "9. Vigencia, trazabilidad de versiones y contacto de privacidad",
+      "body": "Cada versión de esta Política de privacidad se publica con un identificador único y huella criptográfica SHA-256 verificable en la plataforma, garantizando que el texto aceptado al momento del registro permanezca íntegro y auditable. Ante cualquier consulta sobre privacidad, protección de datos o ejercicio de derechos, puedes utilizar el módulo de solicitudes en tu perfil de usuario o comunicarte con nuestro equipo en contacto@hotusoft.com (y en contacto@espacigo.cl)."
+    }
+  ]
+}

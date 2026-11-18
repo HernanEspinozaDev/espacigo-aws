@@ -9,6 +9,10 @@
     "V000098__space_inventory_and_calendar_rules.sql": {
       "checksum": "a12e56098d68a4d683ff2bca5fb975d96fa6ec6853675336a8bd318c595339f2",
       "strategy": "expand"
+    },
+    "V000101__publish_production_consent_documents.sql": {
+      "checksum": "5f970f3830f701409db3b133aa4231e59fd1dce846754888adc2a2961ac64109",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

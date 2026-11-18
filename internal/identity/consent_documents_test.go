@@ -20,4 +20,19 @@ func TestConsentDocumentsMatchAdditivePublishedVersions(t *testing.T) {
 			t.Fatal("document publication/content integrity mismatch")
 		}
 	}
+
+	t.Setenv("APP_PROFILE", "production")
+	prodDocs, err := PublicConsentDocuments()
+	if err != nil || len(prodDocs) != 2 {
+		t.Fatal("read production consent documents")
+	}
+	prodMigration, err := os.ReadFile("../../db/migrations/V000101__publish_production_consent_documents.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range prodDocs {
+		if !strings.Contains(string(prodMigration), d.ID) || !strings.Contains(string(prodMigration), d.SHA256) || len(d.Sections) < 5 || d.Status == "" {
+			t.Fatal("production document publication/content integrity mismatch")
+		}
+	}
 }
