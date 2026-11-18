@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/workspace/ui/button";
+import { useAccount } from "@/features/account/ui/use-account";
 import { useAuth } from "./use-auth";
 import { useSessionIdentity } from "./use-session-identity";
 
@@ -14,8 +16,15 @@ export interface SessionControlsProps {
 export function SessionControls({ variant }: SessionControlsProps) {
   const router = useRouter();
   const { status, accountId, label } = useSessionIdentity();
+  const { snapshot: accountSnapshot, loadProfilePhoto } = useAccount();
   const { logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
+
+  useEffect(() => {
+    if (status === "authenticated" && accountId) {
+      void loadProfilePhoto();
+    }
+  }, [accountId, loadProfilePhoto, status]);
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -52,6 +61,27 @@ export function SessionControls({ variant }: SessionControlsProps) {
   if (status === "authenticated") {
     const displayIdentity =
       (label && label.length > 0 ? label : accountId) ?? "";
+    const profilePhoto = accountSnapshot.photoUrl;
+    const avatar = (
+      <span
+        aria-hidden="true"
+        className="relative inline-flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+      >
+        {profilePhoto ? (
+          <Image
+            src={profilePhoto}
+            alt=""
+            fill
+            sizes="28px"
+            unoptimized
+            className="object-cover"
+          />
+        ) : (
+          (Array.from(displayIdentity.trim())[0]?.toLocaleUpperCase("es") ??
+          "?")
+        )}
+      </span>
+    );
 
     if (variant === "workspace") {
       return (
@@ -62,6 +92,7 @@ export function SessionControls({ variant }: SessionControlsProps) {
           >
             Mi cuenta
           </Link>
+          {avatar}
           <span
             className="inline-block max-w-[110px] min-[390px]:max-w-[130px] sm:max-w-[200px] truncate text-sm font-medium text-gray-700"
             title={displayIdentity || undefined}
@@ -84,6 +115,7 @@ export function SessionControls({ variant }: SessionControlsProps) {
 
     return (
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        {avatar}
         <span
           className="inline-block max-w-[75px] min-[390px]:max-w-[95px] sm:max-w-[180px] truncate text-sm font-medium text-foreground"
           title={displayIdentity || undefined}

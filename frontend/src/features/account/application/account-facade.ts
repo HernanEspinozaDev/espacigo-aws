@@ -106,6 +106,7 @@ export class AccountFacade {
   #exportAbortController: AbortController | null = null;
   #updateAbortController: AbortController | null = null;
   #archiveAbortController: AbortController | null = null;
+  #photoLoadController: AbortController | null = null;
   #activeControllers = new Set<AbortController>();
   #epoch = 0;
   #snapshot: AccountSnapshot = initialSnapshot;
@@ -193,6 +194,10 @@ export class AccountFacade {
     if (this.#archiveAbortController) {
       this.#archiveAbortController.abort();
       this.#archiveAbortController = null;
+    }
+    if (this.#photoLoadController) {
+      this.#photoLoadController.abort();
+      this.#photoLoadController = null;
     }
     for (const controller of this.#activeControllers) {
       controller.abort();
@@ -319,6 +324,67 @@ export class AccountFacade {
     } finally {
       if (this.#abortController === controller) {
         this.#abortController = null;
+      }
+    }
+  }
+
+  async loadProfilePhoto(signal?: AbortSignal): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return;
+    }
+    if (this.#snapshot.photoUrl || this.#photoLoadController) return;
+
+    const controller = new AbortController();
+    this.#photoLoadController = controller;
+    this.#activeControllers.add(controller);
+    const activeSignal = signal
+      ? AbortSignal.any([controller.signal, signal])
+      : controller.signal;
+    const epoch = this.#epoch;
+    try {
+      const photo = await this.#port.getProfilePhoto(activeSignal);
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#photoLoadController !== controller
+      )
+        return;
+      if (!photo) {
+        privateBlobUrls.revoke(PHOTO_BLOB_RESOURCE_KEY);
+        this.#setSnapshot({ photo: null, photoUrl: null });
+        return;
+      }
+      const blob = await this.#port.getProfilePhotoContent(activeSignal);
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#photoLoadController !== controller
+      )
+        return;
+      if (!blob) {
+        this.#setSnapshot({ photo: null, photoUrl: null });
+        return;
+      }
+      const photoUrl = privateBlobUrls.create(
+        PHOTO_BLOB_RESOURCE_KEY,
+        blob,
+      ).url;
+      this.#setSnapshot({ photo, photoUrl });
+    } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) return;
+      if (isAuthError(err)) {
+        this.clear();
+        try {
+          void this.#authSource?.checkSession?.().catch(() => undefined);
+        } catch {
+          /* best effort */
+        }
+      }
+    } finally {
+      this.#activeControllers.delete(controller);
+      if (this.#photoLoadController === controller) {
+        this.#photoLoadController = null;
       }
     }
   }
