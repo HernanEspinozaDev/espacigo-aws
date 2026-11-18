@@ -21,6 +21,11 @@ data "aws_secretsmanager_secret" "api" {
   name  = "espacigo/${var.environment}/database/api"
 }
 
+data "aws_secretsmanager_secret" "auth_smtp" {
+  count = local.provision_app ? 1 : 0
+  name  = "espacigo/${var.environment}/auth/smtp"
+}
+
 resource "aws_cloudwatch_log_group" "app" {
   count             = local.provision_app ? 1 : 0
   name              = "/aws/ecs/${local.app_family}"
@@ -54,9 +59,12 @@ resource "aws_iam_role_policy" "app_execution" {
         Resource = "${aws_cloudwatch_log_group.app[0].arn}:log-stream:application/*"
       },
       {
-        Effect   = "Allow"
-        Action   = "secretsmanager:GetSecretValue"
-        Resource = data.aws_secretsmanager_secret.api[0].arn
+        Effect = "Allow"
+        Action = "secretsmanager:GetSecretValue"
+        Resource = [
+          data.aws_secretsmanager_secret.api[0].arn,
+          data.aws_secretsmanager_secret.auth_smtp[0].arn,
+        ]
         Condition = {
           StringEquals = { "aws:SourceVpce" = try(aws_vpc_endpoint.private_services["secretsmanager"].id, "") }
         }
@@ -122,10 +130,16 @@ resource "aws_ecs_task_definition" "app" {
         BLOB_STORE_BACKEND     = "s3"
         S3_STORAGE_BUCKET      = module.s3_storage.bucket_names.evidence
         S3_MEDIA_BUCKET        = module.s3_storage.bucket_names.media
+        AUTH_SMTP_HOST         = "smtp.zoho.com"
+        AUTH_SMTP_PORT         = "587"
+        AUTH_SMTP_SECURITY     = "starttls"
+        AUTH_SMTP_USERNAME     = "contacto@hotusoft.com"
+        AUTH_SMTP_FROM         = "contacto@hotusoft.com"
       } : { name = name, value = value }]
       secrets = [
         { name = "DATABASE_ECS_PASSWORD", valueFrom = "${data.aws_secretsmanager_secret.api[0].arn}:password::" },
         { name = "PUBLIC_CATALOG_ECS_CURSOR_KEY", valueFrom = "${data.aws_secretsmanager_secret.api[0].arn}:cursor_key::" },
+        { name = "AUTH_SMTP_ECS_PASSWORD", valueFrom = "${data.aws_secretsmanager_secret.auth_smtp[0].arn}:password::" },
       ]
       logConfiguration = {
         logDriver = "awslogs"
