@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { PublicSpaceDetail } from "../domain/types";
 import { safePublicText } from "../domain/presentation";
+import { PublicHostAvatar } from "./public-host-avatar";
 
 const dynamicText = "min-w-0 break-words [overflow-wrap:anywhere]";
 
@@ -34,14 +35,6 @@ function attributeValue(value: boolean | number | string | string[]): string {
   if (typeof value === "boolean") return value ? "Sí" : "No";
   if (Array.isArray(value)) return value.map(humanize).join(", ");
   return typeof value === "string" ? humanize(value) : String(value);
-}
-
-function hostInitials(name: string | null): string {
-  const words = (name ?? "Anfitrión").trim().split(/\s+/).filter(Boolean);
-  return words
-    .slice(0, 2)
-    .map((word) => Array.from(word)[0]?.toLocaleUpperCase("es") ?? "")
-    .join("");
 }
 
 function joinedLabel(value: string): string | null {
@@ -145,12 +138,10 @@ export function PublicSpaceDetails({
           Quién publica
         </h2>
         <div className="flex min-w-0 items-start gap-4 rounded-xl border border-border p-5">
-          <div
-            aria-hidden="true"
-            className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted font-semibold"
-          >
-            {hostInitials(space.host?.name ?? null)}
-          </div>
+          <PublicHostAvatar
+            name={space.host?.name ?? null}
+            imageUrl={space.host?.avatar_url}
+          />
           <div className="min-w-0 space-y-2">
             <p className={`${dynamicText} font-medium`}>
               {hostName || "Anfitrión"}

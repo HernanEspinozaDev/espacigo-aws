@@ -99,6 +99,7 @@ const base = {
 };
 const host = {
   name: null,
+  avatar_url: null,
   joined_at: "2020-01-02T03:04:05Z",
   spaces_count: 0,
   identity_verified: false,

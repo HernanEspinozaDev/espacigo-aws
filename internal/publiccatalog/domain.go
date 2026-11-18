@@ -90,6 +90,7 @@ type Space struct {
 
 type PublicHost struct {
 	Name             *string   `json:"name"`
+	AvatarURL        *string   `json:"avatar_url"`
 	JoinedAt         time.Time `json:"joined_at"`
 	SpacesCount      int       `json:"spaces_count"`
 	IdentityVerified bool      `json:"identity_verified"`
@@ -183,6 +184,9 @@ type PublicAttributeRepository interface {
 type PublicImageRepository interface {
 	PublicImage(context.Context, string, string) (PublicImage, error)
 	PublicMediaVariant(context.Context, string, string, string) (PublicImage, error)
+}
+type PublicHostAvatarRepository interface {
+	PublicHostAvatar(context.Context, string) (PublicImage, error)
 }
 type PublicImageStore interface {
 	Get(context.Context, string) ([]byte, error)

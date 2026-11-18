@@ -37,10 +37,10 @@ func TestDetailHostWireUsesCurrentIdentityAndNullablePublicName(t *testing.T) {
 			if err = json.Unmarshal(envelope.Data["host"], &host); err != nil {
 				t.Fatal(err)
 			}
-			if len(host) != 4 {
+			if len(host) != 5 {
 				t.Fatalf("host keys=%v", host)
 			}
-			for _, key := range []string{"name", "joined_at", "spaces_count", "identity_verified"} {
+			for _, key := range []string{"name", "avatar_url", "joined_at", "spaces_count", "identity_verified"} {
 				if _, ok := host[key]; !ok {
 					t.Fatalf("missing host key %q", key)
 				}
@@ -52,6 +52,9 @@ func TestDetailHostWireUsesCurrentIdentityAndNullablePublicName(t *testing.T) {
 			expectedVerified, _ := json.Marshal(verified)
 			if string(host["identity_verified"]) != string(expectedVerified) {
 				t.Fatalf("identity=%s", host["identity_verified"])
+			}
+			if string(host["avatar_url"]) != `"/api/v1/public/spaces/`+id+`/host/avatar"` {
+				t.Fatalf("avatar_url=%s", host["avatar_url"])
 			}
 			if string(host["joined_at"]) != `"2020-01-02T03:04:05Z"` || string(host["spaces_count"]) != "3" {
 				t.Fatalf("host metadata=%v", host)

@@ -243,6 +243,11 @@ function publicSpaceHost(
   const joinedAt = host.joined_at;
   if (
     !(host.name === null || typeof host.name === "string") ||
+    !(
+      host.avatar_url === undefined ||
+      host.avatar_url === null ||
+      typeof host.avatar_url === "string"
+    ) ||
     typeof joinedAt !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T/.test(joinedAt) ||
     !Number.isFinite(Date.parse(joinedAt)) ||
@@ -254,6 +259,11 @@ function publicSpaceHost(
     return null;
   return {
     name: host.name,
+    avatar_url:
+      typeof host.avatar_url === "string" &&
+      host.avatar_url.startsWith("/api/v1/")
+        ? `/api/backend${host.avatar_url.slice("/api/v1".length)}`
+        : null,
     joined_at: joinedAt,
     spaces_count: host.spaces_count,
     identity_verified: host.identity_verified,

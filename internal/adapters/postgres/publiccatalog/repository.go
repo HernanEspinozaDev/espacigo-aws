@@ -401,7 +401,8 @@ func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space
 	if hostName.Valid {
 		hostPublicName = &hostName.String
 	}
-	v.Host = &publiccatalog.PublicHost{Name: hostPublicName, JoinedAt: hostJoinedAt, SpacesCount: int(hostSpacesCount), IdentityVerified: v.Verification.IdentityVerified}
+	avatarURL := "/api/v1/public/spaces/" + v.SpaceID + "/host/avatar"
+	v.Host = &publiccatalog.PublicHost{Name: hostPublicName, AvatarURL: &avatarURL, JoinedAt: hostJoinedAt, SpacesCount: int(hostSpacesCount), IdentityVerified: v.Verification.IdentityVerified}
 	if scheduleJSON != nil {
 		var schedule publiccatalog.PublicWeeklySchedule
 		if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
@@ -476,6 +477,21 @@ SELECT v.mime_type,v.sha256,v.size_bytes,v.object_key,v.bucket_name,v.generation
 FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id JOIN public.media_variant v ON v.media_id=a.id
 JOIN eligible e ON e.id=sm.espacio_id AND e.propietario_id=sm.propietario_id
 WHERE sm.id=$2 AND sm.retired_at IS NULL AND sm.visible AND a.estado='ready' AND v.variant=$3 AND v.variant IN ('display','thumbnail')`, spaceID, imageID, variant).
+		Scan(&item.MIME, &item.SHA256, &item.Size, &item.ObjectKey, &item.Bucket, &item.Generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+	}
+	return item, err
+}
+
+func (r *Repository) PublicHostAvatar(ctx context.Context, spaceID string) (publiccatalog.PublicImage, error) {
+	var item publiccatalog.PublicImage
+	err := r.pool.QueryRow(ctx, `WITH eligible AS (SELECT e.id,e.propietario_id`+eligiblePublicSQL+` AND e.id=$1)
+SELECT v.mime_type,v.sha256,v.size_bytes,v.object_key,v.bucket_name,v.generation
+FROM eligible e
+JOIN public.media_asset a ON a.propietario_id=e.propietario_id AND a.espacio_id IS NULL AND a.proposito='perfil' AND a.estado='ready'
+JOIN public.media_variant v ON v.media_id=a.id AND v.variant='avatar'
+ORDER BY a.updated_at DESC,a.id DESC LIMIT 1`, spaceID).
 		Scan(&item.MIME, &item.SHA256, &item.Size, &item.ObjectKey, &item.Bucket, &item.Generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound

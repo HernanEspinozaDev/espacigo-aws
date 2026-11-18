@@ -46,6 +46,11 @@ new Function("require", "module", "exports", compile(presentationSource))(
   presentationModule,
   presentationModule.exports,
 );
+const hostAvatar = ({ name, imageUrl }) =>
+  React.createElement("span", {
+    "data-avatar-name": name,
+    "data-avatar-url": imageUrl,
+  });
 const localRequire = (id) =>
   id === "react"
     ? React
@@ -55,7 +60,9 @@ const localRequire = (id) =>
         ? {}
         : id === "../domain/presentation"
           ? presentationModule.exports
-          : require(id);
+          : id === "./public-host-avatar"
+            ? { PublicHostAvatar: hostAvatar }
+            : require(id);
 new Function("require", "module", "exports", output.outputText)(
   localRequire,
   componentModule,
@@ -98,6 +105,7 @@ test("detalles públicos presentan valores tipados, anfitrión verificado y priv
         capacity_max: 0,
         host: {
           name: "Ana Pérez ana@example.com",
+          avatar_url: "/api/backend/public/spaces/id/host/avatar",
           joined_at: "2021-04-02T12:00:00Z",
           spaces_count: 2,
           identity_verified: true,
@@ -146,6 +154,7 @@ test("detalles públicos presentan valores tipados, anfitrión verificado y priv
     "No",
     "madera natural",
     "Ana Pérez",
+    'data-avatar-url="/api/backend/public/spaces/id/host/avatar"',
     "[contacto omitido]",
     "0</dd>",
     "Reseñas y recomendaciones",

@@ -1064,6 +1064,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/public/spaces/{spaceID}/host/avatar": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Mostrar avatar del anfitrión de una publicación vigente
+     * @description Revalida que el espacio siga publicado y entrega solo la variante avatar WebP, sin exponer claves internas.
+     */
+    get: operations["getPublicHostAvatar"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/public/spaces/{spaceID}/images/{imageID}": {
     parameters: {
       query?: never;
@@ -4438,6 +4458,8 @@ export interface components {
     };
     PublicSpaceHost: {
       name: string | null;
+      /** Format: uri-reference */
+      avatar_url: string | null;
       /** Format: date-time */
       joined_at: string;
       spaces_count: number;
@@ -9544,6 +9566,29 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["PublicSpaceDetailEnvelope"];
+        };
+      };
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getPublicHostAvatar: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Avatar WebP público */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "image/webp": string;
         };
       };
       404: components["responses"]["NotFound"];
