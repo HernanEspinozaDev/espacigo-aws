@@ -237,6 +237,29 @@ resolver_root = 'TestPostgresEarlyRentalSnapshotRuntime'
 required += [resolver_root] + [f'{resolver_root}/{name}' for name in (
     'MigrationOnlyDeniesListingRead', 'SnapshotAvailable', 'CustomTariffConflict',
 )]
+events_root = 'TestPostgresEarlyRentalReadEvents'
+required += [events_root] + [f'{events_root}/{name}' for name in (
+    'FullHistoryBothParticipants', 'CompleteSuffixAndEmptyCursor',
+    'NonParticipantHiddenAtHighCursor', 'BlockedParticipantHiddenAtHighCursor',
+)]
+list_offers_root = 'TestPostgresEarlyRentalListOffers'
+required += [list_offers_root] + [f'{list_offers_root}/{name}' for name in (
+    'BothParticipants', 'OutsiderHidden', 'RoleFiltering',
+    'StableKeysetPages', 'ReadOnlyNoWrites',
+)]
+list_transactions_root = 'TestPostgresEarlyRentalListTransactions'
+required += [list_transactions_root] + [f'{list_transactions_root}/{name}' for name in (
+    'BothParticipants', 'OutsiderHidden', 'InactiveActorHidden', 'BlockedParticipantHidden',
+    'RoleFiltering', 'StateFiltering', 'StableKeysetPages', 'ReadOnlyNoWrites',
+)]
+confirmation_root = 'TestPostgresEarlyRentalApplyConfirmation'
+required += [confirmation_root] + [f'{confirmation_root}/{name}' for name in (
+    'IdentityCommit', 'ContractCommit', 'CallerRollback',
+)]
+payment_send_root = 'TestPostgresEarlyRentalApplyPaymentSend'
+required += [payment_send_root] + [f'{payment_send_root}/{name}' for name in (
+    'SendCommit', 'CallerRollback',
+)]
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:
@@ -251,5 +274,5 @@ if missing:
     raise SystemExit('Required rentalflow cases missing/failed/skipped: ' + ', '.join(missing))
 print('PASS: required rentalflow cases passed: ' + ', '.join(required) + '; fixture is V1..V61 plus exact V99 DDL, not migration history; no persistent database apply.')
 PY
-echo 'PASS: disposable PostgreSQL runner (V1-V98, V75 upgrade, V96-to-V97 authority lifecycle, V97-to-V98 expand, V84 legacy recovery/finalization, quotes/suppression, plan/no-op/failure/checksum/concurrency) and rentalflow availability integration on V1-V61; cleanup checked separately on exit.'
+echo 'PASS: disposable PostgreSQL runner (V1-V98, V75 upgrade, V96-to-V97 authority lifecycle, V97-to-V98 expand, V84 legacy recovery/finalization, quotes/suppression, plan/no-op/failure/checksum/concurrency) and rentalflow availability/early-rental integration on V1-V61 plus exact V99 fixture; cleanup checked separately on exit.'
 fi
