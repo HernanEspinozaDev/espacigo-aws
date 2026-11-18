@@ -18,6 +18,9 @@ import (
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 )
 
+// Bound the entire multipart request and keep it in memory on read-only API containers.
+const maxMultipartUploadBytes = media.MaxInputBytes + (1 << 20)
+
 type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
@@ -104,8 +107,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 404, "not_found", "Recurso no encontrado.")
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, media.MaxInputBytes+(1<<20))
-		parseErr := r.ParseMultipartForm(1 << 20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxMultipartUploadBytes)
+		parseErr := r.ParseMultipartForm(maxMultipartUploadBytes)
 		// Register cleanup before handling parse errors or looking up the
 		// expected field: malformed and missing-field uploads can spill files.
 		defer removeMultipartTempFiles(r)
@@ -170,8 +173,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, http.StatusUnsupportedMediaType, "invalid_content_type", "Adjunta una imagen multipart en el campo image.")
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, media.MaxInputBytes+(1<<20))
-		parseErr := r.ParseMultipartForm(1 << 20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxMultipartUploadBytes)
+		parseErr := r.ParseMultipartForm(maxMultipartUploadBytes)
 		defer removeMultipartTempFiles(r)
 		if parseErr != nil {
 			multipartParseError(w, parseErr)
