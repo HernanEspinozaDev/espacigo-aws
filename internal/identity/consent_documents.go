@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 )
 
 //go:embed consentdocs/*.json
@@ -25,11 +26,15 @@ type ConsentDocument struct {
 	SHA256   string           `json:"-"`
 }
 
-// PublicConsentDocuments are immutable readable evaluation documents. The HTTP
+// PublicConsentDocuments returns the active readable consent documents. The HTTP
 // boundary checks their exact bytes against published DB versions before use.
 func PublicConsentDocuments() ([]ConsentDocument, error) {
+	names := []string{"terms", "privacy"}
+	if os.Getenv("APP_PROFILE") == "production" {
+		names = []string{"production_terms", "production_privacy"}
+	}
 	result := []ConsentDocument{}
-	for _, name := range []string{"terms", "privacy"} {
+	for _, name := range names {
 		data, err := consentFiles.ReadFile("consentdocs/" + name + ".json")
 		if err != nil {
 			return nil, err
