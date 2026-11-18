@@ -64,8 +64,8 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 		},
 		{
 			name:       "PublicSpaceHost",
-			properties: []string{"name", "joined_at", "spaces_count", "identity_verified"},
-			required:   []string{"name", "joined_at", "spaces_count", "identity_verified"},
+			properties: []string{"name", "avatar_url", "joined_at", "spaces_count", "identity_verified"},
+			required:   []string{"name", "avatar_url", "joined_at", "spaces_count", "identity_verified"},
 		},
 		{
 			name:       "PublicSpaceAttribute",
