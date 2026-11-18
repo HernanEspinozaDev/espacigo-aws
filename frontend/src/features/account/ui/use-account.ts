@@ -11,6 +11,7 @@ import type { RightsRequest } from "../domain/privacy";
 export interface AccountView {
   snapshot: AccountSnapshot;
   loadOverview(): Promise<AccountSnapshot>;
+  loadProfilePhoto(): Promise<void>;
   updateProfile(input: {
     displayName: string;
     phone?: string;
@@ -35,6 +36,10 @@ export function useAccount(): AccountView {
   );
 
   const loadOverview = useCallback(() => accountFacade.loadOverview(), []);
+  const loadProfilePhoto = useCallback(
+    () => accountFacade.loadProfilePhoto(),
+    [],
+  );
   const updateProfile = useCallback(
     (input: { displayName: string; phone?: string }) =>
       accountFacade.updateProfile(input),
@@ -77,6 +82,7 @@ export function useAccount(): AccountView {
   return {
     snapshot,
     loadOverview,
+    loadProfilePhoto,
     updateProfile,
     uploadProfilePhoto,
     removeProfilePhoto,

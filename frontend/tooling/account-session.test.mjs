@@ -95,6 +95,26 @@ test("loadOverview tardío tras clear() no debe sobrescribir snapshot limpio", a
   assert.equal(facade.getSnapshot().profile, null);
 });
 
+test("loadProfilePhoto carga el avatar privado sin traer el resto de la cuenta", async () => {
+  const AccountFacade = await loadFacade();
+  AccountFacade.blobEvents.length = 0;
+  const photo = { id: "photo-1", storageKind: "uploaded_avatar" };
+  const content = new Blob(["avatar"]);
+  const facade = new AccountFacade({
+    getProfilePhoto: async () => photo,
+    getProfilePhotoContent: async () => content,
+  });
+
+  await facade.loadProfilePhoto();
+
+  assert.equal(facade.getSnapshot().photo, photo);
+  assert.equal(facade.getSnapshot().photoUrl, "blob:test");
+  assert.deepEqual(
+    AccountFacade.blobEvents.map(({ type, key }) => ({ type, key })),
+    [{ type: "create", key: "account-profile-photo" }],
+  );
+});
+
 test("exportIdentityBlob tardío tras clear() no retorna Blob privado", async () => {
   const AccountFacade = await loadFacade();
   let resolveBlob;
