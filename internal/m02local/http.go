@@ -103,9 +103,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, item)
 		case http.MethodPut:
 			if h.media != nil && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
-				r.Body = http.MaxBytesReader(w, r.Body, media.MaxInputBytes+(1<<20))
-				if err := r.ParseMultipartForm(media.MaxInputBytes); err != nil {
-					write(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
+				const maxMultipartUploadBytes = media.MaxInputBytes + (1 << 20)
+				r.Body = http.MaxBytesReader(w, r.Body, maxMultipartUploadBytes)
+				parseErr := r.ParseMultipartForm(maxMultipartUploadBytes)
+				defer func() {
+					if r.MultipartForm != nil {
+						_ = r.MultipartForm.RemoveAll()
+					}
+				}()
+				if parseErr != nil {
+					var maxBytesErr *http.MaxBytesError
+					if errors.As(parseErr, &maxBytesErr) {
+						write(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
+					} else {
+						write(w, 400, "invalid_request", "El cuerpo multipart no es válido.")
+					}
 					return
 				}
 				file, _, err := r.FormFile("image")
@@ -114,11 +126,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				defer file.Close()
-				defer func() {
-					if r.MultipartForm != nil {
-						_ = r.MultipartForm.RemoveAll()
-					}
-				}()
 				body, err := io.ReadAll(io.LimitReader(file, media.MaxInputBytes+1))
 				if err != nil || len(body) > media.MaxInputBytes {
 					write(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
@@ -127,6 +134,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				result, err := h.media.UploadProfile(r.Context(), p.AccountID, key, body)
 				if err != nil {
 					h.mediaFailure(w, err)
+					return
+				}
+				if result.Pending {
+					h.mediaFailure(w, media.ErrConflict)
 					return
 				}
 				// Retire the legacy synthetic avatar after the real asset is ready so

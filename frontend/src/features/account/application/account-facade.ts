@@ -389,8 +389,31 @@ export class AccountFacade {
     }
   }
 
-  async generateSyntheticPhoto(
+  generateSyntheticPhoto(
     idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.#saveProfilePhoto(
+      (activeSignal) =>
+        this.#port.generateSyntheticPhoto(idempotencyKey, activeSignal),
+      signal,
+    );
+  }
+
+  uploadProfilePhoto(
+    idempotencyKey: string,
+    image: File,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    return this.#saveProfilePhoto(
+      (activeSignal) =>
+        this.#port.uploadProfilePhoto(idempotencyKey, image, activeSignal),
+      signal,
+    );
+  }
+
+  async #saveProfilePhoto(
+    save: (signal: AbortSignal) => Promise<void>,
     signal?: AbortSignal,
   ): Promise<void> {
     if (
@@ -415,7 +438,7 @@ export class AccountFacade {
     this.#setSnapshot({ loading: true, error: null });
 
     try {
-      await this.#port.generateSyntheticPhoto(idempotencyKey, activeSignal);
+      await save(activeSignal);
       if (
         !this.#isCurrent(epoch, activeSignal) ||
         !this.#activeControllers.has(controller)
@@ -431,29 +454,24 @@ export class AccountFacade {
         throw new DOMException("The operation was aborted", "AbortError");
       }
 
-      let photoUrl: string | null = null;
-      if (photo) {
-        const blob = await this.#port.getProfilePhotoContent(activeSignal);
-        if (
-          !this.#isCurrent(epoch, activeSignal) ||
-          !this.#activeControllers.has(controller)
-        ) {
-          throw new DOMException("The operation was aborted", "AbortError");
-        }
-        if (blob) {
-          photoUrl = privateBlobUrls.create(PHOTO_BLOB_RESOURCE_KEY, blob).url;
-        }
+      if (!photo) {
+        throw new Error("No se pudo confirmar la foto guardada.");
       }
 
+      const blob = await this.#port.getProfilePhotoContent(activeSignal);
       if (
         !this.#isCurrent(epoch, activeSignal) ||
         !this.#activeControllers.has(controller)
       ) {
-        if (photoUrl) {
-          privateBlobUrls.revoke(PHOTO_BLOB_RESOURCE_KEY);
-        }
         throw new DOMException("The operation was aborted", "AbortError");
       }
+      if (!blob) {
+        throw new Error("No se pudo cargar la foto guardada.");
+      }
+      const photoUrl = privateBlobUrls.create(
+        PHOTO_BLOB_RESOURCE_KEY,
+        blob,
+      ).url;
 
       this.#setSnapshot({
         photo,

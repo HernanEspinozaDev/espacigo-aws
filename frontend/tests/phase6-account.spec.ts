@@ -238,14 +238,33 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
   expect(diditRequestCount).toBe(0);
 });
 
-test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) carga contenido Blob autenticado (/profile/photo/content), muestra preview con aviso sintético visible y retirar (DELETE /profile/photo) limpia el recurso y revoca Blob URL", async ({
+test("@phase6 @controlled foto de perfil carga un archivo real, permite reemplazarlo y limpia la vista al retirarlo", async ({
   page,
 }) => {
   let hasPhoto = false;
   let putPhotoCount = 0;
   let deletePhotoCount = 0;
   let getContentCount = 0;
-  let lastIdempotencyKey: string | null = null;
+  const uploadKeys: string[] = [];
+  const webp = Buffer.from(
+    "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89WAAAAA==",
+    "base64",
+  );
+  const photo = {
+    id: "550e8400-e29b-41d4-a716-446655440020",
+    state: "ready",
+    variants: [
+      {
+        name: "avatar",
+        mime_type: "image/webp",
+        sha256: "e".repeat(64),
+        size_bytes: webp.length,
+        width: 1,
+        height: 1,
+      },
+    ],
+    created_at: new Date().toISOString(),
+  };
 
   await mockGateway(page, async (pathname, method, request) => {
     if (pathname === "/api/backend/auth/login" && method === "POST") {
@@ -286,29 +305,33 @@ test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) car
       if (!hasPhoto) return apiError(404, "photo_not_found");
       return {
         status: 200,
-        body: {
-          id: "550e8400-e29b-41d4-a716-446655440020",
-          fixture_code: "synthetic-png-v1",
-          mime_type: "image/png",
-          sha256: "e".repeat(64),
-          size_bytes: samplePngBuffer.length,
-          created_at: new Date().toISOString(),
-        },
+        body: photo,
       };
     }
     if (pathname === "/api/backend/profile/photo" && method === "PUT") {
       putPhotoCount += 1;
-      lastIdempotencyKey = request.headers()["idempotency-key"] ?? null;
+      const key = request.headers()["idempotency-key"];
+      expect(key).toBeTruthy();
+      uploadKeys.push(key);
+      expect(request.headers()["content-type"]).toMatch(
+        /^multipart\/form-data; boundary=/,
+      );
+      expect(request.postData()).toContain(
+        'name="image"; filename="perfil.png"',
+      );
+      expect(
+        request.postDataBuffer()?.indexOf(samplePngBuffer),
+      ).toBeGreaterThan(0);
       hasPhoto = true;
-      return { status: 204 };
+      return { status: 201, body: { photo, reused: false } };
     }
     if (pathname === "/api/backend/profile/photo/content" && method === "GET") {
       getContentCount += 1;
       expect(request.headers()["authorization"]).toBeUndefined();
       return {
         status: 200,
-        headers: { "content-type": "image/png" },
-        body: samplePngBuffer,
+        headers: { "content-type": "image/webp" },
+        body: webp,
       };
     }
     if (pathname === "/api/backend/profile/photo" && method === "DELETE") {
@@ -327,31 +350,42 @@ test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) car
 
   await loginAndNavigate(page, "/mi-cuenta");
 
-  // Aviso sintético visible permanentemente
-  await expect(
-    page.getByText(
-      /La foto se descarga como objeto Blob privado autenticado mediante encabezados estrictos/,
-    ),
-  ).toBeVisible();
-
-  const generateButton = page.getByRole("button", {
-    name: "Generar foto sintética",
-  });
-  await expect(generateButton).toBeVisible();
-  const photoPreview = page.getByAltText(
-    "Foto de perfil sintética del usuario",
-  );
+  const uploadButton = page.getByRole("button", { name: "Subir foto" });
+  await expect(uploadButton).toBeEnabled();
+  const photoInput = page.getByLabel("Archivo de foto de perfil");
+  const photoPreview = page.getByAltText("Foto de perfil del usuario");
   await expect(photoPreview).not.toBeVisible();
 
-  // Generar foto sintética
-  await generateButton.click();
+  await photoInput.setInputFiles({
+    name: "perfil.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("archivo incorrecto"),
+  });
   await expect(
-    page.getByText("Foto sintética de ensayo generada con éxito."),
+    page.getByText("Elige una imagen JPG, PNG o WebP."),
   ).toBeVisible();
-  expect(putPhotoCount).toBe(1);
-  expect(lastIdempotencyKey).toBeTruthy();
-  expect(getContentCount).toBeGreaterThanOrEqual(1);
-  await expect(photoPreview).toBeVisible();
+  expect(putPhotoCount).toBe(0);
+
+  const pickedFile = {
+    name: "perfil.png",
+    mimeType: "image/png",
+    buffer: samplePngBuffer,
+  };
+  const chooserPromise = page.waitForEvent("filechooser");
+  await uploadButton.click();
+  await (await chooserPromise).setFiles(pickedFile);
+  await expect(page.getByText("Foto de perfil actualizada.")).toBeVisible();
+  await expect(photoPreview).toHaveAttribute("src", /^blob:/);
+  const firstPreview = await photoPreview.getAttribute("src");
+
+  const changeButton = page.getByRole("button", { name: "Cambiar foto" });
+  await expect(changeButton).toBeEnabled();
+  await photoInput.setInputFiles(pickedFile);
+  await expect.poll(() => putPhotoCount).toBe(2);
+  await expect(photoPreview).not.toHaveAttribute("src", firstPreview!);
+  await expect(photoPreview).toHaveAttribute("src", /^blob:/);
+  expect(new Set(uploadKeys).size).toBe(2);
+  expect(getContentCount).toBeGreaterThanOrEqual(2);
 
   const deleteButton = page.getByRole("button", { name: "Retirar foto" });
   await expect(deleteButton).toBeVisible();

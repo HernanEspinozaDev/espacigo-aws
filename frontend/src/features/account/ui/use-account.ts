@@ -15,7 +15,7 @@ export interface AccountView {
     displayName: string;
     phone?: string;
   }): Promise<Profile>;
-  generateSyntheticPhoto(idempotencyKey: string): Promise<void>;
+  uploadProfilePhoto(idempotencyKey: string, image: File): Promise<void>;
   removeProfilePhoto(idempotencyKey: string): Promise<void>;
   createOrReplacePayoutAccount(
     idempotencyKey: string,
@@ -40,9 +40,9 @@ export function useAccount(): AccountView {
       accountFacade.updateProfile(input),
     [],
   );
-  const generateSyntheticPhoto = useCallback(
-    (idempotencyKey: string) =>
-      accountFacade.generateSyntheticPhoto(idempotencyKey),
+  const uploadProfilePhoto = useCallback(
+    (idempotencyKey: string, image: File) =>
+      accountFacade.uploadProfilePhoto(idempotencyKey, image),
     [],
   );
   const removeProfilePhoto = useCallback(
@@ -78,7 +78,7 @@ export function useAccount(): AccountView {
     snapshot,
     loadOverview,
     updateProfile,
-    generateSyntheticPhoto,
+    uploadProfilePhoto,
     removeProfilePhoto,
     createOrReplacePayoutAccount,
     revokePayoutAccount,

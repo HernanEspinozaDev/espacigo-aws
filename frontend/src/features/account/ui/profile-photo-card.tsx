@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import Image from "next/image";
 import {
   AlertCircle,
   Camera,
   CheckCircle2,
-  FlaskConical,
+  Upload,
   Loader2,
   Trash2,
 } from "lucide-react";
@@ -19,43 +19,55 @@ import {
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { isValidPhotoSize, MAX_PHOTO_SIZE_BYTES } from "../domain/photo";
 import { useAccount } from "./use-account";
-import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 
-export function SyntheticPhotoCard() {
+const photoTypes = ["image/jpeg", "image/png", "image/webp"];
+
+export function ProfilePhotoCard() {
   const { snapshot: authSnapshot } = useAuth();
-  const { snapshot, generateSyntheticPhoto, removeProfilePhoto } = useAccount();
-  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const { snapshot, uploadProfilePhoto, removeProfilePhoto } = useAccount();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [loadingAction, setLoadingAction] = useState<
+    "upload" | "delete" | null
+  >(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    return () => {
-      // Limpieza preventiva de URLs blob de fotos
-      privateBlobUrls.clear();
-    };
-  }, []);
+  const canEdit =
+    authSnapshot.status === "authenticated" &&
+    !loadingAction &&
+    !snapshot.loading;
 
-  const handleGenerate = async () => {
-    if (authSnapshot.status !== "authenticated") return;
+  const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const image = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!image || !canEdit) return;
+
     setError(null);
     setMessage(null);
-    setLoadingAction("generate");
+    if (image.type && !photoTypes.includes(image.type)) {
+      setError("Elige una imagen JPG, PNG o WebP.");
+      return;
+    }
+    if (!isValidPhotoSize(image.size)) {
+      setError("Elige una imagen de hasta 10 MB que no esté vacía.");
+      return;
+    }
+
+    setLoadingAction("upload");
     try {
-      const idempotencyKey = crypto.randomUUID();
-      await generateSyntheticPhoto(idempotencyKey);
-      setMessage("Foto sintética de ensayo generada con éxito.");
+      await uploadProfilePhoto(crypto.randomUUID(), image);
+      setMessage("Foto de perfil actualizada.");
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Error al generar foto sintética",
-      );
+      setError(err instanceof Error ? err.message : "Error al subir la foto.");
     } finally {
       setLoadingAction(null);
     }
   };
 
   const handleDelete = async () => {
-    if (authSnapshot.status !== "authenticated") return;
+    if (!canEdit) return;
     setError(null);
     setMessage(null);
     setLoadingAction("delete");
@@ -73,7 +85,7 @@ export function SyntheticPhotoCard() {
   };
 
   const photoUrl = snapshot.photoUrl;
-  const hasPhoto = Boolean(snapshot.photo && photoUrl);
+  const hasPhoto = Boolean(snapshot.photo);
 
   return (
     <Card aria-labelledby="photo-title">
@@ -83,22 +95,10 @@ export function SyntheticPhotoCard() {
           <CardTitle id="photo-title">Foto de perfil</CardTitle>
         </div>
         <CardDescription>
-          Entorno de pruebas con generación de foto sintética privada.
+          JPG, PNG o WebP. Hasta {MAX_PHOTO_SIZE_BYTES / (1024 * 1024)} MB.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div
-          role="note"
-          className="flex items-start gap-2 rounded-md bg-blue-50 p-3 text-xs text-blue-900 border border-blue-200 dark:bg-blue-950/30 dark:border-blue-800 dark:text-blue-200"
-        >
-          <FlaskConical className="size-4 shrink-0 mt-0.5 text-blue-600" />
-          <div>
-            <span className="font-semibold">Aviso de ensayo:</span> La foto se
-            descarga como objeto Blob privado autenticado mediante encabezados
-            estrictos. No se almacena ni transmite imagen personal real.
-          </div>
-        </div>
-
         {error && (
           <div
             role="alert"
@@ -124,7 +124,7 @@ export function SyntheticPhotoCard() {
             {hasPhoto && photoUrl ? (
               <Image
                 src={photoUrl}
-                alt="Foto de perfil sintética del usuario"
+                alt="Foto de perfil del usuario"
                 fill
                 sizes="112px"
                 unoptimized
@@ -139,23 +139,33 @@ export function SyntheticPhotoCard() {
           </div>
 
           <div className="flex flex-wrap gap-3">
+            <input
+              ref={fileInput}
+              type="file"
+              accept={photoTypes.join(",")}
+              aria-label="Archivo de foto de perfil"
+              onChange={handleUpload}
+              disabled={!canEdit}
+              hidden
+            />
             <Button
               type="button"
-              onClick={handleGenerate}
-              disabled={
-                Boolean(loadingAction) ||
-                authSnapshot.status !== "authenticated"
-              }
+              onClick={() => fileInput.current?.click()}
+              disabled={!canEdit}
             >
-              {loadingAction === "generate" ? (
+              {loadingAction === "upload" ? (
                 <Loader2
                   className="mr-2 size-4 animate-spin"
                   aria-hidden="true"
                 />
               ) : (
-                <FlaskConical className="mr-2 size-4" aria-hidden="true" />
+                <Upload className="mr-2 size-4" aria-hidden="true" />
               )}
-              Generar foto sintética
+              {loadingAction === "upload"
+                ? "Subiendo foto…"
+                : hasPhoto
+                  ? "Cambiar foto"
+                  : "Subir foto"}
             </Button>
 
             {hasPhoto && (
@@ -163,10 +173,7 @@ export function SyntheticPhotoCard() {
                 type="button"
                 variant="destructive"
                 onClick={handleDelete}
-                disabled={
-                  Boolean(loadingAction) ||
-                  authSnapshot.status !== "authenticated"
-                }
+                disabled={!canEdit}
               >
                 {loadingAction === "delete" ? (
                   <Loader2
