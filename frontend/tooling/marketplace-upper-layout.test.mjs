@@ -19,6 +19,7 @@ test("public space upper section composes summary, rental calendar and gallery i
   assert.match(page, /PublicSpaceSummary/);
   assert.match(page, /PublicSpaceMarketplaceGallery/);
   assert.match(page, /PublicSpaceRentalAvailability/);
+  assert.doesNotMatch(page, /PublicWeeklySchedule/);
   assert.match(layout, /lg:grid-cols-12/);
   assert.equal((layout.match(/lg:col-span-4/g) ?? []).length, 3);
 });

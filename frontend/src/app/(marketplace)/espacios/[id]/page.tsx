@@ -24,7 +24,6 @@ import { PublicSpaceSummary } from "@/features/public-catalog/ui/public-space-su
 import { PublicSpaceDetails } from "@/features/public-catalog/ui/public-space-details";
 import { PublicSpaceMarketplaceGallery } from "@/features/public-catalog/ui/public-space-gallery";
 import { PublicSpaceMarketplaceLayout } from "@/features/public-catalog/ui/public-space-marketplace-layout";
-import { PublicWeeklySchedule } from "@/features/public-catalog/ui/public-weekly-schedule";
 
 async function fetchSpaceReviews(spaceId: string) {
   try {
@@ -203,7 +202,6 @@ export default async function PublicSpacePage({
           />
         }
       />
-      <PublicWeeklySchedule schedule={space.weekly_schedule} />
       <div className="mt-8">
         <PublicSpaceDetails space={space} reviews={reviews} />
       </div>
