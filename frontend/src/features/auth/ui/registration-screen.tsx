@@ -13,6 +13,7 @@ import { ApiError, isAbortError } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import type { ConsentSet } from "../domain/consent-documents";
 import { validateConsentDocuments } from "../domain/consent-documents";
 import { onboardingErrorCopy } from "../domain/onboarding-errors";
@@ -100,6 +101,7 @@ export function RegistrationScreen() {
       setConsentIssue(false);
       setRegistrationResult({ email, status });
       router.replace("/registro-exitoso");
+      return;
     } catch (error) {
       setPassword("");
       if (isStaleConsent(error)) {
@@ -123,7 +125,6 @@ export function RegistrationScreen() {
           setAmbiguous(true);
         }
       }
-    } finally {
       setPending(false);
     }
   }
@@ -140,11 +141,7 @@ export function RegistrationScreen() {
       secondaryHref="/acceso"
     >
       <form className="space-y-6" onSubmit={submit}>
-        {loading ? (
-          <p role="status" className="text-sm text-gray-700">
-            Cargando condiciones…
-          </p>
-        ) : null}
+        {loading ? <LoadingSpinner label="Cargando condiciones…" /> : null}
         {termsError ? (
           <div
             ref={noticeRef}
@@ -299,7 +296,11 @@ export function RegistrationScreen() {
           }
           className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
         >
-          {pending ? "Creando cuenta…" : "Crear cuenta"}
+          {pending ? (
+            <LoadingSpinner inline label="Creando cuenta…" />
+          ) : (
+            "Crear cuenta"
+          )}
         </Button>
       </form>
     </AuthShell>

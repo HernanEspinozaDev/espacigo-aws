@@ -13,6 +13,7 @@ import { ApiError, authErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import {
   clearVerificationCompleted,
   markVerificationCompleted,
@@ -48,9 +49,6 @@ export function VerificationScreen() {
   const [ambiguous, setAmbiguous] = useState(false);
   const [isInvalidToken, setIsInvalidToken] = useState(false);
   const [outcome, setOutcome] = useState<ActionTerminalOutcome | null>(null);
-  const [manualTokenId, setManualTokenId] = useState("");
-  const [manualToken, setManualToken] = useState("");
-  const [manualError, setManualError] = useState("");
   const isMountedRef = useRef(true);
   const operationEpochRef = useRef(0);
 
@@ -112,17 +110,6 @@ export function VerificationScreen() {
     setIsInvalidToken(false);
   };
 
-  const handleManualSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setManualError("");
-    const ok = action.setManual(manualTokenId.trim(), manualToken.trim());
-    if (!ok) {
-      setManualError(
-        "Token ID o Token no válido. Verifica que el Token ID sea UUID y el Token contenga los caracteres esperados.",
-      );
-    }
-  };
-
   async function verify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const activeRawCredential = action.credential;
@@ -148,6 +135,7 @@ export function VerificationScreen() {
       action.clear();
       markVerificationCompleted();
       router.replace("/correo-verificado");
+      return;
     } catch (error) {
       if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
         return;
@@ -186,7 +174,6 @@ export function VerificationScreen() {
         );
         setAmbiguous(true);
       }
-    } finally {
       if (isMountedRef.current && operationEpochRef.current === currentEpoch) {
         setPending(false);
       }
@@ -351,9 +338,15 @@ export function VerificationScreen() {
           </div>
         ) : null}
 
-        {probe.isChecking ? (
+        {action.isInitializing || probe.isChecking || pending ? (
           <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-center text-sm text-gray-700">
-            <p className="font-medium">Comprobando enlace...</p>
+            <LoadingSpinner
+              label={
+                pending
+                  ? "Confirmando tu cuenta…"
+                  : "Verificando enlace de confirmación…"
+              }
+            />
           </div>
         ) : probe.isProbeError ? (
           <div className="space-y-4">
@@ -383,7 +376,11 @@ export function VerificationScreen() {
                 disabled={pending || retryRemaining > 0}
                 className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800 disabled:opacity-50"
               >
-                {pending ? "Confirmando..." : "Verificar mi correo"}
+                {pending ? (
+                  <LoadingSpinner inline label="Confirmando…" />
+                ) : (
+                  "Verificar mi correo"
+                )}
               </Button>
             </form>
           </div>
@@ -398,69 +395,6 @@ export function VerificationScreen() {
                 a continuación.
               </p>
             </div>
-
-            <section className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/50 p-4 space-y-3">
-              <h2 className="text-sm font-semibold text-gray-900">
-                Confirmar con Token de Desarrollo (Mailpit)
-              </h2>
-              <p className="text-xs text-gray-600">
-                Copia los valores del correo capturado en Mailpit (
-                <a
-                  href="http://127.0.0.1:8025"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-orange-700 underline font-medium"
-                >
-                  http://127.0.0.1:8025
-                </a>
-                ):
-              </p>
-              <form onSubmit={handleManualSubmit} className="space-y-3">
-                {manualError ? (
-                  <p className="text-xs font-medium text-red-600">
-                    {manualError}
-                  </p>
-                ) : null}
-                <div className="space-y-1.5">
-                  <Label
-                    htmlFor="manual-token-id"
-                    className="text-xs font-semibold uppercase tracking-wider text-gray-500"
-                  >
-                    Token ID
-                  </Label>
-                  <Input
-                    id="manual-token-id"
-                    type="text"
-                    value={manualTokenId}
-                    onChange={(e) => setManualTokenId(e.target.value.trim())}
-                    placeholder="ej. b9f430b0-45d9-4ef6-81f2-617c32cbfa7c"
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label
-                    htmlFor="manual-token"
-                    className="text-xs font-semibold uppercase tracking-wider text-gray-500"
-                  >
-                    Token
-                  </Label>
-                  <Input
-                    id="manual-token"
-                    type="text"
-                    value={manualToken}
-                    onChange={(e) => setManualToken(e.target.value.trim())}
-                    placeholder="ej. 3mLIXsiNm_FDNTIoXQwYoNM6CkNEsJqGws_GVa8T8QA"
-                    required
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
-                >
-                  Cargar y comprobar token
-                </Button>
-              </form>
-            </section>
 
             <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
               <h2 className="text-sm font-semibold text-gray-900">
@@ -490,9 +424,11 @@ export function VerificationScreen() {
                   disabled={reissuePending || retryRemaining > 0}
                   className="min-h-11 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {reissuePending
-                    ? "Solicitando..."
-                    : "Solicitar instrucciones"}
+                  {reissuePending ? (
+                    <LoadingSpinner inline label="Solicitando…" />
+                  ) : (
+                    "Solicitar instrucciones"
+                  )}
                 </Button>
               </form>
             </section>
@@ -863,9 +799,9 @@ export function RecoveryScreen() {
           </p>
         ) : null}
 
-        {probe.isChecking ? (
+        {action.isInitializing || probe.isChecking ? (
           <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-center text-sm text-gray-700">
-            <p className="font-medium">Comprobando enlace...</p>
+            <LoadingSpinner label="Verificando enlace…" />
           </div>
         ) : probe.isProbeError ? (
           <div className="space-y-4">

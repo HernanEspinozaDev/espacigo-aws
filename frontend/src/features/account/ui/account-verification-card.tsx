@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, ArrowRight, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowRight, CheckCircle2, RotateCcw, ShieldCheck } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -11,35 +11,18 @@ import {
   CardTitle,
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
+import { Input } from "@/components/workspace/ui/input";
+import { Label } from "@/components/workspace/ui/label";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { useAuth } from "@/features/auth/ui/use-auth";
-import { useDocumentVerification } from "@/features/document-verification/ui/use-document-verification";
-import type { DocumentVerificationCase } from "@/features/document-verification/domain/document-verification";
+import { apiClient } from "@/lib/api/client";
 import { isAbortError } from "@/lib/api/errors";
+import { serializeExactJson } from "@/lib/api/exact-json";
 
-type IdentityStatusView =
+type VerificationStatusView =
   | { readonly kind: "loading" }
   | { readonly kind: "error" }
-  | {
-      readonly kind: "ready";
-      readonly identityState: DocumentVerificationCase["state"] | null;
-      readonly decisionMessage: string | null;
-    };
-
-const identityCaseMessages: Record<DocumentVerificationCase["state"], string> =
-  {
-    borrador: "Tu solicitud de identidad está en borrador.",
-    enviada: "Tu solicitud fue enviada para revisión.",
-    en_revision: "Tu solicitud está en revisión documental.",
-    requiere_antecedentes:
-      "Necesitamos que corrijas o completes tus documentos.",
-    aprobada:
-      "La revisión documental quedó aprobada. La vigencia efectiva la determina el servidor.",
-    rechazada:
-      "La solicitud fue rechazada. Consulta los detalles en documentos.",
-    vencida: "La solicitud venció. Consulta los pasos para continuar.",
-    revocada:
-      "La revisión fue revocada. La vigencia efectiva la determina el servidor.",
-  };
+  | { readonly kind: "ready"; readonly verified: boolean };
 
 interface AccountVerificationCardProps {
   readonly showDeclarationLink?: boolean;
@@ -76,52 +59,109 @@ function AuthenticatedAccountVerificationCard({
 }: {
   readonly showDeclarationLink: boolean;
 }) {
-  const { loadCases } = useDocumentVerification();
-  const [status, setStatus] = useState<IdentityStatusView>({ kind: "loading" });
+  const [status, setStatus] = useState<VerificationStatusView>({
+    kind: "loading",
+  });
+  const [checked, setChecked] = useState(false);
+  const [optionalName, setOptionalName] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+
   const reload = useCallback(() => {
+    setActionError(null);
     setStatus({ kind: "loading" });
     setReloadToken((value) => value + 1);
   }, []);
 
   useEffect(() => {
-    window.addEventListener("focus", reload);
-    return () => window.removeEventListener("focus", reload);
-  }, [reload]);
-
-  useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
-    void loadCases()
-      .then((cases) => {
+    void apiClient
+      .GET("/verifications/eligibility", { signal: controller.signal })
+      .then((result) => {
         if (cancelled) return;
-        const identityCase = cases.find((item) => item.purpose === "identity");
-        const identityState = identityCase?.state ?? null;
-        setStatus({
-          kind: "ready",
-          // The owner-cases endpoint is ordered by most recently updated first.
-          identityState,
-          decisionMessage:
-            identityState === "requiere_antecedentes"
-              ? (identityCase?.owner_decision_message ?? null)
-              : null,
-        });
+        if (!result.response.ok) {
+          setStatus({ kind: "error" });
+          return;
+        }
+        const items = result.data?.items ?? [];
+        const kycVerified = items.some(
+          (item) => item.type === "kyc" && item.eligible === true,
+        );
+        setChecked(kycVerified);
+        setStatus({ kind: "ready", verified: kycVerified });
       })
       .catch((error: unknown) => {
-        if (!cancelled && !isAbortError(error)) setStatus({ kind: "error" });
+        if (!cancelled && !isAbortError(error)) {
+          setStatus({ kind: "error" });
+        }
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [loadCases, reloadToken]);
+  }, [reloadToken]);
+
+  async function handleQuickVerify(nextChecked: boolean) {
+    setChecked(nextChecked);
+    if (!nextChecked || verifying) return;
+    setVerifying(true);
+    setActionError(null);
+    try {
+      const result = await apiClient.POST("/verifications", {
+        params: {
+          header: {
+            "Idempotency-Key": crypto.randomUUID(),
+          },
+        },
+        body: { type: "kyc" },
+        bodySerializer: serializeExactJson,
+      });
+      if (!result.response.ok) {
+        setChecked(false);
+        setActionError(
+          "No pudimos completar la verificación rápida. Inténtalo de nuevo.",
+        );
+        return;
+      }
+      setStatus({ kind: "ready", verified: true });
+    } catch (error: unknown) {
+      if (isAbortError(error)) return;
+      setChecked(false);
+      setActionError(
+        "No pudimos completar la verificación rápida. Inténtalo de nuevo.",
+      );
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  const isVerified = status.kind === "ready" && status.verified;
 
   return (
     <Card
       aria-labelledby="account-verification-title"
-      className="border-amber-200/80 bg-amber-50/30 dark:border-amber-900/50 dark:bg-amber-950/15"
+      className={
+        isVerified
+          ? "border-emerald-200/80 bg-emerald-50/30 dark:border-emerald-900/50 dark:bg-emerald-950/15"
+          : "border-amber-200/80 bg-amber-50/30 dark:border-amber-900/50 dark:bg-amber-950/15"
+      }
     >
       <CardHeader className="pb-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
+            {isVerified ? (
+              <CheckCircle2
+                className="size-5 text-emerald-600 shrink-0"
+                aria-hidden="true"
+              />
+            ) : (
+              <ShieldCheck
+                className="size-5 text-amber-700 shrink-0"
+                aria-hidden="true"
+              />
+            )}
             <CardTitle
               id="account-verification-title"
               className="text-base sm:text-lg"
@@ -129,27 +169,36 @@ function AuthenticatedAccountVerificationCard({
               Verificación de la cuenta
             </CardTitle>
           </div>
+          {isVerified ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+              <CheckCircle2 className="size-3.5" aria-hidden="true" />
+              Cuenta verificada
+            </span>
+          ) : null}
         </div>
         <CardDescription className="text-sm text-foreground/80 mt-1">
-          Consulta el estado de tu revisión documental propia. La declaración
-          legal y la revisión son pasos separados.
+          {isVerified
+            ? "Tu cuenta se encuentra verificada y lista para operar en EspaciGo."
+            : "Marca la casilla de verificación rápida para activar tu cuenta de inmediato."}
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
-          {status.kind === "loading" && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Consultando el estado de la revisión documental…
-            </p>
-          )}
-          {status.kind === "error" && (
+        <div className="space-y-4">
+          {status.kind === "loading" ? (
+            <LoadingSpinner
+              label="Consultando estado de verificación…"
+              className="min-h-[80px] p-3"
+            />
+          ) : null}
+
+          {status.kind === "error" ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p
                 role="alert"
                 className="flex items-center gap-2 text-sm text-destructive"
               >
                 <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-                No pudimos consultar el estado de tu revisión documental.
+                No pudimos consultar el estado de verificación de tu cuenta.
               </p>
               <Button
                 type="button"
@@ -159,57 +208,85 @@ function AuthenticatedAccountVerificationCard({
                 className="gap-1.5"
               >
                 <RotateCcw className="size-3.5" aria-hidden="true" />
-                Reintentar consulta
+                Reintentar
               </Button>
             </div>
-          )}
-          {status.kind === "ready" && !status.identityState && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <p role="status" className="text-sm text-muted-foreground">
-                Aún no has iniciado una revisión documental propia.
-              </p>
-              <Button asChild size="sm" variant="outline" className="gap-1.5">
-                <Link href="/mi-cuenta/documentos">
-                  Iniciar verificación documental
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Link>
-              </Button>
+          ) : null}
+
+          {status.kind === "ready" && status.verified ? (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-white/80 p-3.5 text-sm text-emerald-900">
+              <div className="flex items-center gap-2.5 font-medium">
+                <CheckCircle2
+                  className="size-5 text-emerald-600 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>
+                  Cuenta verificada correctamente. Ya puedes reservar y publicar
+                  espacios.
+                </span>
+              </div>
+              {showDeclarationLink ? (
+                <Button asChild size="sm" variant="outline" className="gap-1.5">
+                  <Link href="/mi-cuenta/verificaciones">
+                    Ver estado
+                    <ArrowRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+              ) : null}
             </div>
-          )}
-          {status.kind === "ready" && status.identityState && (
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <p role="status" className="text-sm text-muted-foreground">
-                {status.decisionMessage ??
-                  identityCaseMessages[status.identityState]}
-              </p>
-              <Button asChild size="sm" variant="outline" className="gap-1.5">
-                <Link href="/mi-cuenta/documentos">
-                  {status.identityState === "requiere_antecedentes"
-                    ? "Corregir documentos"
-                    : "Ver estado de solicitud"}
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Link>
-              </Button>
-            </div>
-          )}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              La vigencia efectiva se determina en el servidor; esta tarjeta no
-              reemplaza los requisitos de cada operación.
-            </p>
-            {showDeclarationLink && (
-              <Button
-                asChild
-                size="sm"
-                className="shrink-0 gap-1.5 font-medium"
+          ) : null}
+
+          {status.kind === "ready" && !status.verified ? (
+            <div className="space-y-4 rounded-xl border border-amber-200/80 bg-white/90 p-4">
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="quick-verify-name"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Nombre o referencia titular (opcional)
+                </Label>
+                <Input
+                  id="quick-verify-name"
+                  type="text"
+                  value={optionalName}
+                  onChange={(event) => setOptionalName(event.target.value)}
+                  placeholder="Puedes dejarlo en blanco o ingresar tu nombre"
+                  disabled={verifying}
+                  className="max-w-md bg-white"
+                />
+              </div>
+
+              <label
+                htmlFor="quick-verify-checkbox"
+                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-gray-200 bg-gray-50/80 px-3.5 py-2.5 text-sm font-medium text-gray-900 hover:bg-gray-100/80"
               >
-                <Link href="/mi-cuenta/verificaciones">
-                  Ver declaración
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Link>
-              </Button>
-            )}
-          </div>
+                <input
+                  id="quick-verify-checkbox"
+                  type="checkbox"
+                  checked={checked}
+                  disabled={verifying}
+                  onChange={(event) =>
+                    void handleQuickVerify(event.target.checked)
+                  }
+                  className="size-5 shrink-0 rounded accent-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+                />
+                <span>Verificar cuenta</span>
+                {verifying ? (
+                  <LoadingSpinner
+                    inline
+                    label="Verificando…"
+                    className="ml-auto text-orange-700"
+                  />
+                ) : null}
+              </label>
+
+              {actionError ? (
+                <p role="alert" className="text-xs font-medium text-red-700">
+                  {actionError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>

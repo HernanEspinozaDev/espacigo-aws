@@ -13,6 +13,7 @@ import { ApiError, authErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { authFacade } from "../auth-runtime";
 import { useAuth } from "../ui/use-auth";
 import { AuthFeedback, AuthShell } from "./auth-shell";
@@ -88,8 +89,10 @@ export function AccessScreen() {
                 ? "/administracion"
                 : "/mi-cuenta";
           router.replace(target);
+          return;
         } else {
           setMessage("No pudimos confirmar el acceso. Intenta nuevamente.");
+          setPending(false);
         }
       } catch (error) {
         setPassword("");
@@ -98,7 +101,6 @@ export function AccessScreen() {
           const seconds = retryAfterSeconds(error.retryAfter);
           setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         }
-      } finally {
         setPending(false);
       }
     },
@@ -120,6 +122,7 @@ export function AccessScreen() {
           aria-live="polite"
         >
           <span className="sr-only">Redirigiendo…</span>
+          <LoadingSpinner label="Ingresando a tu cuenta…" />
         </div>
       ) : (
         <>
@@ -175,7 +178,11 @@ export function AccessScreen() {
               disabled={pending || retryRemaining > 0}
               className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
             >
-              {pending ? "Conectando…" : "Iniciar sesión"}
+              {pending ? (
+                <LoadingSpinner inline label="Ingresando…" />
+              ) : (
+                "Iniciar sesión"
+              )}
             </Button>
             <p className="text-center text-xs leading-relaxed text-gray-600">
               Tu sesión se conserva mientras esté vigente. Puedes cerrarla
