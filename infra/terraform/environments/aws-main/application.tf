@@ -144,6 +144,7 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         { name = "API_BACKEND_BASE_URL", value = "http://127.0.0.1:8080/api/v1" },
         { name = "FRONTEND_PUBLIC_ORIGIN", value = var.frontend_public_origin },
+        { name = "HOSTNAME", value = "0.0.0.0" },
       ]
       portMappings = [{ containerPort = 4000, hostPort = 4000, protocol = "tcp" }]
       healthCheck = {
