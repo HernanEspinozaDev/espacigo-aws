@@ -159,17 +159,18 @@ func TestInspectRejectsPDFBeforeInvokingPoppler(t *testing.T) {
 	}
 }
 
-func TestPDFInspectorRejectsEscapedJavaScriptActionUsingPoppler(t *testing.T) {
+func TestPDFInspectorRejectsEscapedJavaScriptAction(t *testing.T) {
 	pdfinfo, pdfdetach := popplerBinaries(t)
 	data := syntheticPDF(t, " /Open#41ction << /S /Java#53cript /J#53 (app.alert\\(1\\)) >>")
-	cmd := exec.Command(pdfinfo, "-")
-	cmd.Stdin = bytes.NewReader(data)
-	info, err := cmd.CombinedOutput()
-	if err != nil || !hasPDFInfoField(info, "JavaScript", "yes") {
-		t.Fatalf("Poppler did not structurally identify synthetic JavaScript: err=%v output=%s", err, info)
+	if err := validatePDFStructure(data, 40_000_000, 1); !errors.Is(err, errPDFActiveContent) {
+		t.Fatalf("PDF structure validator must reject the escaped JavaScript action: %v", err)
 	}
-	if _, _, err := New(Config{PDFInfoPath: pdfinfo, PDFDetachPath: pdfdetach}).Inspect(dv.PurposeIdentity, "id", data); err == nil {
-		t.Fatal("accepted PDF with escaped structural JavaScript action")
+	i := New(Config{PDFInfoPath: pdfinfo, PDFDetachPath: pdfdetach})
+	if i == nil {
+		t.Fatal("rejected administrator-managed Poppler executables")
+	}
+	if _, _, err := i.Inspect(dv.PurposeIdentity, "id", data); !errors.Is(err, ErrRejected) {
+		t.Fatalf("PDF inspector must reject the escaped JavaScript action: %v", err)
 	}
 }
 
