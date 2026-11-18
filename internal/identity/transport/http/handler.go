@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -446,7 +445,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.fail(w, 503, "terms_unavailable", "Los documentos todavía no están disponibles. Inténtalo más tarde.")
 				return
 			}
-			items = append(items, map[string]any{"id": version.ID, "code": version.Code, "type": version.Type, "sha256": version.SHA256, "published_at": version.PublishedAt.UTC(), "synthetic": os.Getenv("APP_PROFILE") != "production", "document": document})
+			items = append(items, map[string]any{"id": version.ID, "code": version.Code, "type": version.Type, "sha256": version.SHA256, "published_at": version.PublishedAt.UTC(), "synthetic": true, "document": document})
 		}
 		h.write(w, 200, map[string]any{"items": items})
 	case "/api/v1/auth/register":
