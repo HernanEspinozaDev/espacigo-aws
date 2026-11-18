@@ -158,6 +158,8 @@ El piloto continúa hasta `Publish`, con cero servicios ECS en el clúster. La L
 
 ### Activar Migrate en AWS
 
+V102 admite S3 en los registros de imágenes. Si `media_variant` y `media_variant_intent` todavía pertenecen al administrador histórico, ejecuta [la preparación de propiedad de V102](../../db/bootstrap/aws-main/prepare_v102_media_ownership.sql) desde la conexión privada de diagnóstico antes de publicar. La preparación transfiere únicamente esas tablas, compara sus permisos de tabla y columna y deja la aplicación de V102 al migrador del pipeline.
+
 El binario y la CA extraídos de la imagen candidata verificaron el historial V100 en el RDS real desde la Lambda privada, usando la credencial dedicada con el mismo formato que inyectará ECS. La ejecución devolvió cero cambios pendientes. La fase probó el migrador y la base. La prueba de arranque completa en Fargate se hace después de publicar la imagen aprobada.
 
 [La definición de tarea](../../infra/terraform/environments/aws-main/migrator.tf) y [el proyecto CodeBuild](../../infra/terraform/environments/aws-main/migrate-codebuild.tf) están preparados con aprovisionamiento opcional. El plan consultó el estado real en Ohio y sólo propuso altas para la tarea, CodeBuild, políticas, logs y red privada. Para comprobar los recursos, utilizó como referencia el digest disponible del piloto. Usa el digest de la nueva imagen aprobada para el plan que se aplicará.
