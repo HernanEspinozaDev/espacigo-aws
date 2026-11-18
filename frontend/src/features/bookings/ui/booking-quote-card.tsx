@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { ApiError } from "@/lib/api/errors";
 import { useBookings } from "./use-bookings";
 import { formatBookingClp } from "./format";
 import { generateIdempotencyKey } from "../domain/booking-rules";
@@ -32,6 +33,52 @@ interface BookingQuoteCardProps {
   initialDurationUnits?: number;
   authoritativeInterval?: AuthoritativeBookingInterval;
   onReservationCreated?: (reservationId: string) => void;
+}
+
+function formatBookingError(err: unknown, defaultMessage: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 404 || err.code === "not_found") {
+      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
+    }
+    if (err.status === 409 || err.code === "conflict") {
+      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
+    }
+    if (err.status === 401 || err.code === "unauthenticated") {
+      return "Debes iniciar sesión para cotizar o confirmar una reserva.";
+    }
+    if (err.status === 403 || err.code === "forbidden") {
+      return "No tienes permisos para realizar esta operación con la cuenta actual.";
+    }
+    if (err.code === "identity_verification_required") {
+      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
+    }
+    return `Error del servicio (${err.code || err.status}): Por favor intente nuevamente.`;
+  }
+  if (typeof err === "string") {
+    if (err.includes("404: not_found")) {
+      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
+    }
+    if (err.includes("409: conflict")) {
+      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
+    }
+    if (err.includes("identity_verification_required")) {
+      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
+    }
+    return err;
+  }
+  if (err instanceof Error) {
+    if (err.message.includes("404: not_found")) {
+      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
+    }
+    if (err.message.includes("409: conflict")) {
+      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
+    }
+    if (err.message.includes("identity_verification_required")) {
+      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
+    }
+    return err.message;
+  }
+  return defaultMessage;
 }
 
 export function BookingQuoteCard({
@@ -126,9 +173,7 @@ export function BookingQuoteCard({
     try {
       await requestQuote({ space_id: targetSpaceId, ...intervalPayload });
     } catch (err) {
-      setLocalError(
-        err instanceof Error ? err.message : "Error al calcular cotización.",
-      );
+      setLocalError(formatBookingError(err, "Error al calcular cotización."));
     }
   };
 
@@ -150,9 +195,7 @@ export function BookingQuoteCard({
         });
       }
     } catch (err) {
-      setLocalError(
-        err instanceof Error ? err.message : "Error al confirmar la reserva.",
-      );
+      setLocalError(formatBookingError(err, "Error al confirmar la reserva."));
     }
   };
 
@@ -185,7 +228,7 @@ export function BookingQuoteCard({
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <p className="font-medium">Atención</p>
-            <p>{localError || error}</p>
+            <p>{formatBookingError(localError || error, "Ha ocurrido un error al procesar la reserva.")}</p>
           </div>
         </div>
       )}
