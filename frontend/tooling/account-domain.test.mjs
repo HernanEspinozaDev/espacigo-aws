@@ -245,8 +245,8 @@ test("verification and account domain normalize synthetic payloads", async () =>
     true,
   );
   assert.equal(isValidPhotoSize(1024), true);
-  assert.equal(isValidPhotoSize(2 * 1024 * 1024), true);
-  assert.equal(isValidPhotoSize(2 * 1024 * 1024 + 1), false);
+  assert.equal(isValidPhotoSize(10 * 1024 * 1024), true);
+  assert.equal(isValidPhotoSize(10 * 1024 * 1024 + 1), false);
   assert.equal(isValidPhotoSize(0), false);
 
   // Synthetic payout account

@@ -68,7 +68,7 @@ export class OpenApiAccountAdapter implements AccountPort {
     }
     if (!result.data) throw new ApiProtocolError();
     const data = result.data;
-    if ("fixture_code" in data && data.fixture_code === "synthetic-png-v1") {
+    if ("fixture_code" in data) {
       return {
         id: data.id,
         fixtureCode: "synthetic-png-v1",
@@ -79,22 +79,15 @@ export class OpenApiAccountAdapter implements AccountPort {
         storageKind: "synthetic_fixed",
       };
     }
-    const anyData = data as Record<string, unknown>;
-    const firstVariant =
-      Array.isArray(anyData.variants) && anyData.variants[0]
-        ? (anyData.variants[0] as Record<string, unknown>)
-        : undefined;
+    const variant = data.variants?.[0];
+    if (!variant) throw new ApiProtocolError();
     return {
       id: data.id,
-      mimeType: (firstVariant?.mime_type as "image/webp") ?? "image/webp",
-      sha256:
-        (firstVariant?.sha256_hash as string) ??
-        (anyData.sha256 as string) ??
-        "",
-      sizeBytes:
-        (firstVariant?.byte_size as number) ??
-        (anyData.size_bytes as number) ??
-        0,
+      mimeType: variant.mime_type,
+      sha256: variant.sha256,
+      sizeBytes: variant.size_bytes,
+      width: variant.width,
+      height: variant.height,
       createdAt: data.created_at,
       storageKind: "uploaded_avatar",
     };

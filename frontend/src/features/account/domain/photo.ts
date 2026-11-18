@@ -1,5 +1,5 @@
 export const SYNTHETIC_PHOTO_FIXTURE_CODE = "synthetic-png-v1" as const;
-export const MAX_PHOTO_SIZE_BYTES = 2 * 1024 * 1024; // 2MB limit per RQF-030
+export const MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024;
 
 export interface SyntheticProfilePhoto {
   readonly id: string;
