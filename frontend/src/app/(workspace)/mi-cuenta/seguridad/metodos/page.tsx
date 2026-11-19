@@ -29,6 +29,10 @@ import {
   type AccountPasskey,
   listAccountPasskeys,
 } from "@/features/account/passkeys-api";
+import {
+  type AccountQRStatus,
+  getAccountQRStatus,
+} from "@/features/account/qr-verification-api";
 
 export default function MetodosVerificacionPage() {
   const { snapshot: authSnapshot } = useAuth();
@@ -36,6 +40,7 @@ export default function MetodosVerificacionPage() {
   const [phoneStatus, setPhoneStatus] = useState<AccountPhoneStatus | null>(null);
   const [totpStatus, setTotpStatus] = useState<AccountTOTPStatus | null>(null);
   const [passkeys, setPasskeys] = useState<AccountPasskey[]>([]);
+  const [qrStatus, setQrStatus] = useState<AccountQRStatus | null>(null);
 
   useEffect(() => {
     if (authSnapshot.status !== "authenticated") return;
@@ -52,6 +57,11 @@ export default function MetodosVerificacionPage() {
       });
     listAccountPasskeys(controller.signal)
       .then((data) => setPasskeys(data))
+      .catch(() => {
+        // Silently preserve defaults on network or session interruption
+      });
+    getAccountQRStatus(controller.signal)
+      .then((data) => setQrStatus(data))
       .catch(() => {
         // Silently preserve defaults on network or session interruption
       });
@@ -80,6 +90,9 @@ export default function MetodosVerificacionPage() {
   const passkeysCountText = isPasskeysActive
     ? `${passkeys.length} ${passkeys.length === 1 ? "llave activa" : "llaves activas"}`
     : "Sin configurar";
+
+  const isQrActive = Boolean(qrStatus?.enabled);
+  const qrDeviceLabel = qrStatus?.trusted_device_label || "Dispositivo vinculado";
 
   const phoneBadgeText = isPhoneVerified
     ? "Verificado"
@@ -161,10 +174,12 @@ export default function MetodosVerificacionPage() {
         "Escaneo rápido de autorización desde tu dispositivo móvil de confianza.",
       href: "/mi-cuenta/seguridad/metodos/codigo-qr",
       icon: QrCode,
-      iconColor: "text-primary bg-primary/10",
-      active: false,
-      badgeText: "Próximamente",
-      dataMasked: "Fase 6",
+      iconColor: isQrActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isQrActive,
+      badgeText: isQrActive ? "Activo" : "Sin configurar",
+      dataMasked: isQrActive ? qrDeviceLabel : "Sin configurar",
     },
     {
       id: "google-authenticator",

@@ -174,6 +174,8 @@ type mockAuthRepo struct {
 	backupCodes map[string]map[string]bool // accountID -> codeHash -> true
 	passkeys    map[string][]identity.PasskeyRecord
 	challenges  map[string]*identity.WebAuthnChallengeRecord
+	qrDevices   map[string]*identity.AccountQRDeviceRecord
+	qrTickets   map[string]*identity.AccountQRTicketRecord
 }
 
 func newMockAuthRepo() *mockAuthRepo {
@@ -187,6 +189,8 @@ func newMockAuthRepo() *mockAuthRepo {
 		backupCodes: make(map[string]map[string]bool),
 		passkeys:    make(map[string][]identity.PasskeyRecord),
 		challenges:  make(map[string]*identity.WebAuthnChallengeRecord),
+		qrDevices:   make(map[string]*identity.AccountQRDeviceRecord),
+		qrTickets:   make(map[string]*identity.AccountQRTicketRecord),
 	}
 }
 
@@ -525,6 +529,85 @@ func (m *mockAuthRepo) DeletePasskey(_ context.Context, accountID, passkeyID str
 
 func (m *mockAuthRepo) GetAccountDisplayName(_ context.Context, _ string) (string, error) {
 	return "", nil
+}
+
+func (m *mockAuthRepo) GetQRDevice(_ context.Context, accountID string) (*identity.AccountQRDeviceRecord, error) {
+	if rec, ok := m.qrDevices[accountID]; ok {
+		return rec, nil
+	}
+	return nil, nil
+}
+
+func (m *mockAuthRepo) UpsertQRDevice(_ context.Context, accountID string, enabledAt time.Time, trustedDeviceLabel string) error {
+	var label *string
+	if trustedDeviceLabel != "" {
+		label = &trustedDeviceLabel
+	}
+	m.qrDevices[accountID] = &identity.AccountQRDeviceRecord{
+		AccountID:          accountID,
+		EnabledAt:          &enabledAt,
+		TrustedDeviceLabel: label,
+		UpdatedAt:          enabledAt,
+	}
+	return nil
+}
+
+func (m *mockAuthRepo) DisableQRDevice(_ context.Context, accountID string, updatedAt time.Time) error {
+	if rec, ok := m.qrDevices[accountID]; ok {
+		rec.EnabledAt = nil
+		rec.UpdatedAt = updatedAt
+	}
+	return nil
+}
+
+func (m *mockAuthRepo) SaveQRTicket(_ context.Context, ticket identity.AccountQRTicketRecord) error {
+	t := ticket
+	m.qrTickets[ticket.ID] = &t
+	return nil
+}
+
+func (m *mockAuthRepo) GetQRTicketByID(_ context.Context, ticketID string) (*identity.AccountQRTicketRecord, error) {
+	if t, ok := m.qrTickets[ticketID]; ok {
+		return t, nil
+	}
+	return nil, nil
+}
+
+func (m *mockAuthRepo) GetQRTicketByTokenHash(_ context.Context, tokenHash string) (*identity.AccountQRTicketRecord, error) {
+	for _, t := range m.qrTickets {
+		if t.TokenHash == tokenHash {
+			return t, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockAuthRepo) ApproveQRTicket(_ context.Context, accountID, ticketID, deviceLabel string, resolvedAt time.Time) error {
+	t, ok := m.qrTickets[ticketID]
+	if !ok || t.AccountID != accountID || t.Status != "pending" || t.ResolvedAt != nil {
+		return identity.ErrQRTicketResolved
+	}
+	t.Status = "approved"
+	t.ResolvedAt = &resolvedAt
+
+	var label *string
+	if deviceLabel != "" {
+		label = &deviceLabel
+	}
+	m.qrDevices[accountID] = &identity.AccountQRDeviceRecord{
+		AccountID:          accountID,
+		EnabledAt:          &resolvedAt,
+		TrustedDeviceLabel: label,
+		UpdatedAt:          resolvedAt,
+	}
+	return nil
+}
+
+func (m *mockAuthRepo) ExpireQRTicket(_ context.Context, ticketID string) error {
+	if t, ok := m.qrTickets[ticketID]; ok && t.Status == "pending" {
+		t.Status = "expired"
+	}
+	return nil
 }
 
 type testHasher struct{}

@@ -365,6 +365,30 @@ func (m *mockTOTPRepo) DeletePasskey(context.Context, string, string) error {
 func (m *mockTOTPRepo) GetAccountDisplayName(context.Context, string) (string, error) {
 	return "", nil
 }
+func (m *mockTOTPRepo) GetQRDevice(context.Context, string) (*identity.AccountQRDeviceRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) UpsertQRDevice(context.Context, string, time.Time, string) error {
+	return nil
+}
+func (m *mockTOTPRepo) DisableQRDevice(context.Context, string, time.Time) error {
+	return nil
+}
+func (m *mockTOTPRepo) SaveQRTicket(context.Context, identity.AccountQRTicketRecord) error {
+	return nil
+}
+func (m *mockTOTPRepo) GetQRTicketByID(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) GetQRTicketByTokenHash(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) ApproveQRTicket(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockTOTPRepo) ExpireQRTicket(context.Context, string) error {
+	return nil
+}
 
 func TestTOTPService_Lifecycle(t *testing.T) {
 	repo := &mockTOTPRepo{}
