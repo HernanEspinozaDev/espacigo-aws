@@ -170,6 +170,8 @@ type mockAuthRepo struct {
 	tokens   map[string]string // token -> sessionID
 	prefs    map[string]*identity.SecurityAlertPreferencesRecord
 	events   map[string][]identity.SecurityAlertEventRecord
+	totpRecords map[string]*identity.AccountTOTPRecord
+	backupCodes map[string]map[string]bool // accountID -> codeHash -> true
 }
 
 func newMockAuthRepo() *mockAuthRepo {
@@ -179,6 +181,8 @@ func newMockAuthRepo() *mockAuthRepo {
 		tokens:   make(map[string]string),
 		prefs:    make(map[string]*identity.SecurityAlertPreferencesRecord),
 		events:   make(map[string][]identity.SecurityAlertEventRecord),
+		totpRecords: make(map[string]*identity.AccountTOTPRecord),
+		backupCodes: make(map[string]map[string]bool),
 	}
 }
 
@@ -390,6 +394,75 @@ func (m *mockAuthRepo) RecordSecurityAlertEvent(_ context.Context, event identit
 
 func (m *mockAuthRepo) GetPhoneVerification(_ context.Context, _ string) (*identity.AccountPhoneVerification, error) {
 	return nil, nil
+}
+
+func (m *mockAuthRepo) GetTOTP(_ context.Context, accountID string) (*identity.AccountTOTPRecord, int, error) {
+	rec := m.totpRecords[accountID]
+	var remaining int
+	if m.backupCodes != nil && m.backupCodes[accountID] != nil {
+		remaining = len(m.backupCodes[accountID])
+	}
+	return rec, remaining, nil
+}
+
+func (m *mockAuthRepo) SavePendingTOTPSecret(_ context.Context, accountID string, ciphertext []byte, keyVersion string) error {
+	rec := m.totpRecords[accountID]
+	if rec == nil {
+		rec = &identity.AccountTOTPRecord{AccountID: accountID}
+		m.totpRecords[accountID] = rec
+	}
+	ver := keyVersion
+	rec.PendingSecretCiphertext = ciphertext
+	rec.PendingKeyVersion = &ver
+	return nil
+}
+
+func (m *mockAuthRepo) ActivateTOTP(_ context.Context, accountID string, verifiedStep int64, backupCodeHashes []string) error {
+	rec := m.totpRecords[accountID]
+	if rec == nil || len(rec.PendingSecretCiphertext) == 0 {
+		return identity.ErrTOTPNotPending
+	}
+	now := time.Now()
+	rec.SecretCiphertext = rec.PendingSecretCiphertext
+	rec.KeyVersion = rec.PendingKeyVersion
+	rec.PendingSecretCiphertext = nil
+	rec.PendingKeyVersion = nil
+	rec.EnabledAt = &now
+	rec.LastVerifiedStep = &verifiedStep
+
+	m.backupCodes[accountID] = make(map[string]bool)
+	for _, h := range backupCodeHashes {
+		m.backupCodes[accountID][h] = true
+	}
+	return nil
+}
+
+func (m *mockAuthRepo) UpdateTOTPLastVerifiedStep(_ context.Context, accountID string, verifiedStep int64) error {
+	if rec := m.totpRecords[accountID]; rec != nil {
+		rec.LastVerifiedStep = &verifiedStep
+	}
+	return nil
+}
+
+func (m *mockAuthRepo) ConsumeBackupCode(_ context.Context, accountID string, codeHash string) (bool, error) {
+	if m.backupCodes != nil && m.backupCodes[accountID] != nil && m.backupCodes[accountID][codeHash] {
+		delete(m.backupCodes[accountID], codeHash)
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *mockAuthRepo) DisableTOTP(_ context.Context, accountID string) error {
+	if rec := m.totpRecords[accountID]; rec != nil {
+		rec.SecretCiphertext = nil
+		rec.KeyVersion = nil
+		rec.PendingSecretCiphertext = nil
+		rec.PendingKeyVersion = nil
+		rec.EnabledAt = nil
+		rec.LastVerifiedStep = nil
+	}
+	delete(m.backupCodes, accountID)
+	return nil
 }
 
 type testHasher struct{}

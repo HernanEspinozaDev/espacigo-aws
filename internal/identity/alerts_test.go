@@ -98,6 +98,24 @@ func (m *mockAlertsRepo) RecordSecurityAlertEvent(ctx context.Context, event ide
 func (m *mockAlertsRepo) GetPhoneVerification(ctx context.Context, accountID string) (*identity.AccountPhoneVerification, error) {
 	return m.phoneRecord, nil
 }
+func (m *mockAlertsRepo) GetTOTP(context.Context, string) (*identity.AccountTOTPRecord, int, error) {
+	return nil, 0, nil
+}
+func (m *mockAlertsRepo) SavePendingTOTPSecret(context.Context, string, []byte, string) error {
+	return nil
+}
+func (m *mockAlertsRepo) ActivateTOTP(context.Context, string, int64, []string) error {
+	return nil
+}
+func (m *mockAlertsRepo) UpdateTOTPLastVerifiedStep(context.Context, string, int64) error {
+	return nil
+}
+func (m *mockAlertsRepo) ConsumeBackupCode(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (m *mockAlertsRepo) DisableTOTP(context.Context, string) error {
+	return nil
+}
 
 type alertsTestHasher struct{}
 

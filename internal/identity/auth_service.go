@@ -53,13 +53,18 @@ type AuthenticationService struct {
 	ipLimiter   VerificationIPLimiter
 	credentials CredentialGenerator
 	now         func() time.Time
+	totpKeyring *TOTPKeyring
+}
+
+func (s *AuthenticationService) SetTOTPKeyring(kr *TOTPKeyring) {
+	s.totpKeyring = kr
 }
 
 func NewAuthenticationService(repo AuthenticationRepository, passwords PasswordHasher, mailer AuthenticationMailer, limiter VerificationIPLimiter, credentials CredentialGenerator, now func() time.Time) (*AuthenticationService, error) {
 	if repo == nil || passwords == nil || mailer == nil || limiter == nil || credentials == nil || now == nil {
 		return nil, ErrInvalid
 	}
-	return &AuthenticationService{repo, passwords, mailer, limiter, credentials, now}, nil
+	return &AuthenticationService{repo: repo, passwords: passwords, mailer: mailer, ipLimiter: limiter, credentials: credentials, now: now}, nil
 }
 
 // Validate the received email before deriving the shared M01 key. Display names,

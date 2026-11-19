@@ -132,7 +132,7 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
-	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, mailer)
+	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, mailer, getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -209,12 +209,18 @@ func mountProductionAuth(
 	evidence runtimeFileStore,
 	mediaStore media.ObjectStore,
 	mailer identity.AuthenticationMailer,
+	getenv func(string) string,
 ) (*identity.AuthenticationService, error) {
 	repo := identitypg.NewIdentityRepository(pool)
 	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, mailer, devauth.NewIPLimiter(20), credentials.Generator{}, time.Now)
 	if err != nil {
 		return nil, errors.New("production authentication initialization failed")
 	}
+	totpKeyring, err := identity.LoadTOTPKeyring(getenv)
+	if err != nil {
+		return nil, errors.New("production totp keyring initialization failed: " + err.Error())
+	}
+	service.SetTOTPKeyring(totpKeyring)
 	archiveRepo := ownerexport.NewWithMediaStore(pool, evidence, mediaStore)
 	privacyService, err := privacy.NewService(repo, archiveRepo)
 	if err != nil {

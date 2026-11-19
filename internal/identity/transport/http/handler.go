@@ -128,10 +128,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountDevicesPrefix           = "/api/v1/account/security/devices/"
 		accountAlertsPath              = "/api/v1/account/security/alerts"
 		accountAlertsChannelsPath      = "/api/v1/account/security/alerts/channels"
+		accountTOTPPath                = "/api/v1/account/security/totp"
+		accountTOTPSetupPath           = "/api/v1/account/security/totp/setup"
+		accountTOTPEnablePath          = "/api/v1/account/security/totp/enable"
+		accountTOTPDisablePath         = "/api/v1/account/security/totp/disable"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath {
 		expected = http.MethodGet
 	}
 	if r.URL.Path == accountAlertsChannelsPath {
@@ -190,6 +194,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountDevicesRevokeOthersPath:           true,
 		accountAlertsPath:                        true,
 		accountAlertsChannelsPath:                true,
+		accountTOTPPath:                          true,
+		accountTOTPSetupPath:                     true,
+		accountTOTPEnablePath:                    true,
+		accountTOTPDisablePath:                   true,
 		suppressionQueuePath:                     true,
 		credentialNoticeQueuePath:                true,
 	}
@@ -627,6 +635,67 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.write(w, http.StatusOK, prefs)
+			return
+		}
+	case accountTOTPPath, accountTOTPSetupPath, accountTOTPEnablePath, accountTOTPDisablePath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+
+		switch r.URL.Path {
+		case accountTOTPPath:
+			status, err := h.service.GetTOTPStatus(r.Context(), principal.AccountID)
+			if err != nil {
+				h.totpError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, status)
+			return
+
+		case accountTOTPSetupPath:
+			resp, err := h.service.SetupTOTP(r.Context(), principal.AccountID)
+			if err != nil {
+				h.totpError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
+			return
+
+		case accountTOTPEnablePath:
+			var input identity.AccountTOTPEnableInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.EnableTOTP(r.Context(), principal.AccountID, input.Code, deviceLabel, ipMasked)
+			if err != nil {
+				h.totpError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
+			return
+
+		case accountTOTPDisablePath:
+			var input identity.AccountTOTPDisableInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.DisableTOTP(r.Context(), principal.AccountID, input.Code, deviceLabel, ipMasked)
+			if err != nil {
+				h.totpError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
 			return
 		}
 	case "/api/v1/auth/terms":
@@ -1075,6 +1144,27 @@ func (h *Handler) alertsError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusBadRequest, "invalid_email", "Formato de correo electrónico secundario inválido.")
 	case errors.Is(err, identity.ErrExtraEmailMatchesPrimary):
 		h.fail(w, http.StatusBadRequest, "email_same_as_primary", "El correo secundario no puede ser igual al correo principal.")
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Cuenta no encontrada.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) totpError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrTOTPNotPending):
+		h.fail(w, http.StatusBadRequest, "totp_not_pending", "No hay una configuración de autenticador TOTP pendiente.")
+	case errors.Is(err, identity.ErrTOTPAlreadyEnabled):
+		h.fail(w, http.StatusBadRequest, "totp_already_enabled", "El autenticador TOTP ya está activado.")
+	case errors.Is(err, identity.ErrTOTPNotEnabled):
+		h.fail(w, http.StatusBadRequest, "totp_not_enabled", "El autenticador TOTP no se encuentra activado.")
+	case errors.Is(err, identity.ErrTOTPReplayDetected):
+		h.fail(w, http.StatusUnprocessableEntity, "code_replayed", "Código ya utilizado. Espera al siguiente intervalo de 30 segundos.")
+	case errors.Is(err, identity.ErrTOTPInvalidCode), errors.Is(err, identity.ErrTOTPInvalidBackupCode):
+		h.fail(w, http.StatusUnprocessableEntity, "invalid_code", "Código de autenticación incorrecto o expirado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
 	case errors.Is(err, identity.ErrNotFound):
 		h.fail(w, http.StatusNotFound, "not_found", "Cuenta no encontrada.")
 	default:

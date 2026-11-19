@@ -29,6 +29,10 @@
     "V000105__security_alerts_and_channels.sql": {
       "checksum": "e79f3df7dfed922d6b9d7c9d7fe90f64dc133e4ec456d47d05953f50a3835b51",
       "strategy": "expand"
+    },
+    "V000106__totp_authenticator.sql": {
+      "checksum": "0cd2d927214c33f516a72c79fa5513f47937cc53e29a6676a845a903aef15ae2",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {
