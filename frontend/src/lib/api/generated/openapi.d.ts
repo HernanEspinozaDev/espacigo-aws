@@ -39,6 +39,63 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/host/mercadopago": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar conexión de Mercado Pago del anfitrión autenticado */
+    get: operations["getHostMercadoPagoConnection"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/mercadopago/oauth/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Iniciar consentimiento OAuth para vincular al anfitrión vendedor
+     * @description Genera un state de un solo uso en backend y PKCE. La aplicación redirige al authorization_url devuelto.
+     */
+    post: operations["startHostMercadoPagoOAuth"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/mercadopago/oauth/callback": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Completar consentimiento OAuth desde el callback de Mercado Pago
+     * @description Endpoint del backend invocado por el BFF público; consume state una vez y redirige a la página del anfitrión.
+     */
+    get: operations["completeHostMercadoPagoOAuth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/local/rental-demo/session": {
     parameters: {
       query?: never;
@@ -321,6 +378,52 @@ export interface paths {
      * @description Requiere sesión autenticada como participante, cotización vigente, intervalo todavía disponible e identidad documental vigente de ambas partes según el contrato vigente del servicio de identidad documental; una lectura privada autorizada de nombre legal y RUT es una dependencia separada que debe revalidar la identidad y el ámbito del participante. No persiste un contrato ni crea reserva/ocupación; no firma, acepta ni cobra. El servicio de identidad conserva la autoridad y los datos de evidencia nunca salen.
      */
     post: operations["previewRentalContract"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/webhooks/mercadopago": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Validar y guardar una notificación de pago de Mercado Pago
+     * @description Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
+     */
+    post: operations["receiveMercadoPagoPaymentWebhook"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/{quoteID}/checkout": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    /**
+     * Consultar estado conciliado del checkout de una cotización
+     * @description El estado procede de la operación durable del backend, nunca de parámetros de regreso OAuth o Mercado Pago. Un init_point solo aparece mientras la operación está pendiente.
+     */
+    get: operations["getCommercialQuoteCheckoutStatus"];
+    put?: never;
+    /**
+     * Crear o reutilizar el Checkout Pro vigente de una cotización comercial
+     * @description El arrendatario se deriva de la sesión. El backend lee la cotización CLP persistida, deriva al anfitrión y calcula comisión 3% más IVA; no acepta importes ni URL de retorno del cliente. Persiste la operación idempotente y un hold de intervalo antes de invocar Mercado Pago. Solo se devuelve el init_point HTTPS de Mercado Pago. Si el proveedor queda incierto, se busca por external_reference antes de crear otra preferencia. La expiración libera el hold; cualquier pago tardío requiere conciliación y no se confirma desde el redirect.
+     */
+    post: operations["startCommercialQuoteCheckout"];
     delete?: never;
     options?: never;
     head?: never;
@@ -3722,6 +3825,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    MercadoPagoHostConnection: {
+      connected: boolean;
+      seller_id?: string;
+      /** Format: date-time */
+      expires_at?: string;
+      authorization_available: boolean;
+      reauthorization_required?: boolean;
+    };
+    MercadoPagoOAuthStart: {
+      /** Format: uri */
+      authorization_url: string;
+    };
     DemoPublicSpace: {
       /** Format: uuid */
       id: string;
@@ -3968,6 +4083,53 @@ export interface components {
     };
     RentalQuoteEnvelope: {
       data: components["schemas"]["RentalQuote"];
+    };
+    CheckoutPreference: {
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      operation_id: string;
+      /**
+       * Format: uuid
+       * @description ID de la reserva comercial durable
+       */
+      reservation_id: string;
+      /** @constant */
+      status: "pending";
+      /** Format: uri */
+      init_point: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    CheckoutPreferenceEnvelope: {
+      data: components["schemas"]["CheckoutPreference"];
+    };
+    CheckoutStatus: {
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      operation_id?: string;
+      /** Format: uuid */
+      reservation_id?: string;
+      /** @enum {string} */
+      status:
+        | "not_started"
+        | "pending"
+        | "approved"
+        | "rejected"
+        | "expired"
+        | "cancelled"
+        | "reconciliation_required";
+      /**
+       * Format: uri
+       * @description Solo se entrega cuando el checkout sigue pendiente.
+       */
+      init_point?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    CheckoutStatusEnvelope: {
+      data: components["schemas"]["CheckoutStatus"];
     };
     LocalEarlyRentalCapabilities: {
       enabled: boolean;
@@ -6913,6 +7075,79 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  getHostMercadoPagoConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de conexión; nunca incluye credenciales. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MercadoPagoHostConnection"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  startHostMercadoPagoOAuth: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description URL de autorización de Mercado Pago; no contiene credenciales de vendedor. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MercadoPagoOAuthStart"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  completeHostMercadoPagoOAuth: {
+    parameters: {
+      query: {
+        code?: string;
+        state: string;
+        error?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Redirige al estado de conexión en el área anfitrión. */
+      303: {
+        headers: {
+          Location: string;
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+    };
+  };
   getRentalDemoSession: {
     parameters: {
       query?: never;
@@ -8145,6 +8380,129 @@ export interface operations {
       409: components["responses"]["RentalConflict"];
       422: components["responses"]["RentalUnprocessableEntity"];
       500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  receiveMercadoPagoPaymentWebhook: {
+    parameters: {
+      query?: never;
+      header: {
+        "x-signature": string;
+        "x-request-id": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          type: string;
+          action?: string;
+          user_id?: string | number;
+          data: {
+            id: string | number;
+          };
+        };
+      };
+    };
+    responses: {
+      /** @description Notificación firmada guardada o tópico firmado ignorado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Notificación mal formada. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Firma inválida. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Método no permitido. */
+      405: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No fue posible guardar el recibo duradero; Mercado Pago debe reintentar. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getCommercialQuoteCheckoutStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del backend o not_started. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CheckoutStatusEnvelope"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  startCommercialQuoteCheckout: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Preferencia pendiente reutilizada o recién creada. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CheckoutPreferenceEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      /** @description Cotización vencida */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };

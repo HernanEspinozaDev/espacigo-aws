@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 )
@@ -32,20 +33,28 @@ type QuoteService interface {
 type PreviewService interface {
 	Preview(context.Context, string, string) (rentalflow.ContractPreview, error)
 }
+type CheckoutService interface {
+	Start(context.Context, string, string, string) (checkoutpro.StartResult, error)
+	Status(context.Context, string, string) (checkoutpro.StatusResult, error)
+}
 
 type Handler struct {
 	auth         Authenticator
 	availability AvailabilityService
 	quotes       QuoteService
 	previews     PreviewService
+	checkout     CheckoutService
 	origins      map[string]struct{}
 	mux          *http.ServeMux
 }
 
 // New mounts the rental-flow HTTP contract without binding it to a storage
 // adapter. Composition is deliberately left to the application entry point.
-func New(auth Authenticator, availability AvailabilityService, quotes QuoteService, previews PreviewService, allowedOrigins []string) http.Handler {
+func New(auth Authenticator, availability AvailabilityService, quotes QuoteService, previews PreviewService, allowedOrigins []string, checkout ...CheckoutService) http.Handler {
 	h := &Handler{auth: auth, availability: availability, quotes: quotes, previews: previews, origins: make(map[string]struct{}, len(allowedOrigins)), mux: http.NewServeMux()}
+	if len(checkout) > 0 {
+		h.checkout = checkout[0]
+	}
 	for _, origin := range allowedOrigins {
 		if origin != "" {
 			h.origins[origin] = struct{}{}
@@ -54,6 +63,8 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("GET /api/v1/spaces/{spaceID}/rental-availability", h.listAvailability)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes", h.createQuote)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes/{quoteID}/contract-preview", h.previewContract)
+	h.mux.HandleFunc("POST /api/v1/rental-quotes/{quoteID}/checkout", h.startCheckout)
+	h.mux.HandleFunc("GET /api/v1/rental-quotes/{quoteID}/checkout", h.getCheckoutStatus)
 	h.mux.HandleFunc("OPTIONS /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodGet)
 	})
@@ -63,6 +74,7 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/{quoteID}/contract-preview", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodPost)
 	})
+	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/{quoteID}/checkout", h.checkoutOptions)
 	h.mux.HandleFunc("HEAD /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "GET, OPTIONS")
 	})
@@ -75,10 +87,20 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("/api/v1/rental-quotes/{quoteID}/contract-preview", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "POST, OPTIONS")
 	})
+	h.mux.HandleFunc("/api/v1/rental-quotes/{quoteID}/checkout", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "GET, POST, OPTIONS") })
 	h.mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 	})
 	return h
+}
+
+func (h *Handler) checkoutOptions(w http.ResponseWriter, r *http.Request) {
+	methods := r.Header.Values("Access-Control-Request-Method")
+	if len(methods) != 1 || (methods[0] != http.MethodPost && methods[0] != http.MethodGet) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	h.options(w, r, methods[0])
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +138,15 @@ func (h *Handler) options(w http.ResponseWriter, r *http.Request, allowedMethod 
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Methods", allowedMethod)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	allowedHeaders := "Content-Type, Authorization"
+	for _, requested := range r.Header.Values("Access-Control-Request-Headers") {
+		for _, header := range strings.Split(requested, ",") {
+			if strings.EqualFold(strings.TrimSpace(header), "Idempotency-Key") {
+				allowedHeaders += ", Idempotency-Key"
+			}
+		}
+	}
+	w.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -127,12 +157,89 @@ func allowedPreflightHeaders(value string) bool {
 	for _, requested := range strings.Split(value, ",") {
 		switch {
 		case strings.EqualFold(strings.TrimSpace(requested), "Content-Type"),
-			strings.EqualFold(strings.TrimSpace(requested), "Authorization"):
+			strings.EqualFold(strings.TrimSpace(requested), "Authorization"),
+			strings.EqualFold(strings.TrimSpace(requested), "Idempotency-Key"):
 		default:
 			return false
 		}
 	}
 	return true
+}
+
+func (h *Handler) startCheckout(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" || requestBodyPresent(r) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	if h.checkout == nil {
+		writeError(w, http.StatusServiceUnavailable, "checkout_not_configured")
+		return
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" || len(key) > 200 {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	id := r.PathValue("quoteID")
+	if !rentalflow.ValidUUID(id) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	result, err := h.checkout.Start(r.Context(), principal.AccountID, id, key)
+	if err != nil {
+		writeCheckoutError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+func (h *Handler) getCheckoutStatus(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" || requestBodyPresent(r) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	if h.checkout == nil {
+		writeError(w, http.StatusServiceUnavailable, "checkout_not_configured")
+		return
+	}
+	id := r.PathValue("quoteID")
+	if !rentalflow.ValidUUID(id) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	result, err := h.checkout.Status(r.Context(), principal.AccountID, id)
+	if err != nil {
+		writeCheckoutError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+func writeCheckoutError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, checkoutpro.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, checkoutpro.ErrConflict):
+		writeError(w, http.StatusConflict, "availability_changed")
+	case errors.Is(err, checkoutpro.ErrIdempotencyConflict):
+		writeError(w, http.StatusConflict, "idempotency_conflict")
+	case errors.Is(err, checkoutpro.ErrQuoteExpired):
+		writeError(w, http.StatusConflict, "quote_expired")
+	case errors.Is(err, checkoutpro.ErrHostNotConnected):
+		writeError(w, http.StatusConflict, "host_mp_not_connected")
+	case errors.Is(err, checkoutpro.ErrNotConfigured):
+		writeError(w, http.StatusServiceUnavailable, "host_mp_not_connected")
+	case errors.Is(err, checkoutpro.ErrInvalid):
+		writeError(w, http.StatusBadRequest, "invalid_request")
+	default:
+		writeError(w, http.StatusServiceUnavailable, "checkout_unavailable")
+	}
 }
 
 func methodNotAllowed(w http.ResponseWriter, allowedMethods string) {

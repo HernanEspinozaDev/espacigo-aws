@@ -20,6 +20,12 @@
     }
   },
   "review_required_migrations": {
+    "V000103__marketplace_seller_oauth.sql": {
+      "checksum": "cd76f1783645fbffe6470345ee733b7e82385e6e19c21f12381ce5ef8d52f083",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Stores durable one-time seller OAuth state and encrypted Marketplace credentials; requires exact-target authority, retention and key-management review before release."
+    },
     "V000100__early_rental_local_payment.sql": {
       "checksum": "24554d7716ce5bcc8d5e3f50cbce2d2a39efaf3314132eccdad311d683644ea6",
       "strategy": "expand",
@@ -109,6 +115,24 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Version collision reconciled only in isolated combined candidate. Preserve applied identity V1-V96. Applying release remains disabled until combined fresh/upgrade tests, V97 authority lifecycle, legal identity reader, commercial authentication and UI integration gates pass."
+    },
+    "V000104__commercial_checkout_preferences.sql": {
+      "checksum": "4ea5e7d0cb0df966491a2f68f7922a1a0fac9253dc60d01a2eb9346712558925",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Creates durable Mercado Pago preference operations and exclusive pending interval holds. Requires exact-target authority, idempotency/concurrency, expiry and late-payment reconciliation review before release."
+    },
+    "V000105__mercadopago_payment_webhook_inbox.sql": {
+      "checksum": "cf439c2cfb7e1120583637d74bfcd0940439ff5b26cb24ea17c748c187695cc2",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds durable receipts and authenticated payment reconciliation metadata; requires exact-target signature, idempotency, seller-binding and late-payment review before release."
+    },
+    "V000106__checkout_payment_notice_outbox.sql": {
+      "checksum": "7f3ba3c503001b6b7521e261b4e995f8c132f82004f7a557d67ed683d9ea45b8",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds a deduplicated durable email outbox for backend-verified commercial checkout transitions. Requires migration, transaction atomicity, retry/dedupe and Mailpit delivery review before release."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

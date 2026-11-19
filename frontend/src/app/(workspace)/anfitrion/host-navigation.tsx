@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, PlusCircle, CalendarCheck, User } from "lucide-react";
+import {
+  Building2,
+  PlusCircle,
+  CalendarCheck,
+  User,
+  WalletCards,
+} from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -19,9 +25,11 @@ export function HostNavigation() {
   const isNuevo = pathname.includes("/espacios/nuevo");
   const isEditar = pathname.includes("/editar");
   const isReservas = pathname.includes("/anfitrion/reservas");
+  const isPayments = pathname === "/anfitrion/mercado-pago";
   const isListado =
     (pathname === "/anfitrion/espacios" || pathname === "/anfitrion") &&
-    !isReservas;
+    !isReservas &&
+    !isPayments;
 
   return (
     <div className="space-y-4">
@@ -35,6 +43,10 @@ export function HostNavigation() {
           <BreadcrumbItem>
             {isListado ? (
               <BreadcrumbPage>Mis Espacios</BreadcrumbPage>
+            ) : isPayments ? (
+              <BreadcrumbLink href="/anfitrion/espacios">
+                Mis Espacios
+              </BreadcrumbLink>
             ) : (
               <BreadcrumbLink href="/mi-cuenta/espacios">
                 Mis Espacios
@@ -62,6 +74,14 @@ export function HostNavigation() {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbPage>Reservas</BreadcrumbPage>
+              </BreadcrumbItem>
+            </>
+          )}
+          {isPayments && (
+            <>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Pagos</BreadcrumbPage>
               </BreadcrumbItem>
             </>
           )}
@@ -107,6 +127,20 @@ export function HostNavigation() {
         >
           <CalendarCheck className="size-4" aria-hidden="true" />
           <span>Reservas</span>
+        </Link>
+
+        <Link
+          href="/anfitrion/mercado-pago"
+          aria-current={isPayments ? "page" : undefined}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+            isPayments
+              ? "border-primary text-primary bg-muted/40 font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+          )}
+        >
+          <WalletCards className="size-4" aria-hidden="true" />
+          <span>Pagos</span>
         </Link>
 
         <Link

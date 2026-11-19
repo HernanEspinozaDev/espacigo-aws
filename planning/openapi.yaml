@@ -9,6 +9,57 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /host/mercadopago:
+    get:
+      operationId: getHostMercadoPagoConnection
+      tags: [Host, Payments]
+      summary: Consultar conexión de Mercado Pago del anfitrión autenticado
+      responses:
+        "200":
+          description: Estado de conexión; nunca incluye credenciales.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MercadoPagoHostConnection" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /host/mercadopago/oauth/start:
+    post:
+      operationId: startHostMercadoPagoOAuth
+      tags: [Host, Payments]
+      summary: Iniciar consentimiento OAuth para vincular al anfitrión vendedor
+      description: Genera un state de un solo uso en backend y PKCE. La aplicación redirige al authorization_url devuelto.
+      responses:
+        "200":
+          description: URL de autorización de Mercado Pago; no contiene credenciales de vendedor.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MercadoPagoOAuthStart" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /host/mercadopago/oauth/callback:
+    get:
+      operationId: completeHostMercadoPagoOAuth
+      tags: [Host, Payments]
+      summary: Completar consentimiento OAuth desde el callback de Mercado Pago
+      description: Endpoint del backend invocado por el BFF público; consume state una vez y redirige a la página del anfitrión.
+      security: []
+      parameters:
+        - { name: code, in: query, required: false, schema: { type: string } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: error, in: query, required: false, schema: { type: string } }
+      responses:
+        "303":
+          description: Redirige al estado de conexión en el área anfitrión.
+          headers:
+            Location: { required: true, schema: { type: string } }
+            Cache-Control: { schema: { type: string, const: no-store } }
+        "400": { $ref: "#/components/responses/BadRequest" }
   /local/rental-demo/session:
     get:
       operationId: getRentalDemoSession
@@ -1036,6 +1087,72 @@ paths:
         "409": { $ref: "#/components/responses/RentalConflict" }
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /api/v1/webhooks/mercadopago:
+    post:
+      operationId: receiveMercadoPagoPaymentWebhook
+      tags: [ Payments ]
+      summary: Validar y guardar una notificación de pago de Mercado Pago
+      description: >-
+        Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
+      security: []
+      parameters:
+        - { name: x-signature, in: header, required: true, schema: { type: string, maxLength: 512 } }
+        - { name: x-request-id, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 256 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ type, data ]
+              properties:
+                type: { type: string, maxLength: 64 }
+                action: { type: string, maxLength: 128 }
+                user_id: { oneOf: [ { type: string }, { type: integer } ] }
+                data:
+                  type: object
+                  required: [ id ]
+                  properties:
+                    id: { oneOf: [ { type: string }, { type: integer } ] }
+      responses:
+        "200": { description: Notificación firmada guardada o tópico firmado ignorado. }
+        "400": { description: Notificación mal formada. }
+        "401": { description: Firma inválida. }
+        "405": { description: Método no permitido. }
+        "503": { description: No fue posible guardar el recibo duradero; Mercado Pago debe reintentar. }
+  /rental-quotes/{quoteID}/checkout:
+    parameters:
+      - { name: quoteID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: startCommercialQuoteCheckout
+      tags: [ Rental, Payments ]
+      summary: Crear o reutilizar el Checkout Pro vigente de una cotización comercial
+      description: >-
+        El arrendatario se deriva de la sesión. El backend lee la cotización CLP persistida, deriva al anfitrión y calcula comisión 3% más IVA; no acepta importes ni URL de retorno del cliente. Persiste la operación idempotente y un hold de intervalo antes de invocar Mercado Pago. Solo se devuelve el init_point HTTPS de Mercado Pago. Si el proveedor queda incierto, se busca por external_reference antes de crear otra preferencia. La expiración libera el hold; cualquier pago tardío requiere conciliación y no se confirma desde el redirect.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      responses:
+        "200":
+          description: Preferencia pendiente reutilizada o recién creada.
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/CheckoutPreferenceEnvelope" } } }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { description: Cotización vencida, idempotencia incompatible, disponibilidad retenida o conexión del anfitrión ausente. }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+    get:
+      operationId: getCommercialQuoteCheckoutStatus
+      tags: [ Rental, Payments ]
+      summary: Consultar estado conciliado del checkout de una cotización
+      description: El estado procede de la operación durable del backend, nunca de parámetros de regreso OAuth o Mercado Pago. Un init_point solo aparece mientras la operación está pendiente.
+      responses:
+        "200": { description: Estado del backend o not_started., content: { application/json: { schema: { $ref: "#/components/schemas/CheckoutStatusEnvelope" } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /local/early-rentals/capabilities:
     get:
@@ -5519,6 +5636,22 @@ components:
         type: string
         minLength: 1
   schemas:
+    MercadoPagoHostConnection:
+      type: object
+      additionalProperties: false
+      required: [connected, authorization_available]
+      properties:
+        connected: { type: boolean }
+        seller_id: { type: string, pattern: '^[0-9]+$' }
+        expires_at: { type: string, format: date-time }
+        authorization_available: { type: boolean }
+        reauthorization_required: { type: boolean }
+    MercadoPagoOAuthStart:
+      type: object
+      additionalProperties: false
+      required: [authorization_url]
+      properties:
+        authorization_url: { type: string, format: uri }
     DemoPublicSpace:
       type: object
       additionalProperties: false
@@ -6031,6 +6164,38 @@ components:
       required: [ data ]
       properties:
         data: { $ref: "#/components/schemas/RentalQuote" }
+    CheckoutPreference:
+      type: object
+      additionalProperties: false
+      required: [ quote_id, operation_id, reservation_id, status, init_point, expires_at ]
+      properties:
+        quote_id: { type: string, format: uuid }
+        operation_id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid, description: ID de la reserva comercial durable, igual al operation_id. }
+        status: { type: string, const: pending }
+        init_point: { type: string, format: uri, pattern: '^https://(sandbox|www)\.mercadopago\.(cl|com)/' }
+        expires_at: { type: string, format: date-time }
+    CheckoutPreferenceEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties: { data: { $ref: "#/components/schemas/CheckoutPreference" } }
+    CheckoutStatus:
+      type: object
+      additionalProperties: false
+      required: [ quote_id, status ]
+      properties:
+        quote_id: { type: string, format: uuid }
+        operation_id: { type: string, format: uuid }
+        reservation_id: { type: string, format: uuid }
+        status: { type: string, enum: [ not_started, pending, approved, rejected, expired, cancelled, reconciliation_required ] }
+        init_point: { type: string, format: uri, pattern: '^https://(sandbox|www)\.mercadopago\.(cl|com)/', description: Solo se entrega cuando el checkout sigue pendiente. }
+        updated_at: { type: string, format: date-time }
+    CheckoutStatusEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties: { data: { $ref: "#/components/schemas/CheckoutStatus" } }
     LocalEarlyRentalCapabilities:
       type: object
       additionalProperties: false

@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { EarlyRentalPanel } from "@/features/bookings/ui/early-rental-panel";
 import { BookingQuoteCard } from "@/features/bookings/ui/booking-quote-card";
 import { serializeRentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
+import { MarketplaceRentalCheckout } from "@/features/public-catalog/ui/marketplace-rental-checkout";
 import {
   marketplaceBookingHref,
   parseMarketplaceBookingSelection,
@@ -52,7 +52,7 @@ export default async function NuevaReservaPage({
         aria-labelledby="booking-handoff-title"
       >
         <h1 id="booking-handoff-title" className="text-2xl font-semibold">
-          Preparar solicitud de arriendo
+          Cotizar arriendo y continuar al pago
         </h1>
         <dl className="mt-6 grid min-w-0 gap-3 break-words">
           <div>
@@ -86,40 +86,15 @@ export default async function NuevaReservaPage({
           </div>
         </dl>
         <div className="mt-8 border-t border-border pt-6">
-          {selection.rateUnit === "hora" ? (
-            <EarlyRentalPanel
-              selection={{
-                space_id: selection.spaceId,
-                start_at: selection.startAt,
-                end_at: selection.endAt,
-              }}
-              fallback={
-                <BookingQuoteCard
-                  spaceId={selection.spaceId}
-                  defaultRateUnit={selection.rateUnit}
-                  initialStartDate={selection.startAt}
-                  initialDurationUnits={selection.duration}
-                  authoritativeInterval={{
-                    startAt: selection.startAt,
-                    endAt: selection.endAt,
-                    timeZone: selection.timeZone,
-                  }}
-                />
-              }
-            />
-          ) : (
-            <BookingQuoteCard
-              spaceId={selection.spaceId}
-              defaultRateUnit={selection.rateUnit}
-              initialStartDate={selection.startAt}
-              initialDurationUnits={selection.duration}
-              authoritativeInterval={{
-                startAt: selection.startAt,
-                endAt: selection.endAt,
-                timeZone: selection.timeZone,
-              }}
-            />
-          )}
+          <MarketplaceRentalCheckout
+            selection={{
+              spaceId: selection.spaceId,
+              startAt: selection.startAt,
+              endAt: selection.endAt,
+              timeZone: selection.timeZone,
+            }}
+            signInReturn={canonicalHref}
+          />
         </div>
         <nav
           className="mt-6 flex flex-wrap gap-4 text-sm"

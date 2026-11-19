@@ -17,7 +17,7 @@ export type PublicSpaceBookingCtaProps = {
 type Props = PublicSpaceBookingCtaProps;
 
 const disclaimer =
-  "Estimación referencial: no ocupa ni confirma una reserva o pago. El siguiente paso prepara tu selección; no habilita una confirmación comercial ni un ensayo de pago.";
+  "El siguiente paso calcula una cotización oficial con el precio y la disponibilidad vigentes. El pago se confirma al volver desde Mercado Pago.";
 
 export function PublicSpaceBookingCta({
   selection,
