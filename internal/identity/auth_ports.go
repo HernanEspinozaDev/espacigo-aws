@@ -19,6 +19,7 @@ type AuthenticationRepository interface {
 	TOTPRepository
 	PasskeyRepository
 	QRRepository
+	LocationTrustedRepository
 }
 
 // Callbacks return persistence errors to roll back. Business rejections whose

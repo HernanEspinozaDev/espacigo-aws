@@ -389,6 +389,27 @@ func (m *mockTOTPRepo) ApproveQRTicket(context.Context, string, string, string, 
 func (m *mockTOTPRepo) ExpireQRTicket(context.Context, string) error {
 	return nil
 }
+func (m *mockTOTPRepo) GetLocationPermission(context.Context, string) (*identity.LocationPermissionRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) UpsertLocationPermission(context.Context, identity.LocationPermissionRecord) error {
+	return nil
+}
+func (m *mockTOTPRepo) ListActiveTrustedContacts(context.Context, string) ([]identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) CountActiveTrustedContacts(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockTOTPRepo) GetTrustedContact(context.Context, string, string) (*identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) InsertTrustedContact(context.Context, identity.TrustedContactRecord) error {
+	return nil
+}
+func (m *mockTOTPRepo) RevokeTrustedContact(context.Context, string, string, time.Time) error {
+	return nil
+}
 
 func TestTOTPService_Lifecycle(t *testing.T) {
 	repo := &mockTOTPRepo{}

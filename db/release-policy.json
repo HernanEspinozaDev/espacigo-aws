@@ -41,6 +41,10 @@
     "V000108__qr_verification_tickets.sql": {
       "checksum": "81cd66c4f105a63adc17c987800bea23acca1a03228193438c9b906339c86e98",
       "strategy": "expand"
+    },
+    "V000109__location_and_trusted_contacts.sql": {
+      "checksum": "41cb024d3bb5d3190f56bea485fde490b728c0437ebec9a29bd05d0d2d2fb379",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

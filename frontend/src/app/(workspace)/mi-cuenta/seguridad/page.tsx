@@ -6,6 +6,7 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
+  Clock,
   HelpCircle,
   MapPin,
   ShieldAlert,
@@ -13,10 +14,12 @@ import {
   Smartphone,
   Users,
 } from "lucide-react";
+import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
 
 export default function SeguridadPage() {
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [showSafetyTips, setShowSafetyTips] = useState(false);
+  const { summary } = useSecurityMethodsSummary();
 
   const securityItems = [
     {
@@ -25,8 +28,20 @@ export default function SeguridadPage() {
         "Elige cómo confirmar que eres tú al iniciar sesión o realizar acciones sensibles.",
       href: "/mi-cuenta/seguridad/metodos",
       icon: ShieldCheck,
-      iconColor: "text-emerald-600 bg-emerald-500/10",
-      status: (
+      iconColor: summary?.protected
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      status: summary?.protected ? (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+          <CheckCircle2 className="size-3.5" />
+          Protegida ({summary.active_count}/{summary.total_count})
+        </span>
+      ) : summary ? (
+        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+          <Clock className="size-3.5" />
+          Pendiente ({summary.active_count}/{summary.total_count})
+        </span>
+      ) : (
         <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
           <CheckCircle2 className="size-3.5" />
           Activo

@@ -306,6 +306,27 @@ func (f *fakeDeviceRepo) ApproveQRTicket(context.Context, string, string, string
 func (f *fakeDeviceRepo) ExpireQRTicket(context.Context, string) error {
 	return nil
 }
+func (f *fakeDeviceRepo) GetLocationPermission(context.Context, string) (*identity.LocationPermissionRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) UpsertLocationPermission(context.Context, identity.LocationPermissionRecord) error {
+	return nil
+}
+func (f *fakeDeviceRepo) ListActiveTrustedContacts(context.Context, string) ([]identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) CountActiveTrustedContacts(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (f *fakeDeviceRepo) GetTrustedContact(context.Context, string, string) (*identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) InsertTrustedContact(context.Context, identity.TrustedContactRecord) error {
+	return nil
+}
+func (f *fakeDeviceRepo) RevokeTrustedContact(context.Context, string, string, time.Time) error {
+	return nil
+}
 
 type dummyHasher struct{}
 

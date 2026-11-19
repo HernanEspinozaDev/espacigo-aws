@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   CheckCircle2,
   ChevronRight,
+  Clock,
   CreditCard,
   FileText,
   PenLine,
@@ -15,10 +16,12 @@ import {
 import { useAccount } from "@/features/account/ui/use-account";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { maskEmail, maskPhone } from "@/components/reveal-email";
+import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
 
 export default function MiCuentaPage() {
   const { snapshot, loadOverview, loadProfilePhoto } = useAccount();
   const { snapshot: authSnapshot } = useAuth();
+  const { summary: securitySummary } = useSecurityMethodsSummary();
 
   useEffect(() => {
     if (authSnapshot.status === "authenticated") {
@@ -149,13 +152,31 @@ export default function MiCuentaPage() {
         <div className="bg-card border border-border rounded-2xl p-5 shadow-sm hover:border-primary/40 hover:shadow-md transition-all flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
+              <div
+                className={`size-10 rounded-xl flex items-center justify-center ${
+                  securitySummary?.protected
+                    ? "bg-emerald-500/10 text-emerald-600"
+                    : "bg-amber-500/10 text-amber-600"
+                }`}
+              >
                 <ShieldCheck className="size-5" />
               </div>
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                <CheckCircle2 className="size-3" />
-                Protegida
-              </span>
+              {securitySummary?.protected ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <CheckCircle2 className="size-3" />
+                  Protegida
+                </span>
+              ) : securitySummary ? (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                  <Clock className="size-3" />
+                  Pendiente
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <CheckCircle2 className="size-3" />
+                  Protegida
+                </span>
+              )}
             </div>
             <div>
               <h3 className="font-semibold text-foreground text-base">
@@ -166,8 +187,17 @@ export default function MiCuentaPage() {
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">
-              <p className="text-emerald-700 dark:text-emerald-400 font-medium">
-                • 2 métodos activos (Contraseña y E-mail)
+              <p
+                className={
+                  securitySummary?.protected
+                    ? "text-emerald-700 dark:text-emerald-400 font-medium"
+                    : "text-amber-700 dark:text-amber-400 font-medium"
+                }
+              >
+                •{" "}
+                {securitySummary
+                  ? `${securitySummary.active_count} de ${securitySummary.total_count} métodos de verificación activos`
+                  : "2 métodos activos (Contraseña y E-mail)"}
               </p>
             </div>
           </div>

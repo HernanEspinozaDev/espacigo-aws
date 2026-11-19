@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronRight,
   Clock,
@@ -15,90 +15,41 @@ import {
   Smartphone,
 } from "lucide-react";
 import { useAccount } from "@/features/account/ui/use-account";
-import { useAuth } from "@/features/auth/ui/use-auth";
-import { maskEmail, maskPhone } from "@/components/reveal-email";
-import {
-  type AccountPhoneStatus,
-  getAccountPhoneStatus,
-} from "@/features/account/phone-verification-api";
-import {
-  type AccountTOTPStatus,
-  getAccountTOTPStatus,
-} from "@/features/account/totp-api";
-import {
-  type AccountPasskey,
-  listAccountPasskeys,
-} from "@/features/account/passkeys-api";
-import {
-  type AccountQRStatus,
-  getAccountQRStatus,
-} from "@/features/account/qr-verification-api";
+import { maskEmail } from "@/components/reveal-email";
+import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
 
 export default function MetodosVerificacionPage() {
-  const { snapshot: authSnapshot } = useAuth();
   const { snapshot } = useAccount();
-  const [phoneStatus, setPhoneStatus] = useState<AccountPhoneStatus | null>(null);
-  const [totpStatus, setTotpStatus] = useState<AccountTOTPStatus | null>(null);
-  const [passkeys, setPasskeys] = useState<AccountPasskey[]>([]);
-  const [qrStatus, setQrStatus] = useState<AccountQRStatus | null>(null);
-
-  useEffect(() => {
-    if (authSnapshot.status !== "authenticated") return;
-    const controller = new AbortController();
-    getAccountPhoneStatus(controller.signal)
-      .then((data) => setPhoneStatus(data))
-      .catch(() => {
-        // Silently preserve defaults on network or session interruption
-      });
-    getAccountTOTPStatus(controller.signal)
-      .then((data) => setTotpStatus(data))
-      .catch(() => {
-        // Silently preserve defaults on network or session interruption
-      });
-    listAccountPasskeys(controller.signal)
-      .then((data) => setPasskeys(data))
-      .catch(() => {
-        // Silently preserve defaults on network or session interruption
-      });
-    getAccountQRStatus(controller.signal)
-      .then((data) => setQrStatus(data))
-      .catch(() => {
-        // Silently preserve defaults on network or session interruption
-      });
-    return () => controller.abort();
-  }, [authSnapshot.status]);
+  const { summary } = useSecurityMethodsSummary();
 
   const profile = snapshot.profile;
   const rawEmail =
     (profile as { email?: string } | null)?.email || "usuario@espacigo.cl";
-  const maskedEmailValue = maskEmail(rawEmail);
-  const maskedPhoneValue = profile?.phone
-    ? maskPhone(profile.phone)
-    : "+56 •••• 5678";
+  const maskedEmailFallback = maskEmail(rawEmail);
 
-  const isPhoneVerified = Boolean(phoneStatus?.verified);
-  const isPhonePending = Boolean(phoneStatus?.pending_verification);
-  const displayPhoneMasked = phoneStatus?.masked_phone || maskedPhoneValue;
+  const methodsData = summary?.methods;
 
-  const isTotpActive = Boolean(totpStatus?.enabled);
-  const totpRemainingCodes = totpStatus?.remaining_backup_codes ?? 0;
-  const totpMasked = isTotpActive
-    ? `${totpRemainingCodes} códigos de respaldo`
-    : "Sin configurar";
-
-  const isPasskeysActive = passkeys.length > 0;
+  const isPasskeysActive = Boolean(methodsData?.passkeys?.enabled);
+  const passkeysCount = methodsData?.passkeys?.count ?? 0;
   const passkeysCountText = isPasskeysActive
-    ? `${passkeys.length} ${passkeys.length === 1 ? "llave activa" : "llaves activas"}`
+    ? `${passkeysCount} ${passkeysCount === 1 ? "llave activa" : "llaves activas"}`
     : "Sin configurar";
 
-  const isQrActive = Boolean(qrStatus?.enabled);
-  const qrDeviceLabel = qrStatus?.trusted_device_label || "Dispositivo vinculado";
+  const isPhoneActive = Boolean(methodsData?.phone?.enabled);
+  const displayPhoneMasked =
+    methodsData?.phone?.masked_phone || "Sin configurar";
 
-  const phoneBadgeText = isPhoneVerified
-    ? "Verificado"
-    : isPhonePending
-      ? "Pendiente"
-      : "Sin configurar";
+  const isPasswordActive = Boolean(methodsData?.password?.enabled ?? true);
+
+  const isEmailActive = Boolean(methodsData?.email?.enabled ?? true);
+  const displayEmailMasked =
+    methodsData?.email?.masked_email || maskedEmailFallback;
+
+  const isQrActive = Boolean(methodsData?.qr?.enabled);
+
+  const isTotpActive = Boolean(methodsData?.totp?.enabled);
+
+  const isFacialActive = Boolean(methodsData?.facial_kyc?.enabled);
 
   const methods = [
     {
@@ -122,14 +73,12 @@ export default function MetodosVerificacionPage() {
         "Código de verificación SMS o mensaje a tu número celular.",
       href: "/mi-cuenta/seguridad/metodos/telefono",
       icon: Smartphone,
-      iconColor: isPhoneVerified
+      iconColor: isPhoneActive
         ? "text-emerald-600 bg-emerald-500/10"
         : "text-primary bg-primary/10",
-      active: isPhoneVerified,
-      badgeText: phoneBadgeText,
-      dataMasked: isPhoneVerified || isPhonePending
-        ? displayPhoneMasked
-        : (profile?.phone ? maskedPhoneValue : "Sin configurar"),
+      active: isPhoneActive,
+      badgeText: isPhoneActive ? "Verificado" : "Sin configurar",
+      dataMasked: displayPhoneMasked,
     },
     {
       id: "contrasena",
@@ -138,9 +87,11 @@ export default function MetodosVerificacionPage() {
         "Clave alfanumérica registrada para acceso seguro.",
       href: "/mi-cuenta/seguridad/metodos/contrasena",
       icon: Lock,
-      iconColor: "text-emerald-600 bg-emerald-500/10",
-      active: true,
-      badgeText: "Activa",
+      iconColor: isPasswordActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isPasswordActive,
+      badgeText: isPasswordActive ? "Activa" : "Sin configurar",
       dataMasked: "••••••••••••••••••",
     },
     {
@@ -150,10 +101,12 @@ export default function MetodosVerificacionPage() {
         "Enlaces mágicos y códigos de seguridad enviados a tu casilla.",
       href: "/mi-cuenta/seguridad/metodos/email",
       icon: Mail,
-      iconColor: "text-emerald-600 bg-emerald-500/10",
-      active: true,
-      badgeText: "Verificado",
-      dataMasked: maskedEmailValue,
+      iconColor: isEmailActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isEmailActive,
+      badgeText: isEmailActive ? "Verificado" : "Sin configurar",
+      dataMasked: displayEmailMasked,
     },
     {
       id: "reconocimiento-facial",
@@ -162,10 +115,12 @@ export default function MetodosVerificacionPage() {
         "Validación biométrica oficial para operaciones y arriendos críticos.",
       href: "/mi-cuenta/seguridad/metodos/reconocimiento-facial",
       icon: ScanFace,
-      iconColor: "text-primary bg-primary/10",
-      active: false,
-      badgeText: "Próximamente",
-      dataMasked: "Fase 8 (KYC)",
+      iconColor: isFacialActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isFacialActive,
+      badgeText: "Pendiente módulo KYC",
+      dataMasked: "Pendiente módulo KYC",
     },
     {
       id: "codigo-qr",
@@ -179,7 +134,7 @@ export default function MetodosVerificacionPage() {
         : "text-primary bg-primary/10",
       active: isQrActive,
       badgeText: isQrActive ? "Activo" : "Sin configurar",
-      dataMasked: isQrActive ? qrDeviceLabel : "Sin configurar",
+      dataMasked: isQrActive ? "Dispositivo vinculado" : "Sin configurar",
     },
     {
       id: "google-authenticator",
@@ -193,12 +148,13 @@ export default function MetodosVerificacionPage() {
         : "text-primary bg-primary/10",
       active: isTotpActive,
       badgeText: isTotpActive ? "Activo" : "Sin configurar",
-      dataMasked: totpMasked,
+      dataMasked: isTotpActive ? "Configurado con TOTP" : "Sin configurar",
     },
   ];
 
-  const activeCount = methods.filter((m) => m.active).length;
-  const totalCount = methods.length;
+  const isProtected = summary?.protected ?? false;
+  const activeCount = summary?.active_count ?? methods.filter((m) => m.active).length;
+  const totalCount = summary?.total_count ?? methods.length;
   const progressPercent = Math.round((activeCount / totalCount) * 100);
 
   return (
@@ -239,20 +195,37 @@ export default function MetodosVerificacionPage() {
       </div>
 
       {/* Banner superior de estado */}
-      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
+      <div
+        className={
+          isProtected
+            ? "bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4"
+            : "bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4"
+        }
+      >
         <div className="flex items-start gap-4">
-          <div className="size-10 rounded-xl bg-emerald-500/20 text-emerald-600 flex items-center justify-center shrink-0 mt-0.5">
-            <CheckCircle2 className="size-6" />
+          <div
+            className={`size-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
+              isProtected
+                ? "bg-emerald-500/20 text-emerald-600"
+                : "bg-amber-500/20 text-amber-600"
+            }`}
+          >
+            {isProtected ? (
+              <CheckCircle2 className="size-6" />
+            ) : (
+              <AlertCircle className="size-6" />
+            )}
           </div>
           <div className="space-y-1">
             <h2 className="text-base sm:text-lg font-bold text-foreground">
-              Tu cuenta está protegida porque tienes los métodos necesarios.
+              {isProtected
+                ? "Tu cuenta está protegida porque tienes los métodos necesarios."
+                : "Configura métodos de verificación para mayor protección."}
             </h2>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Tienes {activeCount} de {totalCount} métodos de verificación
-              activos ({activeCount === 2 ? "Contraseña y E-mail" : activeCount === 3 ? "Teléfono, Contraseña y E-mail" : "Múltiples métodos"}). Puedes configurar
-              métodos adicionales para aumentar tu protección y simplificar tu
-              inicio de sesión.
+              {isProtected
+                ? `Tienes ${activeCount} de ${totalCount} métodos de verificación activos. Puedes configurar métodos adicionales para aumentar tu protección y simplificar tu inicio de sesión.`
+                : `Tienes ${activeCount} de ${totalCount} métodos de verificación activos. Se recomienda activar al menos un método adicional para proteger completamente tu cuenta.`}
             </p>
           </div>
         </div>
@@ -260,12 +233,18 @@ export default function MetodosVerificacionPage() {
         {/* Barra de progreso */}
         <div className="space-y-1.5 pt-1">
           <div className="flex justify-between text-xs font-medium text-muted-foreground">
-            <span>Progreso de métodos ({activeCount}/{totalCount})</span>
-            <span className="text-primary font-semibold">{progressPercent}%</span>
+            <span>
+              Progreso de métodos ({activeCount}/{totalCount})
+            </span>
+            <span className="text-primary font-semibold">
+              {progressPercent}%
+            </span>
           </div>
           <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
             <div
-              className="h-full bg-emerald-600 transition-all rounded-full"
+              className={`h-full transition-all rounded-full ${
+                isProtected ? "bg-emerald-600" : "bg-amber-500"
+              }`}
               style={{ width: `${progressPercent}%` }}
             />
           </div>

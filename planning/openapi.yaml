@@ -2781,6 +2781,151 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /account/security/location:
+    get:
+      operationId: getAccountLocationPermission
+      tags:
+        - M01 local
+      description: Obtiene el estado del permiso de ubicación y consentimiento para la cuenta autenticada.
+      responses:
+        "200":
+          description: Estado del permiso de ubicación.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountLocationPermissionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateAccountLocationPermission
+      tags:
+        - M01 local
+      description: Actualiza el consentimiento y permiso de ubicación de la cuenta autenticada.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountLocationPermissionInput"
+      responses:
+        "200":
+          description: Permiso de ubicación actualizado exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountLocationPermissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/trusted-contacts:
+    get:
+      operationId: listAccountTrustedContacts
+      tags:
+        - M01 local
+      description: Lista las personas de confianza activas designadas por la cuenta autenticada con datos enmascarados.
+      responses:
+        "200":
+          description: Lista de personas de confianza activas.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTrustedContactsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: addAccountTrustedContact
+      tags:
+        - M01 local
+      description: Agrega una nueva persona de confianza a la cuenta autenticada (máximo 3 contactos activos).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAccountTrustedContactInput"
+      responses:
+        "200":
+          description: Persona de confianza agregada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTrustedContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/trusted-contacts/{contact_id}:
+    delete:
+      operationId: removeAccountTrustedContact
+      tags:
+        - M01 local
+      description: Revoca y elimina una persona de confianza activa de la cuenta.
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Persona de confianza revocada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoveAccountTrustedContactResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/methods:
+    get:
+      operationId: getAccountSecurityMethods
+      tags:
+        - M01 local
+      description: Obtiene el resumen del estado real de los 7 métodos de verificación de seguridad de la cuenta.
+      responses:
+        "200":
+          description: Resumen global de métodos de verificación de la cuenta.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSecurityMethodsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -9040,6 +9185,210 @@ components:
         resolved_at:
           type: string
           format: date-time
+    AccountLocationPermissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        consent_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_region_label:
+          type: string
+          nullable: true
+          example: "Región Metropolitana"
+    UpdateAccountLocationPermissionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+        region_label:
+          type: string
+          nullable: true
+          example: "Región Metropolitana"
+    AccountTrustedContact:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - full_name
+        - masked_email
+        - relationship
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+          example: "María González"
+        masked_email:
+          type: string
+          example: "m••••z"
+        masked_phone:
+          type: string
+          nullable: true
+          example: "+56 ••••4321"
+        relationship:
+          type: string
+          example: "Hermana"
+        created_at:
+          type: string
+          format: date-time
+    AccountTrustedContactsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - contacts
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountTrustedContact"
+    AddAccountTrustedContactInput:
+      type: object
+      additionalProperties: false
+      required:
+        - full_name
+        - email
+        - relationship
+      properties:
+        full_name:
+          type: string
+          example: "María González"
+        email:
+          type: string
+          format: email
+          example: "maria@example.com"
+        phone:
+          type: string
+          nullable: true
+          example: "+56912345678"
+        relationship:
+          type: string
+          example: "Hermana"
+    RemoveAccountTrustedContactResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - contact_id
+      properties:
+        status:
+          type: string
+          example: "revoked"
+        contact_id:
+          type: string
+          format: uuid
+    AccountSecurityMethodsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - protected
+        - active_count
+        - total_count
+        - methods
+      properties:
+        protected:
+          type: boolean
+          example: true
+        active_count:
+          type: integer
+          example: 3
+        total_count:
+          type: integer
+          example: 7
+        methods:
+          $ref: "#/components/schemas/AccountSecurityMethodsSummary"
+    AccountSecurityMethodsSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+        - email
+        - phone
+        - totp
+        - passkeys
+        - qr
+        - facial_kyc
+      properties:
+        password:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        email:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+            masked_email:
+              type: string
+              nullable: true
+        phone:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+            masked_phone:
+              type: string
+              nullable: true
+        totp:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        passkeys:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+            - count
+          properties:
+            enabled:
+              type: boolean
+            count:
+              type: integer
+        qr:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        facial_kyc:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+            - status
+          properties:
+            enabled:
+              type: boolean
+            status:
+              type: string
+              example: "pending_kyc_module"
     Profile:
       type: object
       required: [ display_name, updated_at ]
