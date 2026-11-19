@@ -246,6 +246,25 @@ func (f *fakeDeviceRepo) GetPhoneVerification(_ context.Context, _ string) (*ide
 	return nil, nil
 }
 
+func (f *fakeDeviceRepo) GetTOTP(context.Context, string) (*identity.AccountTOTPRecord, int, error) {
+	return nil, 0, nil
+}
+func (f *fakeDeviceRepo) SavePendingTOTPSecret(context.Context, string, []byte, string) error {
+	return nil
+}
+func (f *fakeDeviceRepo) ActivateTOTP(context.Context, string, int64, []string) error {
+	return nil
+}
+func (f *fakeDeviceRepo) UpdateTOTPLastVerifiedStep(context.Context, string, int64) error {
+	return nil
+}
+func (f *fakeDeviceRepo) ConsumeBackupCode(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+func (f *fakeDeviceRepo) DisableTOTP(context.Context, string) error {
+	return nil
+}
+
 type dummyHasher struct{}
 
 func (dummyHasher) Hash(s identity.Secret) (identity.Secret, error)      { return s, nil }

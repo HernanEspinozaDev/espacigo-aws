@@ -309,6 +309,9 @@ func run() error {
 		if err != nil {
 			return errors.New("local authentication initialization failed")
 		}
+		if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+			service.SetTOTPKeyring(totpKeyring)
+		}
 		localIdentityService = service
 		documentVerificationRepository := documentverificationpg.New(pool)
 		documentVerificationService, err := documentverification.NewService(documentVerificationRepository)
@@ -924,6 +927,9 @@ func runLocalKYCOnly(cfg config, profile runtimeProfileName) error {
 	if err != nil {
 		return errors.New("local authentication initialization failed")
 	}
+	if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+		authService.SetTOTPKeyring(totpKeyring)
+	}
 	declarationRepository := identitydeclarationpg.New(pool)
 	declarationService, err := newRuntimeIdentityDeclarationService(os.Getenv, declarationRepository, time.Now)
 	if err != nil || declarationService == nil {
@@ -972,6 +978,9 @@ func runDocumentScanOnly(cfg config) error {
 	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
 	if err != nil {
 		return errors.New("local authentication initialization failed")
+	}
+	if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+		service.SetTOTPKeyring(totpKeyring)
 	}
 
 	documentRepository := documentverificationpg.New(pool)

@@ -1564,6 +1564,74 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/totp": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado de configuración y activación del autenticador TOTP (Google Authenticator). */
+    get: operations["getAccountTOTPStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/setup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia la configuración de TOTP generando un secreto pendiente y retornando la URI otpauth y la llave manual. */
+    post: operations["setupAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/enable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Verifica el primer código TOTP contra el secreto pendiente, activa TOTP y genera los códigos de respaldo. */
+    post: operations["enableAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/disable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Desactiva el autenticador TOTP verificando un código TOTP vigente o un código de respaldo válido. */
+    post: operations["disableAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6335,6 +6403,41 @@ export interface components {
       /** @example seguridad@empresa.com */
       extra_email?: string | null;
     };
+    AccountTOTPStatus: {
+      /** @example true */
+      enabled: boolean;
+      /** @example false */
+      pending_setup: boolean;
+      /** Format: date-time */
+      enabled_at?: string | null;
+      /** @example 8 */
+      remaining_backup_codes: number;
+    };
+    AccountTOTPSetupResponse: {
+      /** @example otpauth://totp/EspaciGo:usuario@ejemplo.cl?secret=JBSWY3DPEHPK3PXP&issuer=EspaciGo&algorithm=SHA1&digits=6&period=30 */
+      otpauth_uri: string;
+      /** @example JBSWY3DPEHPK3PXP */
+      manual_key: string;
+    };
+    AccountTOTPEnableInput: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountTOTPEnableResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      enabled_at: string;
+      backup_codes: string[];
+    };
+    AccountTOTPDisableInput: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountTOTPDisableResponse: {
+      /** @example false */
+      enabled: boolean;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -10697,6 +10800,110 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountTOTPStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del autenticador TOTP de la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  setupAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Secreto TOTP generado y guardado en estado pendiente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPSetupResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  enableAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountTOTPEnableInput"];
+      };
+    };
+    responses: {
+      /** @description TOTP activado exitosamente con códigos de respaldo generados. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPEnableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  disableAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountTOTPDisableInput"];
+      };
+    };
+    responses: {
+      /** @description TOTP desactivado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPDisableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
       500: components["responses"]["InternalServerError"];
     };
   };

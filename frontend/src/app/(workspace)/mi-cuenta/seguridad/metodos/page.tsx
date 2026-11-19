@@ -21,17 +21,27 @@ import {
   type AccountPhoneStatus,
   getAccountPhoneStatus,
 } from "@/features/account/phone-verification-api";
+import {
+  type AccountTOTPStatus,
+  getAccountTOTPStatus,
+} from "@/features/account/totp-api";
 
 export default function MetodosVerificacionPage() {
   const { snapshot: authSnapshot } = useAuth();
   const { snapshot } = useAccount();
   const [phoneStatus, setPhoneStatus] = useState<AccountPhoneStatus | null>(null);
+  const [totpStatus, setTotpStatus] = useState<AccountTOTPStatus | null>(null);
 
   useEffect(() => {
     if (authSnapshot.status !== "authenticated") return;
     const controller = new AbortController();
     getAccountPhoneStatus(controller.signal)
       .then((data) => setPhoneStatus(data))
+      .catch(() => {
+        // Silently preserve defaults on network or session interruption
+      });
+    getAccountTOTPStatus(controller.signal)
+      .then((data) => setTotpStatus(data))
       .catch(() => {
         // Silently preserve defaults on network or session interruption
       });
@@ -49,6 +59,12 @@ export default function MetodosVerificacionPage() {
   const isPhoneVerified = Boolean(phoneStatus?.verified);
   const isPhonePending = Boolean(phoneStatus?.pending_verification);
   const displayPhoneMasked = phoneStatus?.masked_phone || maskedPhoneValue;
+
+  const isTotpActive = Boolean(totpStatus?.enabled);
+  const totpRemainingCodes = totpStatus?.remaining_backup_codes ?? 0;
+  const totpMasked = isTotpActive
+    ? `${totpRemainingCodes} códigos de respaldo`
+    : "Sin configurar";
 
   const phoneBadgeText = isPhoneVerified
     ? "Verificado"
@@ -140,10 +156,12 @@ export default function MetodosVerificacionPage() {
         "Códigos dinámicos de 6 dígitos mediante aplicación de autenticación TOTP.",
       href: "/mi-cuenta/seguridad/metodos/google-authenticator",
       icon: ShieldAlert,
-      iconColor: "text-primary bg-primary/10",
-      active: false,
-      badgeText: "Próximamente",
-      dataMasked: "Fase 4 (TOTP)",
+      iconColor: isTotpActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isTotpActive,
+      badgeText: isTotpActive ? "Activo" : "Sin configurar",
+      dataMasked: totpMasked,
     },
   ];
 
