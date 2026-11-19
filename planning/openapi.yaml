@@ -2335,6 +2335,77 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /account/security/devices:
+    get:
+      operationId: listLinkedDevices
+      tags:
+        - M01 local
+      description: Lista las sesiones activas y dispositivos vinculados de la cuenta autenticada.
+      responses:
+        "200":
+          description: Lista de dispositivos vinculados activos.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedDevicesList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/devices/revoke-others:
+    post:
+      operationId: revokeOtherLinkedDevices
+      tags:
+        - M01 local
+      description: Revoca todas las sesiones activas de la cuenta excepto la sesión actual.
+      responses:
+        "200":
+          description: Otras sesiones revocadas exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeOtherLinkedDevicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/devices/{session_id}:
+    delete:
+      operationId: revokeLinkedDevice
+      tags:
+        - M01 local
+      description: Revoca una sesión o dispositivo vinculado específico de la cuenta.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Identificador de la sesión a revocar.
+      responses:
+        "200":
+          description: Sesión revocada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeLinkedDeviceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -8079,6 +8150,75 @@ components:
         verified_at:
           type: string
           format: date-time
+    LinkedDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - device_label
+        - ip_masked
+        - created_at
+        - last_activity_at
+        - expires_at
+        - is_current
+      properties:
+        id:
+          type: string
+          example: "00000000-0000-4000-8000-000000000001"
+        device_label:
+          type: string
+          example: "Chrome en Linux"
+        ip_masked:
+          type: string
+          example: "190.162.•••.•••"
+        created_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_current:
+          type: boolean
+    LinkedDevicesList:
+      type: object
+      additionalProperties: false
+      required:
+        - devices
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkedDevice"
+    RevokeLinkedDeviceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - session_id
+      properties:
+        status:
+          type: string
+          example: "revoked"
+        session_id:
+          type: string
+          example: "00000000-0000-4000-8000-000000000001"
+    RevokeOtherLinkedDevicesResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - revoked_count
+      properties:
+        status:
+          type: string
+          example: "revoked_others"
+        revoked_count:
+          type: integer
+          minimum: 0
+          example: 2
     Profile:
       type: object
       required: [ display_name, updated_at ]

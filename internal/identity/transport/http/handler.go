@@ -110,7 +110,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, Retry-After")
 	}
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -120,13 +120,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	const (
-		accountPhonePath         = "/api/v1/account/security/phone"
-		accountPhoneSendCodePath = "/api/v1/account/security/phone/send-code"
-		accountPhoneVerifyPath   = "/api/v1/account/security/phone/verify"
+		accountPhonePath               = "/api/v1/account/security/phone"
+		accountPhoneSendCodePath       = "/api/v1/account/security/phone/send-code"
+		accountPhoneVerifyPath         = "/api/v1/account/security/phone/verify"
+		accountDevicesPath             = "/api/v1/account/security/devices"
+		accountDevicesRevokeOthersPath = "/api/v1/account/security/devices/revoke-others"
+		accountDevicesPrefix           = "/api/v1/account/security/devices/"
 	)
+	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath {
 		expected = http.MethodGet
+	}
+	if deviceDeletePath {
+		expected = http.MethodDelete
 	}
 
 	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
@@ -154,30 +161,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		expected = http.MethodPost
 	}
 	paths := map[string]bool{
-		"/api/v1/auth/register":                 true,
-		"/api/v1/auth/verification/reissue":     true,
-		"/api/v1/auth/verification":             true,
-		"/api/v1/auth/verification/status":      true,
-		"/api/v1/auth/login":                    true,
-		"/api/v1/auth/session":                  true,
-		"/api/v1/auth/logout":                   true,
-		"/api/v1/auth/terms":                    true,
-		"/api/v1/auth/password/recovery":        true,
+		"/api/v1/auth/register":                  true,
+		"/api/v1/auth/verification/reissue":      true,
+		"/api/v1/auth/verification":              true,
+		"/api/v1/auth/verification/status":       true,
+		"/api/v1/auth/login":                     true,
+		"/api/v1/auth/session":                   true,
+		"/api/v1/auth/logout":                    true,
+		"/api/v1/auth/terms":                     true,
+		"/api/v1/auth/password/recovery":         true,
 		"/api/v1/auth/password/recovery/consume": true,
 		"/api/v1/auth/password/recovery/status":  true,
-		"/api/v1/auth/password/change":          true,
-		"/api/v1/profile":                       true,
-		"/api/v1/rights-requests":               true,
-		"/api/v1/privacy/export":                true,
-		"/api/v1/privacy/export/archive":        true,
-		"/api/v1/privacy/retention/purge":       true,
-		accountPhonePath:                        true,
-		accountPhoneSendCodePath:                true,
-		accountPhoneVerifyPath:                  true,
-		suppressionQueuePath:                    true,
-		credentialNoticeQueuePath:               true,
+		"/api/v1/auth/password/change":           true,
+		"/api/v1/profile":                        true,
+		"/api/v1/rights-requests":                true,
+		"/api/v1/privacy/export":                 true,
+		"/api/v1/privacy/export/archive":         true,
+		"/api/v1/privacy/retention/purge":        true,
+		accountPhonePath:                         true,
+		accountPhoneSendCodePath:                 true,
+		accountPhoneVerifyPath:                   true,
+		accountDevicesPath:                       true,
+		accountDevicesRevokeOthersPath:           true,
+		suppressionQueuePath:                     true,
+		credentialNoticeQueuePath:                true,
 	}
-	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath {
+	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -236,6 +245,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.write(w, http.StatusOK, result)
+		return
+	}
+	if deviceDeletePath {
+		sessionID := strings.TrimPrefix(r.URL.Path, accountDevicesPrefix)
+		if sessionID == "" || strings.Contains(sessionID, "/") {
+			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if err := h.service.RevokeLinkedDevice(r.Context(), principal.AccountID, sessionID); err != nil {
+			h.deviceError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{
+			"status":     "revoked",
+			"session_id": sessionID,
+		})
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
@@ -509,6 +544,42 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.write(w, http.StatusOK, result)
 			return
 		}
+	case accountDevicesPath, accountDevicesRevokeOthersPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+
+		if r.URL.Path == accountDevicesPath {
+			devices, err := h.service.ListLinkedDevices(r.Context(), principal.AccountID, principal.SessionID)
+			if err != nil {
+				h.deviceError(w, err)
+				return
+			}
+			if devices == nil {
+				devices = []identity.LinkedDevice{}
+			}
+			h.write(w, http.StatusOK, map[string]any{"devices": devices})
+			return
+		}
+		if r.URL.Path == accountDevicesRevokeOthersPath {
+			count, err := h.service.RevokeOtherLinkedDevices(r.Context(), principal.AccountID, principal.SessionID)
+			if err != nil {
+				h.deviceError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, map[string]any{
+				"status":        "revoked_others",
+				"revoked_count": count,
+			})
+			return
+		}
 	case "/api/v1/auth/terms":
 		documents, err := identity.PublicConsentDocuments()
 		if err != nil {
@@ -680,7 +751,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.accountFields(w, 422, "invalid_value", fields)
 			return
 		}
-		result, err := h.service.Login(r.Context(), identity.LoginInput{Email: input.Email, Password: input.Password})
+		clientIP := clientIPForDevice(r)
+		userAgent := r.UserAgent()
+		result, err := h.service.Login(r.Context(), identity.LoginInput{
+			Email:     input.Email,
+			Password:  input.Password,
+			UserAgent: userAgent,
+			IP:        clientIP,
+		})
 		if err != nil {
 			h.serviceError(w, err)
 			return
@@ -930,4 +1008,40 @@ func (h *Handler) phoneError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusInternalServerError, "internal_error", "Ocurrió un error inesperado al procesar la verificación telefónica.")
 	}
 }
+
+func (h *Handler) deviceError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "device_not_found", "El dispositivo no fue encontrado o ya ha sido revocado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_device", "Identificador de dispositivo inválido.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func clientIPForDevice(r *http.Request) string {
+	if values := r.Header.Values("X-Espacigo-Client-IP"); len(values) == 1 && values[0] != "" {
+		if addr, err := netip.ParseAddr(strings.TrimSpace(values[0])); err == nil {
+			return addr.Unmap().String()
+		}
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		first := strings.TrimSpace(parts[0])
+		if addr, err := netip.ParseAddr(first); err == nil {
+			return addr.Unmap().String()
+		}
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if addr, err := netip.ParseAddr(host); err == nil {
+			return addr.Unmap().String()
+		}
+	}
+	if addr, err := netip.ParseAddr(r.RemoteAddr); err == nil {
+		return addr.Unmap().String()
+	}
+	return ""
+}
+
 

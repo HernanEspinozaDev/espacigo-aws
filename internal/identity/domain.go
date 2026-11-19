@@ -152,6 +152,9 @@ type Session struct {
 	CreatedAt, LastActivityAt, ExpiresAt time.Time
 	RevokedAt                            *time.Time
 	ClientSummary                        string
+	DeviceLabel                          string
+	IPMasked                             string
+	UserAgent                            string
 }
 
 func (Session) String() string   { return "Session{TokenHash:[REDACTED]}" }

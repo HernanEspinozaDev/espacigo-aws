@@ -1,6 +1,8 @@
 package identity
 
 import (
+	"fmt"
+	"net/netip"
 	"strings"
 	"unicode"
 )
@@ -95,4 +97,32 @@ func MaskPhone(phone string) string {
 	}
 	return "+56 ••••" + normalized[len(normalized)-4:]
 }
+
+// MaskIP masks IPv4 and IPv6 addresses to protect user privacy (A.8.11).
+// IPv4 retains the first two octets (e.g. "190.162.12.45" -> "190.162.•••.•••").
+// IPv6 retains the first two 16-bit blocks (e.g. "2001:db8:••••:••••").
+// Empty string returns "", invalid IP returns "••••".
+func MaskIP(ip string) string {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return ""
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return "••••"
+	}
+	addr = addr.Unmap()
+	if addr.Is4() {
+		b := addr.As4()
+		return fmt.Sprintf("%d.%d.•••.•••", b[0], b[1])
+	}
+	if addr.Is6() {
+		b := addr.As16()
+		g1 := uint16(b[0])<<8 | uint16(b[1])
+		g2 := uint16(b[2])<<8 | uint16(b[3])
+		return fmt.Sprintf("%x:%x:••••:••••", g1, g2)
+	}
+	return "••••"
+}
+
 
