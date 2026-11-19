@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -107,14 +108,21 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid notification", http.StatusBadRequest)
 		return
 	}
-	id, ok := notificationValue(wire.Data.ID)
-	if !ok || !safeNotificationID(id) {
+	queryID, queryType, ok := signedNotificationQuery(r.URL.RawQuery)
+	if !ok || !safeNotificationID(queryID) || (queryType != "" && queryType != wire.Type) {
 		http.Error(w, "invalid notification", http.StatusBadRequest)
 		return
 	}
+	if len(wire.Data.ID) > 0 && !bytes.Equal(wire.Data.ID, []byte("null")) {
+		bodyID, bodyIDOK := notificationValue(wire.Data.ID)
+		if !bodyIDOK || !safeNotificationID(bodyID) || bodyID != queryID {
+			http.Error(w, "invalid notification", http.StatusBadRequest)
+			return
+		}
+	}
 	requestID := strings.TrimSpace(r.Header.Get("x-request-id"))
 	ts, signature, ok := parseSignature(r.Header.Get("x-signature"))
-	if !ok || requestID == "" || len(requestID) > 256 || !validSignatureTimestamp(ts) || !verifyWebhookSignature(h.secret, id, requestID, ts, signature) {
+	if !ok || requestID == "" || len(requestID) > 256 || !validSignatureTimestamp(ts) || !verifyWebhookSignature(h.secret, queryID, requestID, ts, signature) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
@@ -122,7 +130,7 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	if !decimalID(id) {
+	if !decimalID(queryID) {
 		http.Error(w, "invalid payment notification", http.StatusBadRequest)
 		return
 	}
@@ -133,7 +141,7 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		sellerID = ""
 	}
 	_, err = h.inbox.Receive(r.Context(), PaymentNotification{
-		Topic: wire.Type, Action: strings.TrimSpace(wire.Action), PaymentID: id,
+		Topic: wire.Type, Action: strings.TrimSpace(wire.Action), PaymentID: queryID,
 		SellerIDHint: sellerID, RequestID: requestID, SignatureTimestamp: ts,
 		ReceivedAt: h.now().UTC(),
 	})
@@ -145,6 +153,33 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.wake()
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// signedNotificationQuery extracts the canonical data.id from Mercado Pago's
+// query string. Duplicate keys and malformed escapes are rejected so proxies
+// and parsers cannot disagree about which ID was signed.
+func signedNotificationQuery(raw string) (dataID, topic string, ok bool) {
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return "", "", false
+	}
+	for key, entries := range values {
+		if len(entries) != 1 || (key != "data.id" && key != "type") {
+			return "", "", false
+		}
+	}
+	ids := values["data.id"]
+	if len(ids) != 1 || ids[0] == "" {
+		return "", "", false
+	}
+	types := values["type"]
+	if len(types) > 1 || (len(types) == 1 && types[0] == "") {
+		return "", "", false
+	}
+	if len(types) == 1 {
+		topic = types[0]
+	}
+	return ids[0], topic, true
 }
 
 func notificationValue(raw json.RawMessage) (string, bool) {

@@ -356,7 +356,8 @@ VALUES($1,$2,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),$3,'{}'
 
 	ts := fmt.Sprint(time.Now().Unix())
 	requestBody := fmt.Sprintf(`{"type":"payment","action":"payment.updated","user_id":%s,"data":{"id":%s}}`, sellerID, paymentID)
-	webhookReq, err := http.NewRequest(http.MethodPost, httpServer.URL+"/api/v1/webhooks/mercadopago", strings.NewReader(requestBody))
+	webhookURL := httpServer.URL + "/api/v1/webhooks/mercadopago?data.id=" + url.QueryEscape(paymentID) + "&type=payment"
+	webhookReq, err := http.NewRequest(http.MethodPost, webhookURL, strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +393,7 @@ VALUES($1,$2,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),$3,'{}'
 
 	// A duplicate delivery with the same signed request ID must not create new
 	// payment state or additional email intents.
-	dupReq, err := http.NewRequest(http.MethodPost, httpServer.URL+"/api/v1/webhooks/mercadopago", strings.NewReader(requestBody))
+	dupReq, err := http.NewRequest(http.MethodPost, webhookURL, strings.NewReader(requestBody))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -99,7 +99,7 @@ func TestWebhookReceiverVerifiesAndPersistsBeforeAcknowledgement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/mercadopago/webhook", strings.NewReader(`{"type":"payment","action":"payment.updated","user_id":123456789,"data":{"id":987654321}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/payments/mercadopago/webhook?data.id=987654321&type=payment", strings.NewReader(`{"type":"payment","action":"payment.updated","user_id":123456789,"data":{"id":987654321}}`))
 	req.Header.Set("x-request-id", "request-abc")
 	req.Header.Set("x-signature", signTestNotification(secret, "987654321", "request-abc", "1894737600"))
 	res := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestWebhookReceiverRejectsInvalidSignatureBeforeWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"type":"payment","user_id":123456789,"data":{"id":"987654321"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/webhook?data.id=987654321&type=payment", strings.NewReader(`{"type":"payment","user_id":123456789,"data":{"id":"987654321"}}`))
 	req.Header.Set("x-request-id", "request-abc")
 	req.Header.Set("x-signature", "ts=1894737600,v1="+strings.Repeat("0", sha256.Size*2))
 	res := httptest.NewRecorder()
@@ -137,13 +137,61 @@ func TestWebhookReceiverAcknowledgesUnsupportedSignedTopic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"type":"merchant_order","data":{"id":"order-abc"}}`))
+	req := httptest.NewRequest(http.MethodPost, "/webhook?data.id=order-abc&type=merchant_order", strings.NewReader(`{"type":"merchant_order","data":{"id":"order-abc"}}`))
 	req.Header.Set("x-request-id", "request-abc")
 	req.Header.Set("x-signature", signTestNotification(secret, "order-abc", "request-abc", "1894737600"))
 	res := httptest.NewRecorder()
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusOK || len(box.received) != 0 {
 		t.Fatalf("unsupported signed topic was not safely ignored: status=%d received=%d", res.Code, len(box.received))
+	}
+}
+
+func TestWebhookReceiverRejectsAmbiguousOrMismatchedQueryIDs(t *testing.T) {
+	secret := []byte("synthetic webhook signing secret for tests only")
+	for _, tc := range []struct {
+		name, query, bodyID string
+	}{
+		{name: "missing", query: "type=payment", bodyID: "987654321"},
+		{name: "duplicate", query: "data.id=987654321&data.id=987654321&type=payment", bodyID: "987654321"},
+		{name: "malformed escape", query: "data.id=%zz&type=payment", bodyID: "987654321"},
+		{name: "query body mismatch", query: "data.id=987654322&type=payment", bodyID: "987654321"},
+		{name: "duplicate type", query: "data.id=987654321&type=payment&type=payment", bodyID: "987654321"},
+		{name: "query topic mismatch", query: "data.id=987654321&type=merchant_order", bodyID: "987654321"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box := &webhookInboxStub{}
+			h, err := NewWebhookReceiver(secret, box, time.Now, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := fmt.Sprintf(`{"type":"payment","data":{"id":"%s"}}`, tc.bodyID)
+			req := httptest.NewRequest(http.MethodPost, "/webhook?"+tc.query, strings.NewReader(body))
+			req.Header.Set("x-request-id", "request-abc")
+			req.Header.Set("x-signature", signTestNotification(secret, "987654321", "request-abc", "1894737600"))
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != http.StatusBadRequest || len(box.received) != 0 {
+				t.Fatalf("ambiguous notification was accepted: status=%d receipts=%d", res.Code, len(box.received))
+			}
+		})
+	}
+}
+
+func TestWebhookReceiverUsesQueryIDWhenBodyOmitsIt(t *testing.T) {
+	secret := []byte("synthetic webhook signing secret for tests only")
+	box := &webhookInboxStub{}
+	h, err := NewWebhookReceiver(secret, box, time.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/webhook?data.id=987654321&type=payment", strings.NewReader(`{"type":"payment","action":"payment.updated"}`))
+	req.Header.Set("x-request-id", "request-abc")
+	req.Header.Set("x-signature", signTestNotification(secret, "987654321", "request-abc", "1894737600"))
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || len(box.received) != 1 || box.received[0].PaymentID != "987654321" {
+		t.Fatalf("query ID was not used when body omitted it: status=%d receipts=%+v", res.Code, box.received)
 	}
 }
 
