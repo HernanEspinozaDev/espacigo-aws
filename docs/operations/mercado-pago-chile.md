@@ -7,8 +7,8 @@ La rama parte de `origin/desarrollo-local`. Integra los cambios del módulo en `
 ## 1. Identificar tu aplicación en Chile
 
 1. Inicia sesión con tu cuenta de desarrollador en [Integraciones de Mercado Pago Chile](https://www.mercadopago.cl/developers/panel/app).
-2. Abre la aplicación que usarás para EspaciGo. Verifica que corresponda a Chile (`MLC`) y a **Checkout Pro**. Para Split 1:1, la documentación específica usa **Checkout Pro con Preferencias** y el campo `marketplace_fee`. La documentación general recomienda Orders para integraciones nuevas. Si el panel solo ofrece Orders, confirma con Mercado Pago que tu aplicación admite Split 1:1 antes de elegir esa variante. [Checkout Pro con Preferencias](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-pro-preferences/overview) · [Referencia de Checkout Pro con Orders](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-pro-orders/overview)
-3. En **Credenciales → Prueba**, ubica el **Access Token de prueba** y la **Public Key de prueba**. Usa el selector de entorno para identificarlos. Un token de prueba de Checkout Pro también puede empezar por `APP_USR-`. El **Client ID** y el **Client Secret** del integrador se consultan en la sección de credenciales de producción del panel y se usan para el intercambio de OAuth de la aplicación. Para pedir credenciales OAuth de sandbox, solicita `test_token: true` y comprueba el entorno antes de hacer pagos. [Credenciales](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/additional-content/your-integrations/credentials) · [OAuth](https://www.mercadopago.cl/developers/es/docs/security/oauth/creation)
+2. Abre `pago-espacigo` y verifica que corresponda a Chile (`MLC`) y al modelo **Marketplace**. La primera implementación usa **Checkout Pro con API de Preferences** y envía la comisión en `marketplace_fee`. [Checkout Pro con Preferencias](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-pro-preferences/overview)
+3. En **Credenciales → Prueba**, ubica el **Access Token de prueba** y la **Public Key de prueba**. Usa el selector de entorno para identificarlos. Un token de prueba de Checkout Pro también puede empezar por `APP_USR-`. El **Client ID** y el **Client Secret** del integrador se consultan en la sección de credenciales de la aplicación y se usan para el intercambio OAuth. Al vincular un vendedor de prueba solicita `test_token: true` y comprueba `live_mode=false`; las preferencias usan el endpoint normal y redirigen por `init_point`. [Credenciales](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/additional-content/your-integrations/credentials) · [OAuth](https://www.mercadopago.cl/developers/es/docs/security/oauth/creation)
 4. En **Cuentas de prueba**, prepara un vendedor y un comprador distintos, ambos de Chile. Usa una cuenta integradora de prueba si la configuración de marketplace lo requiere. Usa saldo ficticio para verificar el reparto. La guía de Split 1:1 pide KYC nivel 6 para la cuenta vendedora real. [Cuentas de prueba](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/additional-content/your-integrations/test/accounts) · [Requisitos de Split 1:1](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/prerequisites)
 
 ## 2. Guardar credenciales en el checkout local
@@ -26,26 +26,58 @@ mkdir -p .local/secrets
 git check-ignore .local/secrets/mercadopago-test.env
 ```
 
-Usa esta plantilla con los nombres propuestos para el futuro adaptador Go. Copia los valores directamente desde el panel. Mantén los secretos fuera del chat, los logs, Git y las variables `NEXT_PUBLIC_*`.
+Guarda el secreto de firma del webhook en un archivo separado, con permisos privados; la configuración solo conserva la ruta:
+
+```bash
+(
+  umask 077
+  touch .local/secrets/mercadopago-webhook-secret
+  chmod 600 .local/secrets/mercadopago-webhook-secret
+  "${EDITOR:-nano}" .local/secrets/mercadopago-webhook-secret
+)
+```
+
+Usa esta plantilla para el adaptador Go. Copia los valores directamente desde el panel. Mantén los secretos fuera del chat, los logs, Git y las variables `NEXT_PUBLIC_*`.
 
 ```dotenv
 MERCADOPAGO_TEST_ACCESS_TOKEN=
 MERCADOPAGO_CLIENT_ID=
 MERCADOPAGO_CLIENT_SECRET=
-MERCADOPAGO_WEBHOOK_SECRET=
+MERCADOPAGO_OAUTH_REDIRECT_URI=https://tu-dominio/api/backend/host/mercadopago/oauth/callback
+MERCADOPAGO_TOKEN_ENCRYPTION_KEY=
+MERCADOPAGO_TEST_MODE=true
+MERCADOPAGO_WEBHOOK_SECRET_FILE=.local/secrets/mercadopago-webhook-secret
 ```
+
+El archivo anterior contiene solo claves que `scripts/local-dev.sh` acepta. Antes de iniciar Go con un túnel de prueba, exporta los parámetros no secretos en la misma terminal:
+
+```bash
+export FRONTEND_PUBLIC_ORIGIN="https://tu-dominio"
+export CORS_ALLOWED_ORIGINS="$FRONTEND_PUBLIC_ORIGIN"
+export MERCADOPAGO_RETURN_ORIGIN="$FRONTEND_PUBLIC_ORIGIN"
+export MERCADOPAGO_CHECKOUT_ENABLED=0
+export MERCADOPAGO_WEBHOOK_SECRET_FILE="$PWD/.local/secrets/mercadopago-webhook-secret"
+```
+
+El valor predeterminado es `MERCADOPAGO_CHECKOUT_ENABLED=0`. Cámbialo a `1` solo después de aplicar y probar las migraciones, vincular un vendedor de prueba y montar el receiver/worker de pagos. Usa el túnel para navegar la web completa durante OAuth; Go y `API_BACKEND_BASE_URL` siguen en loopback.
 
 | Valor | Uso |
 | --- | --- |
-| `MERCADOPAGO_TEST_ACCESS_TOKEN` | Credencial del panel para comprobar acceso a la API con el entorno de prueba. |
+| `MERCADOPAGO_TEST_ACCESS_TOKEN` | Credencial del panel para comprobar acceso API manualmente; no se usa para vincular vendedores ni para cobrar. |
 | `MERCADOPAGO_CLIENT_ID` | Identifica la aplicación de EspaciGo en el consentimiento OAuth. |
 | `MERCADOPAGO_CLIENT_SECRET` | Permite a Go intercambiar y renovar credenciales OAuth en el servidor. |
-| `MERCADOPAGO_WEBHOOK_SECRET` | Clave de firma generada al configurar Webhooks para el entorno correspondiente. Completa este valor cuando esté disponible la ruta de prueba. |
+| `MERCADOPAGO_OAUTH_REDIRECT_URI` | URL pública exacta registrada en `pago-espacigo`; el BFF reenvía el callback a Go. |
+| `MERCADOPAGO_TOKEN_ENCRYPTION_KEY` | Clave AES-256 codificada en Base64 para cifrar credenciales OAuth. Guárdala solo en el archivo privado local o en el gestor de secretos productivo. |
+| `MERCADOPAGO_TEST_MODE` | `true` solicita credenciales OAuth de prueba con `test_token=true` y verifica que el proveedor las marque como no productivas. Cambia a `false` solo al configurar deliberadamente producción. |
+| `MERCADOPAGO_WEBHOOK_SECRET_FILE` | Ruta privada al archivo con la clave de firma de Webhooks. Mantén el archivo con permisos `0600`; Go rechaza enlaces simbólicos, archivos amplios o permisos de grupo/otros. |
+| `MERCADOPAGO_CHECKOUT_ENABLED` | Parámetro de entorno no secreto; no se agrega al archivo privado. Mantén `0` hasta que el flujo de prueba completo esté listo. `1` requiere OAuth más una URL de retorno HTTPS. |
+| `MERCADOPAGO_RETURN_ORIGIN` | Parámetro no secreto; no se agrega al archivo privado. Usa el origin HTTPS que Mercado Pago admite para `back_urls`, sin path, igual a `FRONTEND_PUBLIC_ORIGIN` durante la prueba con túnel. |
+| `FRONTEND_PUBLIC_ORIGIN` | Origin público donde abres Next durante OAuth de prueba. Usa el mismo HTTPS del túnel para la página, callback y retorno; el callback BFF valida que el backend redirija al mismo origin. `API_BACKEND_BASE_URL` se mantiene en loopback hacia Go. |
 | Public Key de prueba | Clave publicable. Hace falta si la interfaz inicializa el SDK de Mercado Pago. Una redirección directa usa la URL que devuelve la preferencia. |
 
 El SDK oficial de Go está agregado al módulo como `github.com/mercadopago/sdk-go v1.14.0`. La importación inicial que muestra Mercado Pago (`github.com/mercadopago/sdk-go/pkg/config`) configura el cliente del servidor con un Access Token. Para Split 1:1, la preferencia real de cada anfitrión debe autenticarse con el token OAuth de ese vendedor.
 
-El backend actual usa el adaptador simulado `fakebooking`. `scripts/local-dev.sh api` todavía carece de un cargador para este archivo y de un adaptador de Mercado Pago. Los tokens OAuth de los anfitriones se obtendrán después de su consentimiento y se guardarán cifrados por anfitrión en el backend. El token de prueba del panel sirve para la comprobación inicial de acceso. La preferencia con reparto usa el token OAuth del anfitrión.
+El callback OAuth debe usar la URL HTTPS pública exacta del BFF (`/api/backend/host/mercadopago/oauth/callback`) registrada en la aplicación. Para desarrollo local, abre Next a través del mismo túnel HTTPS y configura con ese origin `MERCADOPAGO_OAUTH_REDIRECT_URI`, `FRONTEND_PUBLIC_ORIGIN`, `CORS_ALLOWED_ORIGINS` y `MERCADOPAGO_RETURN_ORIGIN`. Mantén `API_BACKEND_BASE_URL` dirigido al Go local por loopback. No inicies OAuth desde `http://127.0.0.1:3000` y regreses por otro host: la cookie de sesión y el redirect de retorno pertenecen al origin público del navegador. Cada intento guarda `state` de un solo uso, PKCE y expiración en PostgreSQL; el backend persiste los tokens OAuth cifrados con AES-GCM, ID de vendedor, scopes y vencimiento. Los tokens nunca se envían al navegador. Si OAuth no está configurado, el estado de conexión muestra `authorization_available=false` y no puede iniciar consentimiento.
 
 ## 3. Confirmar acceso por terminal o por MCP
 
@@ -69,5 +101,19 @@ Mercado Pago documenta su plugin para Codex y el comando `/mp-connect` para auto
 
 1. **Vincular al anfitrión.** Desde EspaciGo, el anfitrión inicia el consentimiento OAuth. Registra en la aplicación una URL de retorno de prueba y usa exactamente la misma URI en la autorización y el intercambio. Cuando existan las rutas, usa una dirección HTTPS de prueba para la integración local. Go verifica un `state` de un solo uso ligado a la sesión del anfitrión, usa PKCE y cambia el código en `POST /oauth/token`. Guarda cifrados el token y su renovación, junto con el ID del vendedor y el vencimiento. Solicita y verifica el modo de prueba antes de continuar. [Flujo OAuth](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/additional-content/security/oauth/creation)
 2. **Pagar la reserva.** Go toma monto, moneda `CLP` y comisión desde la reserva validada. Crea la preferencia en `POST /checkout/preferences` autenticándose con el token OAuth del anfitrión e incluye `marketplace_fee` como monto, `external_reference` como identificador interno y `back_urls` para la vuelta del comprador. Guarda la relación entre reserva y preferencia y reutilízala ante reintentos de inicio. Next.js redirige a la URL de Checkout Pro devuelta para el entorno de prueba. [Crear una preferencia](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-pro-preferences/overview) · [Comisión de marketplace](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/integration-configuration/integrate-marketplace)
-3. **Confirmar el pago.** Configura **Webhooks → Prueba → Pagos** con una URL HTTPS pública que exponga solo la ruta de notificaciones necesaria. Valida `x-signature` con la clave del panel y consulta `GET /v1/payments/{id}` con la credencial del vendedor asociado. Verifica entorno, vendedor, moneda, monto, estado y referencia antes de aplicar de forma idempotente el cambio en la reserva. Las URLs de retorno sirven para mostrar el estado al comprador, incluida la espera mientras el backend confirma el pago. [Webhooks de Mercado Pago](https://www.mercadopago.cl/developers/es/docs/split-payments/additional-content/your-integrations/notifications/webhooks)
-4. **Verificar en `desarrollo-local`.** Prueba pago aprobado, pendiente y rechazado, duplicados del webhook, firma inválida y reconexión del anfitrión. Comprueba en las cuentas de prueba el importe del comprador, la comisión de EspaciGo y el saldo neto del anfitrión. Ejecuta `./scripts/local-dev.sh test` una vez implementado e integrado el código.
+3. **Confirmar el pago.** Configura **Webhooks → Prueba → Pagos** con una URL HTTPS pública que apunte a `/api/v1/webhooks/mercadopago`. El backend valida `x-signature`, guarda un recibo durable y responde antes de que el worker consulte `GET /v1/payments/{id}` con la credencial OAuth del vendedor asociado. Verifica entorno, vendedor, moneda, monto, estado y referencia antes de aplicar de forma idempotente el cambio en la reserva. Las URLs de retorno sirven para mostrar el estado al comprador, incluida la espera mientras el backend confirma el pago. [Webhooks de Mercado Pago](https://www.mercadopago.cl/developers/es/docs/split-payments/additional-content/your-integrations/notifications/webhooks)
+4. **Verificar en `desarrollo-local`.** La operación comercial del hito actual parte de una cotización persistida (`POST /rental-quotes/{quoteID}/checkout`); no reutiliza los IDs de `booking-trial`. Prueba aprobación, rechazo, timeout/recuperación de Preference, retención exclusiva del intervalo, reintentos idempotentes y pago tardío. El redirect nunca confirma el pago; el estado debe proceder de conciliación del backend. Comprueba en las cuentas de prueba el importe del comprador, la comisión de EspaciGo y el saldo neto del anfitrión. Ejecuta `./scripts/local-dev.sh test` una vez integrado el receptor de notificaciones.
+
+### Guía manual del Checkout Pro comercial
+
+El endpoint `POST /api/v1/webhooks/mercadopago`, su inbox durable y el worker ya están montados en `cmd/api`. La prueba integrada de fixture con webhook firmado, proveedor fake, reserva V106 y outbox pasó; la prueba manual del proveedor con cuentas de prueba sigue pendiente. Para ese recorrido, aplica V103–V106, configura OAuth y Webhooks de prueba, inicia el API con `MERCADOPAGO_CHECKOUT_ENABLED=1` y configura en el panel la URL HTTPS pública del túnel más esa ruta. No uses cuentas reales, credenciales live ni una bandeja SMTP externa. Las pruebas Playwright de inicio/retorno usan respuestas sintéticas; no crean preferencias ni cobran.
+
+1. Levanta la web por un túnel HTTPS dirigido a Next local y configura el API con `FRONTEND_PUBLIC_ORIGIN`, `CORS_ALLOWED_ORIGINS`, `MERCADOPAGO_OAUTH_REDIRECT_URI` y `MERCADOPAGO_RETURN_ORIGIN` coherentes con ese mismo origin público. Mantén `API_BACKEND_BASE_URL` y Go en loopback; configura `LOCAL_SMTP_ADDR=127.0.0.1:1025` para Mailpit. El webhook de prueba apunta al túnel más `/api/v1/webhooks/mercadopago`.
+   Para una sesión manual del flujo comercial, exporta `COMMERCIAL_RENTAL_FLOW_ENABLED=1` y `MERCADOPAGO_CHECKOUT_ENABLED=1` antes de `./scripts/local-dev.sh api`; el runner apaga automáticamente `LOCAL_BOOKING_TRIAL` en ese modo. Déjalos en `0` para la demo habitual. No inicies el modo comercial hasta tener la fixture V106, OAuth de prueba y archivo de firma configurados.
+2. Con dos cuentas de prueba chilenas, vincula primero la cuenta anfitriona desde **Anfitrión → Mercado Pago** (`/anfitrion/mercado-pago`). Confirma que la UI muestra la conexión y que el backend informa disponibilidad de autorización. Si no se configuraron OAuth y la clave de cifrado, detén el recorrido aquí.
+3. Con una cuenta arrendataria de prueba, abre una publicación comercial, elige un horario y calcula la cotización oficial. Verifica que el monto y vencimiento vienen de la respuesta de Go. Pulsa **Pagar con Mercado Pago** y comprueba que el navegador navega al `init_point` HTTPS del entorno de prueba devuelto por el backend.
+4. Completa el checkout únicamente con el comprador de prueba y saldo ficticio. Al regresar a `/reservas/checkout/{quoteID}`, comprueba que el estado se carga desde `GET /rental-quotes/{quoteID}/checkout`. Cambiar o añadir `status=approved` o `collection_status=approved` a la URL de retorno no debe cambiar el estado mostrado.
+5. Espera la notificación de prueba y confirma que solo la consulta autenticada al proveedor produce la transición final. Un pago aprobado debe conservar la reserva comercial pagada; rechazo o vencimiento libera el horario según el estado de la operación.
+6. Revisa Mailpit en `http://127.0.0.1:8025`: la aprobación genera un aviso al arrendatario y otro al anfitrión; rechazo o vencimiento genera uno al arrendatario. Reenvía la misma notificación y confirma que no aparece otro aviso. Para revisar reintentos, interrumpe temporalmente Mailpit antes de procesar una transición sintética y restáuralo; el worker debe entregar el aviso pendiente sin cambiar el pago.
+
+El flujo `/demo/arriendo` y `Pagar (simulado)` siguen siendo una demo independiente. Esa ruta nunca inicia un Checkout Pro comercial ni genera cargos reales.
