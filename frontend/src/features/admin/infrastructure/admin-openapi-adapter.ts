@@ -65,7 +65,8 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: GlobalAdminOverview } | undefined;
-    const data = envelope?.data ?? (result.data as unknown as GlobalAdminOverview);
+    const data =
+      envelope?.data ?? (result.data as unknown as GlobalAdminOverview);
     if (!data) throw new ApiProtocolError();
     return data;
   }
@@ -162,7 +163,11 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: GlobalAdminAccount[]; next_cursor?: string }; items?: GlobalAdminAccount[]; next_cursor?: string }
+      | {
+          data?: { items?: GlobalAdminAccount[]; next_cursor?: string };
+          items?: GlobalAdminAccount[];
+          next_cursor?: string;
+        }
       | undefined;
     return {
       items:
@@ -187,7 +192,11 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: GlobalAdminAccount } | undefined;
-    return (envelope?.data as unknown as GlobalAdminAccount) ?? (result.data as unknown as GlobalAdminAccount) ?? null;
+    return (
+      (envelope?.data as unknown as GlobalAdminAccount) ??
+      (result.data as unknown as GlobalAdminAccount) ??
+      null
+    );
   }
 
   async updateGlobalAccountProfile(
@@ -318,7 +327,10 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: GlobalAdminPublication[] }; items?: GlobalAdminPublication[] }
+      | {
+          data?: { items?: GlobalAdminPublication[] };
+          items?: GlobalAdminPublication[];
+        }
       | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
@@ -387,7 +399,10 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: AdminVerificationCase[] }; items?: AdminVerificationCase[] }
+      | {
+          data?: { items?: AdminVerificationCase[] };
+          items?: AdminVerificationCase[];
+        }
       | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
@@ -405,7 +420,10 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: AdminVerificationCase[] }; items?: AdminVerificationCase[] }
+      | {
+          data?: { items?: AdminVerificationCase[] };
+          items?: AdminVerificationCase[];
+        }
       | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
@@ -597,8 +615,7 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: AuditEvent[] }; items?: AuditEvent[] }
-      | undefined;
+      { data?: { items?: AuditEvent[] }; items?: AuditEvent[] } | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
 
@@ -641,7 +658,9 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: AdminLocalAccount } | undefined;
-    return envelope?.data ?? (result.data as unknown as AdminLocalAccount) ?? null;
+    return (
+      envelope?.data ?? (result.data as unknown as AdminLocalAccount) ?? null
+    );
   }
 
   async blockLocalAccount(
@@ -697,7 +716,10 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: AdminPublishedSpace[] }; items?: AdminPublishedSpace[] }
+      | {
+          data?: { items?: AdminPublishedSpace[] };
+          items?: AdminPublishedSpace[];
+        }
       | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
@@ -718,7 +740,9 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: AdminPublishedSpace } | undefined;
-    return envelope?.data ?? (result.data as unknown as AdminPublishedSpace) ?? null;
+    return (
+      envelope?.data ?? (result.data as unknown as AdminPublishedSpace) ?? null
+    );
   }
 
   async getReservationsReport(
@@ -743,8 +767,10 @@ export class OpenApiAdminAdapter implements AdminPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
-    const envelope = result.data as { data?: AdminReservationsReport } | undefined;
-    const data = envelope?.data ?? (result.data as unknown as AdminReservationsReport);
+    const envelope = result.data as
+      { data?: AdminReservationsReport } | undefined;
+    const data =
+      envelope?.data ?? (result.data as unknown as AdminReservationsReport);
     if (!data) throw new ApiProtocolError();
     return data;
   }
@@ -774,7 +800,8 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: AdminFinanceReport } | undefined;
-    const data = envelope?.data ?? (result.data as unknown as AdminFinanceReport);
+    const data =
+      envelope?.data ?? (result.data as unknown as AdminFinanceReport);
     if (!data) throw new ApiProtocolError();
     return data;
   }
@@ -803,7 +830,8 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: AdminDisputesReport } | undefined;
-    const data = envelope?.data ?? (result.data as unknown as AdminDisputesReport);
+    const data =
+      envelope?.data ?? (result.data as unknown as AdminDisputesReport);
     if (!data) throw new ApiProtocolError();
     return data;
   }
@@ -830,7 +858,10 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
-      | { data?: { items?: AdminReservationSummary[] }; items?: AdminReservationSummary[] }
+      | {
+          data?: { items?: AdminReservationSummary[] };
+          items?: AdminReservationSummary[];
+        }
       | undefined;
     return envelope?.data?.items ?? envelope?.items ?? [];
   }
@@ -850,8 +881,13 @@ export class OpenApiAdminAdapter implements AdminPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
-    const envelope = result.data as { data?: AdminReservationDetail } | undefined;
-    return envelope?.data ?? (result.data as unknown as AdminReservationDetail) ?? null;
+    const envelope = result.data as
+      { data?: AdminReservationDetail } | undefined;
+    return (
+      envelope?.data ??
+      (result.data as unknown as AdminReservationDetail) ??
+      null
+    );
   }
 
   async listDamageClaims(signal?: AbortSignal): Promise<AdminDamageClaim[]> {
@@ -883,7 +919,9 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as { data?: AdminDamageClaim } | undefined;
-    return envelope?.data ?? (result.data as unknown as AdminDamageClaim) ?? null;
+    return (
+      envelope?.data ?? (result.data as unknown as AdminDamageClaim) ?? null
+    );
   }
 
   async resolveDamageClaim(
