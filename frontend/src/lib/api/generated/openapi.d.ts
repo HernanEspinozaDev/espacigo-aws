@@ -1530,6 +1530,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/alerts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene las preferencias de canales de alerta y las últimas 20 alertas de seguridad de la cuenta autenticada. */
+    get: operations["getSecurityAlerts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/alerts/channels": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** @description Actualiza los canales de notificación de alertas de seguridad y el correo secundario opcional. */
+    put: operations["updateSecurityAlertChannels"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6254,6 +6288,53 @@ export interface components {
       /** @example 2 */
       revoked_count: number;
     };
+    SecurityAlertPreferences: {
+      /** @example true */
+      app_notifications_enabled: boolean;
+      /** @example true */
+      email_alerts_enabled: boolean;
+      /** @example false */
+      whatsapp_alerts_enabled: boolean;
+      /** @example u••••1@example.com */
+      masked_email: string;
+      /** @example s••••y@example.com */
+      masked_extra_email: string;
+      /** @example true */
+      extra_email_configured: boolean;
+      /** @example +56 ••••1234 */
+      masked_phone: string;
+    };
+    SecurityAlertEvent: {
+      /**
+       * Format: uuid
+       * @example 00000000-0000-4000-8000-000000000001
+       */
+      id: string;
+      /** @example alert_channel_updated */
+      event_code: string;
+      /** @example Canales de alerta actualizados */
+      title: string;
+      /** @example Chrome en Linux */
+      device_label: string;
+      /** @example 190.162.•••.••• */
+      ip_masked: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    SecurityAlertsResponse: {
+      preferences: components["schemas"]["SecurityAlertPreferences"];
+      alerts: components["schemas"]["SecurityAlertEvent"][];
+    };
+    UpdateSecurityAlertChannelsInput: {
+      /** @example true */
+      app_notifications_enabled: boolean;
+      /** @example true */
+      email_alerts_enabled: boolean;
+      /** @example false */
+      whatsapp_alerts_enabled: boolean;
+      /** @example seguridad@empresa.com */
+      extra_email?: string | null;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -10565,6 +10646,57 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getSecurityAlerts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Preferencias de alerta y feed reciente de auditoría de seguridad. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityAlertsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  updateSecurityAlertChannels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateSecurityAlertChannelsInput"];
+      };
+    };
+    responses: {
+      /** @description Preferencias de canales de alerta actualizadas exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityAlertPreferences"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
       500: components["responses"]["InternalServerError"];
     };
   };

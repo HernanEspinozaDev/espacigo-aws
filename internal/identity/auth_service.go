@@ -548,6 +548,7 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	hash := CredentialHash(Secret(input.SessionToken))
 	var denied error
+	var changedAccountID string
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
 		now := s.now()
 		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
@@ -592,6 +593,7 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
 			return err
 		}
+		changedAccountID = account.ID
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
@@ -602,6 +604,9 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	if denied != nil {
 		return denied
+	}
+	if changedAccountID != "" {
+		_ = s.RecordSecurityAlertEvent(ctx, changedAccountID, "password_changed", "Contraseña de la cuenta actualizada", "Navegador web", "")
 	}
 	return nil
 }

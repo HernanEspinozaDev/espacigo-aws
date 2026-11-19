@@ -226,6 +226,26 @@ func (f *fakeDeviceRepo) RevokeOtherSessionsForAccount(_ context.Context, accoun
 	return count, nil
 }
 
+func (f *fakeDeviceRepo) GetSecurityAlertPreferences(_ context.Context, _ string) (*identity.SecurityAlertPreferencesRecord, error) {
+	return nil, nil
+}
+
+func (f *fakeDeviceRepo) UpsertSecurityAlertPreferences(_ context.Context, _ identity.SecurityAlertPreferencesRecord) error {
+	return nil
+}
+
+func (f *fakeDeviceRepo) ListSecurityAlertEvents(_ context.Context, _ string, _ int) ([]identity.SecurityAlertEventRecord, error) {
+	return nil, nil
+}
+
+func (f *fakeDeviceRepo) RecordSecurityAlertEvent(_ context.Context, _ identity.SecurityAlertEventRecord) error {
+	return nil
+}
+
+func (f *fakeDeviceRepo) GetPhoneVerification(_ context.Context, _ string) (*identity.AccountPhoneVerification, error) {
+	return nil, nil
+}
+
 type dummyHasher struct{}
 
 func (dummyHasher) Hash(s identity.Secret) (identity.Secret, error)      { return s, nil }

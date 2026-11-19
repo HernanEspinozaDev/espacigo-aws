@@ -168,6 +168,8 @@ type mockAuthRepo struct {
 	accounts map[string]identity.Account
 	sessions map[string]identity.Session
 	tokens   map[string]string // token -> sessionID
+	prefs    map[string]*identity.SecurityAlertPreferencesRecord
+	events   map[string][]identity.SecurityAlertEventRecord
 }
 
 func newMockAuthRepo() *mockAuthRepo {
@@ -175,6 +177,8 @@ func newMockAuthRepo() *mockAuthRepo {
 		accounts: make(map[string]identity.Account),
 		sessions: make(map[string]identity.Session),
 		tokens:   make(map[string]string),
+		prefs:    make(map[string]*identity.SecurityAlertPreferencesRecord),
+		events:   make(map[string][]identity.SecurityAlertEventRecord),
 	}
 }
 
@@ -200,7 +204,12 @@ func (m *mockAuthRepo) ReopenCredentialNotice(context.Context, identity.ReopenCr
 func (m *mockAuthRepo) ClaimCredentialNotice(context.Context, time.Time, time.Time) (identity.CredentialNotice, error) {
 	return identity.CredentialNotice{}, nil
 }
-func (m *mockAuthRepo) ActiveAccountEmail(context.Context, string) (string, error) { return "", nil }
+func (m *mockAuthRepo) ActiveAccountEmail(_ context.Context, accountID string) (string, error) {
+	if a, ok := m.accounts[accountID]; ok {
+		return a.Email, nil
+	}
+	return "", identity.ErrNotFound
+}
 func (m *mockAuthRepo) CancelInactiveCredentialNotice(context.Context, string, time.Time, time.Time) error {
 	return nil
 }
@@ -354,6 +363,33 @@ func (m *mockAuthRepo) RevokeOtherSessionsForAccount(_ context.Context, accountI
 		}
 	}
 	return count, nil
+}
+
+func (m *mockAuthRepo) GetSecurityAlertPreferences(_ context.Context, accountID string) (*identity.SecurityAlertPreferencesRecord, error) {
+	return m.prefs[accountID], nil
+}
+
+func (m *mockAuthRepo) UpsertSecurityAlertPreferences(_ context.Context, record identity.SecurityAlertPreferencesRecord) error {
+	rec := record
+	m.prefs[record.AccountID] = &rec
+	return nil
+}
+
+func (m *mockAuthRepo) ListSecurityAlertEvents(_ context.Context, accountID string, limit int) ([]identity.SecurityAlertEventRecord, error) {
+	evs := m.events[accountID]
+	if limit > 0 && len(evs) > limit {
+		return evs[:limit], nil
+	}
+	return evs, nil
+}
+
+func (m *mockAuthRepo) RecordSecurityAlertEvent(_ context.Context, event identity.SecurityAlertEventRecord) error {
+	m.events[event.AccountID] = append([]identity.SecurityAlertEventRecord{event}, m.events[event.AccountID]...)
+	return nil
+}
+
+func (m *mockAuthRepo) GetPhoneVerification(_ context.Context, _ string) (*identity.AccountPhoneVerification, error) {
+	return nil, nil
 }
 
 type testHasher struct{}
