@@ -2,7 +2,11 @@ import "client-only";
 
 import createClient from "openapi-fetch";
 import type { paths } from "@/lib/api/generated/openapi";
-import type { PublicMonth, PublicMonthResult } from "../domain/public-month";
+import type {
+  PublicMonth,
+  PublicMonthDay,
+  PublicMonthResult,
+} from "../domain/public-month";
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -58,7 +62,7 @@ function parse(value: unknown, requestedMonth: string): PublicMonth | null {
   const basePrice = integer(value.base_price_clp);
   if (basePrice === null) return null;
   const seen = new Set<string>();
-  const days = [];
+  const days: PublicMonthDay[] = [];
   for (const day of value.days) {
     if (
       !record(day) ||
