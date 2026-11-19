@@ -36,47 +36,34 @@ interface BookingQuoteCardProps {
 }
 
 function formatBookingError(err: unknown, defaultMessage: string): string {
-  if (err instanceof ApiError) {
-    if (err.status === 404 || err.code === "not_found") {
-      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
-    }
-    if (err.status === 409 || err.code === "conflict") {
-      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
-    }
-    if (err.status === 401 || err.code === "unauthenticated") {
+  const message = err instanceof Error ? err.message : err;
+  const code =
+    err instanceof ApiError
+      ? err.code
+      : typeof message === "string"
+        ? /^API request failed \(\d+: ([\w.-]+)\)$/.exec(message)?.[1]
+        : undefined;
+
+  switch (code) {
+    case "identity_verification_required":
+      return "Se requiere una verificación de identidad aprobada para continuar con el arriendo.";
+    case "http_404":
+    case "route_not_allowed":
+      return "El servicio de reservas no está disponible en este entorno.";
+    case "not_found":
+      return "La solicitud de reserva no está disponible. Vuelve a la publicación y selecciona el horario nuevamente.";
+    case "conflict":
+      return "El horario podría estar ocupado o pertenecer a un espacio de tu propia cuenta.";
+    case "unauthenticated":
       return "Debes iniciar sesión para cotizar o confirmar una reserva.";
-    }
-    if (err.status === 403 || err.code === "forbidden") {
+    case "forbidden":
       return "No tienes permisos para realizar esta operación con la cuenta actual.";
-    }
-    if (err.code === "identity_verification_required") {
-      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
-    }
-    return `Error del servicio (${err.code || err.status}): Por favor intente nuevamente.`;
   }
-  if (typeof err === "string") {
-    if (err.includes("404: not_found")) {
-      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
-    }
-    if (err.includes("409: conflict")) {
-      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
-    }
-    if (err.includes("identity_verification_required")) {
-      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
-    }
-    return err;
+  if (err instanceof ApiError) {
+    return defaultMessage;
   }
-  if (err instanceof Error) {
-    if (err.message.includes("404: not_found")) {
-      return "El espacio seleccionado no se encuentra disponible para arriendo. Verifique que la publicación esté activa y que el anfitrión haya completado su verificación de identidad (KYC).";
-    }
-    if (err.message.includes("409: conflict")) {
-      return "No es posible proceder con la reserva en este horario. El intervalo seleccionado puede no estar disponible o está intentando reservar un espacio de su propia cuenta.";
-    }
-    if (err.message.includes("identity_verification_required")) {
-      return "Se requiere verificación de identidad (KYC) aprobada para poder continuar con el arriendo.";
-    }
-    return err.message;
+  if (typeof message === "string" && message.trim()) {
+    return message;
   }
   return defaultMessage;
 }
