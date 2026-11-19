@@ -43,6 +43,8 @@ MERCADOPAGO_WEBHOOK_SECRET=
 | `MERCADOPAGO_WEBHOOK_SECRET` | Clave de firma generada al configurar Webhooks para el entorno correspondiente. Completa este valor cuando esté disponible la ruta de prueba. |
 | Public Key de prueba | Clave publicable. Hace falta si la interfaz inicializa el SDK de Mercado Pago. Una redirección directa usa la URL que devuelve la preferencia. |
 
+El SDK oficial de Go está agregado al módulo como `github.com/mercadopago/sdk-go v1.14.0`. La importación inicial que muestra Mercado Pago (`github.com/mercadopago/sdk-go/pkg/config`) configura el cliente del servidor con un Access Token. Para Split 1:1, la preferencia real de cada anfitrión debe autenticarse con el token OAuth de ese vendedor.
+
 El backend actual usa el adaptador simulado `fakebooking`. `scripts/local-dev.sh api` todavía carece de un cargador para este archivo y de un adaptador de Mercado Pago. Los tokens OAuth de los anfitriones se obtendrán después de su consentimiento y se guardarán cifrados por anfitrión en el backend. El token de prueba del panel sirve para la comprobación inicial de acceso. La preferencia con reparto usa el token OAuth del anfitrión.
 
 ## 3. Confirmar acceso por terminal o por MCP
