@@ -1428,6 +1428,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/phone": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Estado de configuración y verificación telefónica del usuario autenticado. */
+    get: operations["getAccountPhoneVerification"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/phone/send-code": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por mensaje. */
+    post: operations["sendAccountPhoneVerificationCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/phone/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida código OTP de 6 dígitos recibido por SMS y confirma la verificación del número telefónico. */
+    post: operations["verifyAccountPhoneCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6084,6 +6135,44 @@ export interface components {
     SpaceDraftList: {
       items: components["schemas"]["SpaceDraft"][];
     };
+    AccountPhoneStatus: {
+      configured: boolean;
+      verified: boolean;
+      masked_phone: string;
+      /** Format: date-time */
+      verified_at?: string | null;
+      pending_verification: boolean;
+      /** Format: date-time */
+      resend_available_at?: string | null;
+    };
+    SendPhoneCodeRequest: {
+      /** @example +56 9 1234 5678 */
+      phone: string;
+    };
+    AccountPhoneCodeSent: {
+      /** @example code_sent */
+      status: string;
+      /** @example +56 ••••5678 */
+      masked_phone: string;
+      /** Format: date-time */
+      resend_available_at: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    VerifyPhoneCodeRequest: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountPhoneVerifyResult: {
+      /** @example verified */
+      status: string;
+      /** @example true */
+      verified: boolean;
+      /** @example +56 ••••5678 */
+      masked_phone: string;
+      /** Format: date-time */
+      verified_at: string;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -10240,6 +10329,88 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
       500: components["responses"]["InternalServerError"];
       503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getAccountPhoneVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del teléfono móvil asociado a la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  sendAccountPhoneVerificationCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendPhoneCodeRequest"];
+      };
+    };
+    responses: {
+      /** @description Código OTP generado y enviado. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneCodeSent"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  verifyAccountPhoneCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["VerifyPhoneCodeRequest"];
+      };
+    };
+    responses: {
+      /** @description Teléfono verificado con éxito. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneVerifyResult"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
     };
   };
   getOwnProfile: {

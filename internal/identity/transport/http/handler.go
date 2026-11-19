@@ -22,11 +22,23 @@ type Handler struct {
 	terms                   identity.AuthenticationRepository
 	origins                 map[string]bool
 	privacy                 *privacy.Service
+	phoneService            *identity.PhoneVerificationService
 	evidenceCleaner         privacy.SyntheticEvidenceCleaner
 	suppressionRegistryPath string
 	suppressionReplayStore  privacy.SuppressionReplayStore
 	now                     func() time.Time
 }
+
+func (h *Handler) SetPhoneVerificationService(s *identity.PhoneVerificationService) {
+	h.phoneService = s
+}
+
+func AttachPhoneVerificationService(target http.Handler, s *identity.PhoneVerificationService) {
+	if h, ok := target.(*Handler); ok {
+		h.phoneService = s
+	}
+}
+
 
 func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyServices ...*privacy.Service) http.Handler {
 	return newHandler(service, terms, origins, nil, privacyServices...)
@@ -107,10 +119,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, 400, "invalid_request", "No se admiten parámetros de URL en autenticación.")
 		return
 	}
+	const (
+		accountPhonePath         = "/api/v1/account/security/phone"
+		accountPhoneSendCodePath = "/api/v1/account/security/phone/send-code"
+		accountPhoneVerifyPath   = "/api/v1/account/security/phone/verify"
+	)
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath {
 		expected = http.MethodGet
 	}
+
 	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
 		expected = r.Method
 	}
@@ -153,6 +171,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"/api/v1/privacy/export":                true,
 		"/api/v1/privacy/export/archive":        true,
 		"/api/v1/privacy/retention/purge":       true,
+		accountPhonePath:                        true,
+		accountPhoneSendCodePath:                true,
+		accountPhoneVerifyPath:                  true,
 		suppressionQueuePath:                    true,
 		credentialNoticeQueuePath:               true,
 	}
@@ -432,6 +453,62 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.write(w, http.StatusAccepted, item)
+	case accountPhonePath, accountPhoneSendCodePath, accountPhoneVerifyPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if h.phoneService == nil {
+			h.fail(w, http.StatusServiceUnavailable, "service_unavailable", "Servicio de verificación telefónica no disponible.")
+			return
+		}
+
+		switch r.URL.Path {
+		case accountPhonePath:
+			status, err := h.phoneService.GetPhoneVerificationStatus(r.Context(), principal.AccountID)
+			if err != nil {
+				h.phoneError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, status)
+			return
+
+		case accountPhoneSendCodePath:
+			var input struct {
+				Phone string `json:"phone"`
+			}
+			if !h.decode(w, r, &input) {
+				return
+			}
+			result, err := h.phoneService.SendPhoneVerificationCode(r.Context(), principal.AccountID, input.Phone)
+			if err != nil {
+				h.phoneError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, result)
+			return
+
+		case accountPhoneVerifyPath:
+			var input struct {
+				Code string `json:"code"`
+			}
+			if !h.decode(w, r, &input) {
+				return
+			}
+			result, err := h.phoneService.VerifyPhoneCode(r.Context(), principal.AccountID, input.Code)
+			if err != nil {
+				h.phoneError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, result)
+			return
+		}
 	case "/api/v1/auth/terms":
 		documents, err := identity.PublicConsentDocuments()
 		if err != nil {
@@ -833,3 +910,24 @@ func (h *Handler) accountFields(w http.ResponseWriter, status int, code string, 
 		"request_id": w.Header().Get("X-Request-ID"), "details": fields,
 	}})
 }
+
+func (h *Handler) phoneError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrInvalidPhone):
+		h.fail(w, http.StatusBadRequest, "invalid_phone", "Número de teléfono móvil chileno inválido.")
+	case errors.Is(err, identity.ErrPhoneCooldownActive):
+		w.Header().Set("Retry-After", "60")
+		h.fail(w, http.StatusTooManyRequests, "cooldown_active", "Debes esperar 60 segundos antes de solicitar un nuevo código.")
+	case errors.Is(err, identity.ErrPhoneNotPending):
+		h.fail(w, http.StatusBadRequest, "no_pending_verification", "No hay una verificación de teléfono pendiente.")
+	case errors.Is(err, identity.ErrPhoneMaxAttempts):
+		h.fail(w, http.StatusTooManyRequests, "max_attempts_exceeded", "Has superado el límite de intentos permitidos. Solicita un nuevo código.")
+	case errors.Is(err, identity.ErrPhoneCodeExpired):
+		h.fail(w, http.StatusUnprocessableEntity, "code_expired", "El código de verificación ha expirado. Solicita uno nuevo.")
+	case errors.Is(err, identity.ErrPhoneCodeInvalid):
+		h.fail(w, http.StatusUnprocessableEntity, "invalid_code", "El código de verificación es incorrecto.")
+	default:
+		h.fail(w, http.StatusInternalServerError, "internal_error", "Ocurrió un error inesperado al procesar la verificación telefónica.")
+	}
+}
+

@@ -18,6 +18,7 @@ import (
 	clamavadapter "github.com/HernanEspinozaDev/espaciGo/internal/adapters/clamav"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devphone"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -501,7 +502,11 @@ func run() error {
 			return errors.New("local M02 initialization failed")
 		}
 		localM02Service = m02Service
-		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore))
+		identityHandler := identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore)
+		phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
+		phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+		identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
+		mux.Handle("/api/v1/", identityHandler)
 		globalAdminService, err := adminglobal.New(pool, time.Now)
 		if err != nil {
 			return errors.New("global administration service initialization failed")
@@ -1012,7 +1017,11 @@ func runDocumentScanOnly(cfg config) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
-	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins)
+	phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
+	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
+	mux.Handle("/api/v1/", identityHandler)
 	registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentService, uploadService), documentverificationhttp.NewOwnerDownloadHandler(service, downloadService))
 	spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
 	if err != nil {

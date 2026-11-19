@@ -63,3 +63,36 @@ func MaskRUT(rut string) string {
 
 	return "••••" + string(significant[len(significant)-4:])
 }
+
+// MaskPhone keeps the international prefix (+56) and the last 4 digits (e.g. "+56912345678" -> "+56 ••••5678").
+// Already masked phones "+56 ••••XXXX" return the normalized masked format.
+// Invalid or short values return "••••".
+func MaskPhone(phone string) string {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
+		return "••••"
+	}
+	if strings.HasPrefix(phone, "+56 ••••") {
+		suffix := strings.TrimPrefix(phone, "+56 ••••")
+		if len(suffix) == 4 {
+			allDigits := true
+			for _, r := range suffix {
+				if r < '0' || r > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				return phone
+			}
+		}
+		return "••••"
+	}
+
+	normalized, err := ValidateAndNormalizeChileanPhone(phone)
+	if err != nil {
+		return "••••"
+	}
+	return "+56 ••••" + normalized[len(normalized)-4:]
+}
+

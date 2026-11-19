@@ -44,8 +44,17 @@ const fixedPaths = new Set([
   "/dashboard/security",
   "/dashboard/activity",
   "/mi-cuenta",
+  "/mi-cuenta/perfil",
+  "/mi-cuenta/cobros",
   "/mi-cuenta/privacidad",
   "/mi-cuenta/seguridad",
+  "/mi-cuenta/seguridad/metodos",
+  "/mi-cuenta/seguridad/metodos/contrasena",
+  "/mi-cuenta/seguridad/metodos/telefono",
+  "/mi-cuenta/seguridad/alertas",
+  "/mi-cuenta/seguridad/dispositivos",
+  "/mi-cuenta/seguridad/ubicacion",
+  "/mi-cuenta/seguridad/personas-confianza",
   "/mi-cuenta/verificaciones",
   "/mi-cuenta/documentos",
   "/mi-cuenta/revisiones",
@@ -137,6 +146,8 @@ export function resolveReturnTarget(
   if (fixedPaths.has(pathname)) return pathname as ReturnTarget;
   const reviewerCase = /^\/mi-cuenta\/revisiones\/([^/]+)$/.exec(pathname);
   if (reviewerCase && canonicalUuid.test(reviewerCase[1] ?? ""))
+    return pathname as ReturnTarget;
+  if (/^\/mi-cuenta\/seguridad\/metodos\/[a-z0-9_-]+$/.test(pathname))
     return pathname as ReturnTarget;
   const category = /^\/categorias\/([^/]+)$/.exec(pathname);
   if (category && categoryCode.test(category[1] ?? ""))

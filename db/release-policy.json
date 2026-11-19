@@ -17,6 +17,10 @@
     "V000102__allow_s3_media_provider.sql": {
       "checksum": "4db94f877a5aa2500e78f28e01471beda691a669e3479af85a388a16c18dea03",
       "strategy": "expand"
+    },
+    "V000103__account_phone_verification.sql": {
+      "checksum": "64e6221ba83dd77d8a27b48cbeacfd0d19ea540f1ed0d920492918fe189b2f6d",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

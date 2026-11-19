@@ -14,6 +14,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devphone"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -234,7 +235,11 @@ func mountProductionAuth(
 	})
 	mux.Handle("/api/v1/verifications", quickVerificationHandler)
 	mux.Handle("/api/v1/verifications/", quickVerificationHandler)
-	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService))
+	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService)
+	phoneSender := devphone.NewStubPhoneSender()
+	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
+	mux.Handle("/api/v1/", identityHandler)
 	return service, nil
 }
 

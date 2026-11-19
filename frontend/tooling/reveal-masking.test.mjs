@@ -33,7 +33,7 @@ test.after(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-const { maskEmail, maskRUT } = await import(pathToFileURL(modulePath).href);
+const { maskEmail, maskRUT, maskPhone } = await import(pathToFileURL(modulePath).href);
 
 test("maskEmail masks valid emails preserving first and last characters", () => {
   assert.equal(maskEmail("ana@ejemplo.cl"), "a••••l");
@@ -57,4 +57,15 @@ test("maskRUT masks valid RUTs preserving last 4 characters including DV", () =>
   assert.equal(maskRUT("invalid"), "••••");
   assert.equal(maskRUT("••••6785"), "••••6785");
   assert.equal(maskRUT("••••"), "••••");
+});
+
+test("maskPhone masks valid phones preserving last 4 digits", () => {
+  assert.equal(maskPhone("+56912345678"), "+56 •••• 5678");
+  assert.equal(maskPhone("912345678"), "+56 •••• 5678");
+  assert.equal(maskPhone("+56 9 1234 5678"), "+56 •••• 5678");
+  assert.equal(maskPhone("1234"), "+56 •••• 1234");
+  assert.equal(maskPhone("123"), "••••");
+  assert.equal(maskPhone(""), "••••");
+  assert.equal(maskPhone(null), "••••");
+  assert.equal(maskPhone(undefined), "••••");
 });
