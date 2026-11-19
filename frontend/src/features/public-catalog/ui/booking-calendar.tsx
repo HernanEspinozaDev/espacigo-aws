@@ -30,6 +30,7 @@ export interface CalendarDayAvailability {
   date: string;
   status: "available" | "partial" | "unavailable" | "outside_horizon";
   price?: number;
+  occupancy?: "held" | "booked";
   intervals?: readonly { start_at: string; end_at: string }[];
 }
 
@@ -528,6 +529,12 @@ export function PublicBookingCalendar({
               dayAvail.status === "unavailable" ||
               dayAvail.status === "outside_horizon";
             const isPartial = dayAvail?.status === "partial";
+            const isHeld =
+              !isOutsideRange && !monthError && dayAvail?.occupancy === "held";
+            const isConfirmed =
+              !isOutsideRange &&
+              !monthError &&
+              dayAvail?.occupancy === "booked";
 
             // Terracotta continuous selection band logic
             const isStart = startDate === date;
@@ -541,10 +548,15 @@ export function PublicBookingCalendar({
             let cellClass =
               "relative flex h-14 w-full flex-col items-center justify-center p-1 text-center transition-all ";
 
-            if (isBlocked) {
+            if (isHeld) {
+              cellClass +=
+                "bg-amber-50 border border-amber-300 text-neutral-900 rounded-lg ";
+              if (isBlocked) cellClass += "cursor-not-allowed ";
+              if (isSelected) cellClass += "ring-2 ring-inset ring-amber-500 ";
+            } else if (isBlocked) {
               cellClass +=
                 "cursor-not-allowed bg-neutral-100/50 text-neutral-400 opacity-50 border border-neutral-200/40 ";
-            } else if (isPartial) {
+            } else if (isConfirmed || isPartial) {
               cellClass +=
                 "bg-neutral-100 border border-neutral-300 text-neutral-900 rounded-lg hover:border-neutral-500 ";
               if (isSelected)
@@ -585,7 +597,11 @@ export function PublicBookingCalendar({
                   </span>
                   <span
                     className={`text-[11px] leading-tight ${
-                      isSelected && !isBlocked && !isPartial
+                      isSelected &&
+                      !isBlocked &&
+                      !isPartial &&
+                      !isHeld &&
+                      !isConfirmed
                         ? isIntermediate
                           ? "text-[#A83820]"
                           : "text-white/90"
@@ -594,10 +610,10 @@ export function PublicBookingCalendar({
                   >
                     {priceDisplay}
                   </span>
-                  {isPartial && (
+                  {(isPartial || isHeld) && (
                     <span
                       aria-hidden="true"
-                      className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-neutral-500"
+                      className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${isHeld ? "bg-amber-500" : "bg-neutral-500"}`}
                     />
                   )}
                   {/* Accessible label for screen readers & backwards compatibility */}
@@ -606,6 +622,8 @@ export function PublicBookingCalendar({
                     {dayAvail
                       ? `, ${dayAvail.status}`
                       : ", Disponibilidad no confirmada"}
+                    {isHeld ? ", en proceso de reserva" : ""}
+                    {isConfirmed ? ", con reserva confirmada" : ""}
                     {isSelected ? ", seleccionado" : ""}
                   </span>
                 </button>
@@ -626,6 +644,10 @@ export function PublicBookingCalendar({
         <span className="flex items-center">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block mr-1"></span>{" "}
           Disponible
+        </span>
+        <span className="flex items-center">
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-500 inline-block mr-1"></span>{" "}
+          En proceso de reserva
         </span>
         <span className="flex items-center">
           <span className="h-2.5 w-2.5 rounded-full bg-neutral-500 inline-block mr-1"></span>{" "}

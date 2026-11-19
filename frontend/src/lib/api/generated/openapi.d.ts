@@ -9529,6 +9529,11 @@ export interface operations {
               date: string;
               /** @enum {string} */
               status: "AVAILABLE" | "PARTIAL" | "BLOCKED" | "BOOKED" | "PAST";
+              /**
+               * @description Retención o reserva confirmada. Si el día tiene ambas, prevalece la reserva.
+               * @enum {string}
+               */
+              occupancy?: "held" | "booked";
               /** Format: int64 */
               price_clp: number | string;
               slots: {

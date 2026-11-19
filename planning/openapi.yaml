@@ -1793,6 +1793,7 @@ paths:
                       properties:
                         date: { type: string, format: date }
                         status: { type: string, enum: [ AVAILABLE, PARTIAL, BLOCKED, BOOKED, PAST ] }
+                        occupancy: { type: string, enum: [held, booked], description: "Retención o reserva confirmada. Si el día tiene ambas, prevalece la reserva." }
                         price_clp: { type: integer, format: int64 }
                         slots:
                           type: array

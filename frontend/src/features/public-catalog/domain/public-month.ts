@@ -5,6 +5,7 @@ export interface PublicMonthDay {
   date: string;
   status: PublicMonthDayStatus;
   price: number;
+  occupancy?: "held" | "booked";
 }
 
 export interface PublicMonth {
