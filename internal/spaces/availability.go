@@ -58,10 +58,11 @@ type SlotAvailability struct {
 }
 
 type DayAvailability struct {
-	Date     string             `json:"date"`
-	Status   string             `json:"status"` // AVAILABLE, PARTIAL, BLOCKED, BOOKED, PAST
-	PriceCLP int                `json:"price_clp"`
-	Slots    []SlotAvailability `json:"slots"`
+	Date      string             `json:"date"`
+	Status    string             `json:"status"`              // AVAILABLE, PARTIAL, BLOCKED, BOOKED, PAST
+	Occupancy string             `json:"occupancy,omitempty"` // held or booked
+	PriceCLP  int                `json:"price_clp"`
+	Slots     []SlotAvailability `json:"slots"`
 }
 
 type MonthlyAvailability struct {

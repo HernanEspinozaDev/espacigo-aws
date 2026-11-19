@@ -145,9 +145,9 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		}
 	}
 
-	var occupancies []occItem
+	var occupancies, holds, bookings []occItem
 	occRows, err := r.pool.Query(ctx, `
-		SELECT lower(intervalo), upper(intervalo)
+		SELECT lower(intervalo), upper(intervalo), tipo
 		FROM public.ocupacion
 		WHERE espacio_id = $1 AND activo = true
 		  AND intervalo && tstzrange($2, $3, '[)')
@@ -159,10 +159,17 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		defer occRows.Close()
 		for occRows.Next() {
 			var occ occItem
-			if err := occRows.Scan(&occ.start, &occ.end); err != nil {
+			var kind string
+			if err := occRows.Scan(&occ.start, &occ.end, &kind); err != nil {
 				return spaces.MonthlyAvailability{}, err
 			}
 			occupancies = append(occupancies, occ)
+			switch kind {
+			case "retencion", "retencion_temprana":
+				holds = append(holds, occ)
+			case "reserva", "reserva_temprana":
+				bookings = append(bookings, occ)
+			}
 		}
 		if err := occRows.Err(); err != nil {
 			return spaces.MonthlyAvailability{}, err
@@ -269,11 +276,25 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 			},
 		}
 
+		var occupancy string
+		if status == "PARTIAL" || status == "BOOKED" {
+			from, to := dayTime, dayTime.AddDate(0, 0, 1)
+			if rateUnit == "hora" {
+				from, to = slotFullStart, slotFullEnd
+			}
+			if intervalOverlaps(from, to, bookings) {
+				occupancy = "booked"
+			} else if intervalOverlaps(from, to, holds) {
+				occupancy = "held"
+			}
+		}
+
 		days = append(days, spaces.DayAvailability{
-			Date:     dateStr,
-			Status:   status,
-			PriceCLP: dayPrice,
-			Slots:    slots,
+			Date:      dateStr,
+			Status:    status,
+			Occupancy: occupancy,
+			PriceCLP:  dayPrice,
+			Slots:     slots,
 		})
 	}
 

@@ -82,7 +82,16 @@ function parse(value: unknown, requestedMonth: string): PublicMonth | null {
         ? statuses[day.status as keyof typeof statuses]
         : null;
     if (price === null || !status) return null;
-    days.push({ date: day.date, price, status });
+    const occupancy =
+      day.occupancy === "held" || day.occupancy === "booked"
+        ? day.occupancy
+        : undefined;
+    days.push({
+      date: day.date,
+      price,
+      status,
+      ...(occupancy && { occupancy }),
+    });
   }
   return {
     month: requestedMonth,
