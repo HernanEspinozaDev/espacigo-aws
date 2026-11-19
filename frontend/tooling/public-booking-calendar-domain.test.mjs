@@ -88,4 +88,21 @@ test("generation fence rejects late A/B/A completion", () => {
   assert.equal(fence.isCurrent(a1), false);
   assert.equal(fence.isCurrent(a2), true);
 });
+
+test("suggestedStaysForUnit delivers coherent suggestions for hora, dia and mes", () => {
+  assert.deepEqual(mod.suggestedStaysForUnit("hora"), [
+    { label: "1 hora", duration: 1 },
+    { label: "2 horas", duration: 2 },
+    { label: "4 horas", duration: 4 },
+  ]);
+  assert.deepEqual(mod.suggestedStaysForUnit("dia"), [
+    { label: "1 día", duration: 1 },
+    { label: "2 días", duration: 2 },
+    { label: "3 días", duration: 3 },
+  ]);
+  assert.deepEqual(mod.suggestedStaysForUnit("mes"), [
+    { label: "1 mes", duration: 1 },
+  ]);
+  assert.deepEqual(mod.suggestedStaysForUnit("unknown"), []);
+});
 test.after(async () => rm(tmp, { recursive: true, force: true }));
