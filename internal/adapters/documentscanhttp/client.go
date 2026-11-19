@@ -3,9 +3,9 @@ package documentscanhttp
 import (
 	"bytes"
 	"context"
-
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -47,6 +47,28 @@ func NewClient(c ClientConfig) (*Client, error) {
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if c.Timeout > 0 {
 		hc.Timeout = c.Timeout
+	}
+	if hc.Transport == nil {
+		hc.Transport = &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   3 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout: 3 * time.Second,
+		}
+	} else if tr, ok := hc.Transport.(*http.Transport); ok {
+		trCopy := tr.Clone()
+		if trCopy.DialContext == nil {
+			trCopy.DialContext = (&net.Dialer{
+				Timeout:   3 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext
+		}
+		if trCopy.TLSHandshakeTimeout <= 0 || trCopy.TLSHandshakeTimeout > 3*time.Second {
+			trCopy.TLSHandshakeTimeout = 3 * time.Second
+		}
+		hc.Transport = trCopy
 	}
 	return &Client{origin: strings.TrimSuffix(c.Origin, "/"), http: &hc, max: c.MaxBytes, age: c.MaxAge, now: c.Now}, nil
 }

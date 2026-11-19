@@ -41,3 +41,16 @@ func TestBcryptCostMatchingAndNoSilentTruncation(t *testing.T) {
 		t.Fatal("weak legacy hash accepted")
 	}
 }
+
+func BenchmarkHasher(b *testing.B) {
+	h := adapter.Hasher{}
+	password := identity.Secret("Synthetic#123")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := h.Hash(password)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+

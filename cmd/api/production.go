@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,34 +14,60 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
+	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
+	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
+	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
+	documentverificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documentverification"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
 	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
+	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
+	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
+	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
+	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
+	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
+	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
+	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
+	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/safelog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	rentalflowhttp "github.com/HernanEspinozaDev/espaciGo/internal/rentalflow/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/reputation"
+	reputationhttp "github.com/HernanEspinozaDev/espaciGo/internal/reputation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
@@ -102,7 +127,11 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, errors.New("production catalog media storage initialization failed")
 	}
-	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, getenv)
+	mailer, err := productionAuthMailer(cfg.frontendPublicOrigin, getenv)
+	if err != nil {
+		return nil, err
+	}
+	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, mailer)
 	if err != nil {
 		return nil, err
 	}
@@ -166,6 +195,9 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err := mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins)); err != nil {
 		return nil, err
 	}
+	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
+		return nil, err
+	}
 	return authService, nil
 }
 
@@ -175,12 +207,8 @@ func mountProductionAuth(
 	cfg config,
 	evidence runtimeFileStore,
 	mediaStore media.ObjectStore,
-	getenv func(string) string,
+	mailer identity.AuthenticationMailer,
 ) (*identity.AuthenticationService, error) {
-	mailer, err := productionAuthMailer(cfg.frontendPublicOrigin, getenv)
-	if err != nil {
-		return nil, err
-	}
 	repo := identitypg.NewIdentityRepository(pool)
 	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, mailer, devauth.NewIPLimiter(20), credentials.Generator{}, time.Now)
 	if err != nil {
@@ -264,7 +292,7 @@ func handleQuickVerification(
 		if approved, reviewErr := repo.Review(r.Context(), item.ID, principal.AccountID, true, "", time.Now); reviewErr == nil {
 			item = approved
 		} else {
-			log.Printf("quick verification review error: %v", reviewErr)
+			safelog.Error(r.Context(), "quick verification review error", reviewErr)
 		}
 	}
 	w.WriteHeader(http.StatusCreated)
@@ -300,4 +328,118 @@ func productionCursorKey(getenv func(string) string) ([]byte, error) {
 		return nil, errors.New("invalid ECS catalog cursor key configuration")
 	}
 	return key, nil
+}
+
+type productionNoticeSender interface {
+	SendLocalBookingNotice(context.Context, string, string, string) error
+}
+
+func mountProductionBookingFlow(
+	mux *http.ServeMux,
+	pool *pgxpool.Pool,
+	authService *identity.AuthenticationService,
+	evidence runtimeFileStore,
+	mediaStore media.ObjectStore,
+	key []byte,
+	cfg config,
+	mailer identity.AuthenticationMailer,
+) error {
+	quoteTTL := 15 * time.Minute
+	payTTL := 15 * time.Minute
+	hostTTL := 24 * time.Hour
+	now := time.Now
+
+	paymentAdapter, err := fakebooking.NewWithStoreAndClock(key, bookingpg.New(pool), now)
+	if err != nil {
+		return errors.New("production booking payment initialization failed")
+	}
+
+	bookingService, err := booking.NewServiceWithTTLsAndGlobalExpirySweeps(
+		bookingpg.New(pool), credentials.Generator{}, now, paymentAdapter, quoteTTL, payTTL, hostTTL, true,
+	)
+	if err != nil {
+		return errors.New("production booking service initialization failed")
+	}
+
+	identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+	if err != nil {
+		return errors.New("production identity verifier initialization failed")
+	}
+	bookingService.SetBookingIdentityVerifier(identityVerifier)
+	bookingService.SetLocalRefundAdapter(paymentAdapter)
+	bookingService.SetLocalSettlementAdapter(paymentAdapter)
+	if sender, ok := mailer.(productionNoticeSender); ok {
+		bookingService.SetLocalNoticeSender(sender)
+	}
+
+	conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, now)
+	if err != nil {
+		return errors.New("production conversation service initialization failed")
+	}
+
+	bookingHandler := bookinghttp.NewHandlerWithClock(authService, bookingService, cfg.allowedOrigins, now, conversationService)
+	mux.Handle("/api/v1/local/booking-trial/", bookingHandler)
+	mux.Handle("/api/v1/admin/local/reservations", bookingHandler)
+	mux.Handle("/api/v1/admin/local/reservations/", bookingHandler)
+	mux.Handle("/api/v1/admin/local/audit-events", bookingHandler)
+	mux.Handle("/api/v1/admin/local/audit-events/export", bookingHandler)
+
+	contractRepo, err := contractpg.New(pool, key)
+	if err != nil {
+		return errors.New("production contract repository initialization failed")
+	}
+	contractService, err := contract.NewService(contractRepo, now)
+	if err != nil {
+		return errors.New("production contract service initialization failed")
+	}
+	registerContractRoutes(mux, contracthttp.NewHandler(authService, contractService, cfg.allowedOrigins))
+
+	operationService, err := operation.NewService(operationspg.New(pool), evidence, credentials.Generator{}, now)
+	if err != nil {
+		return errors.New("production operation service initialization failed")
+	}
+	registerOperationRoutes(mux, operationhttp.NewHandler(authService, operationService, cfg.allowedOrigins))
+
+	claimService, err := damageclaim.NewWithEvidenceStore(damageclaimpg.New(pool), evidence, now)
+	if err != nil {
+		return errors.New("production damage claim service initialization failed")
+	}
+	registerDamageClaimRoutes(mux, damageclaimhttp.NewHandler(authService, claimService, cfg.allowedOrigins))
+
+	disputeService, err := dispute.NewService(disputepg.New(pool), now)
+	if err != nil {
+		return errors.New("production dispute service initialization failed")
+	}
+	registerDisputeRoutes(mux, disputehttp.NewHandler(authService, disputeService, cfg.allowedOrigins))
+
+	reputationService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, now)
+	if err != nil {
+		return errors.New("production reputation service initialization failed")
+	}
+	reputationHandler := reputationhttp.NewHandler(authService, reputationService, cfg.allowedOrigins)
+	mux.Handle("GET /api/v1/spaces/{spaceID}/reviews", reputationHandler)
+	mux.Handle("/api/v1/admin/local/review-reports", reputationHandler)
+	mux.Handle("/api/v1/admin/local/review-reports/", reputationHandler)
+	registerReputationReservationRoutes(mux, reputationHandler)
+	mux.Handle("GET /api/v1/local/reputation/me", reputationHandler)
+
+	adminLocalService, err := adminlocal.New(pool, now)
+	if err != nil {
+		return errors.New("production admin local service initialization failed")
+	}
+	adminLocalHandler := adminlocalhttp.NewHandler(authService, adminLocalService, cfg.allowedOrigins)
+	mux.Handle("/api/v1/admin/local/accounts/", adminLocalHandler)
+	mux.Handle("/api/v1/admin/local/reports/", adminLocalHandler)
+	mux.Handle("/api/v1/admin/local/published-spaces", adminLocalHandler)
+	mux.Handle("/api/v1/admin/local/published-spaces/", adminLocalHandler)
+
+	if sender, ok := mailer.(productionNoticeSender); ok {
+		localNoticeService, err := localnotice.NewWithFrontendOrigin(localnoticepg.New(pool), sender, now, cfg.frontendPublicOrigin)
+		if err == nil {
+			mux.Handle("/api/v1/admin/local/notices", noticehttp.NewHandler(authService, localNoticeService, cfg.allowedOrigins))
+			mux.Handle("/api/v1/admin/local/notices/", noticehttp.NewHandler(authService, localNoticeService, cfg.allowedOrigins))
+		}
+	}
+
+	return nil
 }

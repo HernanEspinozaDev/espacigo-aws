@@ -23,6 +23,8 @@ import {
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { RevealEmail } from "@/components/reveal-email";
+import { useAuth } from "@/features/auth/ui/use-auth";
 import {
   Dialog,
   DialogContent,
@@ -97,14 +99,18 @@ export function AdminAccountsView() {
   const {
     snapshot,
     loadGlobalAccounts,
+    revealGlobalAccountEmail,
+    hasAdminCapability,
     setGlobalAccountRole,
     setGlobalLegacyAdminRole,
     setGlobalAccountBlocked,
     revokeGlobalAccountSessions,
     updateGlobalAccountProfile,
   } = useAdmin();
+  const { snapshot: session } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [emailPrefix, setEmailPrefix] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("todos");
 
   // Role assignment modal
@@ -140,8 +146,10 @@ export function AdminAccountsView() {
   >("correccion_perfil");
 
   useEffect(() => {
-    void loadGlobalAccounts();
-  }, [loadGlobalAccounts]);
+    void loadGlobalAccounts(
+      emailPrefix ? { email_prefix: emailPrefix } : undefined,
+    );
+  }, [emailPrefix, loadGlobalAccounts]);
 
   const { globalAccounts, globalAccountsNextCursor, loading, actionLoading } =
     snapshot;
@@ -151,7 +159,6 @@ export function AdminAccountsView() {
       roleFilter === "todos" || acc.roles.includes(roleFilter as AdminRole);
     const matchesSearch =
       searchQuery.trim() === "" ||
-      acc.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (acc.display_name &&
         acc.display_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
       acc.account_id.toLowerCase().includes(searchQuery.toLowerCase());
@@ -279,7 +286,11 @@ export function AdminAccountsView() {
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => void loadGlobalAccounts()}
+          onClick={() =>
+            void loadGlobalAccounts(
+              emailPrefix ? { email_prefix: emailPrefix } : undefined,
+            )
+          }
           disabled={loading}
           className="gap-1.5"
         >
@@ -300,12 +311,35 @@ export function AdminAccountsView() {
           />
           <Input
             type="search"
-            placeholder="Buscar por email, nombre o ID de cuenta..."
+            aria-label="Buscar por nombre o ID de cuenta"
+            placeholder="Buscar por nombre o ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
           />
         </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            const prefix = new FormData(event.currentTarget).get(
+              "email_prefix",
+            );
+            setEmailPrefix(typeof prefix === "string" ? prefix.trim() : "");
+          }}
+          className="flex items-center gap-2"
+        >
+          <Input
+            name="email_prefix"
+            type="search"
+            aria-label="Prefijo de correo"
+            placeholder="Prefijo de correo"
+            maxLength={120}
+          />
+          <Button type="submit" variant="outline" disabled={loading}>
+            Buscar correo
+          </Button>
+        </form>
 
         <div className="flex items-center gap-2">
           <Label htmlFor="role-filter" className="sr-only">
@@ -351,7 +385,18 @@ export function AdminAccountsView() {
                       {acc.display_name || "Usuario sin nombre configurado"}
                     </CardTitle>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                      <span>{acc.email}</span>
+                      {hasAdminCapability("accounts.read") &&
+                      acc.state !== "desidentificado" ? (
+                        <RevealEmail
+                          key={session.accountId ?? "anonymous"}
+                          masked={acc.email}
+                          reveal={(signal) =>
+                            revealGlobalAccountEmail(acc.account_id, signal)
+                          }
+                        />
+                      ) : (
+                        <span>{acc.email}</span>
+                      )}
                       <span>•</span>
                       <span>ID: {acc.account_id.slice(0, 8)}...</span>
                     </div>
@@ -481,7 +526,10 @@ export function AdminAccountsView() {
           variant="outline"
           disabled={loading}
           onClick={() =>
-            void loadGlobalAccounts({ cursor: globalAccountsNextCursor })
+            void loadGlobalAccounts({
+              cursor: globalAccountsNextCursor,
+              email_prefix: emailPrefix || undefined,
+            })
           }
         >
           Cargar más usuarios

@@ -6,12 +6,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -23,7 +26,20 @@ import (
 const (
 	defaultEndpointURL = "https://127.0.0.1:9297"
 	defaultRegion      = "us-east-1"
+	dialTimeout        = 3 * time.Second
+	tlsTimeout         = 3 * time.Second
 )
+
+func defaultAWSHTTPClient() *awshttp.BuildableClient {
+	return awshttp.NewBuildableClient().
+		WithDialerOptions(func(d *net.Dialer) {
+			d.Timeout = dialTimeout
+			d.KeepAlive = 30 * time.Second
+		}).
+		WithTransportOptions(func(tr *http.Transport) {
+			tr.TLSHandshakeTimeout = tlsTimeout
+		})
+}
 
 // NewClient uses regional AWS S3 in production and aws-emulator otherwise.
 // For the emulator, it honors AWS endpoint, region, CA and credentials overrides
@@ -31,6 +47,7 @@ const (
 func NewClient(ctx context.Context) (*s3.Client, error) {
 	if os.Getenv("APP_PROFILE") == "production" {
 		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithHTTPClient(defaultAWSHTTPClient()),
 			config.WithSharedConfigFiles([]string{}),
 			config.WithSharedCredentialsFiles([]string{}),
 		)
@@ -54,6 +71,7 @@ func NewClient(ctx context.Context) (*s3.Client, error) {
 	}
 
 	opts := []func(*config.LoadOptions) error{
+		config.WithHTTPClient(defaultAWSHTTPClient()),
 		config.WithRegion(region),
 	}
 

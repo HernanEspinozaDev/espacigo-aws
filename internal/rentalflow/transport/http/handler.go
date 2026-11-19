@@ -220,6 +220,9 @@ func (h *Handler) previewContract(w http.ResponseWriter, r *http.Request) {
 		writeDomainError(w, err)
 		return
 	}
+	for i := range result.Parties {
+		result.Parties[i].RUT = identity.MaskRUT(result.Parties[i].RUT)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 

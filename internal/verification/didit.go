@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"sort"
 	"strconv"
@@ -148,7 +149,15 @@ func NewHTTPDiditClient(apiKey, secret string, sandbox bool, timeout time.Durati
 		timeout = 10 * time.Second
 	}
 	return &HTTPDiditClient{BaseURL: base, APIKey: apiKey, WebhookSecret: secret, HTTP: &http.Client{
-		Timeout:       timeout,
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   3 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout: 3 * time.Second,
+		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 }
@@ -171,7 +180,17 @@ func (c *HTTPDiditClient) request(ctx context.Context, method, path string, in, 
 	req.Header.Set("x-api-key", c.APIKey)
 	h := c.HTTP
 	if h == nil {
-		h = &http.Client{Timeout: 10 * time.Second}
+		h = &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   3 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				TLSHandshakeTimeout: 3 * time.Second,
+			},
+		}
 	}
 	resp, err := h.Do(req)
 	if err != nil {

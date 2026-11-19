@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { maskEmail, RevealEmail } from "@/components/reveal-email";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
@@ -151,7 +152,10 @@ export function RegistrationSuccessScreen() {
             <p>
               Te enviamos un enlace de verificación a{" "}
               <strong className="font-semibold text-gray-900">
-                {result.email}
+                <RevealEmail
+                  masked={maskEmail(result.email)}
+                  reveal={() => result.email}
+                />
               </strong>
               . Ábrelo y confirma tu correo para activar tu cuenta.
             </p>
@@ -202,7 +206,10 @@ export function RegistrationSuccessScreen() {
               Tu cuenta fue creada, pero no pudimos confirmar el envío del
               correo de verificación a{" "}
               <strong className="font-semibold text-gray-900">
-                {result.email}
+                <RevealEmail
+                  masked={maskEmail(result.email)}
+                  reveal={() => result.email}
+                />
               </strong>
               .
             </p>

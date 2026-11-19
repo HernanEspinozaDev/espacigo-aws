@@ -767,6 +767,8 @@ type LoginResult struct {
 	RestrictedMode bool
 }
 
+const loginBlockDuration = 15 * time.Minute
+
 func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	if ValidateEmail(input.Email) != nil {
 		return LoginResult{}, ErrCredentials
@@ -801,7 +803,7 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if !correct {
 			attempts++
 			if attempts >= 5 {
-				until := now.Add(30 * time.Minute)
+				until := now.Add(loginBlockDuration)
 				blocked = &until
 				// Never convert an unverified account into an active account on unlock.
 				if state == AccountActive {

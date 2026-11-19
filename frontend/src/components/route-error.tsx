@@ -2,7 +2,6 @@
 
 import { AlertCircleIcon } from "lucide-react";
 import Link from "next/link";
-import { useEffect } from "react";
 
 /**
  * Shared fallback for route-level error boundaries. `retry` re-fetches and
@@ -13,7 +12,6 @@ import { useEffect } from "react";
 export function RouteErrorFallback({
   title,
   description,
-  error,
   retry,
 }: {
   title: string;
@@ -21,10 +19,6 @@ export function RouteErrorFallback({
   error: Error & { digest?: string };
   retry: () => void;
 }) {
-  useEffect(() => {
-    console.error("route error boundary", { digest: error.digest, error });
-  }, [error]);
-
   return (
     <div className="flex min-h-[60dvh] flex-col items-center justify-center px-4 py-24 text-center">
       <AlertCircleIcon

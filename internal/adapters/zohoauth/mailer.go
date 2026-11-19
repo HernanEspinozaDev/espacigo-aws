@@ -204,7 +204,7 @@ func (m *Mailer) sendRaw(ctx context.Context, fromName, to, subject, contentType
 	if tlsConfig == nil {
 		tlsConfig = &tls.Config{ServerName: m.config.Host, MinVersion: tls.VersionTLS12}
 	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := &net.Dialer{Timeout: 3 * time.Second}
 	var conn net.Conn
 	var err error
 	if m.dialContext != nil {
@@ -229,9 +229,15 @@ func (m *Mailer) sendRaw(ctx context.Context, fromName, to, subject, contentType
 	}
 	defer client.Close()
 	if m.config.Security == "starttls" {
+		startTLSTimeout := time.Now().Add(3 * time.Second)
+		if deadline.Before(startTLSTimeout) {
+			startTLSTimeout = deadline
+		}
+		_ = conn.SetDeadline(startTLSTimeout)
 		if ok, _ := client.Extension("STARTTLS"); !ok || client.StartTLS(tlsConfig) != nil {
 			return identity.ErrDelivery
 		}
+		_ = conn.SetDeadline(deadline)
 	}
 	if err = client.Auth(smtp.PlainAuth("", m.config.Username, m.password, m.config.Host)); err != nil {
 		return identity.ErrDelivery

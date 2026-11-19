@@ -4215,7 +4215,7 @@ export interface components {
       /** @enum {string} */
       role: "arrendador" | "arrendatario";
       legal_name: string;
-      /** @description RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. */
+      /** @description RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) */
       rut: string;
     };
     /** @description Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste. */
@@ -4305,6 +4305,7 @@ export interface components {
     GlobalAdminAccount: {
       /** Format: uuid */
       account_id: string;
+      /** @description Correo enmascarado salvo en la revelación explícita autorizada */
       email: string;
       display_name?: string | null;
       phone?: string | null;
@@ -4349,6 +4350,7 @@ export interface components {
       /** Format: uuid */
       owner_id: string;
       owner_name?: string | null;
+      /** @description Correo enmascarado del anfitrión */
       owner_email: string;
       category_code: string;
       category_name: string;
@@ -8737,7 +8739,10 @@ export interface operations {
   };
   getGlobalAdminAccount: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Revelación explícita del correo para el administrador autorizado */
+        reveal_email?: true;
+      };
       header?: never;
       path: {
         accountID: string;

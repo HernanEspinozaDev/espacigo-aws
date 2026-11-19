@@ -593,6 +593,26 @@ export class AdminFacade {
       this.#handleError(err, "No pudimos cargar el detalle de la cuenta.");
     }
   }
+  async revealGlobalAccountEmail(
+    accountId: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    if (this.#authSource?.getSnapshot().status !== "authenticated") {
+      throw new Error("Sesión requerida.");
+    }
+    const scope = this.#captureSession();
+    const account = await this.#waitSession(
+      this.#port.getGlobalAccount(
+        accountId,
+        this.#sessionSignal(scope, signal),
+        true,
+      ),
+      scope,
+    );
+    if (!account?.email.includes("@")) throw new Error("Correo no disponible.");
+    return account.email;
+  }
+
   async updateGlobalAccountProfile(
     accountId: string,
     input: {

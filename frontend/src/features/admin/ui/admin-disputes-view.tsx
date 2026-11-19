@@ -36,6 +36,7 @@ import { Label } from "@/components/workspace/ui/label";
 import { Input } from "@/components/workspace/ui/input";
 import { useAdmin } from "./use-admin";
 import { isValidAdminReason } from "../domain/admin-rules";
+import { maskEmail } from "@/components/reveal-email";
 import type {
   AdminDamageClaim,
   AdminDamageClaimResolutionInput,
@@ -621,7 +622,7 @@ export function AdminDisputesView() {
                         {notice.event_type}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        Destinatario: {notice.recipient_email} • Estado
+                        Destinatario: {maskEmail(notice.recipient_email)} • Estado
                         terminal: {notice.terminal_status}
                       </div>
                     </div>

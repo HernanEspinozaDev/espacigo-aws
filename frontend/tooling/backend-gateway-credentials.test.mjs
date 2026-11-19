@@ -464,10 +464,18 @@ test("BFF sanitizes disallowed-media errors at status boundaries and cancels bod
   }
 });
 
-test("BFF passes contract JSON errors through with their original status", async () => {
+test("BFF keeps contract errors actionable without forwarding upstream text", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const payload = {
-    error: { code: "conflict", message: "Conflicto de estado." },
+    error: {
+      code: "conflict",
+      message: "Datos internos que nunca deben salir.",
+      stack: "internal.go:42",
+      details: [
+        { field: "title", code: "required", message: "Texto privado" },
+        { field: "ana@example.invalid", code: "invalid" },
+      ],
+    },
   };
   globalThis.fetch = async () =>
     new Response(JSON.stringify(payload), {
@@ -487,7 +495,14 @@ test("BFF passes contract JSON errors through with their original status", async
   );
 
   assert.equal(response.status, 409);
-  assert.deepEqual(await response.json(), payload);
+  assert.deepEqual(await response.json(), {
+    error: {
+      code: "conflict",
+      message: "La solicitud no pudo completarse.",
+      request_id: response.headers.get("x-request-id"),
+      details: [{ field: "title", code: "required" }],
+    },
+  });
 });
 
 test("BFF preserves sanitized owner decision copy in identity case responses", async () => {

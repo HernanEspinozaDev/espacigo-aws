@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { RentalContractPreview } from "../domain/contract-preview";
 import { formatRentalCLP } from "../domain/contract-preview-format";
 import { publicRentalContractPreview } from "../infrastructure/contract-preview-runtime";
+import { maskRUT } from "@/components/reveal-email";
 
 interface PublicRentalContractPreviewProps {
   quoteId: string;
@@ -186,7 +187,7 @@ export function PublicRentalContractPreview({
                       {party.legal_name}
                     </span>
                     <span className="text-xs text-muted-foreground block mt-0.5">
-                      RUT: {party.rut}
+                      RUT: {maskRUT(party.rut)}
                     </span>
                   </div>
                 ))}

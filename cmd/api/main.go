@@ -71,6 +71,7 @@ import (
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/businessclock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/safelog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -162,7 +163,7 @@ func main() {
 		return
 	}
 	if err := run(); err != nil {
-		log.Printf("API startup or shutdown failed: %v", err)
+		safelog.Error(context.Background(), "API startup or shutdown failed", err)
 		os.Exit(1)
 	}
 }
@@ -172,7 +173,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
-	production := os.Getenv("APP_PROFILE") == productionAppProfile
+	production, err := productionEnvironment(os.Getenv)
+	if err != nil {
+		return err
+	}
 	if production {
 		if err := validateProductionRuntime(os.Getenv, runtimeProfileValue); err != nil {
 			return err
@@ -271,7 +275,7 @@ func run() error {
 		}
 		if err := mountProductionRentalDemo(mux, pool, authService, cfg.allowedOrigins, os.Getenv); err != nil {
 			// The optional demonstration must never make the storefront unavailable.
-			log.Printf("hosted rental demo disabled: %v", err)
+			safelog.Warn(context.Background(), "hosted rental demo disabled", safelog.F("error", err))
 		}
 		admin, err := adminglobal.New(pool, time.Now)
 		if err != nil {

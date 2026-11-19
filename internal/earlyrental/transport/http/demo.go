@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"slices"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/earlyrental"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/safelog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/google/uuid"
 )
@@ -295,13 +295,14 @@ func demoError(w http.ResponseWriter, err error, requestID string) {
 		errors.Is(err, ErrMalformedCommandBody), errors.Is(err, ErrInvalidCommandValue), errors.Is(err, ErrInvalidIfMatch):
 		status, code = http.StatusBadRequest, "invalid_request"
 	default:
+		ctx := safelog.ContextWithRequestID(context.Background(), requestID)
 		if dbErr, ok := errors.AsType[interface {
 			error
 			SQLState() string
 		}](err); ok {
-			log.Printf("early rental request %s failed, SQLSTATE %s", requestID, dbErr.SQLState())
+			safelog.Error(ctx, "early rental request failed", err, safelog.F("sqlstate", dbErr.SQLState()))
 		} else {
-			log.Printf("early rental request %s failed (%T)", requestID, err)
+			safelog.Error(ctx, "early rental request failed", err)
 		}
 	}
 	capabilitiesFail(w, status, code, requestID)

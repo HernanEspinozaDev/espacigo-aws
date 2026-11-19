@@ -1464,6 +1464,7 @@ paths:
       summary: Consultar proyección mínima de una cuenta
       parameters:
         - { in: path, name: accountID, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: reveal_email, schema: { type: boolean, const: true }, description: Revelación explícita del correo para el administrador autorizado }
       responses:
         "200": { description: Cuenta y conteos de recursos, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminAccountEnvelope" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -6245,7 +6246,7 @@ components:
       properties:
         role: { type: string, enum: [ arrendador, arrendatario ] }
         legal_name: { type: string, minLength: 1, maxLength: 200 }
-        rut: { type: string, minLength: 3, maxLength: 10, pattern: '^[0-9]{1,8}-[0-9K]$', description: RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. }
+        rut: { type: string, description: RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) }
     RentalContractPreview:
       type: object
       description: Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste.
@@ -6295,7 +6296,7 @@ components:
       required: [ account_id, email, state, created_at, administrative_blocked, roles, publication_count, reservation_count, incident_count ]
       properties:
         account_id: { type: string, format: uuid }
-        email: { type: string }
+        email: { type: string, description: Correo enmascarado salvo en la revelación explícita autorizada }
         display_name: { type: [ string, "null" ] }
         phone: { type: [ string, "null" ], pattern: "^[0-9]{9}$" }
         profile_updated_at: { type: [ string, "null" ], format: date-time }
@@ -6322,7 +6323,7 @@ components:
         publication_id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         owner_name: { type: [ string, "null" ] }
-        owner_email: { type: string }
+        owner_email: { type: string, description: Correo enmascarado del anfitrión }
         category_code: { type: string }
         category_name: { type: string }
         title: { type: string }
