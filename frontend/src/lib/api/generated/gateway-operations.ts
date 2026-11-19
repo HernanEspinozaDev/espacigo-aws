@@ -2,6 +2,26 @@
 export const gatewayOperations = [
   {
     method: "GET",
+    path: "/account/security/alerts",
+    operationId: "getSecurityAlerts",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "PUT",
+    path: "/account/security/alerts/channels",
+    operationId: "updateSecurityAlertChannels",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/account/security/devices",
     operationId: "listLinkedDevices",
     query: [],

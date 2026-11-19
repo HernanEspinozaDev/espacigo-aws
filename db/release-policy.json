@@ -25,6 +25,10 @@
     "V000104__session_device_metadata.sql": {
       "checksum": "f23d99dea23ddeebb5491e1f569f49b2da0812f5880fef5306fd688cf69b68c3",
       "strategy": "expand"
+    },
+    "V000105__security_alerts_and_channels.sql": {
+      "checksum": "e79f3df7dfed922d6b9d7c9d7fe90f64dc133e4ec456d47d05953f50a3835b51",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

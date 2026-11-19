@@ -126,11 +126,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountDevicesPath             = "/api/v1/account/security/devices"
 		accountDevicesRevokeOthersPath = "/api/v1/account/security/devices/revoke-others"
 		accountDevicesPrefix           = "/api/v1/account/security/devices/"
+		accountAlertsPath              = "/api/v1/account/security/alerts"
+		accountAlertsChannelsPath      = "/api/v1/account/security/alerts/channels"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath {
 		expected = http.MethodGet
+	}
+	if r.URL.Path == accountAlertsChannelsPath {
+		expected = http.MethodPut
 	}
 	if deviceDeletePath {
 		expected = http.MethodDelete
@@ -183,6 +188,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountPhoneVerifyPath:                   true,
 		accountDevicesPath:                       true,
 		accountDevicesRevokeOthersPath:           true,
+		accountAlertsPath:                        true,
+		accountAlertsChannelsPath:                true,
 		suppressionQueuePath:                     true,
 		credentialNoticeQueuePath:                true,
 	}
@@ -197,6 +204,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.URL.Path == "/api/v1/rights-requests" {
 			allow = "GET, POST"
+		}
+		if r.URL.Path == accountAlertsChannelsPath {
+			allow = "PUT"
 		}
 		w.Header().Set("Allow", allow)
 		h.fail(w, 405, "method_not_allowed", "Método no permitido.")
@@ -267,6 +277,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.deviceError(w, err)
 			return
 		}
+		_ = h.service.RecordSecurityAlertEvent(r.Context(), principal.AccountID, "session_revoked", "Sesión de dispositivo revocada", identity.DeriveDeviceLabel(r.UserAgent()), identity.MaskIP(clientIPForDevice(r)))
 		h.write(w, http.StatusOK, map[string]any{
 			"status":     "revoked",
 			"session_id": sessionID,
@@ -541,6 +552,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.phoneError(w, err)
 				return
 			}
+			_ = h.service.RecordSecurityAlertEvent(r.Context(), principal.AccountID, "phone_verified", "Teléfono de seguridad verificado", identity.DeriveDeviceLabel(r.UserAgent()), identity.MaskIP(clientIPForDevice(r)))
 			h.write(w, http.StatusOK, result)
 			return
 		}
@@ -574,10 +586,47 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.deviceError(w, err)
 				return
 			}
+			_ = h.service.RecordSecurityAlertEvent(r.Context(), principal.AccountID, "sessions_revoked_others", "Otras sesiones revocadas", identity.DeriveDeviceLabel(r.UserAgent()), identity.MaskIP(clientIPForDevice(r)))
 			h.write(w, http.StatusOK, map[string]any{
 				"status":        "revoked_others",
 				"revoked_count": count,
 			})
+			return
+		}
+	case accountAlertsPath, accountAlertsChannelsPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+
+		if r.URL.Path == accountAlertsPath {
+			alerts, err := h.service.GetSecurityAlerts(r.Context(), principal.AccountID)
+			if err != nil {
+				h.alertsError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, alerts)
+			return
+		}
+		if r.URL.Path == accountAlertsChannelsPath {
+			var input identity.UpdateSecurityAlertChannelsInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			input.DeviceLabel = identity.DeriveDeviceLabel(r.UserAgent())
+			input.IPMasked = identity.MaskIP(clientIPForDevice(r))
+			prefs, err := h.service.UpdateSecurityAlertChannels(r.Context(), principal.AccountID, input)
+			if err != nil {
+				h.alertsError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, prefs)
 			return
 		}
 	case "/api/v1/auth/terms":
@@ -1015,6 +1064,19 @@ func (h *Handler) deviceError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusNotFound, "device_not_found", "El dispositivo no fue encontrado o ya ha sido revocado.")
 	case errors.Is(err, identity.ErrInvalid):
 		h.fail(w, http.StatusBadRequest, "invalid_device", "Identificador de dispositivo inválido.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) alertsError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrInvalidExtraEmail):
+		h.fail(w, http.StatusBadRequest, "invalid_email", "Formato de correo electrónico secundario inválido.")
+	case errors.Is(err, identity.ErrExtraEmailMatchesPrimary):
+		h.fail(w, http.StatusBadRequest, "email_same_as_primary", "El correo secundario no puede ser igual al correo principal.")
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Cuenta no encontrada.")
 	default:
 		h.serviceError(w, err)
 	}

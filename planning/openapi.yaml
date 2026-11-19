@@ -2406,6 +2406,54 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /account/security/alerts:
+    get:
+      operationId: getSecurityAlerts
+      tags:
+        - M01 local
+      description: Obtiene las preferencias de canales de alerta y las últimas 20 alertas de seguridad de la cuenta autenticada.
+      responses:
+        "200":
+          description: Preferencias de alerta y feed reciente de auditoría de seguridad.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityAlertsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/alerts/channels:
+    put:
+      operationId: updateSecurityAlertChannels
+      tags:
+        - M01 local
+      description: Actualiza los canales de notificación de alertas de seguridad y el correo secundario opcional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSecurityAlertChannelsInput"
+      responses:
+        "200":
+          description: Preferencias de canales de alerta actualizadas exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityAlertPreferences"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -8219,6 +8267,103 @@ components:
           type: integer
           minimum: 0
           example: 2
+    SecurityAlertPreferences:
+      type: object
+      additionalProperties: false
+      required:
+        - app_notifications_enabled
+        - email_alerts_enabled
+        - whatsapp_alerts_enabled
+        - masked_email
+        - masked_extra_email
+        - extra_email_configured
+        - masked_phone
+      properties:
+        app_notifications_enabled:
+          type: boolean
+          example: true
+        email_alerts_enabled:
+          type: boolean
+          example: true
+        whatsapp_alerts_enabled:
+          type: boolean
+          example: false
+        masked_email:
+          type: string
+          example: "u••••1@example.com"
+        masked_extra_email:
+          type: string
+          example: "s••••y@example.com"
+        extra_email_configured:
+          type: boolean
+          example: true
+        masked_phone:
+          type: string
+          example: "+56 ••••1234"
+    SecurityAlertEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - event_code
+        - title
+        - device_label
+        - ip_masked
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "00000000-0000-4000-8000-000000000001"
+        event_code:
+          type: string
+          example: "alert_channel_updated"
+        title:
+          type: string
+          example: "Canales de alerta actualizados"
+        device_label:
+          type: string
+          example: "Chrome en Linux"
+        ip_masked:
+          type: string
+          example: "190.162.•••.•••"
+        created_at:
+          type: string
+          format: date-time
+    SecurityAlertsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - preferences
+        - alerts
+      properties:
+        preferences:
+          $ref: "#/components/schemas/SecurityAlertPreferences"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityAlertEvent"
+    UpdateSecurityAlertChannelsInput:
+      type: object
+      additionalProperties: false
+      required:
+        - app_notifications_enabled
+        - email_alerts_enabled
+        - whatsapp_alerts_enabled
+      properties:
+        app_notifications_enabled:
+          type: boolean
+          example: true
+        email_alerts_enabled:
+          type: boolean
+          example: true
+        whatsapp_alerts_enabled:
+          type: boolean
+          example: false
+        extra_email:
+          type: string
+          nullable: true
+          example: "seguridad@empresa.com"
     Profile:
       type: object
       required: [ display_name, updated_at ]

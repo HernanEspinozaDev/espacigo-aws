@@ -15,6 +15,7 @@ type AuthenticationRepository interface {
 	WithLockedAccount(context.Context, AccountLookup, func(Account, AuthenticationTransaction) error) error
 	DeviceRepository
 	CredentialNoticeRepository
+	SecurityAlertsRepository
 }
 
 // Callbacks return persistence errors to roll back. Business rejections whose
