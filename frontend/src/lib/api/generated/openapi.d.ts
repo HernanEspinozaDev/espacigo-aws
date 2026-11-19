@@ -4284,6 +4284,11 @@ export interface components {
       data: {
         /** Format: int64 */
         total_accounts: number | string;
+        /**
+         * Format: int64
+         * @description Cuentas con al menos una sesión vigente sin revocar
+         */
+        connected_accounts?: number | string;
         /** Format: int64 */
         administrative_blocked: number | string;
         by_state: {

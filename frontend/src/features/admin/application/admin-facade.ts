@@ -73,6 +73,7 @@ export interface AdminSnapshot {
   readonly overview: GlobalAdminOverview | null;
   readonly kpis: GlobalAdminKPIs | null;
   readonly globalAccounts: readonly GlobalAdminAccount[];
+  readonly globalAccountsNextCursor: string | null;
   readonly selectedGlobalAccount: GlobalAdminAccount | null;
   readonly globalPublications: readonly GlobalAdminPublication[];
   readonly globalAuditEvents: readonly AuditEvent[];
@@ -101,6 +102,7 @@ const initialSnapshot: AdminSnapshot = Object.freeze({
   overview: null,
   kpis: null,
   globalAccounts: Object.freeze([]),
+  globalAccountsNextCursor: null,
   selectedGlobalAccount: null,
   globalPublications: Object.freeze([]),
   globalAuditEvents: Object.freeze([]),
@@ -326,6 +328,7 @@ export class AdminFacade {
       overview: null,
       kpis: null,
       globalAccounts: Object.freeze([]),
+      globalAccountsNextCursor: null,
       selectedGlobalAccount: null,
       globalPublications: Object.freeze([]),
       globalAuditEvents: Object.freeze([]),
@@ -536,10 +539,15 @@ export class AdminFacade {
     ) {
       return;
     }
+    if (
+      query?.cursor &&
+      query.cursor !== this.#snapshot.globalAccountsNextCursor
+    )
+      return;
     const _sessionScope = this.#captureSession();
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const { items } = await this.#waitSession(
+      const { items, next_cursor } = await this.#waitSession(
         this.#port.listGlobalAccounts(
           query,
           this.#sessionSignal(_sessionScope, undefined),
@@ -547,7 +555,10 @@ export class AdminFacade {
         _sessionScope,
       );
       this.#setSnapshot({
-        globalAccounts: Object.freeze(items),
+        globalAccounts: Object.freeze(
+          query?.cursor ? [...this.#snapshot.globalAccounts, ...items] : items,
+        ),
+        globalAccountsNextCursor: next_cursor || null,
         loading: false,
       });
     } catch (err) {

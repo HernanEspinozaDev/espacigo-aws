@@ -42,6 +42,7 @@ export interface GlobalAdminMe {
 
 export interface GlobalAdminOverview {
   readonly total_accounts: number | string;
+  readonly connected_accounts?: number | string;
   readonly administrative_blocked: number | string;
   readonly by_state: Readonly<Record<string, number | string>>;
   readonly by_role: Readonly<Record<string, number | string>>;

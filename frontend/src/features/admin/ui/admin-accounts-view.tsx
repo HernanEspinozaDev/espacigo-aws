@@ -143,7 +143,8 @@ export function AdminAccountsView() {
     void loadGlobalAccounts();
   }, [loadGlobalAccounts]);
 
-  const { globalAccounts, loading, actionLoading } = snapshot;
+  const { globalAccounts, globalAccountsNextCursor, loading, actionLoading } =
+    snapshot;
 
   const filteredAccounts = globalAccounts.filter((acc) => {
     const matchesRole =
@@ -472,6 +473,19 @@ export function AdminAccountsView() {
             </Card>
           ))}
         </div>
+      )}
+
+      {globalAccountsNextCursor && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading}
+          onClick={() =>
+            void loadGlobalAccounts({ cursor: globalAccountsNextCursor })
+          }
+        >
+          Cargar más usuarios
+        </Button>
       )}
 
       {/* Modal Modificación de Roles */}

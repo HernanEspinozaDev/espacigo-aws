@@ -51,16 +51,6 @@ export class OpenApiAdminAdapter implements AdminPort {
     const result = await apiClient.GET("/admin/global/overview", {
       signal,
     });
-    if (result.response?.status === 404) {
-      return {
-        total_accounts: 0,
-        administrative_blocked: 0,
-        by_state: {},
-        by_role: {},
-        generated_at: new Date().toISOString(),
-        definition: "overview_fallback",
-      };
-    }
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -156,9 +146,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       params: { query: query as never },
       signal,
     });
-    if (result.response?.status === 404) {
-      return { items: [] };
-    }
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }

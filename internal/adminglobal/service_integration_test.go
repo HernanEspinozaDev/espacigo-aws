@@ -676,6 +676,11 @@ func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {
 	if _, err = auth.AuthorizeCapability(ctx, restrictedToken, identity.CapabilityAccountsList, identity.UserOperation); !errors.Is(err, identity.ErrRestrictedMode) {
 		t.Fatalf("restricted account gained directory access: %v", err)
 	}
+	issueSyntheticSession(t, ctx, pool, master, "synthetic-global-second-session")
+	overview, err := service.Overview(ctx, master, corr)
+	if err != nil || overview.TotalAccounts != 6 || overview.ConnectedAccounts != 2 {
+		t.Fatalf("overview should count distinct accounts and exclude administrative blocks: %+v, %v", overview, err)
+	}
 	page, err := service.ListAccounts(ctx, master, corr, adminglobal.AccountFilter{PageSize: 2})
 	if err != nil {
 		t.Fatal(err)

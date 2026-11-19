@@ -6289,7 +6289,7 @@ components:
       type: object
       required: [ data ]
       properties:
-        data: { type: object, required: [ total_accounts, administrative_blocked, by_state, by_role, generated_at, definition ], properties: { total_accounts: { type: integer, format: int64 }, administrative_blocked: { type: integer, format: int64 }, by_state: { type: object, additionalProperties: { type: integer, format: int64 } }, by_role: { type: object, additionalProperties: { type: integer, format: int64 } }, generated_at: { type: string, format: date-time }, definition: { type: string } } }
+        data: { type: object, required: [ total_accounts, administrative_blocked, by_state, by_role, generated_at, definition ], properties: { total_accounts: { type: integer, format: int64 }, connected_accounts: { type: integer, format: int64, minimum: 0, description: Cuentas con al menos una sesión vigente sin revocar }, administrative_blocked: { type: integer, format: int64 }, by_state: { type: object, additionalProperties: { type: integer, format: int64 } }, by_role: { type: object, additionalProperties: { type: integer, format: int64 } }, generated_at: { type: string, format: date-time }, definition: { type: string } } }
     GlobalAdminAccount:
       type: object
       required: [ account_id, email, state, created_at, administrative_blocked, roles, publication_count, reservation_count, incident_count ]

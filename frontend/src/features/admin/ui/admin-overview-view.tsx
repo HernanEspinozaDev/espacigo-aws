@@ -1,16 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  BarChart3,
-  Building2,
-  Download,
-  Loader2,
-  RefreshCw,
-  Scale,
-  UserCheck,
-  Users,
-} from "lucide-react";
+import Link from "next/link";
+import { useEffect } from "react";
+import { BarChart3, RefreshCw, Users } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -24,93 +16,13 @@ import { useAdmin } from "./use-admin";
 import { AdminFeedbackBanners } from "./admin-feedback-banners";
 
 export function AdminOverviewView() {
-  const {
-    snapshot,
-    loadOverview,
-    loadKPIs,
-    loadGlobalMe,
-    loadVerifications,
-    loadDisputes,
-    loadGlobalPublications,
-    exportGlobalAuditEvents,
-    canAccess,
-  } = useAdmin();
-
-  const [isExporting, setIsExporting] = useState(false);
+  const { snapshot, loadOverview, loadGlobalMe, canAccess } = useAdmin();
+  const { overview, loading } = snapshot;
 
   useEffect(() => {
     void loadGlobalMe();
     void loadOverview();
-    void loadKPIs({
-      from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-      until: new Date().toISOString(),
-      time_zone: "America/Santiago",
-    });
-    void loadVerifications();
-    void loadDisputes();
-    void loadGlobalPublications();
-  }, [
-    loadGlobalMe,
-    loadOverview,
-    loadKPIs,
-    loadVerifications,
-    loadDisputes,
-    loadGlobalPublications,
-  ]);
-
-  const handleRefresh = async () => {
-    await Promise.all([
-      loadOverview(),
-      loadKPIs({
-        from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        until: new Date().toISOString(),
-        time_zone: "America/Santiago",
-      }),
-      loadVerifications(),
-      loadDisputes(),
-      loadGlobalPublications(),
-    ]);
-  };
-
-  const handleExportAudit = async () => {
-    setIsExporting(true);
-    try {
-      const from = new Date(
-        Date.now() - 30 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const until = new Date().toISOString();
-      const blob = await exportGlobalAuditEvents({
-        from,
-        until,
-        format: "json",
-      });
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `auditoria_administrativa_${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 100);
-      }
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const { overview, verifications, disputes, globalPublications, loading } =
-    snapshot;
-
-  const pendingVerifications = verifications.filter(
-    (v) => v.state === "en_revision",
-  ).length;
-  const openDisputes = disputes.filter(
-    (d) => d.state === "abierta" || d.state === "en_revision",
-  ).length;
-  const activePublications = globalPublications.filter(
-    (p) => p.state === "activa",
-  ).length;
+  }, [loadGlobalMe, loadOverview]);
 
   return (
     <div className="space-y-6">
@@ -120,11 +32,11 @@ export function AdminOverviewView() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-foreground">
-            Resumen y KPIs Operativos
+            Resumen administrativo
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Métricas globales consolidadas, estado de la plataforma y
-            trazabilidad.
+            Consulta las cuentas registradas y cuántas tienen una sesión
+            vigente.
           </p>
         </div>
 
@@ -133,7 +45,7 @@ export function AdminOverviewView() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={handleRefresh}
+            onClick={() => void loadOverview()}
             disabled={loading}
             className="gap-1.5"
           >
@@ -144,28 +56,16 @@ export function AdminOverviewView() {
             <span>Actualizar</span>
           </Button>
 
-          {canAccess("audit") && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={handleExportAudit}
-              disabled={isExporting}
-              className="gap-1.5"
-            >
-              {isExporting ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Download className="size-4" aria-hidden="true" />
-              )}
-              <span>Exportar Auditoría (30d)</span>
+          {canAccess("accounts") && (
+            <Button asChild size="sm">
+              <Link href="/administracion/cuentas">Ver usuarios</Link>
             </Button>
           )}
         </div>
       </div>
 
       {/* Tarjetas de KPIs Principales */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -190,57 +90,20 @@ export function AdminOverviewView() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Publicaciones Activas
+              Cuentas conectadas
             </CardTitle>
-            <Building2
+            <Users
               className="size-4 text-muted-foreground"
               aria-hidden="true"
             />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{activePublications}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {globalPublications.length} publicaciones registradas
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Verificaciones Pendientes
-            </CardTitle>
-            <UserCheck
-              className="size-4 text-muted-foreground"
-              aria-hidden="true"
-            />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-              {pendingVerifications}
+            <div className="text-2xl font-bold">
+              {overview?.connected_accounts ?? "–"}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {verifications.length} casos totales en bandeja
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Disputas Abiertas
-            </CardTitle>
-            <Scale
-              className="size-4 text-muted-foreground"
-              aria-hidden="true"
-            />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-rose-600 dark:text-rose-400">
-              {openDisputes}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {disputes.length} disputas históricas registradas
+            <p className="mt-1 text-xs text-muted-foreground">
+              Una cuenta por cada usuario con sesión vigente, aunque tenga
+              varias.
             </p>
           </CardContent>
         </Card>

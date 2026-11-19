@@ -119,6 +119,7 @@ type AccountPage struct {
 
 type AccountOverview struct {
 	TotalAccounts         int64            `json:"total_accounts"`
+	ConnectedAccounts     int64            `json:"connected_accounts"`
 	AdministrativeBlocked int64            `json:"administrative_blocked"`
 	ByState               map[string]int64 `json:"by_state"`
 	ByRole                map[string]int64 `json:"by_role"`
@@ -175,8 +176,15 @@ func (s *Service) Overview(ctx context.Context, actor, correlation string) (Acco
 	if err = requireGlobalActor(ctx, tx, actor); err != nil {
 		return AccountOverview{}, err
 	}
-	out := AccountOverview{ByState: map[string]int64{}, ByRole: map[string]int64{}, GeneratedAt: s.now().UTC(), Definition: "Cuentas persistidas vigentes al generar el reporte; el estado activo no representa visitantes ni DAU; los conteos por rol pueden solaparse."}
+	out := AccountOverview{ByState: map[string]int64{}, ByRole: map[string]int64{}, GeneratedAt: s.now().UTC(), Definition: "Cuentas registradas y cuentas con al menos una sesión vigente sin revocar. Los conteos por rol pueden solaparse."}
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.usuario`).Scan(&out.TotalAccounts); err != nil {
+		return AccountOverview{}, err
+	}
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.usuario u
+		WHERE u.estado='activo' AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta <= $1)
+		  AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+		  AND EXISTS(SELECT 1 FROM public.sesion s WHERE s.usuario_id=u.id
+			AND s.revocada_en IS NULL AND s.expira_en > $1)`, out.GeneratedAt).Scan(&out.ConnectedAccounts); err != nil {
 		return AccountOverview{}, err
 	}
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.bloqueo_cuenta_administrativo_local`).Scan(&out.AdministrativeBlocked); err != nil {
