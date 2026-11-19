@@ -25,9 +25,14 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 		}
 		body, _ := io.ReadAll(r.Body)
 		raw := string(body)
-		for _, fragment := range []string{`"external_reference":"op-123"`, `"marketplace_fee":3570`, `"currency_id":"CLP"`, `"operation_id":"op-123"`, `"installments":1`, `"id":"credit_card"`} {
+		for _, fragment := range []string{`"external_reference":"op-123"`, `"marketplace_fee":3570`, `"currency_id":"CLP"`, `"operation_id":"op-123"`, `"installments":1`, `"id":"credit_card"`, `"expires":true`, `"expiration_date_from":"2030-01-01T10:00:00-03:00"`, `"expiration_date_to":"2030-01-01T12:00:00-03:00"`} {
 			if !strings.Contains(raw, fragment) {
 				t.Errorf("request body missing %s: %s", fragment, raw)
+			}
+		}
+		for _, obsolete := range []string{`"date_of_expiration_from"`, `"date_of_expiration_to"`} {
+			if strings.Contains(raw, obsolete) {
+				t.Errorf("request body contains obsolete field %s: %s", obsolete, raw)
 			}
 		}
 		if strings.Contains(raw, `"id":"account_money"`) {
@@ -35,7 +40,7 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 		}
 		return &http.Response{StatusCode: 201, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"pref-1","init_point":"https://www.mercadopago.cl/checkout/v1/redirect/pref-1"}`))}, nil
 	})}}
-	p, err := g.Create(context.Background(), []byte("seller-test-token"), PreferenceRequest{ExternalReference: "op-123", MarketplaceFee: 3570, Items: []PreferenceItem{{Title: "Arriendo", Quantity: 1, UnitPrice: 100000, CurrencyID: "CLP"}}, Metadata: map[string]any{"operation_id": "op-123"}, PaymentMethods: PaymentMethods{ExcludedPaymentTypes: []ExcludedPaymentType{{ID: "credit_card"}}, Installments: 1}})
+	p, err := g.Create(context.Background(), []byte("seller-test-token"), PreferenceRequest{ExternalReference: "op-123", MarketplaceFee: 3570, Items: []PreferenceItem{{Title: "Arriendo", Quantity: 1, UnitPrice: 100000, CurrencyID: "CLP"}}, Metadata: map[string]any{"operation_id": "op-123"}, Expires: true, ExpirationDateFrom: "2030-01-01T10:00:00-03:00", ExpirationDateTo: "2030-01-01T12:00:00-03:00", PaymentMethods: PaymentMethods{ExcludedPaymentTypes: []ExcludedPaymentType{{ID: "credit_card"}}, Installments: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}

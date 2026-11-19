@@ -38,8 +38,8 @@ type PreferenceRequest struct {
 	Metadata           map[string]any   `json:"metadata"`
 	BackURLs           BackURLs         `json:"back_urls"`
 	Expires            bool             `json:"expires"`
-	ExpirationDateFrom string           `json:"date_of_expiration_from"`
-	ExpirationDateTo   string           `json:"date_of_expiration_to"`
+	ExpirationDateFrom string           `json:"expiration_date_from"`
+	ExpirationDateTo   string           `json:"expiration_date_to"`
 	PaymentMethods     PaymentMethods   `json:"payment_methods"`
 }
 type Preference struct {
