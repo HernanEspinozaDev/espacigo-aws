@@ -241,6 +241,7 @@ cmd_test() {
 }
 
 cmd_api() {
+  local api_db_host api_db_port
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
   export ENVIRONMENT=development
@@ -248,8 +249,17 @@ cmd_api() {
 
   # Base de datos
   export DATABASE_CONNECTION_MODE="direct"
-  export DATABASE_HOST="${ESPACIGO_LOCAL_DB_HOST:-$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER")}"
-  export DATABASE_PORT="$DB_PORT"
+  api_db_host="${ESPACIGO_LOCAL_DB_HOST:-$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER")}"
+  api_db_port="$DB_PORT"
+  if [[ -n "${ESPACIGO_LOCAL_DB_PORT:-}" ]]; then
+    if [[ "$api_db_host" != "127.0.0.1" || ! "$ESPACIGO_LOCAL_DB_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$ESPACIGO_LOCAL_DB_PORT < 1 || 10#$ESPACIGO_LOCAL_DB_PORT > 65535 )); then
+      echo "ERROR: ESPACIGO_LOCAL_DB_PORT requires ESPACIGO_LOCAL_DB_HOST=127.0.0.1 and a valid TCP port." >&2
+      return 1
+    fi
+    api_db_port="$ESPACIGO_LOCAL_DB_PORT"
+  fi
+  export DATABASE_HOST="$api_db_host"
+  export DATABASE_PORT="$api_db_port"
   export DATABASE_NAME="$DB_NAME"
   export DATABASE_USER="espacigo_api_login"
   export DATABASE_SET_ROLE="espacigo_runtime"
