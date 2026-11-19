@@ -132,16 +132,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountTOTPSetupPath           = "/api/v1/account/security/totp/setup"
 		accountTOTPEnablePath          = "/api/v1/account/security/totp/enable"
 		accountTOTPDisablePath         = "/api/v1/account/security/totp/disable"
+		accountPasskeysPath            = "/api/v1/account/security/passkeys"
+		accountPasskeysRegisterOptionsPath = "/api/v1/account/security/passkeys/register/options"
+		accountPasskeysRegisterVerifyPath  = "/api/v1/account/security/passkeys/register/verify"
+		accountPasskeysPrefix          = "/api/v1/account/security/passkeys/"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
+	passkeyDeletePath := strings.HasPrefix(r.URL.Path, accountPasskeysPrefix) && r.URL.Path != accountPasskeysRegisterOptionsPath && r.URL.Path != accountPasskeysRegisterVerifyPath
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath {
 		expected = http.MethodGet
 	}
 	if r.URL.Path == accountAlertsChannelsPath {
 		expected = http.MethodPut
 	}
-	if deviceDeletePath {
+	if deviceDeletePath || passkeyDeletePath {
 		expected = http.MethodDelete
 	}
 
@@ -198,10 +203,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountTOTPSetupPath:                     true,
 		accountTOTPEnablePath:                    true,
 		accountTOTPDisablePath:                   true,
+		accountPasskeysPath:                      true,
+		accountPasskeysRegisterOptionsPath:        true,
+		accountPasskeysRegisterVerifyPath:         true,
 		suppressionQueuePath:                     true,
 		credentialNoticeQueuePath:                true,
 	}
-	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath {
+	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath && !passkeyDeletePath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -289,6 +297,34 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.write(w, http.StatusOK, map[string]any{
 			"status":     "revoked",
 			"session_id": sessionID,
+		})
+		return
+	}
+	if passkeyDeletePath {
+		passkeyID := strings.TrimPrefix(r.URL.Path, accountPasskeysPrefix)
+		if passkeyID == "" || strings.Contains(passkeyID, "/") {
+			h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+		ipMasked := identity.MaskIP(clientIPForDevice(r))
+		if err := h.service.DeletePasskey(r.Context(), principal.AccountID, passkeyID, deviceLabel, ipMasked); err != nil {
+			h.passkeyError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{
+			"status":     "deleted",
+			"passkey_id": passkeyID,
 		})
 		return
 	}
@@ -696,6 +732,65 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.write(w, http.StatusOK, resp)
+			return
+		}
+	case accountPasskeysPath, accountPasskeysRegisterOptionsPath, accountPasskeysRegisterVerifyPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+
+		switch r.URL.Path {
+		case accountPasskeysPath:
+			list, err := h.service.ListPasskeys(r.Context(), principal.AccountID)
+			if err != nil {
+				h.passkeyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, list)
+			return
+
+		case accountPasskeysRegisterOptionsPath:
+			rpID := ""
+			if host, _, err := net.SplitHostPort(r.Host); err == nil && host != "" {
+				rpID = host
+			} else if r.Host != "" {
+				rpID = r.Host
+			}
+			if rpID == "" {
+				rpID = "localhost"
+			}
+			opts, err := h.service.BeginPasskeyRegistration(r.Context(), principal.AccountID, rpID)
+			if err != nil {
+				h.passkeyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, opts)
+			return
+
+		case accountPasskeysRegisterVerifyPath:
+			var input identity.PasskeyRegistrationVerifyInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			allowedOrigins := make([]string, 0, len(h.origins))
+			for o := range h.origins {
+				allowedOrigins = append(allowedOrigins, o)
+			}
+			passkey, err := h.service.CompletePasskeyRegistration(r.Context(), principal.AccountID, input, allowedOrigins, deviceLabel, ipMasked)
+			if err != nil {
+				h.passkeyError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, passkey)
 			return
 		}
 	case "/api/v1/auth/terms":
@@ -1167,6 +1262,29 @@ func (h *Handler) totpError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
 	case errors.Is(err, identity.ErrNotFound):
 		h.fail(w, http.StatusNotFound, "not_found", "Cuenta no encontrada.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) passkeyError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrPasskeyChallengeExpired):
+		h.fail(w, http.StatusUnprocessableEntity, "challenge_expired", "El desafío WebAuthn ha expirado. Inicia el registro nuevamente.")
+	case errors.Is(err, identity.ErrPasskeyChallengeConsumed), errors.Is(err, identity.ErrPasskeyChallengeInvalid):
+		h.fail(w, http.StatusUnprocessableEntity, "challenge_invalid", "El desafío WebAuthn es inválido o ya fue utilizado.")
+	case errors.Is(err, identity.ErrPasskeyInvalidClientData):
+		h.fail(w, http.StatusBadRequest, "invalid_client_data", "Los datos de clientDataJSON no son válidos.")
+	case errors.Is(err, identity.ErrPasskeyInvalidPublicKey):
+		h.fail(w, http.StatusBadRequest, "invalid_public_key", "La clave pública WebAuthn es inválida.")
+	case errors.Is(err, identity.ErrPasskeyCredentialConflict):
+		h.fail(w, http.StatusConflict, "credential_conflict", "Esta llave de acceso ya se encuentra registrada.")
+	case errors.Is(err, identity.ErrPasskeyNotFound):
+		h.fail(w, http.StatusNotFound, "passkey_not_found", "Llave de acceso no encontrada.")
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
 	default:
 		h.serviceError(w, err)
 	}

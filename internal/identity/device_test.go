@@ -264,6 +264,24 @@ func (f *fakeDeviceRepo) ConsumeBackupCode(context.Context, string, string) (boo
 func (f *fakeDeviceRepo) DisableTOTP(context.Context, string) error {
 	return nil
 }
+func (f *fakeDeviceRepo) ListPasskeys(context.Context, string) ([]identity.PasskeyRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) SaveWebAuthnChallenge(context.Context, identity.WebAuthnChallengeRecord) error {
+	return nil
+}
+func (f *fakeDeviceRepo) GetWebAuthnChallenge(context.Context, string) (*identity.WebAuthnChallengeRecord, error) {
+	return nil, identity.ErrNotFound
+}
+func (f *fakeDeviceRepo) SavePasskeyAndConsumeChallenge(context.Context, identity.PasskeyRecord, string, time.Time) error {
+	return nil
+}
+func (f *fakeDeviceRepo) DeletePasskey(context.Context, string, string) error {
+	return nil
+}
+func (f *fakeDeviceRepo) GetAccountDisplayName(context.Context, string) (string, error) {
+	return "", nil
+}
 
 type dummyHasher struct{}
 

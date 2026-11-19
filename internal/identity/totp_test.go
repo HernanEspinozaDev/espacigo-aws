@@ -347,6 +347,25 @@ func (m *mockTOTPRepo) ActiveAccountEmail(ctx context.Context, accountID string)
 	return "usuario@ejemplo.cl", nil
 }
 
+func (m *mockTOTPRepo) ListPasskeys(context.Context, string) ([]identity.PasskeyRecord, error) {
+	return nil, nil
+}
+func (m *mockTOTPRepo) SaveWebAuthnChallenge(context.Context, identity.WebAuthnChallengeRecord) error {
+	return nil
+}
+func (m *mockTOTPRepo) GetWebAuthnChallenge(context.Context, string) (*identity.WebAuthnChallengeRecord, error) {
+	return nil, identity.ErrNotFound
+}
+func (m *mockTOTPRepo) SavePasskeyAndConsumeChallenge(context.Context, identity.PasskeyRecord, string, time.Time) error {
+	return nil
+}
+func (m *mockTOTPRepo) DeletePasskey(context.Context, string, string) error {
+	return nil
+}
+func (m *mockTOTPRepo) GetAccountDisplayName(context.Context, string) (string, error) {
+	return "", nil
+}
+
 func TestTOTPService_Lifecycle(t *testing.T) {
 	repo := &mockTOTPRepo{}
 	hasher := alertsTestHasher{}

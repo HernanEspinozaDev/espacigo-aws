@@ -172,6 +172,8 @@ type mockAuthRepo struct {
 	events   map[string][]identity.SecurityAlertEventRecord
 	totpRecords map[string]*identity.AccountTOTPRecord
 	backupCodes map[string]map[string]bool // accountID -> codeHash -> true
+	passkeys    map[string][]identity.PasskeyRecord
+	challenges  map[string]*identity.WebAuthnChallengeRecord
 }
 
 func newMockAuthRepo() *mockAuthRepo {
@@ -183,6 +185,8 @@ func newMockAuthRepo() *mockAuthRepo {
 		events:   make(map[string][]identity.SecurityAlertEventRecord),
 		totpRecords: make(map[string]*identity.AccountTOTPRecord),
 		backupCodes: make(map[string]map[string]bool),
+		passkeys:    make(map[string][]identity.PasskeyRecord),
+		challenges:  make(map[string]*identity.WebAuthnChallengeRecord),
 	}
 }
 
@@ -463,6 +467,64 @@ func (m *mockAuthRepo) DisableTOTP(_ context.Context, accountID string) error {
 	}
 	delete(m.backupCodes, accountID)
 	return nil
+}
+
+func (m *mockAuthRepo) ListPasskeys(_ context.Context, accountID string) ([]identity.PasskeyRecord, error) {
+	return m.passkeys[accountID], nil
+}
+
+func (m *mockAuthRepo) SaveWebAuthnChallenge(_ context.Context, challenge identity.WebAuthnChallengeRecord) error {
+	m.challenges[challenge.ID] = &challenge
+	return nil
+}
+
+func (m *mockAuthRepo) GetWebAuthnChallenge(_ context.Context, challengeID string) (*identity.WebAuthnChallengeRecord, error) {
+	ch, ok := m.challenges[challengeID]
+	if !ok {
+		return nil, identity.ErrNotFound
+	}
+	return ch, nil
+}
+
+func (m *mockAuthRepo) SavePasskeyAndConsumeChallenge(_ context.Context, passkey identity.PasskeyRecord, challengeID string, consumedAt time.Time) error {
+	ch, ok := m.challenges[challengeID]
+	if !ok {
+		return identity.ErrPasskeyChallengeInvalid
+	}
+	if ch.ConsumedAt != nil {
+		return identity.ErrPasskeyChallengeConsumed
+	}
+	ch.ConsumedAt = &consumedAt
+
+	for _, pks := range m.passkeys {
+		for _, pk := range pks {
+			if pk.CredentialID == passkey.CredentialID {
+				return identity.ErrPasskeyCredentialConflict
+			}
+		}
+	}
+	m.passkeys[passkey.AccountID] = append(m.passkeys[passkey.AccountID], passkey)
+	return nil
+}
+
+func (m *mockAuthRepo) DeletePasskey(_ context.Context, accountID, passkeyID string) error {
+	pks := m.passkeys[accountID]
+	idx := -1
+	for i, pk := range pks {
+		if pk.ID == passkeyID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return identity.ErrPasskeyNotFound
+	}
+	m.passkeys[accountID] = append(pks[:idx], pks[idx+1:]...)
+	return nil
+}
+
+func (m *mockAuthRepo) GetAccountDisplayName(_ context.Context, _ string) (string, error) {
+	return "", nil
 }
 
 type testHasher struct{}

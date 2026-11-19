@@ -17,6 +17,7 @@ type AuthenticationRepository interface {
 	CredentialNoticeRepository
 	SecurityAlertsRepository
 	TOTPRepository
+	PasskeyRepository
 }
 
 // Callbacks return persistence errors to roll back. Business rejections whose

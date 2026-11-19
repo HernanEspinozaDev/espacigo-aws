@@ -2554,6 +2554,109 @@ paths:
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys:
+    get:
+      operationId: listAccountPasskeys
+      tags:
+        - M01 local
+      description: Lista las llaves de acceso (Passkeys / WebAuthn) asociadas a la cuenta autenticada.
+      responses:
+        "200":
+          description: Lista de llaves de acceso registradas.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/register/options:
+    post:
+      operationId: beginAccountPasskeyRegistration
+      tags:
+        - M01 local
+      description: Inicia el registro de una llave de acceso WebAuthn generando un desafío criptográfico.
+      responses:
+        "200":
+          description: Opciones de creación de credencial WebAuthn.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyRegistrationOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/register/verify:
+    post:
+      operationId: completeAccountPasskeyRegistration
+      tags:
+        - M01 local
+      description: Valida el desafío, clientDataJSON y la clave pública emitida por el navegador para registrar la llave.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountPasskeyRegistrationVerifyInput"
+      responses:
+        "200":
+          description: Llave de acceso registrada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/{passkey_id}:
+    delete:
+      operationId: deleteAccountPasskey
+      tags:
+        - M01 local
+      description: Elimina una llave de acceso (Passkey) asociada a la cuenta autenticada.
+      parameters:
+        - name: passkey_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Llave de acceso eliminada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -8549,6 +8652,176 @@ components:
         enabled:
           type: boolean
           example: false
+    AccountPasskey:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - transports
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          example: "Touch ID"
+        transports:
+          type: array
+          items:
+            type: string
+          example: ["internal", "hybrid"]
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+    AccountPasskeyListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - passkeys
+      properties:
+        passkeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountPasskey"
+    AccountPasskeyRegistrationOptions:
+      type: object
+      additionalProperties: false
+      required:
+        - challenge_id
+        - challenge
+        - rp
+        - user
+        - pubKeyCredParams
+        - timeout
+        - excludeCredentials
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        challenge:
+          type: string
+          example: "Y3JlYXRlQ2hhbGxlbmdlQmFzZTY0VXJs"
+        rp:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+          properties:
+            id:
+              type: string
+              example: "espacigo.com"
+            name:
+              type: string
+              example: "EspaciGo"
+        user:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+            - displayName
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: "u••••o@ejemplo.cl"
+            displayName:
+              type: string
+              example: "Usuario Demo"
+        pubKeyCredParams:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - type
+              - alg
+            properties:
+              type:
+                type: string
+                example: "public-key"
+              alg:
+                type: integer
+                example: -7
+        timeout:
+          type: integer
+          example: 60000
+        excludeCredentials:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - type
+              - id
+            properties:
+              type:
+                type: string
+                example: "public-key"
+              id:
+                type: string
+              transports:
+                type: array
+                items:
+                  type: string
+    AccountPasskeyRegistrationVerifyInput:
+      type: object
+      additionalProperties: false
+      required:
+        - challenge_id
+        - credential_id
+        - public_key
+        - client_data_json
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          maxLength: 100
+          example: "Mi Mac"
+        credential_id:
+          type: string
+          example: "cred-abc-123"
+        public_key:
+          type: string
+          example: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+        client_data_json:
+          type: string
+          example: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIi...}"
+        attestation_object:
+          type: string
+          nullable: true
+        transports:
+          type: array
+          items:
+            type: string
+        algorithm:
+          type: integer
+          example: -7
+    AccountPasskeyDeleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - passkey_id
+      properties:
+        status:
+          type: string
+          enum: [deleted]
+          example: "deleted"
+        passkey_id:
+          type: string
+          format: uuid
     Profile:
       type: object
       required: [ display_name, updated_at ]

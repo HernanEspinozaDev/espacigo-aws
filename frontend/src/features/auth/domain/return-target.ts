@@ -49,6 +49,7 @@ const fixedPaths = new Set([
   "/mi-cuenta/privacidad",
   "/mi-cuenta/seguridad",
   "/mi-cuenta/seguridad/metodos",
+  "/mi-cuenta/seguridad/metodos/llaves-de-acceso",
   "/mi-cuenta/seguridad/metodos/contrasena",
   "/mi-cuenta/seguridad/metodos/telefono",
   "/mi-cuenta/seguridad/metodos/google-authenticator",
