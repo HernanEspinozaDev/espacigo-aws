@@ -1161,16 +1161,6 @@ export const gatewayOperations = [
   },
   {
     method: "POST",
-    path: "/api/v1/webhooks/mercadopago",
-    operationId: "receiveMercadoPagoPaymentWebhook",
-    query: [],
-    headers: ["x-request-id", "x-signature"],
-    bearer: false,
-    requestMediaTypes: ["application/json"],
-    responseMediaTypes: [],
-  },
-  {
-    method: "POST",
     path: "/auth/login",
     operationId: "login",
     query: [],
@@ -3249,5 +3239,15 @@ export const gatewayOperations = [
     bearer: true,
     requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/webhooks/mercadopago",
+    operationId: "receiveMercadoPagoPaymentWebhook",
+    query: [],
+    headers: ["x-request-id", "x-signature"],
+    bearer: false,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: [],
   },
 ] as const;

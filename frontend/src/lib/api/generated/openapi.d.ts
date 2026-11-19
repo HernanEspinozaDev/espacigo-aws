@@ -384,7 +384,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  "/api/v1/webhooks/mercadopago": {
+  "/webhooks/mercadopago": {
     parameters: {
       query?: never;
       header?: never;

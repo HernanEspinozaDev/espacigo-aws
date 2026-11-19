@@ -1088,7 +1088,7 @@ paths:
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
-  /api/v1/webhooks/mercadopago:
+  /webhooks/mercadopago:
     post:
       operationId: receiveMercadoPagoPaymentWebhook
       tags: [ Payments ]
