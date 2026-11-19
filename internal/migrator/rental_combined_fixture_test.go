@@ -81,6 +81,9 @@ func establishRentalCombinedFixture(t *testing.T, ctx context.Context, targetURL
 	cleanupURL := selected.String()
 	ownedRoles := []fixtureRoleReceipt(nil)
 	t.Cleanup(func() {
+		if os.Getenv("TEST_MIGRATOR_RETAIN_AWS_PREVIEW") == "1" {
+			return
+		}
 		if len(ownedRoles) == 0 {
 			return
 		}

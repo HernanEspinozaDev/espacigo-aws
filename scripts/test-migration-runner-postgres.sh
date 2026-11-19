@@ -6,11 +6,11 @@ cd "$ROOT_DIR"
 SCOPE="${1:-full}"
 case "$SCOPE" in
   full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
-  aws-bootstrap) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
+  aws-bootstrap|aws-bootstrap-preview) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
   v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
   authority-window) GO_TEST_PATTERN='^Test(NativeKYCAuthorityWindow|OwnerSensitiveMigrationChoreography)Postgres$' ;;
-  *) echo 'usage: test-migration-runner-postgres.sh [full|aws-bootstrap|v19|v76|authority-window]' >&2; exit 2 ;;
+  *) echo 'usage: test-migration-runner-postgres.sh [full|aws-bootstrap|aws-bootstrap-preview|v19|v76|authority-window]' >&2; exit 2 ;;
 esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 if [[ "$SCOPE" == authority-window ]]; then
@@ -27,6 +27,18 @@ cleanup() {
   status=$?
   trap - EXIT INT TERM
   if [[ -n "$OWNED_CONTAINER_ID" ]]; then
+    if [[ "$SCOPE" == aws-bootstrap-preview && "$status" -eq 0 ]]; then
+      if [[ "$(docker inspect --format '{{.State.Running}}' "$OWNED_CONTAINER_ID")" != true ]] ||
+         ! docker exec "$OWNED_CONTAINER_ID" pg_isready -U postgres -d espacigo_prod >/dev/null 2>&1; then
+        echo 'refusing to retain a stopped or unhealthy test-only preview container' >&2
+        exit 1
+      fi
+      echo "RETAINED TEST-ONLY PREVIEW: container=$OWNED_CONTAINER_ID name=$NAME socket=$SOCKET_DIR database=espacigo_prod"
+      echo "RETAINED TEST-ONLY PREVIEW DSN: postgres://espacigo_api_login@/espacigo_prod?host=$SOCKET_DIR&sslmode=disable"
+      echo "RETAINED TEST-ONLY MIGRATOR DSN: postgres://espacigo_migrator_login@/espacigo_prod?host=$SOCKET_DIR&sslmode=disable"
+      echo 'This V1..V100 fixture used test-only authority choreography; it is not an operational E1 bootstrap.'
+      exit 0
+    fi
     if [[ "$(docker inspect --format '{{.State.Running}}' "$OWNED_CONTAINER_ID")" == true ]]; then
       if ! docker exec --user 0 "$OWNED_CONTAINER_ID" chown "$OWNER_UID:$OWNER_GID" /var/run/postgresql; then
         echo 'failed to restore ownership of own socket directory' >&2
@@ -91,6 +103,7 @@ print('ISOLATED TARGET: container='+c['Name'].lstrip('/')+' image='+c['Config'][
 PY
 env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_MIGRATOR_CI_ISOLATED=1 \
+  TEST_MIGRATOR_RETAIN_AWS_PREVIEW="$([[ "$SCOPE" == aws-bootstrap-preview ]] && echo 1 || echo 0)" \
   TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR&sslmode=disable" \
   TEST_MIGRATION_AUTHORITY_REPORT_DIR="$TMP_DIR" \
   go test -race -json -count=1 -timeout=3m \
@@ -99,7 +112,7 @@ env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTION
     cat "$TMP_DIR/results.jsonl" >&2
     exit 1
   }
-if [[ "$SCOPE" == aws-bootstrap ]]; then
+if [[ "$SCOPE" == aws-bootstrap || "$SCOPE" == aws-bootstrap-preview ]]; then
   python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json, sys
 with open(sys.argv[1]) as results:

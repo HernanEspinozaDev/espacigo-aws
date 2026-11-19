@@ -243,6 +243,7 @@ cmd_test() {
 cmd_api() {
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
+  load_mercadopago_oauth_env
 
   # Base de datos
   export DATABASE_CONNECTION_MODE="direct"
@@ -256,10 +257,15 @@ cmd_api() {
 
   # Parámetros runtime de aplicación
   export HTTP_ADDR="${HTTP_ADDR:-127.0.0.1:8080}"
-  export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
-  export CORS_ALLOWED_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"
+  export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
+  export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}"
   export LOCAL_AUTH_PROTOTYPE="1"
-  export LOCAL_BOOKING_TRIAL="1"
+  export COMMERCIAL_RENTAL_FLOW_ENABLED="${COMMERCIAL_RENTAL_FLOW_ENABLED:-0}"
+  if [[ "$COMMERCIAL_RENTAL_FLOW_ENABLED" == "1" ]]; then
+    export LOCAL_BOOKING_TRIAL="0"
+  else
+    export LOCAL_BOOKING_TRIAL="1"
+  fi
   export LOCAL_VERIFICATION_IP_LIMIT="100"
   export LOCAL_SMTP_ADDR="127.0.0.1:1025"
 
@@ -287,10 +293,40 @@ cmd_api() {
   )
 }
 
+load_mercadopago_oauth_env() {
+  local file="${REPO_ROOT}/.local/secrets/mercadopago-test.env" line key value mode owner
+  [[ -e "$file" ]] || return 0
+  if [[ -L "$file" || ! -f "$file" || ! -r "$file" ]]; then
+    echo "ERROR: Mercado Pago config must be a readable regular file." >&2
+    return 1
+  fi
+  mode="$(stat -c '%a' "$file")"
+  owner="$(stat -c '%u' "$file")"
+  if [[ "$mode" != "600" || "$owner" != "$(id -u)" ]]; then
+    echo "ERROR: Mercado Pago config must be owned by the current user with mode 600." >&2
+    return 1
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || { echo "ERROR: Invalid Mercado Pago config line." >&2; return 1; }
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      MERCADOPAGO_TEST_ACCESS_TOKEN|MERCADOPAGO_CLIENT_ID|MERCADOPAGO_CLIENT_SECRET|MERCADOPAGO_OAUTH_REDIRECT_URI|MERCADOPAGO_TOKEN_ENCRYPTION_KEY|MERCADOPAGO_TEST_MODE|MERCADOPAGO_WEBHOOK_SECRET_FILE) ;;
+      *) echo "ERROR: Unsupported key in Mercado Pago config." >&2; return 1 ;;
+    esac
+    [[ "$value" != *$'\r'* ]] || { echo "ERROR: Invalid Mercado Pago config value." >&2; return 1; }
+    export "$key=$value"
+  done < "$file"
+  if [[ -n "${MERCADOPAGO_CLIENT_ID:-}" || -n "${MERCADOPAGO_CLIENT_SECRET:-}" || -n "${MERCADOPAGO_OAUTH_REDIRECT_URI:-}" || -n "${MERCADOPAGO_TOKEN_ENCRYPTION_KEY:-}" ]]; then
+    export MERCADOPAGO_TEST_MODE="${MERCADOPAGO_TEST_MODE:-true}"
+  fi
+}
+
 cmd_web() {
-  echo "=== [EspaciGo AWS] Iniciando Frontend Next.js en http://127.0.0.1:3000 ==="
+  echo "=== [EspaciGo AWS] Iniciando Frontend Next.js; abrir en ${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000} ==="
   export API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1"
-  export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
+  export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
   export PORT="3000"
   (
     cd "${REPO_ROOT}/frontend"
