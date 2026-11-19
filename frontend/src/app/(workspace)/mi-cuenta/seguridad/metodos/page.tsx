@@ -25,12 +25,17 @@ import {
   type AccountTOTPStatus,
   getAccountTOTPStatus,
 } from "@/features/account/totp-api";
+import {
+  type AccountPasskey,
+  listAccountPasskeys,
+} from "@/features/account/passkeys-api";
 
 export default function MetodosVerificacionPage() {
   const { snapshot: authSnapshot } = useAuth();
   const { snapshot } = useAccount();
   const [phoneStatus, setPhoneStatus] = useState<AccountPhoneStatus | null>(null);
   const [totpStatus, setTotpStatus] = useState<AccountTOTPStatus | null>(null);
+  const [passkeys, setPasskeys] = useState<AccountPasskey[]>([]);
 
   useEffect(() => {
     if (authSnapshot.status !== "authenticated") return;
@@ -42,6 +47,11 @@ export default function MetodosVerificacionPage() {
       });
     getAccountTOTPStatus(controller.signal)
       .then((data) => setTotpStatus(data))
+      .catch(() => {
+        // Silently preserve defaults on network or session interruption
+      });
+    listAccountPasskeys(controller.signal)
+      .then((data) => setPasskeys(data))
       .catch(() => {
         // Silently preserve defaults on network or session interruption
       });
@@ -66,6 +76,11 @@ export default function MetodosVerificacionPage() {
     ? `${totpRemainingCodes} códigos de respaldo`
     : "Sin configurar";
 
+  const isPasskeysActive = passkeys.length > 0;
+  const passkeysCountText = isPasskeysActive
+    ? `${passkeys.length} ${passkeys.length === 1 ? "llave activa" : "llaves activas"}`
+    : "Sin configurar";
+
   const phoneBadgeText = isPhoneVerified
     ? "Verificado"
     : isPhonePending
@@ -80,10 +95,12 @@ export default function MetodosVerificacionPage() {
         "Inicia sesión con tu huella, rostro o PIN con Passkeys / WebAuthn.",
       href: "/mi-cuenta/seguridad/metodos/llaves-de-acceso",
       icon: Key,
-      iconColor: "text-primary bg-primary/10",
-      active: false,
-      badgeText: "Próximamente",
-      dataMasked: "Sin configurar",
+      iconColor: isPasskeysActive
+        ? "text-emerald-600 bg-emerald-500/10"
+        : "text-primary bg-primary/10",
+      active: isPasskeysActive,
+      badgeText: isPasskeysActive ? "Activa" : "Sin configurar",
+      dataMasked: passkeysCountText,
     },
     {
       id: "telefono",

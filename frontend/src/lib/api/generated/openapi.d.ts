@@ -1632,6 +1632,74 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/passkeys": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las llaves de acceso (Passkeys / WebAuthn) asociadas a la cuenta autenticada. */
+    get: operations["listAccountPasskeys"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/register/options": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia el registro de una llave de acceso WebAuthn generando un desafío criptográfico. */
+    post: operations["beginAccountPasskeyRegistration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/register/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida el desafío, clientDataJSON y la clave pública emitida por el navegador para registrar la llave. */
+    post: operations["completeAccountPasskeyRegistration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/{passkey_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Elimina una llave de acceso (Passkey) asociada a la cuenta autenticada. */
+    delete: operations["deleteAccountPasskey"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6438,6 +6506,85 @@ export interface components {
       /** @example false */
       enabled: boolean;
     };
+    AccountPasskey: {
+      /** Format: uuid */
+      id: string;
+      /** @example Touch ID */
+      label: string;
+      /**
+       * @example [
+       *       "internal",
+       *       "hybrid"
+       *     ]
+       */
+      transports: string[];
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_used_at?: string | null;
+    };
+    AccountPasskeyListResponse: {
+      passkeys: components["schemas"]["AccountPasskey"][];
+    };
+    AccountPasskeyRegistrationOptions: {
+      /** Format: uuid */
+      challenge_id: string;
+      /** @example Y3JlYXRlQ2hhbGxlbmdlQmFzZTY0VXJs */
+      challenge: string;
+      rp: {
+        /** @example espacigo.com */
+        id: string;
+        /** @example EspaciGo */
+        name: string;
+      };
+      user: {
+        /** Format: uuid */
+        id: string;
+        /** @example u••••o@ejemplo.cl */
+        name: string;
+        /** @example Usuario Demo */
+        displayName: string;
+      };
+      pubKeyCredParams: {
+        /** @example public-key */
+        type: string;
+        /** @example -7 */
+        alg: number;
+      }[];
+      /** @example 60000 */
+      timeout: number;
+      excludeCredentials: {
+        /** @example public-key */
+        type: string;
+        id: string;
+        transports?: string[];
+      }[];
+    };
+    AccountPasskeyRegistrationVerifyInput: {
+      /** Format: uuid */
+      challenge_id: string;
+      /** @example Mi Mac */
+      label?: string;
+      /** @example cred-abc-123 */
+      credential_id: string;
+      /** @example MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE... */
+      public_key: string;
+      /** @example eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIi...} */
+      client_data_json: string;
+      attestation_object?: string | null;
+      transports?: string[];
+      /** @example -7 */
+      algorithm?: number;
+    };
+    AccountPasskeyDeleteResponse: {
+      /**
+       * @example deleted
+       * @enum {string}
+       */
+      status: "deleted";
+      /** Format: uuid */
+      passkey_id: string;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -10904,6 +11051,109 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listAccountPasskeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de llaves de acceso registradas. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyListResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  beginAccountPasskeyRegistration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Opciones de creación de credencial WebAuthn. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyRegistrationOptions"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  completeAccountPasskeyRegistration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountPasskeyRegistrationVerifyInput"];
+      };
+    };
+    responses: {
+      /** @description Llave de acceso registrada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskey"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  deleteAccountPasskey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        passkey_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Llave de acceso eliminada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyDeleteResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
       500: components["responses"]["InternalServerError"];
     };
   };

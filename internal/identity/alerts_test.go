@@ -116,6 +116,24 @@ func (m *mockAlertsRepo) ConsumeBackupCode(context.Context, string, string) (boo
 func (m *mockAlertsRepo) DisableTOTP(context.Context, string) error {
 	return nil
 }
+func (m *mockAlertsRepo) ListPasskeys(context.Context, string) ([]identity.PasskeyRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) SaveWebAuthnChallenge(context.Context, identity.WebAuthnChallengeRecord) error {
+	return nil
+}
+func (m *mockAlertsRepo) GetWebAuthnChallenge(context.Context, string) (*identity.WebAuthnChallengeRecord, error) {
+	return nil, identity.ErrNotFound
+}
+func (m *mockAlertsRepo) SavePasskeyAndConsumeChallenge(context.Context, identity.PasskeyRecord, string, time.Time) error {
+	return nil
+}
+func (m *mockAlertsRepo) DeletePasskey(context.Context, string, string) error {
+	return nil
+}
+func (m *mockAlertsRepo) GetAccountDisplayName(context.Context, string) (string, error) {
+	return "", nil
+}
 
 type alertsTestHasher struct{}
 

@@ -33,6 +33,10 @@
     "V000106__totp_authenticator.sql": {
       "checksum": "0cd2d927214c33f516a72c79fa5513f47937cc53e29a6676a845a903aef15ae2",
       "strategy": "expand"
+    },
+    "V000107__passkeys_webauthn.sql": {
+      "checksum": "d4abe3272cb446be1739e03d626e0136d1e8f97c1edfe321f706de68cc2f321e",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {
