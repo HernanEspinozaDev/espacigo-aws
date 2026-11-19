@@ -11,18 +11,21 @@ import {
   CardTitle,
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
+import { useAuth } from "@/features/auth/ui/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { useAdmin } from "./use-admin";
 import { AdminFeedbackBanners } from "./admin-feedback-banners";
 
 export function AdminOverviewView() {
-  const { snapshot, loadOverview, loadGlobalMe, canAccess } = useAdmin();
+  const { snapshot, loadOverview, canAccess } = useAdmin();
+  const { snapshot: session } = useAuth();
+  const accountId =
+    session.status === "authenticated" ? session.accountId : null;
   const { overview, loading } = snapshot;
 
   useEffect(() => {
-    void loadGlobalMe();
-    void loadOverview();
-  }, [loadGlobalMe, loadOverview]);
+    if (accountId) void loadOverview();
+  }, [accountId, loadOverview]);
 
   return (
     <div className="space-y-6">
