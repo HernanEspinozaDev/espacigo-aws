@@ -1769,6 +1769,76 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado del permiso de ubicación y consentimiento para la cuenta autenticada. */
+    get: operations["getAccountLocationPermission"];
+    /** @description Actualiza el consentimiento y permiso de ubicación de la cuenta autenticada. */
+    put: operations["updateAccountLocationPermission"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/trusted-contacts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las personas de confianza activas designadas por la cuenta autenticada con datos enmascarados. */
+    get: operations["listAccountTrustedContacts"];
+    put?: never;
+    /** @description Agrega una nueva persona de confianza a la cuenta autenticada (máximo 3 contactos activos). */
+    post: operations["addAccountTrustedContact"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/trusted-contacts/{contact_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Revoca y elimina una persona de confianza activa de la cuenta. */
+    delete: operations["removeAccountTrustedContact"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/methods": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el resumen del estado real de los 7 métodos de verificación de seguridad de la cuenta. */
+    get: operations["getAccountSecurityMethods"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6699,6 +6769,92 @@ export interface components {
       /** Format: date-time */
       resolved_at: string;
     };
+    AccountLocationPermissionResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      consent_updated_at?: string | null;
+      /** @example Región Metropolitana */
+      last_region_label?: string | null;
+    };
+    UpdateAccountLocationPermissionInput: {
+      enabled: boolean;
+      /** @example Región Metropolitana */
+      region_label?: string | null;
+    };
+    AccountTrustedContact: {
+      /** Format: uuid */
+      id: string;
+      /** @example María González */
+      full_name: string;
+      /** @example m••••z */
+      masked_email: string;
+      /** @example +56 ••••4321 */
+      masked_phone?: string | null;
+      /** @example Hermana */
+      relationship: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AccountTrustedContactsResponse: {
+      contacts: components["schemas"]["AccountTrustedContact"][];
+    };
+    AddAccountTrustedContactInput: {
+      /** @example María González */
+      full_name: string;
+      /**
+       * Format: email
+       * @example maria@example.com
+       */
+      email: string;
+      /** @example +56912345678 */
+      phone?: string | null;
+      /** @example Hermana */
+      relationship: string;
+    };
+    RemoveAccountTrustedContactResponse: {
+      /** @example revoked */
+      status: string;
+      /** Format: uuid */
+      contact_id: string;
+    };
+    AccountSecurityMethodsResponse: {
+      /** @example true */
+      protected: boolean;
+      /** @example 3 */
+      active_count: number;
+      /** @example 7 */
+      total_count: number;
+      methods: components["schemas"]["AccountSecurityMethodsSummary"];
+    };
+    AccountSecurityMethodsSummary: {
+      password: {
+        enabled: boolean;
+      };
+      email: {
+        enabled: boolean;
+        masked_email?: string | null;
+      };
+      phone: {
+        enabled: boolean;
+        masked_phone?: string | null;
+      };
+      totp: {
+        enabled: boolean;
+      };
+      passkeys: {
+        enabled: boolean;
+        count: number;
+      };
+      qr: {
+        enabled: boolean;
+      };
+      facial_kyc: {
+        enabled: boolean;
+        /** @example pending_kyc_module */
+        status: string;
+      };
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -11395,6 +11551,158 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountLocationPermission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del permiso de ubicación. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountLocationPermissionResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  updateAccountLocationPermission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateAccountLocationPermissionInput"];
+      };
+    };
+    responses: {
+      /** @description Permiso de ubicación actualizado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountLocationPermissionResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listAccountTrustedContacts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de personas de confianza activas. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTrustedContactsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  addAccountTrustedContact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AddAccountTrustedContactInput"];
+      };
+    };
+    responses: {
+      /** @description Persona de confianza agregada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTrustedContact"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  removeAccountTrustedContact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        contact_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Persona de confianza revocada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RemoveAccountTrustedContactResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountSecurityMethods: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resumen global de métodos de verificación de la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountSecurityMethodsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
       500: components["responses"]["InternalServerError"];
     };
   };

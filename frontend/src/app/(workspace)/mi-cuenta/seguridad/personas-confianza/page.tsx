@@ -3,69 +3,107 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
+  AlertCircle,
   CheckCircle2,
   ChevronRight,
   Info,
+  Loader2,
+  Mail,
+  Phone,
   Plus,
   ShieldCheck,
   Trash2,
   UserCheck,
   Users,
 } from "lucide-react";
-import { maskEmail, maskPhone } from "@/components/reveal-email";
-
-interface TrustedContact {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  relationship: string;
-}
+import { useTrustedContacts } from "@/features/account/ui/use-trusted-contacts";
 
 export default function PersonasConfianzaPage() {
-  const [contacts, setContacts] = useState<TrustedContact[]>([
-    {
-      id: "tc-1",
-      name: "Contacto de respaldo",
-      email: "familiar@espacigo.cl",
-      phone: "+56987654321",
-      relationship: "Familiar directo",
-    },
-  ]);
+  const {
+    contacts,
+    isLoading,
+    isAdding,
+    removingContactId,
+    error,
+    notification,
+    addContact,
+    removeContact,
+    clearError,
+    clearNotification,
+  } = useTrustedContacts();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [relationship, setRelationship] = useState("");
-  const [notification, setNotification] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+  const [contactToDelete, setContactToDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
-    const newContact: TrustedContact = {
-      id: `tc-${Date.now()}`,
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone.trim() || "+56900000000",
-      relationship: relationship.trim() || "Contacto de confianza",
-    };
-
-    setContacts((prev) => [...prev, newContact]);
+  const resetForm = () => {
     setName("");
     setEmail("");
     setPhone("");
     setRelationship("");
-    setShowAddModal(false);
-    setNotification("Contacto de confianza agregado exitosamente.");
-    setTimeout(() => setNotification(null), 4000);
+    setFormError(null);
   };
 
-  const handleRemove = (id: string) => {
-    setContacts((prev) => prev.filter((c) => c.id !== id));
-    setNotification("El contacto de confianza fue retirado.");
-    setTimeout(() => setNotification(null), 4000);
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    clearError();
+    clearNotification();
+    setFormError(null);
+
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    const trimmedRelationship = relationship.trim();
+    const trimmedPhone = phone.trim();
+
+    if (trimmedName.length < 2 || trimmedName.length > 80) {
+      setFormError("El nombre completo debe tener entre 2 y 80 caracteres.");
+      return;
+    }
+
+    if (trimmedRelationship.length < 2 || trimmedRelationship.length > 40) {
+      setFormError("El parentesco o relación debe tener entre 2 y 40 caracteres.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setFormError("Ingresa un correo electrónico válido.");
+      return;
+    }
+
+    if (trimmedPhone && trimmedPhone.length < 8) {
+      setFormError("Ingresa un número telefónico chileno válido (ej. +56912345678).");
+      return;
+    }
+
+    const success = await addContact({
+      full_name: trimmedName,
+      email: trimmedEmail,
+      relationship: trimmedRelationship,
+      phone: trimmedPhone || undefined,
+    });
+
+    if (success) {
+      resetForm();
+      setShowAddModal(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!contactToDelete) return;
+    clearError();
+    clearNotification();
+    const id = contactToDelete.id;
+    setContactToDelete(null);
+    await removeContact(id);
   };
 
   return (
@@ -108,10 +146,38 @@ export default function PersonasConfianzaPage() {
       {notification && (
         <div
           role="status"
-          className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm flex items-center gap-2"
+          className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs sm:text-sm flex items-center justify-between gap-2"
         >
-          <CheckCircle2 className="size-4 shrink-0" />
-          <span>{notification}</span>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="size-4 shrink-0" />
+            <span>{notification}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearNotification}
+            className="text-xs hover:underline"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div
+          role="alert"
+          className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs sm:text-sm flex items-center justify-between gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="size-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearError}
+            className="text-xs hover:underline"
+          >
+            Cerrar
+          </button>
         </div>
       )}
 
@@ -127,62 +193,101 @@ export default function PersonasConfianzaPage() {
                 Tus contactos asignados ({contacts.length}/3)
               </h2>
               <p className="text-xs text-muted-foreground">
-                Máximo 3 personas de confianza autorizadas para validar tu identidad.
+                Máximo 3 personas de confianza autorizadas para asistir en la recuperación.
               </p>
             </div>
           </div>
 
-          {contacts.length < 3 && (
+          {contacts.length < 3 ? (
             <button
               type="button"
-              onClick={() => setShowAddModal(true)}
+              onClick={() => {
+                resetForm();
+                setShowAddModal(true);
+              }}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 font-semibold text-xs sm:text-sm transition-colors shadow-sm"
             >
               <Plus className="size-4" />
               Agregar persona
             </button>
+          ) : (
+            <span className="text-xs font-medium text-amber-600 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+              Límite de 3 contactos alcanzado
+            </span>
           )}
         </div>
 
-        {contacts.length === 0 ? (
-          <p className="text-xs sm:text-sm text-muted-foreground text-center py-6">
-            Aún no has configurado personas de confianza.
-          </p>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground text-sm">
+            <Loader2 className="size-5 animate-spin text-primary" />
+            <span>Cargando personas de confianza...</span>
+          </div>
+        ) : contacts.length === 0 ? (
+          <div className="text-center py-8 space-y-2">
+            <p className="text-sm font-medium text-foreground">
+              Aún no has configurado personas de confianza.
+            </p>
+            <p className="text-xs text-muted-foreground max-w-md mx-auto">
+              Te recomendamos agregar al menos un contacto cercano para ayudarte a
+              recuperar tu acceso en situaciones imprevistas.
+            </p>
+          </div>
         ) : (
           <div className="divide-y divide-border/60">
-            {contacts.map((contact) => (
-              <div
-                key={contact.id}
-                className="py-4 flex items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
-                    <UserCheck className="size-5" />
-                  </div>
-                  <div className="space-y-0.5 min-w-0">
-                    <p className="text-sm font-semibold text-foreground">
-                      {contact.name}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        ({contact.relationship})
-                      </span>
-                    </p>
-                    <p className="text-xs font-mono text-muted-foreground">
-                      E-mail: {maskEmail(contact.email)} • Tel:{" "}
-                      {maskPhone(contact.phone)}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleRemove(contact.id)}
-                  aria-label={`Eliminar contacto ${contact.name}`}
-                  className="text-muted-foreground hover:text-destructive p-2 rounded-lg hover:bg-muted transition-colors"
+            {contacts.map((contact) => {
+              const isDeletingThis = removingContactId === contact.id;
+              return (
+                <div
+                  key={contact.id}
+                  className="py-4 flex items-center justify-between gap-4"
                 >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="size-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+                      <UserCheck className="size-5" />
+                    </div>
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {contact.full_name}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          ({contact.relationship})
+                        </span>
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono text-muted-foreground">
+                        <span className="inline-flex items-center gap-1">
+                          <Mail className="size-3 text-muted-foreground/70" />
+                          {contact.masked_email}
+                        </span>
+                        {contact.masked_phone && (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="size-3 text-muted-foreground/70" />
+                            {contact.masked_phone}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setContactToDelete({
+                        id: contact.id,
+                        name: contact.full_name,
+                      })
+                    }
+                    disabled={Boolean(removingContactId)}
+                    aria-label={`Eliminar contacto ${contact.full_name}`}
+                    className="text-muted-foreground hover:text-destructive p-2 rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    {isDeletingThis ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="size-4" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -195,6 +300,43 @@ export default function PersonasConfianzaPage() {
           </p>
         </div>
       </div>
+
+      {/* Modal de confirmación de eliminación */}
+      {contactToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+        >
+          <div className="bg-card border border-border rounded-2xl max-w-sm w-full p-6 shadow-xl space-y-4">
+            <h3 className="text-base font-bold text-foreground">
+              ¿Eliminar persona de confianza?
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              ¿Estás seguro de que deseas revocar a{" "}
+              <strong className="text-foreground">{contactToDelete.name}</strong>{" "}
+              como persona de confianza? Ya no podrá validar tu identidad en
+              recuperaciones de emergencia.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setContactToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-input hover:bg-muted transition-colors text-foreground"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              >
+                Eliminar contacto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal para agregar contacto */}
       {showAddModal && (
@@ -212,18 +354,29 @@ export default function PersonasConfianzaPage() {
               de acceso.
             </p>
 
+            {formError && (
+              <div
+                role="alert"
+                className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2"
+              >
+                <AlertCircle className="size-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleAdd} className="space-y-3">
               <div>
                 <label
                   htmlFor="contactName"
                   className="block text-xs font-semibold text-foreground mb-1"
                 >
-                  Nombre completo
+                  Nombre completo <span className="text-destructive">*</span>
                 </label>
                 <input
                   id="contactName"
                   type="text"
                   required
+                  maxLength={80}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ej. Constanza Silva"
@@ -236,11 +389,13 @@ export default function PersonasConfianzaPage() {
                   htmlFor="contactRel"
                   className="block text-xs font-semibold text-foreground mb-1"
                 >
-                  Parentesco o relación
+                  Parentesco o relación <span className="text-destructive">*</span>
                 </label>
                 <input
                   id="contactRel"
                   type="text"
+                  required
+                  maxLength={40}
                   value={relationship}
                   onChange={(e) => setRelationship(e.target.value)}
                   placeholder="Ej. Hermano, Cónyuge, Socio"
@@ -253,7 +408,7 @@ export default function PersonasConfianzaPage() {
                   htmlFor="contactEmail"
                   className="block text-xs font-semibold text-foreground mb-1"
                 >
-                  Correo electrónico
+                  Correo electrónico <span className="text-destructive">*</span>
                 </label>
                 <input
                   id="contactEmail"
@@ -271,7 +426,7 @@ export default function PersonasConfianzaPage() {
                   htmlFor="contactPhone"
                   className="block text-xs font-semibold text-foreground mb-1"
                 >
-                  Teléfono celular
+                  Teléfono celular (opcional)
                 </label>
                 <input
                   id="contactPhone"
@@ -287,15 +442,24 @@ export default function PersonasConfianzaPage() {
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-input hover:bg-muted transition-colors text-foreground"
+                  disabled={isAdding}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl border border-input hover:bg-muted transition-colors text-foreground disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                  disabled={isAdding}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                 >
-                  Guardar contacto
+                  {isAdding ? (
+                    <>
+                      <Loader2 className="size-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Guardar contacto</span>
+                  )}
                 </button>
               </div>
             </form>
@@ -308,8 +472,8 @@ export default function PersonasConfianzaPage() {
         <Info className="size-4 text-primary shrink-0 mt-0.5" />
         <p>
           <strong>Plan de seguridad EspaciGo (Fase 7):</strong> Las personas de
-          confianza se registrarán con desafíos criptográficos de doble
-          confirmación para evitar suplantaciones.
+          confianza se registran de forma segura y sus datos de contacto se
+          mantienen enmascarados criptográficamente.
         </p>
       </div>
     </div>

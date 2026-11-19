@@ -158,6 +158,27 @@ func (m *mockAlertsRepo) ApproveQRTicket(context.Context, string, string, string
 func (m *mockAlertsRepo) ExpireQRTicket(context.Context, string) error {
 	return nil
 }
+func (m *mockAlertsRepo) GetLocationPermission(context.Context, string) (*identity.LocationPermissionRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) UpsertLocationPermission(context.Context, identity.LocationPermissionRecord) error {
+	return nil
+}
+func (m *mockAlertsRepo) ListActiveTrustedContacts(context.Context, string) ([]identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) CountActiveTrustedContacts(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockAlertsRepo) GetTrustedContact(context.Context, string, string) (*identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) InsertTrustedContact(context.Context, identity.TrustedContactRecord) error {
+	return nil
+}
+func (m *mockAlertsRepo) RevokeTrustedContact(context.Context, string, string, time.Time) error {
+	return nil
+}
 
 type alertsTestHasher struct{}
 

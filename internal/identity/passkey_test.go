@@ -206,6 +206,27 @@ func (r *passkeyTestRepo) ApproveQRTicket(context.Context, string, string, strin
 func (r *passkeyTestRepo) ExpireQRTicket(context.Context, string) error {
 	return nil
 }
+func (r *passkeyTestRepo) GetLocationPermission(context.Context, string) (*identity.LocationPermissionRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) UpsertLocationPermission(context.Context, identity.LocationPermissionRecord) error {
+	return nil
+}
+func (r *passkeyTestRepo) ListActiveTrustedContacts(context.Context, string) ([]identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) CountActiveTrustedContacts(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (r *passkeyTestRepo) GetTrustedContact(context.Context, string, string) (*identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) InsertTrustedContact(context.Context, identity.TrustedContactRecord) error {
+	return nil
+}
+func (r *passkeyTestRepo) RevokeTrustedContact(context.Context, string, string, time.Time) error {
+	return nil
+}
 
 type testCredGen struct{ seq int }
 

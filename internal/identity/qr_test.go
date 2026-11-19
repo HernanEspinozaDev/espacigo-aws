@@ -103,6 +103,28 @@ func (m *mockQRRepo) ExpireQRTicket(_ context.Context, ticketID string) error {
 	return nil
 }
 
+func (m *mockQRRepo) GetLocationPermission(context.Context, string) (*identity.LocationPermissionRecord, error) {
+	return nil, nil
+}
+func (m *mockQRRepo) UpsertLocationPermission(context.Context, identity.LocationPermissionRecord) error {
+	return nil
+}
+func (m *mockQRRepo) ListActiveTrustedContacts(context.Context, string) ([]identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockQRRepo) CountActiveTrustedContacts(context.Context, string) (int, error) {
+	return 0, nil
+}
+func (m *mockQRRepo) GetTrustedContact(context.Context, string, string) (*identity.TrustedContactRecord, error) {
+	return nil, nil
+}
+func (m *mockQRRepo) InsertTrustedContact(context.Context, identity.TrustedContactRecord) error {
+	return nil
+}
+func (m *mockQRRepo) RevokeTrustedContact(context.Context, string, string, time.Time) error {
+	return nil
+}
+
 func (m *mockQRRepo) RecordSecurityAlertEvent(_ context.Context, event identity.SecurityAlertEventRecord) error {
 	m.events = append(m.events, event)
 	return nil

@@ -140,19 +140,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountQRTicketPath            = "/api/v1/account/security/qr/ticket"
 		accountQRTicketPrefix          = "/api/v1/account/security/qr/ticket/"
 		accountQRApprovePath           = "/api/v1/account/security/qr/approve"
+		accountLocationPath            = "/api/v1/account/security/location"
+		accountTrustedContactsPath      = "/api/v1/account/security/trusted-contacts"
+		accountTrustedContactsPrefix    = "/api/v1/account/security/trusted-contacts/"
+		accountSecurityMethodsPath      = "/api/v1/account/security/methods"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	passkeyDeletePath := strings.HasPrefix(r.URL.Path, accountPasskeysPrefix) && r.URL.Path != accountPasskeysRegisterOptionsPath && r.URL.Path != accountPasskeysRegisterVerifyPath
 	qrTicketStatusPath := strings.HasPrefix(r.URL.Path, accountQRTicketPrefix)
+	trustedContactDeletePath := strings.HasPrefix(r.URL.Path, accountTrustedContactsPrefix)
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
 		expected = http.MethodGet
 	}
-	if r.URL.Path == accountAlertsChannelsPath {
+	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) {
 		expected = http.MethodPut
 	}
-	if deviceDeletePath || passkeyDeletePath || (r.URL.Path == accountQRPath && r.Method == http.MethodDelete) {
+	if deviceDeletePath || passkeyDeletePath || trustedContactDeletePath || (r.URL.Path == accountQRPath && r.Method == http.MethodDelete) {
 		expected = http.MethodDelete
+	}
+	if r.URL.Path == accountTrustedContactsPath && r.Method == http.MethodPost {
+		expected = http.MethodPost
 	}
 
 	if r.URL.Path == "/api/v1/profile" && r.Method == http.MethodPut || r.URL.Path == "/api/v1/rights-requests" && r.Method == http.MethodPost {
@@ -214,10 +222,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountQRPath:                            true,
 		accountQRTicketPath:                      true,
 		accountQRApprovePath:                     true,
+		accountLocationPath:                      true,
+		accountTrustedContactsPath:               true,
+		accountSecurityMethodsPath:               true,
 		suppressionQueuePath:                     true,
 		credentialNoticeQueuePath:                true,
 	}
-	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath && !passkeyDeletePath && !qrTicketStatusPath {
+	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath && !passkeyDeletePath && !qrTicketStatusPath && !trustedContactDeletePath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -231,6 +242,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.URL.Path == accountAlertsChannelsPath {
 			allow = "PUT"
+		}
+		if r.URL.Path == accountLocationPath {
+			allow = "GET, PUT"
+		}
+		if r.URL.Path == accountTrustedContactsPath {
+			allow = "GET, POST"
+		}
+		if r.URL.Path == accountSecurityMethodsPath {
+			allow = "GET"
 		}
 		if r.URL.Path == accountQRPath {
 			allow = "GET, DELETE"
@@ -361,6 +381,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.write(w, http.StatusOK, status)
+		return
+	}
+	if trustedContactDeletePath {
+		contactID := strings.TrimPrefix(r.URL.Path, accountTrustedContactsPrefix)
+		if contactID == "" || strings.Contains(contactID, "/") || !canonicalUUID(contactID) {
+			h.fail(w, http.StatusNotFound, "not_found", "Persona de confianza no encontrada.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+		ipMasked := identity.MaskIP(clientIPForDevice(r))
+		resp, err := h.service.RemoveTrustedContact(r.Context(), principal.AccountID, contactID, deviceLabel, ipMasked)
+		if err != nil {
+			h.trustedContactError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, resp)
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
@@ -899,6 +945,92 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.write(w, http.StatusOK, resp)
 			return
 		}
+	case accountLocationPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if r.Method == http.MethodPut {
+			var input identity.UpdateLocationPermissionInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.UpdateLocationPermission(r.Context(), principal.AccountID, input.Enabled, input.RegionLabel, deviceLabel, ipMasked)
+			if err != nil {
+				h.locationError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
+			return
+		}
+		resp, err := h.service.GetLocationPermission(r.Context(), principal.AccountID)
+		if err != nil {
+			h.locationError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, resp)
+		return
+
+	case accountTrustedContactsPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		if r.Method == http.MethodPost {
+			var input identity.AddTrustedContactInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.AddTrustedContact(r.Context(), principal.AccountID, input, deviceLabel, ipMasked)
+			if err != nil {
+				h.trustedContactError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
+			return
+		}
+		resp, err := h.service.ListTrustedContacts(r.Context(), principal.AccountID)
+		if err != nil {
+			h.trustedContactError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, resp)
+		return
+
+	case accountSecurityMethodsPath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		resp, err := h.service.GetSecurityMethodsSummary(r.Context(), principal.AccountID)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, resp)
+		return
 	case "/api/v1/auth/terms":
 		documents, err := identity.PublicConsentDocuments()
 		if err != nil {
@@ -1410,6 +1542,42 @@ func (h *Handler) qrError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusBadRequest, "qr_not_enabled", "El dispositivo QR no se encuentra activado.")
 	case errors.Is(err, identity.ErrNotFound):
 		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) locationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrCoordinatesNotAllowed):
+		h.fail(w, http.StatusBadRequest, "coordinates_not_allowed", "No se permiten coordenadas GPS exactas; use una etiqueta de región.")
+	case errors.Is(err, identity.ErrInvalidRegionLabel):
+		h.fail(w, http.StatusBadRequest, "invalid_region_label", "La etiqueta de región no debe exceder 80 caracteres.")
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) trustedContactError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrTrustedContactLimit):
+		h.fail(w, http.StatusConflict, "trusted_contact_limit", "Se ha alcanzado el límite máximo de 3 personas de confianza.")
+	case errors.Is(err, identity.ErrInvalidTrustedContactName):
+		h.fail(w, http.StatusBadRequest, "invalid_full_name", "El nombre debe tener entre 2 y 80 caracteres.")
+	case errors.Is(err, identity.ErrInvalidRelationship):
+		h.fail(w, http.StatusBadRequest, "invalid_relationship", "El parentesco debe tener entre 2 y 40 caracteres.")
+	case errors.Is(err, identity.ErrInvalidEmail):
+		h.fail(w, http.StatusBadRequest, "invalid_email", "Formato de correo electrónico inválido.")
+	case errors.Is(err, identity.ErrInvalidPhone):
+		h.fail(w, http.StatusBadRequest, "invalid_phone", "Formato de teléfono chileno inválido.")
+	case errors.Is(err, identity.ErrTrustedContactNotFound), errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Persona de confianza no encontrada.")
 	case errors.Is(err, identity.ErrInvalid):
 		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
 	default:

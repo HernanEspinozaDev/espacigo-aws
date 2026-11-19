@@ -176,6 +176,8 @@ type mockAuthRepo struct {
 	challenges  map[string]*identity.WebAuthnChallengeRecord
 	qrDevices   map[string]*identity.AccountQRDeviceRecord
 	qrTickets   map[string]*identity.AccountQRTicketRecord
+	locationRecords map[string]*identity.LocationPermissionRecord
+	trustedContacts map[string][]identity.TrustedContactRecord
 }
 
 func newMockAuthRepo() *mockAuthRepo {
@@ -191,6 +193,8 @@ func newMockAuthRepo() *mockAuthRepo {
 		challenges:  make(map[string]*identity.WebAuthnChallengeRecord),
 		qrDevices:   make(map[string]*identity.AccountQRDeviceRecord),
 		qrTickets:   make(map[string]*identity.AccountQRTicketRecord),
+		locationRecords: make(map[string]*identity.LocationPermissionRecord),
+		trustedContacts: make(map[string][]identity.TrustedContactRecord),
 	}
 }
 
@@ -608,6 +612,59 @@ func (m *mockAuthRepo) ExpireQRTicket(_ context.Context, ticketID string) error 
 		t.Status = "expired"
 	}
 	return nil
+}
+
+func (m *mockAuthRepo) GetLocationPermission(_ context.Context, accountID string) (*identity.LocationPermissionRecord, error) {
+	if rec, ok := m.locationRecords[accountID]; ok {
+		return rec, nil
+	}
+	return nil, nil
+}
+func (m *mockAuthRepo) UpsertLocationPermission(_ context.Context, record identity.LocationPermissionRecord) error {
+	rec := record
+	m.locationRecords[record.AccountID] = &rec
+	return nil
+}
+func (m *mockAuthRepo) ListActiveTrustedContacts(_ context.Context, accountID string) ([]identity.TrustedContactRecord, error) {
+	var active []identity.TrustedContactRecord
+	for _, c := range m.trustedContacts[accountID] {
+		if c.Status == "active" {
+			active = append(active, c)
+		}
+	}
+	return active, nil
+}
+func (m *mockAuthRepo) CountActiveTrustedContacts(_ context.Context, accountID string) (int, error) {
+	count := 0
+	for _, c := range m.trustedContacts[accountID] {
+		if c.Status == "active" {
+			count++
+		}
+	}
+	return count, nil
+}
+func (m *mockAuthRepo) GetTrustedContact(_ context.Context, accountID, contactID string) (*identity.TrustedContactRecord, error) {
+	for _, c := range m.trustedContacts[accountID] {
+		if c.ID == contactID {
+			rec := c
+			return &rec, nil
+		}
+	}
+	return nil, nil
+}
+func (m *mockAuthRepo) InsertTrustedContact(_ context.Context, contact identity.TrustedContactRecord) error {
+	m.trustedContacts[contact.AccountID] = append(m.trustedContacts[contact.AccountID], contact)
+	return nil
+}
+func (m *mockAuthRepo) RevokeTrustedContact(_ context.Context, accountID, contactID string, updatedAt time.Time) error {
+	for i, c := range m.trustedContacts[accountID] {
+		if c.ID == contactID && c.Status == "active" {
+			m.trustedContacts[accountID][i].Status = "revoked"
+			m.trustedContacts[accountID][i].UpdatedAt = updatedAt
+			return nil
+		}
+	}
+	return identity.ErrNotFound
 }
 
 type testHasher struct{}
