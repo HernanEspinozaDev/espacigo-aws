@@ -29,7 +29,7 @@ data "aws_secretsmanager_secret" "auth_smtp" {
 resource "aws_cloudwatch_log_group" "app" {
   count             = local.provision_app ? 1 : 0
   name              = "/aws/ecs/${local.app_family}"
-  retention_in_days = 14
+  retention_in_days = 365
 }
 
 resource "aws_iam_role" "app_execution" {
