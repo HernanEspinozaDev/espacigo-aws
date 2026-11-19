@@ -544,6 +544,11 @@ export function PublicBookingCalendar({
             if (isBlocked) {
               cellClass +=
                 "cursor-not-allowed bg-neutral-100/50 text-neutral-400 opacity-50 border border-neutral-200/40 ";
+            } else if (isPartial) {
+              cellClass +=
+                "bg-neutral-100 border border-neutral-300 text-neutral-900 rounded-lg hover:border-neutral-500 ";
+              if (isSelected)
+                cellClass += "ring-2 ring-inset ring-neutral-500 ";
             } else if (isSingle) {
               cellClass +=
                 "bg-[#A83820] text-white rounded-lg shadow-sm font-semibold ";
@@ -556,9 +561,6 @@ export function PublicBookingCalendar({
             } else if (isIntermediate) {
               cellClass +=
                 "bg-[#F9EBE8] text-[#A83820] rounded-none font-medium ";
-            } else if (isPartial) {
-              cellClass +=
-                "bg-amber-50/70 border border-amber-300 text-neutral-900 rounded-lg hover:border-amber-400 ";
             } else {
               cellClass +=
                 "bg-white border border-neutral-200 text-neutral-900 rounded-lg hover:border-[#A83820]/40 hover:bg-neutral-50/50 ";
@@ -583,7 +585,7 @@ export function PublicBookingCalendar({
                   </span>
                   <span
                     className={`text-[11px] leading-tight ${
-                      isSelected
+                      isSelected && !isBlocked && !isPartial
                         ? isIntermediate
                           ? "text-[#A83820]"
                           : "text-white/90"
@@ -592,11 +594,10 @@ export function PublicBookingCalendar({
                   >
                     {priceDisplay}
                   </span>
-                  {/* Subtle semantic amber dot for partial if not in selection */}
-                  {isPartial && !isSelected && (
+                  {isPartial && (
                     <span
                       aria-hidden="true"
-                      className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-amber-500"
+                      className="absolute bottom-1 h-1.5 w-1.5 rounded-full bg-neutral-500"
                     />
                   )}
                   {/* Accessible label for screen readers & backwards compatibility */}
@@ -627,8 +628,8 @@ export function PublicBookingCalendar({
           Disponible
         </span>
         <span className="flex items-center">
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-500 inline-block mr-1"></span>{" "}
-          Parcial
+          <span className="h-2.5 w-2.5 rounded-full bg-neutral-500 inline-block mr-1"></span>{" "}
+          Algunos horarios ocupados
         </span>
         <span className="flex items-center">
           <span className="h-2.5 w-2.5 rounded-full bg-neutral-400 inline-block mr-1"></span>{" "}
