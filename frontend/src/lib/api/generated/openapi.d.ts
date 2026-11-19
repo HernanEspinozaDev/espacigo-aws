@@ -1531,6 +1531,417 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/phone": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Estado de configuración y verificación telefónica del usuario autenticado. */
+    get: operations["getAccountPhoneVerification"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/phone/send-code": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por mensaje. */
+    post: operations["sendAccountPhoneVerificationCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/phone/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida código OTP de 6 dígitos recibido por SMS y confirma la verificación del número telefónico. */
+    post: operations["verifyAccountPhoneCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/devices": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las sesiones activas y dispositivos vinculados de la cuenta autenticada. */
+    get: operations["listLinkedDevices"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/devices/revoke-others": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Revoca todas las sesiones activas de la cuenta excepto la sesión actual. */
+    post: operations["revokeOtherLinkedDevices"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/devices/{session_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Revoca una sesión o dispositivo vinculado específico de la cuenta. */
+    delete: operations["revokeLinkedDevice"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/alerts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene las preferencias de canales de alerta y las últimas 20 alertas de seguridad de la cuenta autenticada. */
+    get: operations["getSecurityAlerts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/alerts/channels": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** @description Actualiza los canales de notificación de alertas de seguridad y el correo secundario opcional. */
+    put: operations["updateSecurityAlertChannels"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado de configuración y activación del autenticador TOTP (Google Authenticator). */
+    get: operations["getAccountTOTPStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/setup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia la configuración de TOTP generando un secreto pendiente y retornando la URI otpauth y la llave manual. */
+    post: operations["setupAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/enable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Verifica el primer código TOTP contra el secreto pendiente, activa TOTP y genera los códigos de respaldo. */
+    post: operations["enableAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/totp/disable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Desactiva el autenticador TOTP verificando un código TOTP vigente o un código de respaldo válido. */
+    post: operations["disableAccountTOTP"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las llaves de acceso (Passkeys / WebAuthn) asociadas a la cuenta autenticada. */
+    get: operations["listAccountPasskeys"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/register/options": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia el registro de una llave de acceso WebAuthn generando un desafío criptográfico. */
+    post: operations["beginAccountPasskeyRegistration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/register/verify": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Valida el desafío, clientDataJSON y la clave pública emitida por el navegador para registrar la llave. */
+    post: operations["completeAccountPasskeyRegistration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/passkeys/{passkey_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Elimina una llave de acceso (Passkey) asociada a la cuenta autenticada. */
+    delete: operations["deleteAccountPasskey"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado de vinculación del dispositivo de verificación QR de la cuenta. */
+    get: operations["getAccountQRStatus"];
+    put?: never;
+    post?: never;
+    /** @description Desvincula y deshabilita el dispositivo de verificación QR de la cuenta. */
+    delete: operations["disableAccountQR"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/ticket": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Genera un nuevo ticket efímero de verificación mediante código QR con TTL de 120 segundos. */
+    post: operations["createAccountQRTicket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/ticket/{ticket_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Consulta el estado de resolución de un ticket de verificación QR. */
+    get: operations["getAccountQRTicketStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/approve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Aprueba un ticket de verificación QR escaneado desde el dispositivo móvil confiable. */
+    post: operations["approveAccountQRTicket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado del permiso de ubicación y consentimiento para la cuenta autenticada. */
+    get: operations["getAccountLocationPermission"];
+    /** @description Actualiza el consentimiento y permiso de ubicación de la cuenta autenticada. */
+    put: operations["updateAccountLocationPermission"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/trusted-contacts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las personas de confianza activas designadas por la cuenta autenticada con datos enmascarados. */
+    get: operations["listAccountTrustedContacts"];
+    put?: never;
+    /** @description Agrega una nueva persona de confianza a la cuenta autenticada (máximo 3 contactos activos). */
+    post: operations["addAccountTrustedContact"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/trusted-contacts/{contact_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Revoca y elimina una persona de confianza activa de la cuenta. */
+    delete: operations["removeAccountTrustedContact"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/methods": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el resumen del estado real de los 7 métodos de verificación de seguridad de la cuenta. */
+    get: operations["getAccountSecurityMethods"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -4377,7 +4788,7 @@ export interface components {
       /** @enum {string} */
       role: "arrendador" | "arrendatario";
       legal_name: string;
-      /** @description RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. */
+      /** @description RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) */
       rut: string;
     };
     /** @description Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste. */
@@ -4467,6 +4878,7 @@ export interface components {
     GlobalAdminAccount: {
       /** Format: uuid */
       account_id: string;
+      /** @description Correo enmascarado salvo en la revelación explícita autorizada */
       email: string;
       display_name?: string | null;
       phone?: string | null;
@@ -4511,6 +4923,7 @@ export interface components {
       /** Format: uuid */
       owner_id: string;
       owner_name?: string | null;
+      /** @description Correo enmascarado del anfitrión */
       owner_email: string;
       category_code: string;
       category_name: string;
@@ -6243,6 +6656,366 @@ export interface components {
     };
     SpaceDraftList: {
       items: components["schemas"]["SpaceDraft"][];
+    };
+    AccountPhoneStatus: {
+      configured: boolean;
+      verified: boolean;
+      masked_phone: string;
+      /** Format: date-time */
+      verified_at?: string | null;
+      pending_verification: boolean;
+      /** Format: date-time */
+      resend_available_at?: string | null;
+    };
+    SendPhoneCodeRequest: {
+      /** @example +56 9 1234 5678 */
+      phone: string;
+    };
+    AccountPhoneCodeSent: {
+      /** @example code_sent */
+      status: string;
+      /** @example +56 ••••5678 */
+      masked_phone: string;
+      /** Format: date-time */
+      resend_available_at: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    VerifyPhoneCodeRequest: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountPhoneVerifyResult: {
+      /** @example verified */
+      status: string;
+      /** @example true */
+      verified: boolean;
+      /** @example +56 ••••5678 */
+      masked_phone: string;
+      /** Format: date-time */
+      verified_at: string;
+    };
+    LinkedDevice: {
+      /** @example 00000000-0000-4000-8000-000000000001 */
+      id: string;
+      /** @example Chrome en Linux */
+      device_label: string;
+      /** @example 190.162.•••.••• */
+      ip_masked: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_activity_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      is_current: boolean;
+    };
+    LinkedDevicesList: {
+      devices: components["schemas"]["LinkedDevice"][];
+    };
+    RevokeLinkedDeviceResponse: {
+      /** @example revoked */
+      status: string;
+      /** @example 00000000-0000-4000-8000-000000000001 */
+      session_id: string;
+    };
+    RevokeOtherLinkedDevicesResponse: {
+      /** @example revoked_others */
+      status: string;
+      /** @example 2 */
+      revoked_count: number;
+    };
+    SecurityAlertPreferences: {
+      /** @example true */
+      app_notifications_enabled: boolean;
+      /** @example true */
+      email_alerts_enabled: boolean;
+      /** @example false */
+      whatsapp_alerts_enabled: boolean;
+      /** @example u••••1@example.com */
+      masked_email: string;
+      /** @example s••••y@example.com */
+      masked_extra_email: string;
+      /** @example true */
+      extra_email_configured: boolean;
+      /** @example +56 ••••1234 */
+      masked_phone: string;
+    };
+    SecurityAlertEvent: {
+      /**
+       * Format: uuid
+       * @example 00000000-0000-4000-8000-000000000001
+       */
+      id: string;
+      /** @example alert_channel_updated */
+      event_code: string;
+      /** @example Canales de alerta actualizados */
+      title: string;
+      /** @example Chrome en Linux */
+      device_label: string;
+      /** @example 190.162.•••.••• */
+      ip_masked: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    SecurityAlertsResponse: {
+      preferences: components["schemas"]["SecurityAlertPreferences"];
+      alerts: components["schemas"]["SecurityAlertEvent"][];
+    };
+    UpdateSecurityAlertChannelsInput: {
+      /** @example true */
+      app_notifications_enabled: boolean;
+      /** @example true */
+      email_alerts_enabled: boolean;
+      /** @example false */
+      whatsapp_alerts_enabled: boolean;
+      /** @example seguridad@empresa.com */
+      extra_email?: string | null;
+    };
+    AccountTOTPStatus: {
+      /** @example true */
+      enabled: boolean;
+      /** @example false */
+      pending_setup: boolean;
+      /** Format: date-time */
+      enabled_at?: string | null;
+      /** @example 8 */
+      remaining_backup_codes: number;
+    };
+    AccountTOTPSetupResponse: {
+      /** @example otpauth://totp/EspaciGo:usuario@ejemplo.cl?secret=JBSWY3DPEHPK3PXP&issuer=EspaciGo&algorithm=SHA1&digits=6&period=30 */
+      otpauth_uri: string;
+      /** @example JBSWY3DPEHPK3PXP */
+      manual_key: string;
+    };
+    AccountTOTPEnableInput: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountTOTPEnableResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      enabled_at: string;
+      backup_codes: string[];
+    };
+    AccountTOTPDisableInput: {
+      /** @example 123456 */
+      code: string;
+    };
+    AccountTOTPDisableResponse: {
+      /** @example false */
+      enabled: boolean;
+    };
+    AccountPasskey: {
+      /** Format: uuid */
+      id: string;
+      /** @example Touch ID */
+      label: string;
+      /**
+       * @example [
+       *       "internal",
+       *       "hybrid"
+       *     ]
+       */
+      transports: string[];
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_used_at?: string | null;
+    };
+    AccountPasskeyListResponse: {
+      passkeys: components["schemas"]["AccountPasskey"][];
+    };
+    AccountPasskeyRegistrationOptions: {
+      /** Format: uuid */
+      challenge_id: string;
+      /** @example Y3JlYXRlQ2hhbGxlbmdlQmFzZTY0VXJs */
+      challenge: string;
+      rp: {
+        /** @example espacigo.com */
+        id: string;
+        /** @example EspaciGo */
+        name: string;
+      };
+      user: {
+        /** Format: uuid */
+        id: string;
+        /** @example u••••o@ejemplo.cl */
+        name: string;
+        /** @example Usuario Demo */
+        displayName: string;
+      };
+      pubKeyCredParams: {
+        /** @example public-key */
+        type: string;
+        /** @example -7 */
+        alg: number;
+      }[];
+      /** @example 60000 */
+      timeout: number;
+      excludeCredentials: {
+        /** @example public-key */
+        type: string;
+        id: string;
+        transports?: string[];
+      }[];
+    };
+    AccountPasskeyRegistrationVerifyInput: {
+      /** Format: uuid */
+      challenge_id: string;
+      /** @example Mi Mac */
+      label?: string;
+      /** @example cred-abc-123 */
+      credential_id: string;
+      /** @example MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE... */
+      public_key: string;
+      /** @example eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIi...} */
+      client_data_json: string;
+      attestation_object?: string | null;
+      transports?: string[];
+      /** @example -7 */
+      algorithm?: number;
+    };
+    AccountPasskeyDeleteResponse: {
+      /**
+       * @example deleted
+       * @enum {string}
+       */
+      status: "deleted";
+      /** Format: uuid */
+      passkey_id: string;
+    };
+    AccountQRStatusResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      enabled_at?: string | null;
+      /** @example iPhone 15 Pro */
+      trusted_device_label?: string | null;
+    };
+    AccountQRDisableResponse: {
+      /** @example false */
+      enabled: boolean;
+    };
+    AccountQRTicketResponse: {
+      /** Format: uuid */
+      ticket_id: string;
+      /** @example v1.qr.secret-payload-token */
+      qr_payload: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    AccountQRTicketStatusResponse: {
+      /** Format: uuid */
+      ticket_id: string;
+      /**
+       * @example pending
+       * @enum {string}
+       */
+      status: "pending" | "approved" | "rejected" | "expired";
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      resolved_at?: string | null;
+    };
+    AccountQRApproveInput: {
+      /** @example v1.qr.secret-payload-token */
+      token: string;
+      /** @example iPhone 15 Pro */
+      device_label?: string;
+    };
+    AccountQRApproveResponse: {
+      /** @example approved */
+      status: string;
+      /** Format: date-time */
+      resolved_at: string;
+    };
+    AccountLocationPermissionResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      consent_updated_at?: string | null;
+      /** @example Región Metropolitana */
+      last_region_label?: string | null;
+    };
+    UpdateAccountLocationPermissionInput: {
+      enabled: boolean;
+      /** @example Región Metropolitana */
+      region_label?: string | null;
+    };
+    AccountTrustedContact: {
+      /** Format: uuid */
+      id: string;
+      /** @example María González */
+      full_name: string;
+      /** @example m••••z */
+      masked_email: string;
+      /** @example +56 ••••4321 */
+      masked_phone?: string | null;
+      /** @example Hermana */
+      relationship: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AccountTrustedContactsResponse: {
+      contacts: components["schemas"]["AccountTrustedContact"][];
+    };
+    AddAccountTrustedContactInput: {
+      /** @example María González */
+      full_name: string;
+      /**
+       * Format: email
+       * @example maria@example.com
+       */
+      email: string;
+      /** @example +56912345678 */
+      phone?: string | null;
+      /** @example Hermana */
+      relationship: string;
+    };
+    RemoveAccountTrustedContactResponse: {
+      /** @example revoked */
+      status: string;
+      /** Format: uuid */
+      contact_id: string;
+    };
+    AccountSecurityMethodsResponse: {
+      /** @example true */
+      protected: boolean;
+      /** @example 3 */
+      active_count: number;
+      /** @example 7 */
+      total_count: number;
+      methods: components["schemas"]["AccountSecurityMethodsSummary"];
+    };
+    AccountSecurityMethodsSummary: {
+      password: {
+        enabled: boolean;
+      };
+      email: {
+        enabled: boolean;
+        masked_email?: string | null;
+      };
+      phone: {
+        enabled: boolean;
+        masked_phone?: string | null;
+      };
+      totp: {
+        enabled: boolean;
+      };
+      passkeys: {
+        enabled: boolean;
+        count: number;
+      };
+      qr: {
+        enabled: boolean;
+      };
+      facial_kyc: {
+        enabled: boolean;
+        /** @example pending_kyc_module */
+        status: string;
+      };
     };
     Profile: {
       display_name: string;
@@ -9095,7 +9868,10 @@ export interface operations {
   };
   getGlobalAdminAccount: {
     parameters: {
-      query?: never;
+      query?: {
+        /** @description Revelación explícita del correo para el administrador autorizado */
+        reveal_email?: true;
+      };
       header?: never;
       path: {
         accountID: string;
@@ -10593,6 +11369,699 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
       500: components["responses"]["InternalServerError"];
       503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getAccountPhoneVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del teléfono móvil asociado a la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  sendAccountPhoneVerificationCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendPhoneCodeRequest"];
+      };
+    };
+    responses: {
+      /** @description Código OTP generado y enviado. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneCodeSent"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  verifyAccountPhoneCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["VerifyPhoneCodeRequest"];
+      };
+    };
+    responses: {
+      /** @description Teléfono verificado con éxito. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPhoneVerifyResult"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listLinkedDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de dispositivos vinculados activos. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LinkedDevicesList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  revokeOtherLinkedDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Otras sesiones revocadas exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevokeOtherLinkedDevicesResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  revokeLinkedDevice: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Identificador de la sesión a revocar. */
+        session_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sesión revocada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevokeLinkedDeviceResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getSecurityAlerts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Preferencias de alerta y feed reciente de auditoría de seguridad. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityAlertsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  updateSecurityAlertChannels: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateSecurityAlertChannelsInput"];
+      };
+    };
+    responses: {
+      /** @description Preferencias de canales de alerta actualizadas exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityAlertPreferences"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountTOTPStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del autenticador TOTP de la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  setupAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Secreto TOTP generado y guardado en estado pendiente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPSetupResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  enableAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountTOTPEnableInput"];
+      };
+    };
+    responses: {
+      /** @description TOTP activado exitosamente con códigos de respaldo generados. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPEnableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  disableAccountTOTP: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountTOTPDisableInput"];
+      };
+    };
+    responses: {
+      /** @description TOTP desactivado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTOTPDisableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listAccountPasskeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de llaves de acceso registradas. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyListResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  beginAccountPasskeyRegistration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Opciones de creación de credencial WebAuthn. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyRegistrationOptions"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  completeAccountPasskeyRegistration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountPasskeyRegistrationVerifyInput"];
+      };
+    };
+    responses: {
+      /** @description Llave de acceso registrada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskey"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  deleteAccountPasskey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        passkey_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Llave de acceso eliminada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountPasskeyDeleteResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountQRStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de verificación QR. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  disableAccountQR: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Verificación QR desactivada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRDisableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  createAccountQRTicket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ticket QR generado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRTicketResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountQRTicketStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ticket_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado actual del ticket QR. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRTicketStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  approveAccountQRTicket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountQRApproveInput"];
+      };
+    };
+    responses: {
+      /** @description Ticket QR aprobado exitosamente y dispositivo vinculado. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRApproveResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountLocationPermission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del permiso de ubicación. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountLocationPermissionResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  updateAccountLocationPermission: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdateAccountLocationPermissionInput"];
+      };
+    };
+    responses: {
+      /** @description Permiso de ubicación actualizado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountLocationPermissionResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listAccountTrustedContacts: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de personas de confianza activas. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTrustedContactsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  addAccountTrustedContact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AddAccountTrustedContactInput"];
+      };
+    };
+    responses: {
+      /** @description Persona de confianza agregada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountTrustedContact"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  removeAccountTrustedContact: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        contact_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Persona de confianza revocada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RemoveAccountTrustedContactResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountSecurityMethods: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resumen global de métodos de verificación de la cuenta. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountSecurityMethodsResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
     };
   };
   getOwnProfile: {

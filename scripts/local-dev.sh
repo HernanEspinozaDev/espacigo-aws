@@ -243,6 +243,7 @@ cmd_test() {
 cmd_api() {
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
+  export ENVIRONMENT=development
   load_mercadopago_oauth_env
 
   # Base de datos
@@ -326,14 +327,15 @@ load_mercadopago_oauth_env() {
 cmd_web() {
   echo "=== [EspaciGo AWS] Iniciando Frontend Next.js; abrir en ${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000} ==="
   export API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1"
+  export ENVIRONMENT=development
   export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
   export PORT="3000"
   (
     cd "${REPO_ROOT}/frontend"
     if command -v pnpm >/dev/null 2>&1; then
-      pnpm dev -- -p 3000
+      pnpm dev -p 3000
     elif command -v corepack >/dev/null 2>&1; then
-      corepack pnpm dev -- -p 3000
+      corepack pnpm dev -p 3000
     else
       echo "ERROR: pnpm no está disponible en PATH (packageManager fijado en frontend/package.json)." >&2
       return 127

@@ -136,7 +136,7 @@ func TestCheckoutPreferenceSignedWebhookAndNoticesPostgres(t *testing.T) {
 	defer cancel()
 	var latest int
 	var latestName, latestChecksum string
-	if err := admin.QueryRow(ctx, `SELECT version,name,checksum FROM public.schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&latest, &latestName, &latestChecksum); err != nil || latest != 106 || latestName != "V000106__checkout_payment_notice_outbox.sql" || latestChecksum != "7f3ba3c503001b6b7521e261b4e995f8c132f82004f7a557d67ed683d9ea45b8" {
+	if err := admin.QueryRow(ctx, `SELECT version,name,checksum FROM public.schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&latest, &latestName, &latestChecksum); err != nil || latest != 113 || latestName != "V000113__checkout_payment_notice_outbox.sql" || latestChecksum != "7f3ba3c503001b6b7521e261b4e995f8c132f82004f7a557d67ed683d9ea45b8" {
 		t.Fatalf("requires exact V106 preview ledger, latest=%d %q %q err=%v", latest, latestName, latestChecksum, err)
 	}
 	runtimeConfig, err := pgxpool.ParseConfig(dsn)

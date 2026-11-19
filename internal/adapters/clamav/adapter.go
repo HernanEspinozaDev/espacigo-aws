@@ -147,7 +147,11 @@ func (a *Adapter) signatureVersion(ctx context.Context) (string, error) {
 }
 
 func (a *Adapter) dial(ctx context.Context) (net.Conn, func() bool, error) {
-	conn, err := (&net.Dialer{Timeout: a.cfg.Timeout}).DialContext(ctx, "tcp", a.cfg.Address)
+	connectTimeout := 3 * time.Second
+	if a.cfg.Timeout > 0 && a.cfg.Timeout < connectTimeout {
+		connectTimeout = a.cfg.Timeout
+	}
+	conn, err := (&net.Dialer{Timeout: connectTimeout}).DialContext(ctx, "tcp", a.cfg.Address)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -478,7 +478,7 @@ func TestAuthLoginFailureBlockResetAndPendingAccountSafety(t *testing.T) {
 				}
 				if i == 5 {
 					var blocked *identity.LoginBlockedError
-					if !errors.As(err, &blocked) || !blocked.Until.Equal(h.now.Add(30*time.Minute)) {
+					if !errors.As(err, &blocked) || !blocked.Until.Equal(h.now.Add(15*time.Minute)) {
 						t.Fatal("fifth failure did not block")
 					}
 				}
@@ -490,7 +490,7 @@ func TestAuthLoginFailureBlockResetAndPendingAccountSafety(t *testing.T) {
 			if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "login@ejemplo.invalid", Password: "Synthetic#123"}); err == nil {
 				t.Fatal("blocked login accepted")
 			}
-			h.now = h.now.Add(30 * time.Minute)
+			h.now = h.now.Add(15 * time.Minute)
 			_, err := h.service.Login(h.ctx, identity.LoginInput{Email: "login@ejemplo.invalid", Password: "Synthetic#123"})
 			if verified && err != nil {
 				t.Fatal(err)
@@ -3390,7 +3390,7 @@ func TestAuthEmailVerificationPreservesExistingLoginBlock(t *testing.T) {
 	}
 	h.verify(t)
 	a, err := h.repo.AccountByID(h.ctx, id)
-	if err != nil || a.State != identity.AccountBlocked || a.FailedAttempts != 5 || a.BlockedUntil == nil || !a.BlockedUntil.Equal(h.now.Add(30*time.Minute)) {
+	if err != nil || a.State != identity.AccountBlocked || a.FailedAttempts != 5 || a.BlockedUntil == nil || !a.BlockedUntil.Equal(h.now.Add(15*time.Minute)) {
 		t.Fatal("verification shortened the login block")
 	}
 	_, err = h.service.Login(h.ctx, identity.LoginInput{Email: "blocked-verification@ejemplo.invalid", Password: "Synthetic#123"})
@@ -3398,7 +3398,7 @@ func TestAuthEmailVerificationPreservesExistingLoginBlock(t *testing.T) {
 	if !errors.As(err, &blocked) {
 		t.Fatal("verified account bypassed the existing block")
 	}
-	h.now = h.now.Add(30 * time.Minute)
+	h.now = h.now.Add(15 * time.Minute)
 	h.login(t, "blocked-verification@ejemplo.invalid")
 }
 

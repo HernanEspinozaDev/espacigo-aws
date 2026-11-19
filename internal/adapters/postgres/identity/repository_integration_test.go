@@ -148,7 +148,19 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	}
 	parsedURL.Path = "/" + databaseName
 	testURL := parsedURL.String()
-	migrationDir := filepath.Join("..", "..", "..", "..", "db", "migrations")
+	allMigrations, err := migrator.DiscoverMigrations(filepath.Join("..", "..", "..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatalf("discover migrations: %v", err)
+	}
+	migrationDir := t.TempDir()
+	for _, m := range allMigrations {
+		if m.Version > 75 {
+			break
+		}
+		if err := os.WriteFile(filepath.Join(migrationDir, m.Name), m.SQL, 0o600); err != nil {
+			t.Fatalf("stage migration %s: %v", m.Name, err)
+		}
+	}
 
 	// Register database cleanup before applying migrations; testing.T runs cleanups LIFO.
 	t.Cleanup(func() {

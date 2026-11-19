@@ -397,6 +397,26 @@ export class AdminFacade {
       });
       return;
     }
+    const apiError =
+      err && typeof err === "object"
+        ? (err as { status?: unknown; code?: unknown; requestId?: unknown })
+        : null;
+    if (
+      apiError?.code === "invalid_request" &&
+      (apiError.status === 400 || apiError.status === 422)
+    ) {
+      const reference =
+        typeof apiError.requestId === "string" &&
+        /^[A-Za-z0-9._-]{1,128}$/.test(apiError.requestId)
+          ? ` Referencia: ${apiError.requestId}.`
+          : "";
+      this.#setSnapshot({
+        error: `${fallbackMessage} La API rechazó la solicitud (${apiError.status}).${reference}`,
+        loading: false,
+        actionLoading: false,
+      });
+      return;
+    }
     const message =
       err instanceof Error
         ? err.message
@@ -593,6 +613,26 @@ export class AdminFacade {
       this.#handleError(err, "No pudimos cargar el detalle de la cuenta.");
     }
   }
+  async revealGlobalAccountEmail(
+    accountId: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    if (this.#authSource?.getSnapshot().status !== "authenticated") {
+      throw new Error("Sesión requerida.");
+    }
+    const scope = this.#captureSession();
+    const account = await this.#waitSession(
+      this.#port.getGlobalAccount(
+        accountId,
+        this.#sessionSignal(scope, signal),
+        true,
+      ),
+      scope,
+    );
+    if (!account?.email.includes("@")) throw new Error("Correo no disponible.");
+    return account.email;
+  }
+
   async updateGlobalAccountProfile(
     accountId: string,
     input: {

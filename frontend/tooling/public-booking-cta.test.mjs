@@ -77,6 +77,6 @@ test("valid selection renders exact booking href and no invented guarantee amoun
   const html = render({ selection, basePriceCLP: 9000, rateUnit: "hora" });
   assert.match(html, /href="\/reservas\/nueva\?[^\"]+"/);
   assert.doesNotMatch(html, /50\.000|Garantía de arriendo/);
-  assert.match(html, /Estimación referencial/);
-  assert.match(html, /no ocupa ni confirma una reserva o pago/);
+  assert.match(html, /El siguiente paso calcula una cotización oficial/);
+  assert.match(html, /El pago se confirma al volver desde Mercado Pago/);
 });

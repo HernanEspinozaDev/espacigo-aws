@@ -117,7 +117,8 @@ export function AdminSpacesView() {
       searchFilter.trim() === "" ||
       pub.title.toLowerCase().includes(searchFilter.toLowerCase()) ||
       pub.category_name.toLowerCase().includes(searchFilter.toLowerCase()) ||
-      pub.owner_email.toLowerCase().includes(searchFilter.toLowerCase());
+      (pub.owner_name &&
+        pub.owner_name.toLowerCase().includes(searchFilter.toLowerCase()));
     return matchesState && matchesSearch;
   });
 
@@ -215,7 +216,7 @@ export function AdminSpacesView() {
           />
           <Input
             type="search"
-            placeholder="Buscar por título, categoría o email de anfitrión..."
+            placeholder="Buscar por título o categoría..."
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
             className="pl-9"
@@ -294,7 +295,7 @@ export function AdminSpacesView() {
                     </span>
                     <span
                       className="font-medium truncate block"
-                      title={pub.owner_email}
+                      title={pub.owner_name ?? undefined}
                     >
                       {pub.owner_name ?? pub.owner_email}
                     </span>

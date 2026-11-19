@@ -169,9 +169,13 @@ export class OpenApiAdminAdapter implements AdminPort {
   async getGlobalAccount(
     accountId: string,
     signal?: AbortSignal,
+    revealEmail?: true,
   ): Promise<GlobalAdminAccount | null> {
     const result = await apiClient.GET("/admin/global/accounts/{accountID}", {
-      params: { path: { accountID: accountId } },
+      params: {
+        path: { accountID: accountId },
+        query: { reveal_email: revealEmail },
+      },
       signal,
     });
     if (result.response?.status === 404) return null;

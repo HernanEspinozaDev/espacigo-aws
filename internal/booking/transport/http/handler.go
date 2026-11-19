@@ -822,11 +822,11 @@ func adminAuditParams(query url.Values, export bool) (booking.AdminAuditFilter, 
 func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 	if err != nil {
 		if errors.Is(err, booking.ErrSimulatedNoResponse) {
-			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_payment_timeout", "message": "El adaptador local no entregó respuesta; la reserva sigue pendiente."}, "safety_notice": booking.SafetyBanner})
+			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_payment_timeout", "message": "El adaptador local no entregó respuesta; la reserva sigue pendiente.", "request_id": w.Header().Get("X-Request-ID")}, "safety_notice": booking.SafetyBanner})
 			return
 		}
 		if errors.Is(err, booking.ErrSimulatedRefundNoResponse) {
-			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_refund_timeout", "message": "La devolución fake no respondió; la obligación sigue pendiente y puede reintentarse con la misma operación."}, "safety_notice": booking.SafetyBanner})
+			write(w, http.StatusGatewayTimeout, map[string]any{"data": v, "error": map[string]string{"code": "simulated_refund_timeout", "message": "La devolución no respondió; la obligación sigue pendiente; reintenta con la misma operación.", "request_id": w.Header().Get("X-Request-ID")}, "safety_notice": booking.SafetyBanner})
 			return
 		}
 		switch {

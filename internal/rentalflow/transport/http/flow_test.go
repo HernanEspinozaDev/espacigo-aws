@@ -343,7 +343,7 @@ func TestSyntheticHTTPFlowAvailabilityQuoteAndContractPreview(t *testing.T) {
 	if err := json.Unmarshal(previewResponse.Body.Bytes(), &previewEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if previewEnvelope.Data.State != "preview" || previewEnvelope.Data.SpaceTitle != spaceTitle || len(previewEnvelope.Data.Parties) != 2 || previewEnvelope.Data.Parties[0].RUT != "11111111-1" || previewEnvelope.Data.Parties[1].RUT != "22222222-2" {
+	if previewEnvelope.Data.State != "preview" || previewEnvelope.Data.SpaceTitle != spaceTitle || len(previewEnvelope.Data.Parties) != 2 || previewEnvelope.Data.Parties[0].RUT != "••••1111" || previewEnvelope.Data.Parties[1].RUT != "••••2222" {
 		t.Fatalf("unexpected contract preview: %+v", previewEnvelope.Data)
 	}
 	auth.principal.AccountID = ownerID

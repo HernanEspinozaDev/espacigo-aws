@@ -259,13 +259,14 @@ function collectHeaders(
 }
 
 async function readBody(
-  request: Request,
+  request: Request | Response,
+  maximumBytes = maximumBodyBytes,
 ): Promise<Uint8Array<ArrayBuffer> | null> {
   if (request.body === null) return null;
   const declaredLength = request.headers.get("content-length");
   if (declaredLength !== null) {
     if (!/^\d+$/.test(declaredLength)) throw new RangeError("invalid_length");
-    if (Number(declaredLength) > maximumBodyBytes)
+    if (Number(declaredLength) > maximumBytes)
       throw new RangeError("too_large");
   }
 
@@ -277,7 +278,7 @@ async function readBody(
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > maximumBodyBytes) {
+      if (total > maximumBytes) {
         await reader.cancel();
         throw new RangeError("too_large");
       }
@@ -294,6 +295,56 @@ async function readBody(
     offset += chunk.byteLength;
   }
   return body;
+}
+
+const errorIdentifier = /^[a-z0-9_.-]{1,96}$/i;
+
+function safeErrorIdentifier(value: unknown): value is string {
+  return typeof value === "string" && errorIdentifier.test(value);
+}
+
+async function upstreamError(
+  upstream: Response,
+  requestId: string,
+  headers: Headers,
+): Promise<Response> {
+  let code = "upstream_error";
+  const details: { field: string; code: string }[] = [];
+  try {
+    const bytes = await readBody(upstream, 4096);
+    if (bytes) {
+      const payload = JSON.parse(new TextDecoder().decode(bytes))?.error;
+      if (upstream.status < 500 && safeErrorIdentifier(payload?.code)) {
+        code = payload.code;
+        if (Array.isArray(payload.details)) {
+          for (const item of payload.details.slice(0, 20)) {
+            if (
+              safeErrorIdentifier(item?.field) &&
+              safeErrorIdentifier(item?.code)
+            ) {
+              details.push({ field: item.field, code: item.code });
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    await upstream.body?.cancel().catch(() => undefined);
+  }
+
+  headers.set("content-type", "application/json; charset=utf-8");
+  headers.delete("content-disposition");
+  return new Response(
+    JSON.stringify({
+      error: {
+        code,
+        message: "La solicitud no pudo completarse.",
+        request_id: requestId,
+        ...(details.length > 0 ? { details } : {}),
+      },
+    }),
+    { status: upstream.status, headers },
+  );
 }
 
 async function proxy(
@@ -451,6 +502,14 @@ async function proxy(
       : requestId,
   );
   outgoingHeaders.set("cache-control", "no-store");
+
+  if (upstream.status >= 400 && !isNoBodyResponse) {
+    return upstreamError(
+      upstream,
+      outgoingHeaders.get("x-request-id") ?? requestId,
+      outgoingHeaders,
+    );
+  }
 
   const responseBody = isNoBodyResponse ? null : upstream.body;
   return new Response(responseBody, {

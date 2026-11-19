@@ -4,7 +4,7 @@ set -Eeuo pipefail
 REPO_ROOT="/home/nandev/Documentos/projects/espacigo-aws"
 LOCAL_DEV="${REPO_ROOT}/scripts/local-dev.sh"
 # Los lanzadores gráficos no siempre cargan el PATH de la sesión interactiva.
-PATH="${HOME}/.hermes/tools/pnpm-12.15.0-linux-x64:${HOME}/.hermes/tools/node-26.12.1-linux-x64/bin:${PATH}"
+PATH="/usr/local/go/bin:${HOME}/go/bin:${HOME}/.hermes/tools/pnpm-12.15.0-linux-x64:${HOME}/.hermes/tools/node-26.12.1-linux-x64/bin:${PATH}"
 export PATH
 
 if [[ ! -x "$LOCAL_DEV" ]]; then
@@ -41,5 +41,8 @@ result=$?
 set -e
 if (( result != 0 )); then
   printf '\nUno de los servicios terminó con error (código %s).\n' "$result" >&2
+  if [[ -t 0 ]]; then
+    read -r -p 'Presiona Enter para cerrar...' _ || true
+  fi
 fi
 exit "$result"

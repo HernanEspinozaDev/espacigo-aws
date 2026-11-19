@@ -18,6 +18,7 @@ import (
 	clamavadapter "github.com/HernanEspinozaDev/espaciGo/internal/adapters/clamav"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devphone"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -75,6 +76,7 @@ import (
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/businessclock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/health"
+	"github.com/HernanEspinozaDev/espaciGo/internal/platform/safelog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -166,7 +168,7 @@ func main() {
 		return
 	}
 	if err := run(); err != nil {
-		log.Printf("API startup or shutdown failed: %v", err)
+		safelog.Error(context.Background(), "API startup or shutdown failed", err)
 		os.Exit(1)
 	}
 }
@@ -176,7 +178,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
-	production := os.Getenv("APP_PROFILE") == productionAppProfile
+	production, err := productionEnvironment(os.Getenv)
+	if err != nil {
+		return err
+	}
 	if production {
 		if err := validateProductionRuntime(os.Getenv, runtimeProfileValue); err != nil {
 			return err
@@ -278,7 +283,7 @@ func run() error {
 		}
 		if err := mountProductionRentalDemo(mux, pool, authService, cfg.allowedOrigins, os.Getenv); err != nil {
 			// The optional demonstration must never make the storefront unavailable.
-			log.Printf("hosted rental demo disabled: %v", err)
+			safelog.Warn(context.Background(), "hosted rental demo disabled", safelog.F("error", err))
 		}
 		admin, err := adminglobal.New(pool, time.Now)
 		if err != nil {
@@ -310,6 +315,9 @@ func run() error {
 		service, err := identity.NewAuthenticationService(repo, password.Hasher{}, authMailer, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local authentication initialization failed")
+		}
+		if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+			service.SetTOTPKeyring(totpKeyring)
 		}
 		localIdentityService = service
 		marketplaceTokens, err = mountMarketplaceOAuth(mux, pool, service, cfg, os.Getenv)
@@ -526,7 +534,11 @@ func run() error {
 			return errors.New("local M02 initialization failed")
 		}
 		localM02Service = m02Service
-		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore))
+		identityHandler := identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore)
+		phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
+		phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+		identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
+		mux.Handle("/api/v1/", identityHandler)
 		globalAdminService, err := adminglobal.New(pool, time.Now)
 		if err != nil {
 			return errors.New("global administration service initialization failed")
@@ -958,6 +970,9 @@ func runLocalKYCOnly(cfg config, profile runtimeProfileName) error {
 	if err != nil {
 		return errors.New("local authentication initialization failed")
 	}
+	if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+		authService.SetTOTPKeyring(totpKeyring)
+	}
 	declarationRepository := identitydeclarationpg.New(pool)
 	declarationService, err := newRuntimeIdentityDeclarationService(os.Getenv, declarationRepository, time.Now)
 	if err != nil || declarationService == nil {
@@ -1007,6 +1022,9 @@ func runDocumentScanOnly(cfg config) error {
 	if err != nil {
 		return errors.New("local authentication initialization failed")
 	}
+	if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
+		service.SetTOTPKeyring(totpKeyring)
+	}
 
 	documentRepository := documentverificationpg.New(pool)
 	documentService, err := documentverification.NewService(documentRepository)
@@ -1051,7 +1069,11 @@ func runDocumentScanOnly(cfg config) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
-	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins)
+	phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
+	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
+	mux.Handle("/api/v1/", identityHandler)
 	registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentService, uploadService), documentverificationhttp.NewOwnerDownloadHandler(service, downloadService))
 	spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
 	if err != nil {

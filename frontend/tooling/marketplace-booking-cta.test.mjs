@@ -90,8 +90,8 @@ test("selección válida presenta fechas, duración, subtotal exacto y href vali
   assert.match(html, /18\.014\.398\.509\.480\.000/);
   assert.match(html, /href="\/reservas\/nueva\?/);
   assert.equal(observedPrefetch, false);
-  assert.match(html, /Estimación referencial/);
-  assert.match(html, /no habilita una confirmación comercial/);
+  assert.match(html, /El siguiente paso calcula una cotización oficial/);
+  assert.match(html, /El pago se confirma al volver desde Mercado Pago/);
 });
 
 test("importe inválido o unsafe no activa enlace ni inventa un total", () => {

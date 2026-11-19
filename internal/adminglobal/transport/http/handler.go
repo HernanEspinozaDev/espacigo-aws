@@ -171,6 +171,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			replyError(w, err, requestID)
 			return
 		}
+		for i := range value.Items {
+			value.Items[i].Email = identity.MaskEmail(value.Items[i].Email)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
 	case "/api/v1/admin/global/publications":
 		principal, ok := h.authorize(w, r, identity.CapabilityPublicationsList, requestID)
@@ -187,6 +190,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			replyError(w, err, requestID)
 			return
 		}
+		for i := range value.Items {
+			value.Items[i].OwnerEmail = identity.MaskEmail(value.Items[i].OwnerEmail)
+		}
 		writeJSON(w, 200, map[string]any{"data": value})
 	default:
 		const base = "/api/v1/admin/global/accounts/"
@@ -198,11 +204,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
+		query := r.URL.Query()
+		reveal := query["reveal_email"]
+		if len(query) > 0 && (len(query) != 1 || len(reveal) != 1 || reveal[0] != "true") {
+			writeError(w, 422, "invalid_request", requestID)
+			return
+		}
 		value, err := h.service.LookupAccount(r.Context(), principal.AccountID, strings.TrimPrefix(path, base), requestID)
 		if err != nil {
 			replyError(w, err, requestID)
 			return
 		}
+		if len(reveal) == 0 || value.State == "desidentificado" {
+			value.Email = identity.MaskEmail(value.Email)
+		}
+		w.Header().Set("Cache-Control", "private, no-store")
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
 	}
 }
@@ -568,6 +584,7 @@ func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, p
 			replyError(w, err, requestID)
 			return true
 		}
+		value.Email = identity.MaskEmail(value.Email)
 		writeJSON(w, 200, map[string]any{"data": value})
 		return true
 	}
@@ -754,7 +771,7 @@ func replyError(w http.ResponseWriter, err error, requestID string) {
 }
 
 func writeError(w http.ResponseWriter, status int, code, requestID string) {
-	writeJSON(w, status, map[string]any{"error": map[string]any{"code": code, "request_id": requestID}})
+	writeJSON(w, status, map[string]any{"error": map[string]any{"code": code, "message": "No fue posible completar la operación.", "request_id": requestID}})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

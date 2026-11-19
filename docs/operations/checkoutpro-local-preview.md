@@ -1,5 +1,12 @@
 # Checkout Pro: base local de revisión
 
+> Esta guía conserva detalles de la preview aislada creada en la rama de pagos
+> anterior, cuyo ledger llegó a V106. No uses ese ledger para validar la rama
+> combinada: el historial vigente de `desarrollo-local` llega a V109 y los
+> cambios de pagos son V110–V113. La prueba integrada actual requiere una base
+> aislada que parta del esquema/ledger V109 y aplique V110–V113 con el migrador
+> normal. No migres ni reutilices la preview V106 para ese candidato.
+
 El runner de migraciones tiene un modo opt-in que conserva una base sintética
 para pruebas manuales:
 

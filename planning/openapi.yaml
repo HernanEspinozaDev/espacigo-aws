@@ -1581,6 +1581,7 @@ paths:
       summary: Consultar proyección mínima de una cuenta
       parameters:
         - { in: path, name: accountID, required: true, schema: { type: string, format: uuid } }
+        - { in: query, name: reveal_email, schema: { type: boolean, const: true }, description: Revelación explícita del correo para el administrador autorizado }
       responses:
         "200": { description: Cuenta y conteos de recursos, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminAccountEnvelope" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -2369,6 +2370,679 @@ paths:
         "422": *id006
         "500": *id008
         "503": *id009
+  /account/security/phone:
+    get:
+      operationId: getAccountPhoneVerification
+      tags:
+        - M01 local
+      description: Estado de configuración y verificación telefónica del usuario autenticado.
+      responses:
+        "200":
+          description: Estado del teléfono móvil asociado a la cuenta.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/phone/send-code:
+    post:
+      operationId: sendAccountPhoneVerificationCode
+      tags:
+        - M01 local
+      description: Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por mensaje.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendPhoneCodeRequest"
+      responses:
+        "200":
+          description: Código OTP generado y enviado.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneCodeSent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/phone/verify:
+    post:
+      operationId: verifyAccountPhoneCode
+      tags:
+        - M01 local
+      description: Valida código OTP de 6 dígitos recibido por SMS y confirma la verificación del número telefónico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPhoneCodeRequest"
+      responses:
+        "200":
+          description: Teléfono verificado con éxito.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneVerifyResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/devices:
+    get:
+      operationId: listLinkedDevices
+      tags:
+        - M01 local
+      description: Lista las sesiones activas y dispositivos vinculados de la cuenta autenticada.
+      responses:
+        "200":
+          description: Lista de dispositivos vinculados activos.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkedDevicesList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/devices/revoke-others:
+    post:
+      operationId: revokeOtherLinkedDevices
+      tags:
+        - M01 local
+      description: Revoca todas las sesiones activas de la cuenta excepto la sesión actual.
+      responses:
+        "200":
+          description: Otras sesiones revocadas exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeOtherLinkedDevicesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/devices/{session_id}:
+    delete:
+      operationId: revokeLinkedDevice
+      tags:
+        - M01 local
+      description: Revoca una sesión o dispositivo vinculado específico de la cuenta.
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Identificador de la sesión a revocar.
+      responses:
+        "200":
+          description: Sesión revocada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevokeLinkedDeviceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/alerts:
+    get:
+      operationId: getSecurityAlerts
+      tags:
+        - M01 local
+      description: Obtiene las preferencias de canales de alerta y las últimas 20 alertas de seguridad de la cuenta autenticada.
+      responses:
+        "200":
+          description: Preferencias de alerta y feed reciente de auditoría de seguridad.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityAlertsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/alerts/channels:
+    put:
+      operationId: updateSecurityAlertChannels
+      tags:
+        - M01 local
+      description: Actualiza los canales de notificación de alertas de seguridad y el correo secundario opcional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSecurityAlertChannelsInput"
+      responses:
+        "200":
+          description: Preferencias de canales de alerta actualizadas exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecurityAlertPreferences"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/totp:
+    get:
+      operationId: getAccountTOTPStatus
+      tags:
+        - M01 local
+      description: Obtiene el estado de configuración y activación del autenticador TOTP (Google Authenticator).
+      responses:
+        "200":
+          description: Estado del autenticador TOTP de la cuenta.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTOTPStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/totp/setup:
+    post:
+      operationId: setupAccountTOTP
+      tags:
+        - M01 local
+      description: Inicia la configuración de TOTP generando un secreto pendiente y retornando la URI otpauth y la llave manual.
+      responses:
+        "200":
+          description: Secreto TOTP generado y guardado en estado pendiente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTOTPSetupResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/totp/enable:
+    post:
+      operationId: enableAccountTOTP
+      tags:
+        - M01 local
+      description: Verifica el primer código TOTP contra el secreto pendiente, activa TOTP y genera los códigos de respaldo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountTOTPEnableInput"
+      responses:
+        "200":
+          description: TOTP activado exitosamente con códigos de respaldo generados.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTOTPEnableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/totp/disable:
+    post:
+      operationId: disableAccountTOTP
+      tags:
+        - M01 local
+      description: Desactiva el autenticador TOTP verificando un código TOTP vigente o un código de respaldo válido.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountTOTPDisableInput"
+      responses:
+        "200":
+          description: TOTP desactivado exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTOTPDisableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys:
+    get:
+      operationId: listAccountPasskeys
+      tags:
+        - M01 local
+      description: Lista las llaves de acceso (Passkeys / WebAuthn) asociadas a la cuenta autenticada.
+      responses:
+        "200":
+          description: Lista de llaves de acceso registradas.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/register/options:
+    post:
+      operationId: beginAccountPasskeyRegistration
+      tags:
+        - M01 local
+      description: Inicia el registro de una llave de acceso WebAuthn generando un desafío criptográfico.
+      responses:
+        "200":
+          description: Opciones de creación de credencial WebAuthn.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyRegistrationOptions"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/register/verify:
+    post:
+      operationId: completeAccountPasskeyRegistration
+      tags:
+        - M01 local
+      description: Valida el desafío, clientDataJSON y la clave pública emitida por el navegador para registrar la llave.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountPasskeyRegistrationVerifyInput"
+      responses:
+        "200":
+          description: Llave de acceso registrada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/passkeys/{passkey_id}:
+    delete:
+      operationId: deleteAccountPasskey
+      tags:
+        - M01 local
+      description: Elimina una llave de acceso (Passkey) asociada a la cuenta autenticada.
+      parameters:
+        - name: passkey_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Llave de acceso eliminada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPasskeyDeleteResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr:
+    get:
+      operationId: getAccountQRStatus
+      tags:
+        - M01 local
+      description: Obtiene el estado de vinculación del dispositivo de verificación QR de la cuenta.
+      responses:
+        "200":
+          description: Estado de verificación QR.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: disableAccountQR
+      tags:
+        - M01 local
+      description: Desvincula y deshabilita el dispositivo de verificación QR de la cuenta.
+      responses:
+        "200":
+          description: Verificación QR desactivada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRDisableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/ticket:
+    post:
+      operationId: createAccountQRTicket
+      tags:
+        - M01 local
+      description: Genera un nuevo ticket efímero de verificación mediante código QR con TTL de 120 segundos.
+      responses:
+        "200":
+          description: Ticket QR generado exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRTicketResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/ticket/{ticket_id}:
+    get:
+      operationId: getAccountQRTicketStatus
+      tags:
+        - M01 local
+      description: Consulta el estado de resolución de un ticket de verificación QR.
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado actual del ticket QR.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRTicketStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/approve:
+    post:
+      operationId: approveAccountQRTicket
+      tags:
+        - M01 local
+      description: Aprueba un ticket de verificación QR escaneado desde el dispositivo móvil confiable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountQRApproveInput"
+      responses:
+        "200":
+          description: Ticket QR aprobado exitosamente y dispositivo vinculado.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRApproveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/location:
+    get:
+      operationId: getAccountLocationPermission
+      tags:
+        - M01 local
+      description: Obtiene el estado del permiso de ubicación y consentimiento para la cuenta autenticada.
+      responses:
+        "200":
+          description: Estado del permiso de ubicación.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountLocationPermissionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    put:
+      operationId: updateAccountLocationPermission
+      tags:
+        - M01 local
+      description: Actualiza el consentimiento y permiso de ubicación de la cuenta autenticada.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountLocationPermissionInput"
+      responses:
+        "200":
+          description: Permiso de ubicación actualizado exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountLocationPermissionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/trusted-contacts:
+    get:
+      operationId: listAccountTrustedContacts
+      tags:
+        - M01 local
+      description: Lista las personas de confianza activas designadas por la cuenta autenticada con datos enmascarados.
+      responses:
+        "200":
+          description: Lista de personas de confianza activas.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTrustedContactsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      operationId: addAccountTrustedContact
+      tags:
+        - M01 local
+      description: Agrega una nueva persona de confianza a la cuenta autenticada (máximo 3 contactos activos).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAccountTrustedContactInput"
+      responses:
+        "200":
+          description: Persona de confianza agregada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountTrustedContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/trusted-contacts/{contact_id}:
+    delete:
+      operationId: removeAccountTrustedContact
+      tags:
+        - M01 local
+      description: Revoca y elimina una persona de confianza activa de la cuenta.
+      parameters:
+        - name: contact_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Persona de confianza revocada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoveAccountTrustedContactResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/methods:
+    get:
+      operationId: getAccountSecurityMethods
+      tags:
+        - M01 local
+      description: Obtiene el resumen del estado real de los 7 métodos de verificación de seguridad de la cuenta.
+      responses:
+        "200":
+          description: Resumen global de métodos de verificación de la cuenta.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountSecurityMethodsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -6410,7 +7084,7 @@ components:
       properties:
         role: { type: string, enum: [ arrendador, arrendatario ] }
         legal_name: { type: string, minLength: 1, maxLength: 200 }
-        rut: { type: string, minLength: 3, maxLength: 10, pattern: '^[0-9]{1,8}-[0-9K]$', description: RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. }
+        rut: { type: string, description: RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) }
     RentalContractPreview:
       type: object
       description: Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste.
@@ -6460,7 +7134,7 @@ components:
       required: [ account_id, email, state, created_at, administrative_blocked, roles, publication_count, reservation_count, incident_count ]
       properties:
         account_id: { type: string, format: uuid }
-        email: { type: string }
+        email: { type: string, description: Correo enmascarado salvo en la revelación explícita autorizada }
         display_name: { type: [ string, "null" ] }
         phone: { type: [ string, "null" ], pattern: "^[0-9]{9}$" }
         profile_updated_at: { type: [ string, "null" ], format: date-time }
@@ -6487,7 +7161,7 @@ components:
         publication_id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         owner_name: { type: [ string, "null" ] }
-        owner_email: { type: string }
+        owner_email: { type: string, description: Correo enmascarado del anfitrión }
         category_code: { type: string }
         category_name: { type: string }
         title: { type: string }
@@ -8077,6 +8751,809 @@ components:
       required: [ items ]
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/SpaceDraft" } }
+    AccountPhoneStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - configured
+        - verified
+        - masked_phone
+        - pending_verification
+      properties:
+        configured:
+          type: boolean
+        verified:
+          type: boolean
+        masked_phone:
+          type: string
+        verified_at:
+          type: [ string, "null" ]
+          format: date-time
+        pending_verification:
+          type: boolean
+        resend_available_at:
+          type: [ string, "null" ]
+          format: date-time
+    SendPhoneCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - phone
+      properties:
+        phone:
+          type: string
+          example: "+56 9 1234 5678"
+    AccountPhoneCodeSent:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - masked_phone
+        - resend_available_at
+        - expires_at
+      properties:
+        status:
+          type: string
+          example: code_sent
+        masked_phone:
+          type: string
+          example: "+56 ••••5678"
+        resend_available_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    VerifyPhoneCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          example: "123456"
+    AccountPhoneVerifyResult:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - verified
+        - masked_phone
+        - verified_at
+      properties:
+        status:
+          type: string
+          example: verified
+        verified:
+          type: boolean
+          example: true
+        masked_phone:
+          type: string
+          example: "+56 ••••5678"
+        verified_at:
+          type: string
+          format: date-time
+    LinkedDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - device_label
+        - ip_masked
+        - created_at
+        - last_activity_at
+        - expires_at
+        - is_current
+      properties:
+        id:
+          type: string
+          example: "00000000-0000-4000-8000-000000000001"
+        device_label:
+          type: string
+          example: "Chrome en Linux"
+        ip_masked:
+          type: string
+          example: "190.162.•••.•••"
+        created_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        is_current:
+          type: boolean
+    LinkedDevicesList:
+      type: object
+      additionalProperties: false
+      required:
+        - devices
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkedDevice"
+    RevokeLinkedDeviceResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - session_id
+      properties:
+        status:
+          type: string
+          example: "revoked"
+        session_id:
+          type: string
+          example: "00000000-0000-4000-8000-000000000001"
+    RevokeOtherLinkedDevicesResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - revoked_count
+      properties:
+        status:
+          type: string
+          example: "revoked_others"
+        revoked_count:
+          type: integer
+          minimum: 0
+          example: 2
+    SecurityAlertPreferences:
+      type: object
+      additionalProperties: false
+      required:
+        - app_notifications_enabled
+        - email_alerts_enabled
+        - whatsapp_alerts_enabled
+        - masked_email
+        - masked_extra_email
+        - extra_email_configured
+        - masked_phone
+      properties:
+        app_notifications_enabled:
+          type: boolean
+          example: true
+        email_alerts_enabled:
+          type: boolean
+          example: true
+        whatsapp_alerts_enabled:
+          type: boolean
+          example: false
+        masked_email:
+          type: string
+          example: "u••••1@example.com"
+        masked_extra_email:
+          type: string
+          example: "s••••y@example.com"
+        extra_email_configured:
+          type: boolean
+          example: true
+        masked_phone:
+          type: string
+          example: "+56 ••••1234"
+    SecurityAlertEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - event_code
+        - title
+        - device_label
+        - ip_masked
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "00000000-0000-4000-8000-000000000001"
+        event_code:
+          type: string
+          example: "alert_channel_updated"
+        title:
+          type: string
+          example: "Canales de alerta actualizados"
+        device_label:
+          type: string
+          example: "Chrome en Linux"
+        ip_masked:
+          type: string
+          example: "190.162.•••.•••"
+        created_at:
+          type: string
+          format: date-time
+    SecurityAlertsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - preferences
+        - alerts
+      properties:
+        preferences:
+          $ref: "#/components/schemas/SecurityAlertPreferences"
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityAlertEvent"
+    UpdateSecurityAlertChannelsInput:
+      type: object
+      additionalProperties: false
+      required:
+        - app_notifications_enabled
+        - email_alerts_enabled
+        - whatsapp_alerts_enabled
+      properties:
+        app_notifications_enabled:
+          type: boolean
+          example: true
+        email_alerts_enabled:
+          type: boolean
+          example: true
+        whatsapp_alerts_enabled:
+          type: boolean
+          example: false
+        extra_email:
+          type: string
+          nullable: true
+          example: "seguridad@empresa.com"
+    AccountTOTPStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+        - pending_setup
+        - remaining_backup_codes
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        pending_setup:
+          type: boolean
+          example: false
+        enabled_at:
+          type: string
+          format: date-time
+          nullable: true
+        remaining_backup_codes:
+          type: integer
+          minimum: 0
+          example: 8
+    AccountTOTPSetupResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - otpauth_uri
+        - manual_key
+      properties:
+        otpauth_uri:
+          type: string
+          example: "otpauth://totp/EspaciGo:usuario@ejemplo.cl?secret=JBSWY3DPEHPK3PXP&issuer=EspaciGo&algorithm=SHA1&digits=6&period=30"
+        manual_key:
+          type: string
+          example: "JBSWY3DPEHPK3PXP"
+    AccountTOTPEnableInput:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 8
+          example: "123456"
+    AccountTOTPEnableResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+        - enabled_at
+        - backup_codes
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        enabled_at:
+          type: string
+          format: date-time
+        backup_codes:
+          type: array
+          items:
+            type: string
+            example: "2A3B-4C5D"
+    AccountTOTPDisableInput:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 12
+          example: "123456"
+    AccountTOTPDisableResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: false
+    AccountPasskey:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - label
+        - transports
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          example: "Touch ID"
+        transports:
+          type: array
+          items:
+            type: string
+          example: ["internal", "hybrid"]
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+    AccountPasskeyListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - passkeys
+      properties:
+        passkeys:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountPasskey"
+    AccountPasskeyRegistrationOptions:
+      type: object
+      additionalProperties: false
+      required:
+        - challenge_id
+        - challenge
+        - rp
+        - user
+        - pubKeyCredParams
+        - timeout
+        - excludeCredentials
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        challenge:
+          type: string
+          example: "Y3JlYXRlQ2hhbGxlbmdlQmFzZTY0VXJs"
+        rp:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+          properties:
+            id:
+              type: string
+              example: "espacigo.com"
+            name:
+              type: string
+              example: "EspaciGo"
+        user:
+          type: object
+          additionalProperties: false
+          required:
+            - id
+            - name
+            - displayName
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: "u••••o@ejemplo.cl"
+            displayName:
+              type: string
+              example: "Usuario Demo"
+        pubKeyCredParams:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - type
+              - alg
+            properties:
+              type:
+                type: string
+                example: "public-key"
+              alg:
+                type: integer
+                example: -7
+        timeout:
+          type: integer
+          example: 60000
+        excludeCredentials:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - type
+              - id
+            properties:
+              type:
+                type: string
+                example: "public-key"
+              id:
+                type: string
+              transports:
+                type: array
+                items:
+                  type: string
+    AccountPasskeyRegistrationVerifyInput:
+      type: object
+      additionalProperties: false
+      required:
+        - challenge_id
+        - credential_id
+        - public_key
+        - client_data_json
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        label:
+          type: string
+          maxLength: 100
+          example: "Mi Mac"
+        credential_id:
+          type: string
+          example: "cred-abc-123"
+        public_key:
+          type: string
+          example: "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE..."
+        client_data_json:
+          type: string
+          example: "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIi...}"
+        attestation_object:
+          type: string
+          nullable: true
+        transports:
+          type: array
+          items:
+            type: string
+        algorithm:
+          type: integer
+          example: -7
+    AccountPasskeyDeleteResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - passkey_id
+      properties:
+        status:
+          type: string
+          enum: [deleted]
+          example: "deleted"
+        passkey_id:
+          type: string
+          format: uuid
+    AccountQRStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        enabled_at:
+          type: string
+          format: date-time
+          nullable: true
+        trusted_device_label:
+          type: string
+          nullable: true
+          example: "iPhone 15 Pro"
+    AccountQRDisableResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: false
+    AccountQRTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticket_id
+        - qr_payload
+        - expires_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        qr_payload:
+          type: string
+          example: "v1.qr.secret-payload-token"
+        expires_at:
+          type: string
+          format: date-time
+    AccountQRTicketStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticket_id
+        - status
+        - expires_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+            - expired
+          example: "pending"
+        expires_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    AccountQRApproveInput:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          example: "v1.qr.secret-payload-token"
+        device_label:
+          type: string
+          example: "iPhone 15 Pro"
+    AccountQRApproveResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - resolved_at
+      properties:
+        status:
+          type: string
+          example: "approved"
+        resolved_at:
+          type: string
+          format: date-time
+    AccountLocationPermissionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        consent_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_region_label:
+          type: string
+          nullable: true
+          example: "Región Metropolitana"
+    UpdateAccountLocationPermissionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+        region_label:
+          type: string
+          nullable: true
+          example: "Región Metropolitana"
+    AccountTrustedContact:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - full_name
+        - masked_email
+        - relationship
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        full_name:
+          type: string
+          example: "María González"
+        masked_email:
+          type: string
+          example: "m••••z"
+        masked_phone:
+          type: string
+          nullable: true
+          example: "+56 ••••4321"
+        relationship:
+          type: string
+          example: "Hermana"
+        created_at:
+          type: string
+          format: date-time
+    AccountTrustedContactsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - contacts
+      properties:
+        contacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccountTrustedContact"
+    AddAccountTrustedContactInput:
+      type: object
+      additionalProperties: false
+      required:
+        - full_name
+        - email
+        - relationship
+      properties:
+        full_name:
+          type: string
+          example: "María González"
+        email:
+          type: string
+          format: email
+          example: "maria@example.com"
+        phone:
+          type: string
+          nullable: true
+          example: "+56912345678"
+        relationship:
+          type: string
+          example: "Hermana"
+    RemoveAccountTrustedContactResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - contact_id
+      properties:
+        status:
+          type: string
+          example: "revoked"
+        contact_id:
+          type: string
+          format: uuid
+    AccountSecurityMethodsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - protected
+        - active_count
+        - total_count
+        - methods
+      properties:
+        protected:
+          type: boolean
+          example: true
+        active_count:
+          type: integer
+          example: 3
+        total_count:
+          type: integer
+          example: 7
+        methods:
+          $ref: "#/components/schemas/AccountSecurityMethodsSummary"
+    AccountSecurityMethodsSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - password
+        - email
+        - phone
+        - totp
+        - passkeys
+        - qr
+        - facial_kyc
+      properties:
+        password:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        email:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+            masked_email:
+              type: string
+              nullable: true
+        phone:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+            masked_phone:
+              type: string
+              nullable: true
+        totp:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        passkeys:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+            - count
+          properties:
+            enabled:
+              type: boolean
+            count:
+              type: integer
+        qr:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+          properties:
+            enabled:
+              type: boolean
+        facial_kyc:
+          type: object
+          additionalProperties: false
+          required:
+            - enabled
+            - status
+          properties:
+            enabled:
+              type: boolean
+            status:
+              type: string
+              example: "pending_kyc_module"
     Profile:
       type: object
       required: [ display_name, updated_at ]

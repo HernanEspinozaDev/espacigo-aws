@@ -216,6 +216,9 @@ func (r *Repository) Quote(ctx context.Context, renter, spaceID, id string, star
 	if err := tx.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio WHERE id=$1`, spaceID).Scan(&quoteHost); err != nil {
 		return booking.Quote{}, mapErr(err)
 	}
+	if quoteHost == renter {
+		return booking.Quote{}, booking.ErrConflict
+	}
 	if err := lockActiveAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Quote{}, err
 	}

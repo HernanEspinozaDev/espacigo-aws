@@ -53,13 +53,18 @@ type AuthenticationService struct {
 	ipLimiter   VerificationIPLimiter
 	credentials CredentialGenerator
 	now         func() time.Time
+	totpKeyring *TOTPKeyring
+}
+
+func (s *AuthenticationService) SetTOTPKeyring(kr *TOTPKeyring) {
+	s.totpKeyring = kr
 }
 
 func NewAuthenticationService(repo AuthenticationRepository, passwords PasswordHasher, mailer AuthenticationMailer, limiter VerificationIPLimiter, credentials CredentialGenerator, now func() time.Time) (*AuthenticationService, error) {
 	if repo == nil || passwords == nil || mailer == nil || limiter == nil || credentials == nil || now == nil {
 		return nil, ErrInvalid
 	}
-	return &AuthenticationService{repo, passwords, mailer, limiter, credentials, now}, nil
+	return &AuthenticationService{repo: repo, passwords: passwords, mailer: mailer, ipLimiter: limiter, credentials: credentials, now: now}, nil
 }
 
 // Validate the received email before deriving the shared M01 key. Display names,
@@ -548,6 +553,7 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	hash := CredentialHash(Secret(input.SessionToken))
 	var denied error
+	var changedAccountID string
 	err := s.repo.WithLockedAccount(ctx, AccountLookup{SessionHash: hash}, func(account Account, tx AuthenticationTransaction) error {
 		now := s.now()
 		if account.State != AccountActive || (account.BlockedUntil != nil && now.Before(*account.BlockedUntil)) {
@@ -592,6 +598,7 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 		if err := tx.RevokeActiveSessions(ctx, account.ID, now); err != nil {
 			return err
 		}
+		changedAccountID = account.ID
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
@@ -602,6 +609,9 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	if denied != nil {
 		return denied
+	}
+	if changedAccountID != "" {
+		_ = s.RecordSecurityAlertEvent(ctx, changedAccountID, "password_changed", "Contraseña de la cuenta actualizada", "Navegador web", "")
 	}
 	return nil
 }
@@ -757,6 +767,8 @@ type LoginInput struct {
 	Email         string
 	Password      Secret
 	ClientSummary string
+	UserAgent     string
+	IP            string
 }
 type LoginResult struct {
 	AccountID      string
@@ -766,6 +778,8 @@ type LoginResult struct {
 	ExpiresAt      time.Time
 	RestrictedMode bool
 }
+
+const loginBlockDuration = 15 * time.Minute
 
 func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	if ValidateEmail(input.Email) != nil {
@@ -801,7 +815,7 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if !correct {
 			attempts++
 			if attempts >= 5 {
-				until := now.Add(30 * time.Minute)
+				until := now.Add(loginBlockDuration)
 				blocked = &until
 				// Never convert an unverified account into an active account on unlock.
 				if state == AccountActive {
@@ -829,7 +843,24 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if err != nil {
 			return err
 		}
-		session := Session{ID: id, AccountID: account.ID, TokenHash: CredentialHash(raw), CreatedAt: now, LastActivityAt: now, ExpiresAt: now.Add(8 * time.Hour), ClientSummary: input.ClientSummary}
+		deviceLabel := DeriveDeviceLabel(input.UserAgent)
+		if input.UserAgent == "" && input.ClientSummary != "" {
+			deviceLabel = input.ClientSummary
+		}
+		ipMasked := MaskIP(input.IP)
+		sanitizedUA := SanitizeUserAgent(input.UserAgent)
+		session := Session{
+			ID:             id,
+			AccountID:      account.ID,
+			TokenHash:      CredentialHash(raw),
+			CreatedAt:      now,
+			LastActivityAt: now,
+			ExpiresAt:      now.Add(8 * time.Hour),
+			ClientSummary:  input.ClientSummary,
+			DeviceLabel:    deviceLabel,
+			IPMasked:       ipMasked,
+			UserAgent:      sanitizedUA,
+		}
 		if err := tx.CreateSession(ctx, session); err != nil {
 			return err
 		}
@@ -864,6 +895,7 @@ type Principal struct {
 	Capabilities    []Capability
 	RestrictedMode  bool
 	AuthenticatedAt time.Time
+	SessionID       string
 }
 
 type restrictedAccessContextKey struct{}
@@ -953,7 +985,14 @@ func (s *AuthenticationService) authorize(ctx context.Context, raw Secret, activ
 				return nil
 			}
 		}
-		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked, AuthenticatedAt: session.CreatedAt.UTC()}
+		result = Principal{
+			AccountID:       account.ID,
+			Roles:           roles,
+			Capabilities:    CapabilitiesForRoles(roles),
+			RestrictedMode:  account.AdministrativeBlocked,
+			AuthenticatedAt: session.CreatedAt.UTC(),
+			SessionID:       session.ID,
+		}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {
