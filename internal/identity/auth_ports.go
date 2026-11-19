@@ -13,6 +13,7 @@ type AuthenticationRepository interface {
 	CreateWithTerms(context.Context, Account, []TermsAcceptance) error
 	TermsVersion(context.Context, string) (TermsVersion, error)
 	WithLockedAccount(context.Context, AccountLookup, func(Account, AuthenticationTransaction) error) error
+	DeviceRepository
 	CredentialNoticeRepository
 }
 

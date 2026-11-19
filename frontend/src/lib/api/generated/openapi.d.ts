@@ -1479,6 +1479,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/devices": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las sesiones activas y dispositivos vinculados de la cuenta autenticada. */
+    get: operations["listLinkedDevices"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/devices/revoke-others": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Revoca todas las sesiones activas de la cuenta excepto la sesión actual. */
+    post: operations["revokeOtherLinkedDevices"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/devices/{session_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Revoca una sesión o dispositivo vinculado específico de la cuenta. */
+    delete: operations["revokeLinkedDevice"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6173,6 +6224,36 @@ export interface components {
       /** Format: date-time */
       verified_at: string;
     };
+    LinkedDevice: {
+      /** @example 00000000-0000-4000-8000-000000000001 */
+      id: string;
+      /** @example Chrome en Linux */
+      device_label: string;
+      /** @example 190.162.•••.••• */
+      ip_masked: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      last_activity_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      is_current: boolean;
+    };
+    LinkedDevicesList: {
+      devices: components["schemas"]["LinkedDevice"][];
+    };
+    RevokeLinkedDeviceResponse: {
+      /** @example revoked */
+      status: string;
+      /** @example 00000000-0000-4000-8000-000000000001 */
+      session_id: string;
+    };
+    RevokeOtherLinkedDevicesResponse: {
+      /** @example revoked_others */
+      status: string;
+      /** @example 2 */
+      revoked_count: number;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -10410,6 +10491,80 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       422: components["responses"]["UnprocessableEntity"];
       429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  listLinkedDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de dispositivos vinculados activos. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["LinkedDevicesList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  revokeOtherLinkedDevices: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Otras sesiones revocadas exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevokeOtherLinkedDevicesResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  revokeLinkedDevice: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Identificador de la sesión a revocar. */
+        session_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sesión revocada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RevokeLinkedDeviceResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
       500: components["responses"]["InternalServerError"];
     };
   };

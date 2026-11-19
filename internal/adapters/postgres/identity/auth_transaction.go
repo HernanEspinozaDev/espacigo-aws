@@ -64,7 +64,7 @@ func (r *IdentityRepository) WithLockedAccount(ctx context.Context, lookup ident
 		return err
 	}
 	// Only expose methods that operate on the transaction's generated queries.
-	unit := &authenticationTransaction{&IdentityRepository{queries: q}}
+	unit := &authenticationTransaction{&IdentityRepository{queries: q, tx: tx}}
 	if err := fn(account, unit); err != nil {
 		return err
 	}

@@ -757,6 +757,8 @@ type LoginInput struct {
 	Email         string
 	Password      Secret
 	ClientSummary string
+	UserAgent     string
+	IP            string
 }
 type LoginResult struct {
 	AccountID      string
@@ -831,7 +833,24 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if err != nil {
 			return err
 		}
-		session := Session{ID: id, AccountID: account.ID, TokenHash: CredentialHash(raw), CreatedAt: now, LastActivityAt: now, ExpiresAt: now.Add(8 * time.Hour), ClientSummary: input.ClientSummary}
+		deviceLabel := DeriveDeviceLabel(input.UserAgent)
+		if input.UserAgent == "" && input.ClientSummary != "" {
+			deviceLabel = input.ClientSummary
+		}
+		ipMasked := MaskIP(input.IP)
+		sanitizedUA := SanitizeUserAgent(input.UserAgent)
+		session := Session{
+			ID:             id,
+			AccountID:      account.ID,
+			TokenHash:      CredentialHash(raw),
+			CreatedAt:      now,
+			LastActivityAt: now,
+			ExpiresAt:      now.Add(8 * time.Hour),
+			ClientSummary:  input.ClientSummary,
+			DeviceLabel:    deviceLabel,
+			IPMasked:       ipMasked,
+			UserAgent:      sanitizedUA,
+		}
 		if err := tx.CreateSession(ctx, session); err != nil {
 			return err
 		}
@@ -866,6 +885,7 @@ type Principal struct {
 	Capabilities    []Capability
 	RestrictedMode  bool
 	AuthenticatedAt time.Time
+	SessionID       string
 }
 
 type restrictedAccessContextKey struct{}
@@ -955,7 +975,14 @@ func (s *AuthenticationService) authorize(ctx context.Context, raw Secret, activ
 				return nil
 			}
 		}
-		result = Principal{AccountID: account.ID, Roles: roles, Capabilities: CapabilitiesForRoles(roles), RestrictedMode: account.AdministrativeBlocked, AuthenticatedAt: session.CreatedAt.UTC()}
+		result = Principal{
+			AccountID:       account.ID,
+			Roles:           roles,
+			Capabilities:    CapabilitiesForRoles(roles),
+			RestrictedMode:  account.AdministrativeBlocked,
+			AuthenticatedAt: session.CreatedAt.UTC(),
+			SessionID:       session.ID,
+		}
 		return nil
 	})
 	if errors.Is(err, ErrNotFound) {

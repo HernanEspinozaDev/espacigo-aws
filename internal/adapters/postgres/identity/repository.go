@@ -19,6 +19,17 @@ import (
 type IdentityRepository struct {
 	pool    *pgxpool.Pool
 	queries *dbgen.Queries
+	tx      pgx.Tx
+}
+
+func (r *IdentityRepository) dbtx() dbgen.DBTX {
+	if r.tx != nil {
+		return r.tx
+	}
+	if r.pool != nil {
+		return r.pool
+	}
+	return nil
 }
 
 var (
@@ -116,13 +127,51 @@ func (r *IdentityRepository) CreateSession(ctx context.Context, session identity
 		(session.RevokedAt != nil && session.RevokedAt.Before(session.CreatedAt)) {
 		return identity.ErrInvalid
 	}
-	clientSummary := session.ClientSummary
-	return mapError(r.queries.CreateSession(ctx, dbgen.CreateSessionParams{
-		ID: session.ID, AccountID: session.AccountID, TokenHash: session.TokenHash,
-		CreatedAt: dbTime(session.CreatedAt), LastActivityAt: dbTime(session.LastActivityAt),
-		ExpiresAt: dbTime(session.ExpiresAt), RevokedAt: dbNullableTime(session.RevokedAt),
-		ClientSummary: &clientSummary,
-	}))
+	var clientSummary *string
+	if session.ClientSummary != "" {
+		clientSummary = &session.ClientSummary
+	}
+	var deviceLabel *string
+	if session.DeviceLabel != "" {
+		deviceLabel = &session.DeviceLabel
+	}
+	var ipMasked *string
+	if session.IPMasked != "" {
+		ipMasked = &session.IPMasked
+	}
+	var userAgent *string
+	if session.UserAgent != "" {
+		userAgent = &session.UserAgent
+	}
+
+	dbtx := r.dbtx()
+	if dbtx == nil {
+		return mapError(r.queries.CreateSession(ctx, dbgen.CreateSessionParams{
+			ID: session.ID, AccountID: session.AccountID, TokenHash: session.TokenHash,
+			CreatedAt: dbTime(session.CreatedAt), LastActivityAt: dbTime(session.LastActivityAt),
+			ExpiresAt: dbTime(session.ExpiresAt), RevokedAt: dbNullableTime(session.RevokedAt),
+			ClientSummary: clientSummary,
+		}))
+	}
+
+	const insertSession = `
+INSERT INTO public.sesion (
+    id, usuario_id, token_hash, creada_en, ultima_actividad_en,
+    expira_en, revocada_en, cliente_resumen,
+    device_label, ip_masked, user_agent
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9, $10, $11
+)
+`
+	_, err := dbtx.Exec(ctx, insertSession,
+		session.ID, session.AccountID, session.TokenHash,
+		session.CreatedAt, session.LastActivityAt,
+		session.ExpiresAt, session.RevokedAt,
+		clientSummary, deviceLabel, ipMasked, userAgent,
+	)
+	return mapError(err)
 }
 
 func (r *IdentityRepository) SessionByTokenHash(ctx context.Context, hash string) (identity.Session, error) {

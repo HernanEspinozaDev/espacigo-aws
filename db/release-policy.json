@@ -21,6 +21,10 @@
     "V000103__account_phone_verification.sql": {
       "checksum": "64e6221ba83dd77d8a27b48cbeacfd0d19ea540f1ed0d920492918fe189b2f6d",
       "strategy": "expand"
+    },
+    "V000104__session_device_metadata.sql": {
+      "checksum": "f23d99dea23ddeebb5491e1f569f49b2da0812f5880fef5306fd688cf69b68c3",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {
