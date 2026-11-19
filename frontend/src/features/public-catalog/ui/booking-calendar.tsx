@@ -21,6 +21,7 @@ import type { PublicRentalAvailability } from "../domain/rental-availability";
 import {
   availabilitySelection,
   createGenerationFence,
+  suggestedStaysForUnit,
 } from "../domain/booking-calendar";
 import { publicRentalAvailability } from "../infrastructure/rental-availability-runtime";
 import { publicMonth } from "../infrastructure/public-month-openapi-adapter";
@@ -98,9 +99,36 @@ export function PublicBookingCalendar({
     return initialSelection?.date ?? null;
   });
 
-  const [selectedStayDays, setSelectedStayDays] = useState<number>(
-    initialSelection?.duration ?? (rateUnit === "hora" ? 2 : 1),
+  const suggestedStays = useMemo(
+    () => suggestedStaysForUnit(rateUnit),
+    [rateUnit],
   );
+
+  const defaultDuration = rateUnit === "hora" ? 2 : 1;
+  const initialDuration =
+    initialSelection?.duration &&
+    suggestedStays.some((s) => s.duration === initialSelection.duration)
+      ? initialSelection.duration
+      : defaultDuration;
+
+  const [selectedDuration, setSelectedDuration] =
+    useState<number>(initialDuration);
+
+  const effectiveDuration = useMemo(() => {
+    if (rateUnit === "dia") {
+      if (endDate && startDate && endDate >= startDate) {
+        const days =
+          Math.round(
+            (new Date(`${endDate}T00:00:00Z`).getTime() -
+              new Date(`${startDate}T00:00:00Z`).getTime()) /
+              (1000 * 60 * 60 * 24),
+          ) + 1;
+        return Math.min(3, Math.max(1, days));
+      }
+      return selectedDuration;
+    }
+    return selectedDuration;
+  }, [rateUnit, startDate, endDate, selectedDuration]);
 
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(
     () => {
@@ -196,18 +224,6 @@ export function PublicBookingCalendar({
     const generation = fence.next();
     if (!startDate) return;
 
-    const durationDays =
-      endDate && endDate >= startDate
-        ? Math.max(
-            1,
-            Math.round(
-              (new Date(`${endDate}T00:00:00Z`).getTime() -
-                new Date(`${startDate}T00:00:00Z`).getTime()) /
-                (1000 * 60 * 60 * 24),
-            ) + 1,
-          )
-        : selectedStayDays;
-
     const controller = new AbortController();
 
     Promise.resolve()
@@ -217,7 +233,7 @@ export function PublicBookingCalendar({
         return publicRentalAvailability.getAvailability(
           spaceId,
           startDate,
-          rateUnit === "hora" ? selectedStayDays : durationDays,
+          effectiveDuration,
           controller.signal,
         );
       })
@@ -240,7 +256,7 @@ export function PublicBookingCalendar({
           {
             spaceId,
             date: startDate,
-            duration: rateUnit === "hora" ? selectedStayDays : durationDays,
+            duration: effectiveDuration,
             rateUnit,
           },
           result.value.time_zone,
@@ -262,14 +278,7 @@ export function PublicBookingCalendar({
       fence.next();
       controller.abort();
     };
-  }, [
-    spaceId,
-    startDate,
-    endDate,
-    selectedStayDays,
-    rateUnit,
-    notifySelection,
-  ]);
+  }, [spaceId, startDate, effectiveDuration, rateUnit, notifySelection]);
 
   const invalidateIntervals = () => {
     intervalFence.current.next();
@@ -284,6 +293,14 @@ export function PublicBookingCalendar({
     if (disabled || date < minDate || date > maxDate) return;
     invalidateIntervals();
 
+    if (rateUnit !== "dia") {
+      setStartDate(date);
+      setEndDate(null);
+      setSelectedTicketId(null);
+      notifySelection(null);
+      return;
+    }
+
     if (!startDate || (startDate && endDate)) {
       // First click: sets start date, clears end date
       setStartDate(date);
@@ -293,7 +310,19 @@ export function PublicBookingCalendar({
     } else if (startDate && !endDate) {
       // Second click: completes the range
       if (date >= startDate) {
-        setEndDate(date);
+        const diff =
+          Math.round(
+            (new Date(`${date}T00:00:00Z`).getTime() -
+              new Date(`${startDate}T00:00:00Z`).getTime()) /
+              (1000 * 60 * 60 * 24),
+          ) + 1;
+        if (diff <= 3) {
+          setEndDate(date);
+          setSelectedDuration(diff);
+        } else {
+          setStartDate(date);
+          setEndDate(null);
+        }
       } else {
         // Clicked date is earlier than startDate: reset start to clicked date
         setStartDate(date);
@@ -302,16 +331,20 @@ export function PublicBookingCalendar({
     }
   };
 
-  // Handle stay pills: "1 día", "2 días", "3 días", "1 semana"
-  const handleStayPill = (days: number) => {
+  // Handle stay pills: adapting to rateUnit
+  const handleStayPill = (duration: number) => {
     invalidateIntervals();
-    setSelectedStayDays(days);
+    setSelectedDuration(duration);
     if (startDate) {
-      try {
-        const nextEnd = addCivilDays(startDate, days - 1);
-        setEndDate(nextEnd);
-      } catch {
-        setEndDate(startDate);
+      if (rateUnit === "dia") {
+        try {
+          const nextEnd = addCivilDays(startDate, duration - 1);
+          setEndDate(nextEnd);
+        } catch {
+          setEndDate(startDate);
+        }
+      } else {
+        setEndDate(null);
       }
     }
   };
@@ -360,22 +393,10 @@ export function PublicBookingCalendar({
     setSelectedTicketId(t.id);
     if (!startDate) return;
 
-    const durationDays =
-      endDate && endDate >= startDate
-        ? Math.max(
-            1,
-            Math.round(
-              (new Date(`${endDate}T00:00:00Z`).getTime() -
-                new Date(`${startDate}T00:00:00Z`).getTime()) /
-                (1000 * 60 * 60 * 24),
-            ) + 1,
-          )
-        : selectedStayDays;
-
     notifySelection({
       spaceId,
       date: startDate,
-      duration: rateUnit === "hora" ? selectedStayDays : durationDays,
+      duration: effectiveDuration,
       rateUnit,
       startAt: t.interval.start_at,
       endAt: t.interval.end_at,
@@ -444,34 +465,31 @@ export function PublicBookingCalendar({
       </header>
 
       {/* Stay Pills */}
-      <div className="flex flex-wrap items-center gap-2 pt-1">
-        <span className="text-xs font-semibold text-neutral-600 mr-1">
-          Estadía sugerida:
-        </span>
-        {[
-          { label: "1 día", days: 1 },
-          { label: "2 días", days: 2 },
-          { label: "3 días", days: 3 },
-          { label: "1 semana", days: 7 },
-        ].map((pill) => {
-          const isPillActive = selectedStayDays === pill.days;
-          return (
-            <button
-              key={pill.days}
-              type="button"
-              disabled={disabled}
-              onClick={() => handleStayPill(pill.days)}
-              className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
-                isPillActive
-                  ? "bg-[#A83820] text-white shadow-xs"
-                  : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200/80"
-              }`}
-            >
-              {pill.label}
-            </button>
-          );
-        })}
-      </div>
+      {suggestedStays.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-xs font-semibold text-neutral-600 mr-1">
+            Estadía sugerida:
+          </span>
+          {suggestedStays.map((pill) => {
+            const isPillActive = effectiveDuration === pill.duration;
+            return (
+              <button
+                key={pill.duration}
+                type="button"
+                disabled={disabled}
+                onClick={() => handleStayPill(pill.duration)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-all ${
+                  isPillActive
+                    ? "bg-[#A83820] text-white shadow-xs"
+                    : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200/80"
+                }`}
+              >
+                {pill.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Clean 7-column Calendar Grid */}
       <div className="space-y-1">
