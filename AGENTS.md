@@ -4,16 +4,23 @@
 
 | Rama | Entorno | Operación |
 | --- | --- | --- |
+| `codex/marketplace/feature/pagos-1-modulo-pagos` | Entorno local | Rama de trabajo del módulo de pagos, creada desde `origin/desarrollo-local`. Se integra a `desarrollo-local`. |
 | `desarrollo-local` | AWS Emulator, PostgreSQL y Mailpit locales | Cambios de código e infraestructura, fixtures y pruebas de desarrollo. |
 | `main` | Producción en AWS real | Recibe commits probados de `desarrollo-local` mediante promoción explícita del usuario. La CI y CodePipeline publican automáticamente el SHA integrado cuando pasan las comprobaciones. |
 
-1. Trabaja y prueba en `desarrollo-local` con Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
+1. Usa `desarrollo-local` para integrar y probar los cambios. Usa Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
 2. Ejecuta `scripts/local-dev.sh` y usa credenciales del emulador sólo para desarrollo local. Mantén `.local/`, dumps, tokens y llaves fuera de Git.
 3. GitHub Actions ejecuta la CI de `main`. Si `release-ready` aprueba el SHA vigente, el workflow avanza la referencia técnica `publicacion-aws`. Sólo el workflow debe actualizar esa rama. CodePipeline detecta el cambio mediante CodeConnections, valida el mismo SHA, publica imágenes, verifica migraciones y despliega. Mantén desactivado el job de despliegue OIDC en el proyecto administrado mientras la SCP bloquee los proveedores IAM. Para operaciones humanas, usa AWS CLI v2 con `aws login` y un perfil de producción explícito en la Región seleccionada. Mantén las sesiones, los endpoints y los secretos separados de los del emulador.
 4. Mantén Go en AWS SDK v2. Usa endpoint local y `UsePathStyle` para S3 emulado. Usa la resolución estándar de AWS para producción. Conserva la arquitectura AWS del repositorio.
 5. Comprueba RDS de producción con [el procedimiento temporal](docs/operations/aws-production-deployment.md#comprobar-rds-con-recursos-temporales). Cada ejecución aprovisiona una Lambda privada, un endpoint de Secrets Manager y un rol acotado. Durante la revisión de migraciones en RDS, conserva abiertos el endpoint, la Lambda y sus permisos hasta que el usuario indique explícitamente retirarlos. Reutiliza el recibo activo para las siguientes comprobaciones. Fuera de esa ventana, verifica la retirada al terminar. Para las migraciones usa un único login operativo, `espacigo_migrator_login`, que asume `espacigo_schema_owner`. En local, `scripts/local-dev.sh migrate-plan` y `scripts/local-dev.sh migrate` usan ese mismo par con una credencial exclusiva de la base local.
 6. Mantén las funciones de ensayo y los datos sintéticos en el entorno local. La demo de arriendo usa un pago simulado. El despliegue de presentación puede habilitar el modo acotado, que exige una pareja de cuentas autenticadas y un espacio identificado en la configuración de la tarea ECS. Las credenciales, cuentas sintéticas y fixtures locales quedan fuera de Git.
 7. Sigue el [plan de despliegue y CI/CD](docs/operations/aws-production-deployment.md) para preparar el destino de AWS, activar el pipeline y recuperar un despliegue.
+
+### Flujo del módulo de pagos
+
+Crea y mantén la rama `codex/marketplace/feature/pagos-1-modulo-pagos` a partir de `origin/desarrollo-local`. Haz los cambios del módulo allí y usa `desarrollo-local` como destino de integración en GitHub. Una vez integrado el módulo, ejecuta las comprobaciones en `desarrollo-local`. La promoción de los commits aprobados desde `desarrollo-local` a `main` requiere autorización explícita del usuario. Si abres un PR para el módulo, selecciona `desarrollo-local` como base.
+
+Consulta la [guía de Mercado Pago Chile](docs/operations/mercado-pago-chile.md) para preparar el entorno de prueba.
 
 ### Alcance de una promoción a `main`
 
