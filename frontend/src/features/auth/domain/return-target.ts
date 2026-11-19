@@ -53,6 +53,7 @@ const fixedPaths = new Set([
   "/mi-cuenta/seguridad/metodos/contrasena",
   "/mi-cuenta/seguridad/metodos/telefono",
   "/mi-cuenta/seguridad/metodos/google-authenticator",
+  "/mi-cuenta/seguridad/metodos/codigo-qr",
   "/mi-cuenta/seguridad/alertas",
   "/mi-cuenta/seguridad/dispositivos",
   "/mi-cuenta/seguridad/ubicacion",

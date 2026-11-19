@@ -37,6 +37,10 @@
     "V000107__passkeys_webauthn.sql": {
       "checksum": "d4abe3272cb446be1739e03d626e0136d1e8f97c1edfe321f706de68cc2f321e",
       "strategy": "expand"
+    },
+    "V000108__qr_verification_tickets.sql": {
+      "checksum": "81cd66c4f105a63adc17c987800bea23acca1a03228193438c9b906339c86e98",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

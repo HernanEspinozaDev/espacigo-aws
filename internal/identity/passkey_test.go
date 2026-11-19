@@ -182,6 +182,30 @@ func (r *passkeyTestRepo) DeletePasskey(_ context.Context, accountID, passkeyID 
 func (r *passkeyTestRepo) GetAccountDisplayName(_ context.Context, accountID string) (string, error) {
 	return r.displayNames[accountID], nil
 }
+func (r *passkeyTestRepo) GetQRDevice(context.Context, string) (*identity.AccountQRDeviceRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) UpsertQRDevice(context.Context, string, time.Time, string) error {
+	return nil
+}
+func (r *passkeyTestRepo) DisableQRDevice(context.Context, string, time.Time) error {
+	return nil
+}
+func (r *passkeyTestRepo) SaveQRTicket(context.Context, identity.AccountQRTicketRecord) error {
+	return nil
+}
+func (r *passkeyTestRepo) GetQRTicketByID(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) GetQRTicketByTokenHash(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (r *passkeyTestRepo) ApproveQRTicket(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (r *passkeyTestRepo) ExpireQRTicket(context.Context, string) error {
+	return nil
+}
 
 type testCredGen struct{ seq int }
 

@@ -1700,6 +1700,75 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/account/security/qr": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Obtiene el estado de vinculación del dispositivo de verificación QR de la cuenta. */
+    get: operations["getAccountQRStatus"];
+    put?: never;
+    post?: never;
+    /** @description Desvincula y deshabilita el dispositivo de verificación QR de la cuenta. */
+    delete: operations["disableAccountQR"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/ticket": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Genera un nuevo ticket efímero de verificación mediante código QR con TTL de 120 segundos. */
+    post: operations["createAccountQRTicket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/ticket/{ticket_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Consulta el estado de resolución de un ticket de verificación QR. */
+    get: operations["getAccountQRTicketStatus"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/qr/approve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Aprueba un ticket de verificación QR escaneado desde el dispositivo móvil confiable. */
+    post: operations["approveAccountQRTicket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/profile": {
     parameters: {
       query?: never;
@@ -6585,6 +6654,51 @@ export interface components {
       /** Format: uuid */
       passkey_id: string;
     };
+    AccountQRStatusResponse: {
+      /** @example true */
+      enabled: boolean;
+      /** Format: date-time */
+      enabled_at?: string | null;
+      /** @example iPhone 15 Pro */
+      trusted_device_label?: string | null;
+    };
+    AccountQRDisableResponse: {
+      /** @example false */
+      enabled: boolean;
+    };
+    AccountQRTicketResponse: {
+      /** Format: uuid */
+      ticket_id: string;
+      /** @example v1.qr.secret-payload-token */
+      qr_payload: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    AccountQRTicketStatusResponse: {
+      /** Format: uuid */
+      ticket_id: string;
+      /**
+       * @example pending
+       * @enum {string}
+       */
+      status: "pending" | "approved" | "rejected" | "expired";
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      resolved_at?: string | null;
+    };
+    AccountQRApproveInput: {
+      /** @example v1.qr.secret-payload-token */
+      token: string;
+      /** @example iPhone 15 Pro */
+      device_label?: string;
+    };
+    AccountQRApproveResponse: {
+      /** @example approved */
+      status: string;
+      /** Format: date-time */
+      resolved_at: string;
+    };
     Profile: {
       display_name: string;
       phone?: string | null;
@@ -11154,6 +11268,133 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountQRStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de verificación QR. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  disableAccountQR: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Verificación QR desactivada exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRDisableResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  createAccountQRTicket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ticket QR generado exitosamente. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRTicketResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  getAccountQRTicketStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ticket_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado actual del ticket QR. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRTicketStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
+  approveAccountQRTicket: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccountQRApproveInput"];
+      };
+    };
+    responses: {
+      /** @description Ticket QR aprobado exitosamente y dispositivo vinculado. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccountQRApproveResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
       500: components["responses"]["InternalServerError"];
     };
   };

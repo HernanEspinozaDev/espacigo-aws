@@ -2657,6 +2657,130 @@ paths:
           $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /account/security/qr:
+    get:
+      operationId: getAccountQRStatus
+      tags:
+        - M01 local
+      description: Obtiene el estado de vinculación del dispositivo de verificación QR de la cuenta.
+      responses:
+        "200":
+          description: Estado de verificación QR.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    delete:
+      operationId: disableAccountQR
+      tags:
+        - M01 local
+      description: Desvincula y deshabilita el dispositivo de verificación QR de la cuenta.
+      responses:
+        "200":
+          description: Verificación QR desactivada exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRDisableResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/ticket:
+    post:
+      operationId: createAccountQRTicket
+      tags:
+        - M01 local
+      description: Genera un nuevo ticket efímero de verificación mediante código QR con TTL de 120 segundos.
+      responses:
+        "200":
+          description: Ticket QR generado exitosamente.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRTicketResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/ticket/{ticket_id}:
+    get:
+      operationId: getAccountQRTicketStatus
+      tags:
+        - M01 local
+      description: Consulta el estado de resolución de un ticket de verificación QR.
+      parameters:
+        - name: ticket_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Estado actual del ticket QR.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRTicketStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/qr/approve:
+    post:
+      operationId: approveAccountQRTicket
+      tags:
+        - M01 local
+      description: Aprueba un ticket de verificación QR escaneado desde el dispositivo móvil confiable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountQRApproveInput"
+      responses:
+        "200":
+          description: Ticket QR aprobado exitosamente y dispositivo vinculado.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountQRApproveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -8822,6 +8946,100 @@ components:
         passkey_id:
           type: string
           format: uuid
+    AccountQRStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: true
+        enabled_at:
+          type: string
+          format: date-time
+          nullable: true
+        trusted_device_label:
+          type: string
+          nullable: true
+          example: "iPhone 15 Pro"
+    AccountQRDisableResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+          example: false
+    AccountQRTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticket_id
+        - qr_payload
+        - expires_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        qr_payload:
+          type: string
+          example: "v1.qr.secret-payload-token"
+        expires_at:
+          type: string
+          format: date-time
+    AccountQRTicketStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticket_id
+        - status
+        - expires_at
+      properties:
+        ticket_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - approved
+            - rejected
+            - expired
+          example: "pending"
+        expires_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+    AccountQRApproveInput:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          example: "v1.qr.secret-payload-token"
+        device_label:
+          type: string
+          example: "iPhone 15 Pro"
+    AccountQRApproveResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - resolved_at
+      properties:
+        status:
+          type: string
+          example: "approved"
+        resolved_at:
+          type: string
+          format: date-time
     Profile:
       type: object
       required: [ display_name, updated_at ]

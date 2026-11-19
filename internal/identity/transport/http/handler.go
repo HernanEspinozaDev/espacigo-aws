@@ -136,17 +136,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountPasskeysRegisterOptionsPath = "/api/v1/account/security/passkeys/register/options"
 		accountPasskeysRegisterVerifyPath  = "/api/v1/account/security/passkeys/register/verify"
 		accountPasskeysPrefix          = "/api/v1/account/security/passkeys/"
+		accountQRPath                  = "/api/v1/account/security/qr"
+		accountQRTicketPath            = "/api/v1/account/security/qr/ticket"
+		accountQRTicketPrefix          = "/api/v1/account/security/qr/ticket/"
+		accountQRApprovePath           = "/api/v1/account/security/qr/approve"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	passkeyDeletePath := strings.HasPrefix(r.URL.Path, accountPasskeysPrefix) && r.URL.Path != accountPasskeysRegisterOptionsPath && r.URL.Path != accountPasskeysRegisterVerifyPath
+	qrTicketStatusPath := strings.HasPrefix(r.URL.Path, accountQRTicketPrefix)
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath {
 		expected = http.MethodGet
 	}
 	if r.URL.Path == accountAlertsChannelsPath {
 		expected = http.MethodPut
 	}
-	if deviceDeletePath || passkeyDeletePath {
+	if deviceDeletePath || passkeyDeletePath || (r.URL.Path == accountQRPath && r.Method == http.MethodDelete) {
 		expected = http.MethodDelete
 	}
 
@@ -206,10 +211,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountPasskeysPath:                      true,
 		accountPasskeysRegisterOptionsPath:        true,
 		accountPasskeysRegisterVerifyPath:         true,
+		accountQRPath:                            true,
+		accountQRTicketPath:                      true,
+		accountQRApprovePath:                     true,
 		suppressionQueuePath:                     true,
 		credentialNoticeQueuePath:                true,
 	}
-	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath && !passkeyDeletePath {
+	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath && !deviceDeletePath && !passkeyDeletePath && !qrTicketStatusPath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
 	}
@@ -223,6 +231,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.URL.Path == accountAlertsChannelsPath {
 			allow = "PUT"
+		}
+		if r.URL.Path == accountQRPath {
+			allow = "GET, DELETE"
 		}
 		w.Header().Set("Allow", allow)
 		h.fail(w, 405, "method_not_allowed", "Método no permitido.")
@@ -326,6 +337,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"status":     "deleted",
 			"passkey_id": passkeyID,
 		})
+		return
+	}
+	if qrTicketStatusPath {
+		ticketID := strings.TrimPrefix(r.URL.Path, accountQRTicketPrefix)
+		if ticketID == "" || strings.Contains(ticketID, "/") || !canonicalUUID(ticketID) {
+			h.fail(w, http.StatusNotFound, "not_found", "Ticket no encontrado.")
+			return
+		}
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		status, err := h.service.GetQRTicketStatus(r.Context(), principal.AccountID, ticketID)
+		if err != nil {
+			h.qrError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, status)
 		return
 	}
 	// RemoteAddr is trusted for the local direct topology. Never trust forwarded headers.
@@ -791,6 +826,77 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			h.write(w, http.StatusOK, passkey)
+			return
+		}
+	case accountQRPath, accountQRTicketPath, accountQRApprovePath:
+		parts := strings.Fields(r.Header.Get("Authorization"))
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			h.serviceError(w, identity.ErrUnauthorized)
+			return
+		}
+		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+
+		switch r.URL.Path {
+		case accountQRPath:
+			if r.Method == http.MethodDelete {
+				deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
+				ipMasked := identity.MaskIP(clientIPForDevice(r))
+				resp, err := h.service.DisableQR(r.Context(), principal.AccountID, deviceLabel, ipMasked)
+				if err != nil {
+					h.qrError(w, err)
+					return
+				}
+				h.write(w, http.StatusOK, resp)
+				return
+			}
+			status, err := h.service.GetQRStatus(r.Context(), principal.AccountID)
+			if err != nil {
+				h.qrError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, status)
+			return
+
+		case accountQRTicketPath:
+			var input struct {
+				DeviceLabel string `json:"device_label"`
+			}
+			if r.Body != nil && r.ContentLength > 0 {
+				_ = json.NewDecoder(io.LimitReader(r.Body, 1024)).Decode(&input)
+			}
+			deviceLabel := input.DeviceLabel
+			if deviceLabel == "" {
+				deviceLabel = identity.DeriveDeviceLabel(r.UserAgent())
+			}
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.CreateQRTicket(r.Context(), principal.AccountID, deviceLabel, ipMasked)
+			if err != nil {
+				h.qrError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
+			return
+
+		case accountQRApprovePath:
+			var input identity.ApproveQRTicketInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			deviceLabel := input.DeviceLabel
+			if deviceLabel == "" {
+				deviceLabel = identity.DeriveDeviceLabel(r.UserAgent())
+			}
+			ipMasked := identity.MaskIP(clientIPForDevice(r))
+			resp, err := h.service.ApproveQRTicket(r.Context(), principal.AccountID, input.Token, deviceLabel, ipMasked)
+			if err != nil {
+				h.qrError(w, err)
+				return
+			}
+			h.write(w, http.StatusOK, resp)
 			return
 		}
 	case "/api/v1/auth/terms":
@@ -1281,6 +1387,27 @@ func (h *Handler) passkeyError(w http.ResponseWriter, err error) {
 		h.fail(w, http.StatusConflict, "credential_conflict", "Esta llave de acceso ya se encuentra registrada.")
 	case errors.Is(err, identity.ErrPasskeyNotFound):
 		h.fail(w, http.StatusNotFound, "passkey_not_found", "Llave de acceso no encontrada.")
+	case errors.Is(err, identity.ErrNotFound):
+		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+	case errors.Is(err, identity.ErrInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_request", "Parámetros de solicitud inválidos.")
+	default:
+		h.serviceError(w, err)
+	}
+}
+
+func (h *Handler) qrError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, identity.ErrQRTicketNotFound):
+		h.fail(w, http.StatusNotFound, "ticket_not_found", "Ticket de verificación QR no encontrado.")
+	case errors.Is(err, identity.ErrQRTicketExpired):
+		h.fail(w, http.StatusUnprocessableEntity, "ticket_expired", "El ticket de verificación QR ha expirado.")
+	case errors.Is(err, identity.ErrQRTicketResolved):
+		h.fail(w, http.StatusConflict, "ticket_already_resolved", "El ticket de verificación QR ya fue resuelto.")
+	case errors.Is(err, identity.ErrQRTicketInvalid):
+		h.fail(w, http.StatusBadRequest, "invalid_qr_token", "El token de verificación QR es inválido.")
+	case errors.Is(err, identity.ErrQRDeviceNotEnabled):
+		h.fail(w, http.StatusBadRequest, "qr_not_enabled", "El dispositivo QR no se encuentra activado.")
 	case errors.Is(err, identity.ErrNotFound):
 		h.fail(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
 	case errors.Is(err, identity.ErrInvalid):

@@ -134,6 +134,30 @@ func (m *mockAlertsRepo) DeletePasskey(context.Context, string, string) error {
 func (m *mockAlertsRepo) GetAccountDisplayName(context.Context, string) (string, error) {
 	return "", nil
 }
+func (m *mockAlertsRepo) GetQRDevice(context.Context, string) (*identity.AccountQRDeviceRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) UpsertQRDevice(context.Context, string, time.Time, string) error {
+	return nil
+}
+func (m *mockAlertsRepo) DisableQRDevice(context.Context, string, time.Time) error {
+	return nil
+}
+func (m *mockAlertsRepo) SaveQRTicket(context.Context, identity.AccountQRTicketRecord) error {
+	return nil
+}
+func (m *mockAlertsRepo) GetQRTicketByID(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) GetQRTicketByTokenHash(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (m *mockAlertsRepo) ApproveQRTicket(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (m *mockAlertsRepo) ExpireQRTicket(context.Context, string) error {
+	return nil
+}
 
 type alertsTestHasher struct{}
 

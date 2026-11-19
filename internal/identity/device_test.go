@@ -282,6 +282,30 @@ func (f *fakeDeviceRepo) DeletePasskey(context.Context, string, string) error {
 func (f *fakeDeviceRepo) GetAccountDisplayName(context.Context, string) (string, error) {
 	return "", nil
 }
+func (f *fakeDeviceRepo) GetQRDevice(context.Context, string) (*identity.AccountQRDeviceRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) UpsertQRDevice(context.Context, string, time.Time, string) error {
+	return nil
+}
+func (f *fakeDeviceRepo) DisableQRDevice(context.Context, string, time.Time) error {
+	return nil
+}
+func (f *fakeDeviceRepo) SaveQRTicket(context.Context, identity.AccountQRTicketRecord) error {
+	return nil
+}
+func (f *fakeDeviceRepo) GetQRTicketByID(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) GetQRTicketByTokenHash(context.Context, string) (*identity.AccountQRTicketRecord, error) {
+	return nil, nil
+}
+func (f *fakeDeviceRepo) ApproveQRTicket(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (f *fakeDeviceRepo) ExpireQRTicket(context.Context, string) error {
+	return nil
+}
 
 type dummyHasher struct{}
 
