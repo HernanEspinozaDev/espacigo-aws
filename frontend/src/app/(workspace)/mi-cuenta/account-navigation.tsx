@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  CalendarDays,
   FileCheck,
   FileText,
   Lock,
@@ -25,6 +26,12 @@ const items = [
     href: "/anfitrion/espacios",
     icon: Building2,
     description: "Administra tus espacios",
+  },
+  {
+    title: "Mis reservas",
+    href: "/reservas",
+    icon: CalendarDays,
+    description: "Consulta y administra tus reservas",
   },
   {
     title: "Seguridad",
