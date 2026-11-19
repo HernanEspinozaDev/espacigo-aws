@@ -273,6 +273,11 @@ func run() error {
 			// The optional demonstration must never make the storefront unavailable.
 			log.Printf("hosted rental demo disabled: %v", err)
 		}
+		admin, err := adminglobal.New(pool, time.Now)
+		if err != nil {
+			return errors.New("production global admin initialization failed")
+		}
+		registerProductionAdminAccountRoutes(mux, adminglobalhttp.NewHandler(authService, admin, cfg.allowedOrigins))
 		localIdentityService = authService
 	}
 	if prototypeEnabled {
@@ -1144,4 +1149,13 @@ func localPaymentEventKey() ([]byte, error) {
 		return nil, errors.New("local payment event authentication secret is invalid")
 	}
 	return key, nil
+}
+
+// The hosted account dashboard exposes reads through the same capability and
+// audit checks as local administration.
+func registerProductionAdminAccountRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/admin/global/me", handler)
+	mux.Handle("GET /api/v1/admin/global/overview", handler)
+	mux.Handle("GET /api/v1/admin/global/accounts", handler)
+	mux.Handle("GET /api/v1/admin/global/accounts/{accountID}", handler)
 }
