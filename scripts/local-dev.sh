@@ -243,6 +243,7 @@ cmd_test() {
 cmd_api() {
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
+  export ENVIRONMENT=development
 
   # Base de datos
   export DATABASE_CONNECTION_MODE="direct"
@@ -290,6 +291,7 @@ cmd_api() {
 cmd_web() {
   echo "=== [EspaciGo AWS] Iniciando Frontend Next.js en http://127.0.0.1:3000 ==="
   export API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1"
+  export ENVIRONMENT=development
   export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
   export PORT="3000"
   (
