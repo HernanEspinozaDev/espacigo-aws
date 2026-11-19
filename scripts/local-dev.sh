@@ -261,12 +261,20 @@ cmd_api() {
   export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
   export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}"
   export LOCAL_AUTH_PROTOTYPE="1"
-  export COMMERCIAL_RENTAL_FLOW_ENABLED="${COMMERCIAL_RENTAL_FLOW_ENABLED:-0}"
-  if [[ "$COMMERCIAL_RENTAL_FLOW_ENABLED" == "1" ]]; then
-    export LOCAL_BOOKING_TRIAL="0"
-  else
-    export LOCAL_BOOKING_TRIAL="1"
-  fi
+  case "${COMMERCIAL_RENTAL_FLOW_ENABLED:-0}" in
+    1)
+      export COMMERCIAL_RENTAL_FLOW_ENABLED="1"
+      export LOCAL_BOOKING_TRIAL="0"
+      ;;
+    0|"")
+      unset COMMERCIAL_RENTAL_FLOW_ENABLED
+      export LOCAL_BOOKING_TRIAL="1"
+      ;;
+    *)
+      echo "ERROR: COMMERCIAL_RENTAL_FLOW_ENABLED must be 0 or 1." >&2
+      return 1
+      ;;
+  esac
   export LOCAL_VERIFICATION_IP_LIMIT="100"
   export LOCAL_SMTP_ADDR="127.0.0.1:1025"
 
