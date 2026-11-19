@@ -17,19 +17,22 @@ import (
 )
 
 type demoRepository interface {
+	ListDemoEarlyRentals(context.Context, uuid.UUID, string, time.Time, uuid.UUID, int) ([]earlyrental.Result, bool, error)
 	CreateEarlyRental(context.Context, uuid.UUID, uuid.UUID, time.Time, time.Time, string) (earlyrental.Result, error)
 	GetEarlyRental(context.Context, uuid.UUID, uuid.UUID) (earlyrental.Result, error)
 	ConfirmEarlyRental(context.Context, uuid.UUID, uuid.UUID, earlyrental.Command) (earlyrental.Result, error)
 	PayEarlyRental(context.Context, uuid.UUID, uuid.UUID, uint64, booking.LocalPaymentAdapter) (earlyrental.Result, error)
 }
 
-func RegisterDemo(mux *http.ServeMux, auth Authenticator, repo demoRepository, processor booking.LocalPaymentAdapter, origins []string) {
-	h := demoHandler{auth: auth, repo: repo, processor: processor, origins: origins}
+func RegisterDemo(mux *http.ServeMux, auth Authenticator, repo demoRepository, processor booking.LocalPaymentAdapter, cursor *EarlyRentalCursorCodec, origins []string) {
+	h := demoHandler{auth: auth, repo: repo, processor: processor, cursor: cursor, origins: origins}
 	const base = "/api/v1/local/early-rentals"
+	mux.HandleFunc("GET "+base, h.serve("list"))
 	mux.HandleFunc("POST "+base, h.serve("create"))
 	mux.HandleFunc("GET "+base+"/{offerID}", h.serve("detail"))
 	mux.HandleFunc("POST "+base+"/{offerID}/identity-confirmations", h.serve(earlyrental.CommandConfirmIdentity))
 	mux.HandleFunc("POST "+base+"/{offerID}/contract-acceptances", h.serve(earlyrental.CommandAcceptContract))
+	mux.HandleFunc("POST "+base+"/{offerID}/reject", h.serve(earlyrental.CommandReject))
 	mux.HandleFunc("POST "+base+"/{offerID}/pay", h.serve(earlyrental.CommandSendPayment))
 	mux.HandleFunc("OPTIONS "+base, h.serve(""))
 	mux.HandleFunc("OPTIONS "+base+"/{offerID}", h.serve(""))
@@ -41,6 +44,7 @@ type demoHandler struct {
 	auth      Authenticator
 	repo      demoRepository
 	processor booking.LocalPaymentAdapter
+	cursor    *EarlyRentalCursorCodec
 	origins   []string
 }
 
@@ -70,6 +74,10 @@ func (h demoHandler) serve(command earlyrental.CommandKind) http.HandlerFunc {
 			demoError(w, identity.ErrUnauthorized, requestID)
 			return
 		}
+		if command == "list" {
+			h.list(w, r, actor, requestID)
+			return
+		}
 		if r.URL.RawQuery != "" {
 			demoError(w, earlyrental.ErrInvalid, requestID)
 			return
@@ -85,7 +93,17 @@ func (h demoHandler) serve(command earlyrental.CommandKind) http.HandlerFunc {
 			return
 		}
 		view.Data.AllowedActions = slices.DeleteFunc(view.Data.AllowedActions, func(action earlyrental.CommandKind) bool {
-			return action != earlyrental.CommandAcceptContract && action != earlyrental.CommandConfirmIdentity && action != earlyrental.CommandSendPayment
+			switch action {
+			case earlyrental.CommandReject:
+				return result.Offer.HostID != actor.String() || result.Offer.State != earlyrental.StatePendingIdentity ||
+					!result.Offer.IdentityConfirmed[actor.String()].IsZero()
+			case earlyrental.CommandConfirmIdentity:
+				return result.Offer.HostID == actor.String() && result.Offer.IdentityConfirmed[result.Offer.RenterID].IsZero()
+			case earlyrental.CommandAcceptContract, earlyrental.CommandSendPayment:
+				return false
+			default:
+				return true
+			}
 		})
 		etag, err := FormatEarlyRentalETag(result.Offer.ID, result.Offer.Revision)
 		if err != nil {
@@ -100,6 +118,57 @@ func (h demoHandler) serve(command earlyrental.CommandKind) http.HandlerFunc {
 		}
 		writeCapabilities(w, http.StatusOK, view)
 	}
+}
+
+func (h demoHandler) list(w http.ResponseWriter, r *http.Request, actor uuid.UUID, requestID string) {
+	query, err := DecodeEarlyRentalListQuery(r.URL.Query())
+	if err != nil {
+		demoError(w, earlyrental.ErrInvalid, requestID)
+		return
+	}
+	binding := query.CursorBinding(actor.String())
+	var position EarlyRentalCursorPosition
+	var afterID uuid.UUID
+	if query.Cursor != nil {
+		position, err = h.cursor.Decode(*query.Cursor, binding)
+		if err != nil {
+			demoError(w, earlyrental.ErrInvalid, requestID)
+			return
+		}
+		afterID = uuid.MustParse(position.ID)
+	}
+	role := ""
+	switch binding.Role {
+	case earlyRentalRoleHost:
+		role = "host"
+	case earlyRentalRoleRenter:
+		role = "renter"
+	}
+	rows, more, err := h.repo.ListDemoEarlyRentals(r.Context(), actor, role, position.CreatedAt, afterID, query.Limit)
+	if err != nil {
+		demoError(w, err, requestID)
+		return
+	}
+	sources := make([]earlyRentalSummarySource, 0, len(rows))
+	for _, row := range rows {
+		sources = append(sources, earlyRentalSummarySource{Offer: row.Offer, CreatedAt: row.CreatedAt})
+	}
+	var next *string
+	if more && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		token, err := h.cursor.Encode(binding, EarlyRentalCursorPosition{CreatedAt: last.CreatedAt, ID: last.Offer.ID})
+		if err != nil {
+			demoError(w, err, requestID)
+			return
+		}
+		next = &token
+	}
+	view, err := projectEarlyRentalList(sources, actor.String(), next)
+	if err != nil {
+		demoError(w, err, requestID)
+		return
+	}
+	writeCapabilities(w, http.StatusOK, view)
 }
 
 func (h demoHandler) allowOrigin(w http.ResponseWriter, r *http.Request) bool {

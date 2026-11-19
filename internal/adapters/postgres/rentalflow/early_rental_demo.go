@@ -81,9 +81,40 @@ func (r *Repository) ConfirmEarlyRental(ctx context.Context, actor, id uuid.UUID
 		offer := stored.Offer
 		switch command.Kind {
 		case earlyrental.CommandConfirmIdentity:
+			if actor.String() == offer.HostID && offer.IdentityConfirmed[offer.RenterID].IsZero() {
+				return earlyRentalStoredOffer{}, earlyrental.ErrWrongState
+			}
 			if _, done := offer.IdentityConfirmed[actor.String()]; done {
 				return stored, nil
 			}
+		case earlyrental.CommandReject:
+			if actor.String() != offer.HostID {
+				return earlyRentalStoredOffer{}, earlyrental.ErrForbidden
+			}
+			if offer.State == earlyrental.StateRejected {
+				return stored, nil
+			}
+			if offer.State != earlyrental.StatePendingIdentity || !offer.IdentityConfirmed[offer.HostID].IsZero() {
+				return earlyRentalStoredOffer{}, earlyrental.ErrWrongState
+			}
+			now := r.now().UTC().Truncate(time.Microsecond)
+			next, event, err := earlyrental.Apply(offer, actor.String(), command, now)
+			if err != nil {
+				return earlyRentalStoredOffer{}, err
+			}
+			batch := &pgx.Batch{}
+			batch.Queue(`UPDATE public.arriendo_temprano SET estado=$2,revision=$3,actualizada_en=$4
+				WHERE id=$1 AND revision=$3-1`, id, next.State, int64(next.Revision), now)
+			batch.Queue(`UPDATE public.ocupacion SET activo=false,desactivada_en=$2
+				WHERE arriendo_temprano_id=$1 AND tipo='retencion_temprana' AND activo`, id, now)
+			batch.Queue(`INSERT INTO public.arriendo_temprano_evento
+				(arriendo_id,secuencia,revision,tipo,actor_id,ocurrido_en,estado_anterior,estado_nuevo,motivo_codigo)
+				VALUES($1,$2,$2,$3,$4,$5,$6,$7,$8)`,
+				id, int64(next.Revision), event.Kind, actor, now, event.PreviousState, event.NextState, event.ReasonCode)
+			if err := executeEarlyRentalBatch(ctx, tx, batch); err != nil {
+				return earlyRentalStoredOffer{}, err
+			}
+			return readEarlyRentalOffer(ctx, tx, actor, id)
 		case earlyrental.CommandAcceptContract:
 			if command.ContractVersion != offer.ContractVersion || command.ContractDigest != offer.ContractDigest {
 				return earlyRentalStoredOffer{}, earlyrental.ErrContractMismatch
@@ -149,6 +180,10 @@ func persistEarlyRentalApproval(ctx context.Context, tx pgx.Tx, id uuid.UUID, of
 	batch.Queue(`INSERT INTO public.arriendo_temprano_evento
 		(arriendo_id,secuencia,revision,tipo,ocurrido_en,estado_anterior,estado_nuevo,pago_id,procesador_referencia)
 		VALUES($1,$2,$2,$3,$4,$5,$6,$7,$8)`, id, int64(event.Revision), event.Kind, event.At, event.PreviousState, event.NextState, offer.PaymentID, reference)
+	return executeEarlyRentalBatch(ctx, tx, batch)
+}
+
+func executeEarlyRentalBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch) error {
 	results := tx.SendBatch(ctx, batch)
 	defer results.Close()
 	for range batch.Len() {
@@ -176,4 +211,31 @@ func (r *Repository) earlyRentalTransaction(ctx context.Context, run func(pgx.Tx
 		return earlyrental.Result{}, err
 	}
 	return result, nil
+}
+
+func (r *Repository) ListDemoEarlyRentals(ctx context.Context, actor uuid.UUID, role string, afterAt time.Time, afterID uuid.UUID, limit int) ([]earlyrental.Result, bool, error) {
+	input := EarlyRentalOfferListInput{ActorID: actor, Role: role, Limit: limit}
+	if afterID != uuid.Nil {
+		input.After = &EarlyRentalOfferListPosition{CreatedAt: afterAt, ID: afterID}
+	}
+	for range 3 {
+		var page EarlyRentalOfferListResult
+		err := pgx.BeginFunc(ctx, r.beginner, func(tx pgx.Tx) error {
+			var err error
+			page, err = listEarlyRentalOffers(ctx, tx, input)
+			return err
+		})
+		if errors.Is(err, ErrEarlyRentalOfferListRetry) {
+			continue
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		results := make([]earlyrental.Result, 0, len(page.Rows))
+		for _, row := range page.Rows {
+			results = append(results, earlyrental.Result{Offer: row.Offer, CreatedAt: row.CreatedAt})
+		}
+		return results, page.Next != nil, nil
+	}
+	return nil, false, rentalflow.ErrConflict
 }

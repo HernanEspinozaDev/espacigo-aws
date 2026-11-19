@@ -4,20 +4,23 @@
 
 **Estado al 17 de noviembre de 2026.** Demo implementada en Go, con V100 aplicada en PostgreSQL local. Las confirmaciones, la aprobación del procesador y la ocupación se verificaron en la base local. La invoice se leyó desde ambas cuentas y después de recargar en Chromium.
 
-## Abrir la demo
+## Abrir la demo integrada
 
-- Entra a [Arriendo de prueba](http://127.0.0.1:8080/demo/arriendo/) desde el equipo local.
-- Usa las dos cuentas de prueba existentes. El arrendatario crea el arriendo y abre el enlace que aparece en la pantalla en una ventana privada para iniciar sesión como arrendador. Entre cambios de sesión, pulsa **Actualizar estado** para leer las confirmaciones guardadas por la otra cuenta. Para el ejemplo verificado se usaron `host` y `renter_a` de la fixture privada `.local/testing/ticket-native-20261116/fixture.json`.
-- Si el servidor local está detenido, ejecuta `LOCAL_EARLY_RENTAL_FLOW_ENABLED=1 ./scripts/local-dev.sh api` desde la raíz del repositorio.
+1. Inicia la API con `LOCAL_EARLY_RENTAL_FLOW_ENABLED=1 ./scripts/local-dev.sh api`.
+2. En otra terminal ejecuta `./scripts/local-dev.sh web` y abre [EspaciGo local](http://127.0.0.1:3000).
+3. Usa dos sesiones con cuentas de prueba distintas. El arrendatario selecciona un horario en la publicación y el arrendador sigue el aviso del menú de cuenta o entra en **Mis reservas**.
+
+La pantalla anterior sigue disponible en [Arriendo de prueba](http://127.0.0.1:8080/demo/arriendo/). La demo integrada admite publicaciones por hora con duraciones de 1, 2 o 4 horas y las reglas vigentes de disponibilidad y tarifa. La retención dura hasta 30 minutos o hasta que comience el horario, lo que ocurra primero.
 
 ## Recorrido
 
 | Paso | Qué se muestra | Qué guarda la API |
 | --- | --- | --- |
-| 1. Crear el arriendo | El arrendatario selecciona el espacio y una hora. | El arriendo, el monto en CLP y la retención de esa hora. |
-| 2. Identidad, contrato y firma | Cada participante marca **Verificar identidad**, **Aprobar contrato** y **Firmar contrato**. Son casillas de prueba. | Una confirmación de identidad y una confirmación contractual por participante. La API guarda la confirmación contractual cuando recibe aprobación y firma juntas, con actor, fecha y versión del contrato. |
-| 3. Pagar | El arrendatario ve el monto y pulsa **Pagar** cuando ambas partes completan las casillas. | Go inicia el pago y procesa el resultado del procesador local. Cuando éste aprueba, PostgreSQL registra el pago aprobado, confirma el arriendo y convierte la retención en reserva. La aprobación proviene del procesador y el arrendador no tiene que intervenir. |
-| 4. Mostrar la invoice | La misma pantalla muestra **Pago aprobado** y la **Invoice de prueba**. | El detalle de la API devuelve un número estable de comprobante, la referencia del arriendo y del pago, el monto y la fecha de aprobación. Se obtiene del pago persistido y sigue visible después de recargar. |
+| 1. Enviar la solicitud | El arrendatario elige la hora, envía la solicitud y confirma su identidad de prueba. El arrendador recibe un aviso dentro de la aplicación. | Los datos del arriendo, el monto en CLP, la retención y la confirmación del arrendatario. |
+| 2. Responder | El arrendador aprueba o rechaza la solicitud. | La aprobación habilita el contrato. El rechazo libera la retención y se registra en el historial. |
+| 3. Firmar | Cada participante marca **Apruebo y firmo el contrato de prueba** y guarda su firma. | Una confirmación contractual por participante, con actor, fecha y versión. |
+| 4. Pagar | Cuando ambas firmas están guardadas, el arrendatario previsualiza el invoice y pulsa **Aprobar pago simulado**. | Go registra el resultado del procesador local. PostgreSQL confirma el arriendo y convierte la retención en reserva. |
+| 5. Mostrar el invoice | Ambas cuentas ven el pago aprobado y el invoice en **Mis reservas**. | La API devuelve el comprobante con el mismo número, monto y fecha al volver a abrir la reserva. |
 
 ## Acceso por API y comprobación
 

@@ -76,7 +76,11 @@ func registerLocalEarlyRental(mux *http.ServeMux, auth earlyrentalhttp.Authentic
 			if err != nil {
 				return errors.New("local early rental payment processor initialization failed")
 			}
-			earlyrentalhttp.RegisterDemo(mux, auth, repo, processor, origins)
+			cursor, err := earlyrentalhttp.NewEarlyRentalCursorCodec(key)
+			if err != nil {
+				return errors.New("local early rental cursor initialization failed")
+			}
+			earlyrentalhttp.RegisterDemo(mux, auth, repo, processor, cursor, origins)
 		} else {
 			log.Print("local early rental requires migration V100")
 		}

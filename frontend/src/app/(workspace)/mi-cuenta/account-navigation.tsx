@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   User,
 } from "lucide-react";
+import { EarlyRentalNotice } from "@/features/bookings/ui/early-rental-notice";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -119,6 +120,7 @@ export function AccountNavigation() {
           );
         })}
       </nav>
+      <EarlyRentalNotice />
     </aside>
   );
 }
