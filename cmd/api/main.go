@@ -269,6 +269,10 @@ func run() error {
 		if prodErr != nil {
 			return prodErr
 		}
+		if err := mountProductionRentalDemo(mux, pool, authService, cfg.allowedOrigins, os.Getenv); err != nil {
+			// The optional demonstration must never make the storefront unavailable.
+			log.Printf("hosted rental demo disabled: %v", err)
+		}
 		localIdentityService = authService
 	}
 	if prototypeEnabled {
@@ -305,7 +309,14 @@ func run() error {
 		if err != nil {
 			return errors.New("public rental availability persistence initialization failed")
 		}
-		if localEarlyRentalRuntime(os.Getenv) {
+		if localEarlyRentalRuntime(os.Getenv) && os.Getenv("RENTAL_DEMO_ENABLED") == "1" {
+			if earlyRentalActivationRequested {
+				return errors.New("select either scoped or standard local rental demo")
+			}
+			if err := mountProductionRentalDemo(mux, pool, service, cfg.allowedOrigins, os.Getenv); err != nil {
+				return err
+			}
+		} else if localEarlyRentalRuntime(os.Getenv) {
 			if err := registerLocalEarlyRental(mux, service, commercialQuoteRepository, pool, earlyRentalActivationRequested, cfg.allowedOrigins); err != nil {
 				return err
 			}

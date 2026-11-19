@@ -31,7 +31,8 @@ export const earlyRentalAdapter = {
     const result = await apiClient.GET("/local/early-rentals/capabilities", {
       signal,
     });
-    if (result.response.status === 404) return false;
+    if (result.response.status === 404 || result.response.status === 403)
+      return false;
     return unwrap(result.response, result.data, result.error).data.enabled;
   },
   async list(signal: AbortSignal, cursor?: string) {
