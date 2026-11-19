@@ -664,7 +664,7 @@ export function PublicBookingCalendar({
                   type="button"
                   disabled={disabled}
                   onClick={() => handleSelectTicket(t)}
-                  className={`flex items-center justify-start gap-2 rounded-xl border p-3 text-left transition-all ${
+                  className={`flex w-full min-w-0 items-center justify-start gap-2 rounded-xl border p-3 text-left transition-all ${
                     active
                       ? "border-[#A83820] bg-white ring-2 ring-[#A83820]/20 shadow-xs"
                       : "border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50"
@@ -673,7 +673,7 @@ export function PublicBookingCalendar({
                   <span className={`text-sm ${t.symbolColor} shrink-0`}>
                     {t.symbol}
                   </span>
-                  <span className="text-xs font-semibold text-neutral-800 leading-snug">
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-xs font-semibold leading-snug text-neutral-800 [overflow-wrap:anywhere]">
                     {t.title}
                   </span>
                 </button>
