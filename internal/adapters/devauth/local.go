@@ -62,7 +62,7 @@ func (m Mailer) send(ctx context.Context, email, subject, body string) error {
 	}
 	recipient := (&mail.Address{Address: strings.TrimSpace(email)}).String()
 	// Use a deadline and no debug/SMTP logging.
-	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", m.Address)
+	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", m.Address)
 	if err != nil {
 		return identity.ErrDelivery
 	}

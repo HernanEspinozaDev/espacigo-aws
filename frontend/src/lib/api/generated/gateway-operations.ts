@@ -95,7 +95,12 @@ export const gatewayOperations = [
     method: "GET",
     path: "/admin/global/accounts/{accountID}",
     operationId: "getGlobalAdminAccount",
-    query: [],
+    query: [
+      {
+        name: "reveal_email",
+        allowRepeated: false,
+      },
+    ],
     headers: [],
     bearer: true,
     requestMediaTypes: [],

@@ -761,7 +761,7 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 		code = "mail_unavailable"
 		message = "Correo de desarrollo no disponible; solicita reenvío."
 		if requestPath == "/api/v1/auth/password/change" || requestPath == "/api/v1/auth/password/recovery/consume" {
-			message = "La contraseña puede haberse actualizado y las sesiones revocado; revisa Mailpit e inicia sesión con la nueva contraseña."
+			message = "Contraseña actualizada y sesiones revocadas; revisa Mailpit e inicia sesión."
 		}
 	}
 	h.fail(w, status, code, message)

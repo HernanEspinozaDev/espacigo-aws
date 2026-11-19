@@ -9,6 +9,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
@@ -190,8 +191,8 @@ func (s *ContractPreviewService) Preview(ctx context.Context, actorID, quoteID s
 		SubtotalCLP: quote.SubtotalCLP, Currency: quote.Currency, StartAt: quote.StartAt,
 		EndAt: quote.EndAt, TimeZone: quote.TimeZone,
 		Parties: []ContractParty{
-			{Role: "arrendador", LegalName: ownerIdentity.LegalName, RUT: ownerIdentity.RUT},
-			{Role: "arrendatario", LegalName: renterIdentity.LegalName, RUT: renterIdentity.RUT},
+			{Role: "arrendador", LegalName: ownerIdentity.LegalName, RUT: identity.MaskRUT(ownerIdentity.RUT)},
+			{Role: "arrendatario", LegalName: renterIdentity.LegalName, RUT: identity.MaskRUT(renterIdentity.RUT)},
 		},
 		GeneratedAt: now,
 	}, nil

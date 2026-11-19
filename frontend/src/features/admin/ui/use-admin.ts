@@ -31,6 +31,10 @@ export interface AdminView {
     time_zone: string;
   }): Promise<void>;
   loadGlobalAccounts(query?: GlobalAdminAccountQuery): Promise<void>;
+  revealGlobalAccountEmail(
+    accountId: string,
+    signal: AbortSignal,
+  ): Promise<string>;
   loadAccounts(query?: GlobalAdminAccountQuery): Promise<void>;
   selectGlobalAccount(accountId: string): Promise<void>;
   updateGlobalAccountProfile(
@@ -682,6 +686,8 @@ export function useAdmin(): AdminView {
     loadOverview,
     loadKPIs,
     loadGlobalAccounts,
+    revealGlobalAccountEmail: (accountId, signal) =>
+      adminFacade.revealGlobalAccountEmail(accountId, signal),
     loadAccounts: loadGlobalAccounts,
     selectGlobalAccount,
     updateGlobalAccountProfile,

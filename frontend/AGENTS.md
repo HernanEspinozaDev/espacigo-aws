@@ -29,11 +29,13 @@ Estas instrucciones se aplican a `frontend/` y complementan el `AGENTS.md` raíz
 
 ## Seguridad y sesión
 
-- El Bearer opaco vive solo en memoria.
-- Prohibido guardar tokens en cookies propias, `localStorage`, `sessionStorage`, IndexedDB, URLs, HTML SSR o logs.
-- No inventar refresh tokens, JWT o sesiones NextAuth/Auth.js sin un contrato nuevo aprobado.
-- Las áreas privadas usan shell más CSR autenticado; nunca compartir Bearer entre solicitudes SSR.
+- Transporte de sesión mediante cookie HttpOnly + BFF Bearer: la credencial opaca emitida por Go viaja hacia el navegador exclusivamente mediante cookies seguras HttpOnly (`__Host-espacigo-session` y `__Host-espacigo-session-expiry` con `Path=/`, `HttpOnly`, `Secure`, `SameSite=Lax`).
+- El token opaco nunca se expone a JavaScript en el cliente. Prohibido guardar tokens en almacenamiento accesible del navegador (`localStorage`, `sessionStorage`, IndexedDB, cookies legibles por JS), URLs, HTML SSR o logs.
+- El BFF de Next.js (`/api/backend/*`) actúa como gateway autenticado: valida origen/CSRF, extrae la credencial de la cookie HttpOnly en el servidor y la inyecta como cabecera `Authorization: Bearer <token>` (`credentials: "omit"`, `cache: "no-store"`) hacia el backend en Go por loopback o red privada.
+- No inventar refresh tokens, JWT ni sesiones NextAuth/Auth.js sin un contrato nuevo aprobado.
+- Las áreas privadas usan shell más CSR autenticado; nunca compartir sesiones ni credenciales Bearer entre solicitudes SSR distintas.
 - Navegación y controles administrativos dependen de capacidades confirmadas por Go, no solo de roles.
+- Go es la única autoridad para sesiones, bloqueo, expiración absoluta, inactividad y revocación inmediata.
 - Respetar `restricted_mode`, revocaciones, respuestas tardías y expiración por generación de sesión.
 - No registrar cuerpos sensibles, credenciales, secretos ni cabeceras Authorization.
 

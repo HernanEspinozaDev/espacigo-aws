@@ -28,6 +28,7 @@ type config struct {
 	dbConnectionMode     string
 	dbPoolMaxConns       int32
 	dbPoolMinConns       int32
+	production           bool
 	allowedOrigins       []string
 	frontendPublicOrigin string
 	dbPassfile           *os.File
@@ -36,6 +37,10 @@ type config struct {
 func loadConfig(getenv func(string) string) (config, error) { return loadConfigMode(getenv, false) }
 
 func loadRuntimeConfig(getenv func(string) string, profile runtimeProfileName) (config, error) {
+	production, err := productionEnvironment(getenv)
+	if err != nil {
+		return config{}, err
+	}
 	local := profile == runtimeProfileWorkerFree || profile == runtimeProfileDocumentScanOnly || profile == runtimeProfileWizardLocal || profile == runtimeProfileKYCWorkerFree || profile == runtimeProfileSpacesOrder2
 	passfileValue := getenv("PGPASSFILE")
 	passfilePath := strings.TrimSpace(passfileValue)
@@ -67,7 +72,27 @@ func loadRuntimeConfig(getenv func(string) string, profile runtimeProfileName) (
 		return config{}, err
 	}
 	cfg.dbPassfile = passfile
+	cfg.production = production
 	return cfg, nil
+}
+
+func productionEnvironment(getenv func(string) string) (bool, error) {
+	production := getenv("APP_PROFILE") == productionAppProfile
+	switch getenv("ENVIRONMENT") {
+	case "":
+		// Compatibility for existing local harnesses and deployed task definitions.
+		return production, nil
+	case "production":
+		if production {
+			return true, nil
+		}
+	case "development":
+		if !production && getenv("DATABASE_ECS_PASSWORD") == "" &&
+			!strings.Contains(strings.ToLower(getenv("DATABASE_HOST")), ".rds.") {
+			return false, nil
+		}
+	}
+	return false, errors.New("ENVIRONMENT is invalid or incompatible with the runtime configuration")
 }
 
 func validatePrivatePGPassfile(path string) error {

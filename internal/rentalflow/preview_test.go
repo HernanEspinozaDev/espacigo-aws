@@ -746,9 +746,9 @@ func TestContractPreviewRequiresParticipantAndReturnsOnlyAfterCurrentIdentityGat
 	if gate.calls != 1 || gate.host != testOwnerID || gate.renter != testRenterID || len(identities.calls) != 2 || len(identities.asOf) != 2 || !identities.asOf[0].Equal(now) || !identities.asOf[1].Equal(now) {
 		t.Fatalf("identity gate/snapshot calls do not match participant preview: gate=%+v snapshots=%v", gate, identities.calls)
 	}
-	if preview.Parties[0].Role != "arrendador" || preview.Parties[0].LegalName != "Arrendador Sintético" || preview.Parties[0].RUT != "11111111-1" ||
-		preview.Parties[1].Role != "arrendatario" || preview.Parties[1].LegalName != "Arrendataria Sintética" || preview.Parties[1].RUT != "22222222-2" {
-		t.Fatalf("legal identity snapshots must be complete and RUTs canonicalized: %+v", preview.Parties)
+	if preview.Parties[0].Role != "arrendador" || preview.Parties[0].LegalName != "Arrendador Sintético" || preview.Parties[0].RUT != "••••1111" ||
+		preview.Parties[1].Role != "arrendatario" || preview.Parties[1].LegalName != "Arrendataria Sintética" || preview.Parties[1].RUT != "••••2222" {
+		t.Fatalf("legal identity snapshots must be complete and RUTs masked: %+v", preview.Parties)
 	}
 	ownerPreview, err := service.Preview(context.Background(), testOwnerID, testQuoteID)
 	if err != nil {

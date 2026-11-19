@@ -52,6 +52,7 @@ export interface AdminPort {
   getGlobalAccount(
     accountId: string,
     signal?: AbortSignal,
+    revealEmail?: true,
   ): Promise<GlobalAdminAccount | null>;
 
   updateGlobalAccountProfile(

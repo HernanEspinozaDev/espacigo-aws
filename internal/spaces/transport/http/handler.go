@@ -59,7 +59,12 @@ func NewHandlerWithPricing(auth Authenticator, service *spaces.Service, origins 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id, err := (credentials.Generator{}).ID()
 	if err != nil {
-		write(w, 500, map[string]any{"error": map[string]string{"code": "internal_error", "message": "Ocurrió un error inesperado."}})
+		rid := r.Header.Get("X-Request-ID")
+		if rid == "" {
+			rid = "00000000-0000-4000-8000-000000000000"
+		}
+		w.Header().Set("X-Request-ID", rid)
+		write(w, 500, map[string]any{"error": map[string]string{"code": "internal_error", "message": "Ocurrió un error inesperado.", "request_id": rid}})
 		return
 	}
 	w.Header().Set("X-Request-ID", id)
@@ -739,7 +744,7 @@ func calendarError(w http.ResponseWriter, err error) {
 	case errors.Is(err, occupancy.ErrTimezoneRequired):
 		failure(w, 409, "time_zone_required", "Configura la zona horaria del espacio antes de usar el calendario.")
 	case errors.Is(err, occupancy.ErrTimezoneInUse):
-		failure(w, 409, "time_zone_in_use", "No se puede reparar la zona: el espacio ya tiene reservas y sus referencias temporales deben conservarse.")
+		failure(w, 409, "time_zone_in_use", "No se puede reparar la zona: el espacio tiene reservas y sus referencias deben conservarse.")
 	case errors.Is(err, occupancy.ErrTimezoneLocked):
 		failure(w, 409, "time_zone_locked", "La zona configurada de una publicación no se reemplaza por esta ruta.")
 	default:
