@@ -465,10 +465,10 @@ test("POST /auth/verification with browser DNT: 1 header is ignored and returns 
   assert.equal(capturedUpstreamHeaders.has("dnt"), false);
 });
 
-test("POST /auth/verification with arbitrary x-unknown header STILL returns 400 header_not_allowed", async (t) => {
-  let upstreamCalled = false;
-  globalThis.fetch = async () => {
-    upstreamCalled = true;
+test("POST /auth/verification ignores Cloudflare ingress metadata without forwarding it", async (t) => {
+  let capturedUpstreamHeaders = null;
+  globalThis.fetch = async (url, init) => {
+    capturedUpstreamHeaders = init.headers;
     return new Response(null, { status: 204 });
   };
   t.after(() => {
@@ -476,13 +476,50 @@ test("POST /auth/verification with arbitrary x-unknown header STILL returns 400 
   });
 
   const req = makeRequest("/api/backend/auth/verification", "POST");
-  req.headers.set("x-unknown", "arbitrary");
+  req.headers.set("cf-ray", "synthetic-ray-id");
+  req.headers.set("cf-connecting-ip", "192.0.2.10");
+  req.headers.set("cf-connecting-ipv6", "2001:db8::10");
+  req.headers.set("cf-ipcountry", "CL");
+  req.headers.set("cf-visitor", '{"scheme":"https"}');
+  req.headers.set("cf-warp-tag-id", "synthetic-warp-tag");
   const res = await POST(req, makeContext(["auth", "verification"]));
 
-  assert.equal(upstreamCalled, false);
-  assert.equal(res.status, 400);
-  const json = await res.json();
-  assert.equal(json.error.code, "header_not_allowed");
+  assert.equal(res.status, 204);
+  for (const name of [
+    "cf-ray",
+    "cf-connecting-ip",
+    "cf-connecting-ipv6",
+    "cf-ipcountry",
+    "cf-visitor",
+    "cf-warp-tag-id",
+  ]) {
+    assert.equal(req.headers.has(name), true);
+    assert.equal(capturedUpstreamHeaders.has(name), false);
+  }
+});
+
+test("POST /auth/verification with arbitrary x-unknown header STILL returns 400 header_not_allowed", async (t) => {
+  for (const [header, value] of [
+    ["x-unknown", "arbitrary"],
+    ["cf-access-jwt-assertion", "untrusted-assertion"],
+  ]) {
+    let upstreamCalled = false;
+    globalThis.fetch = async () => {
+      upstreamCalled = true;
+      return new Response(null, { status: 204 });
+    };
+    const req = makeRequest("/api/backend/auth/verification", "POST");
+    req.headers.set(header, value);
+    const res = await POST(req, makeContext(["auth", "verification"]));
+
+    assert.equal(upstreamCalled, false);
+    assert.equal(res.status, 400);
+    const json = await res.json();
+    assert.equal(json.error.code, "header_not_allowed");
+  }
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
 });
 
 test("POST /auth/verification 200 with valid application/json returns 200 and passes JSON payload", async (t) => {
