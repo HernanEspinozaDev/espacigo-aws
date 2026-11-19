@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EarlyRentalPanel } from "@/features/bookings/ui/early-rental-panel";
 import { BookingQuoteCard } from "@/features/bookings/ui/booking-quote-card";
 import { serializeRentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
 import {
@@ -85,17 +86,40 @@ export default async function NuevaReservaPage({
           </div>
         </dl>
         <div className="mt-8 border-t border-border pt-6">
-          <BookingQuoteCard
-            spaceId={selection.spaceId}
-            defaultRateUnit={selection.rateUnit}
-            initialStartDate={selection.startAt}
-            initialDurationUnits={selection.duration}
-            authoritativeInterval={{
-              startAt: selection.startAt,
-              endAt: selection.endAt,
-              timeZone: selection.timeZone,
-            }}
-          />
+          {selection.rateUnit === "hora" ? (
+            <EarlyRentalPanel
+              selection={{
+                space_id: selection.spaceId,
+                start_at: selection.startAt,
+                end_at: selection.endAt,
+              }}
+              fallback={
+                <BookingQuoteCard
+                  spaceId={selection.spaceId}
+                  defaultRateUnit={selection.rateUnit}
+                  initialStartDate={selection.startAt}
+                  initialDurationUnits={selection.duration}
+                  authoritativeInterval={{
+                    startAt: selection.startAt,
+                    endAt: selection.endAt,
+                    timeZone: selection.timeZone,
+                  }}
+                />
+              }
+            />
+          ) : (
+            <BookingQuoteCard
+              spaceId={selection.spaceId}
+              defaultRateUnit={selection.rateUnit}
+              initialStartDate={selection.startAt}
+              initialDurationUnits={selection.duration}
+              authoritativeInterval={{
+                startAt: selection.startAt,
+                endAt: selection.endAt,
+                timeZone: selection.timeZone,
+              }}
+            />
+          )}
         </div>
         <nav
           className="mt-6 flex flex-wrap gap-4 text-sm"
