@@ -297,9 +297,9 @@ cmd_web() {
   (
     cd "${REPO_ROOT}/frontend"
     if command -v pnpm >/dev/null 2>&1; then
-      pnpm dev -- -p 3000
+      pnpm dev -p 3000
     elif command -v corepack >/dev/null 2>&1; then
-      corepack pnpm dev -- -p 3000
+      corepack pnpm dev -p 3000
     else
       echo "ERROR: pnpm no está disponible en PATH (packageManager fijado en frontend/package.json)." >&2
       return 127
