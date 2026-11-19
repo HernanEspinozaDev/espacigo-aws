@@ -8,6 +8,15 @@ export function maskEmail(email: string): string {
   return `${characters[0]}••••${characters.at(-1)}`;
 }
 
+export function maskPhone(phone?: string | null): string {
+  if (!phone) return "••••";
+  const trimmed = phone.trim();
+  if (!trimmed) return "••••";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 4) return "••••";
+  return `+56 •••• ${digits.slice(-4)}`;
+}
+
 export function maskRUT(rut: string): string {
   const trimmed = rut.trim();
   if (!trimmed) return "••••";

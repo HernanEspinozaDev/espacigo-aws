@@ -2253,6 +2253,88 @@ paths:
         "422": *id006
         "500": *id008
         "503": *id009
+  /account/security/phone:
+    get:
+      operationId: getAccountPhoneVerification
+      tags:
+        - M01 local
+      description: Estado de configuración y verificación telefónica del usuario autenticado.
+      responses:
+        "200":
+          description: Estado del teléfono móvil asociado a la cuenta.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/phone/send-code:
+    post:
+      operationId: sendAccountPhoneVerificationCode
+      tags:
+        - M01 local
+      description: Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por mensaje.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendPhoneCodeRequest"
+      responses:
+        "200":
+          description: Código OTP generado y enviado.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneCodeSent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /account/security/phone/verify:
+    post:
+      operationId: verifyAccountPhoneCode
+      tags:
+        - M01 local
+      description: Valida código OTP de 6 dígitos recibido por SMS y confirma la verificación del número telefónico.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPhoneCodeRequest"
+      responses:
+        "200":
+          description: Teléfono verificado con éxito.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/X-Request-ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountPhoneVerifyResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /profile:
     get:
       operationId: getOwnProfile
@@ -7913,6 +7995,90 @@ components:
       required: [ items ]
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/SpaceDraft" } }
+    AccountPhoneStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - configured
+        - verified
+        - masked_phone
+        - pending_verification
+      properties:
+        configured:
+          type: boolean
+        verified:
+          type: boolean
+        masked_phone:
+          type: string
+        verified_at:
+          type: [ string, "null" ]
+          format: date-time
+        pending_verification:
+          type: boolean
+        resend_available_at:
+          type: [ string, "null" ]
+          format: date-time
+    SendPhoneCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - phone
+      properties:
+        phone:
+          type: string
+          example: "+56 9 1234 5678"
+    AccountPhoneCodeSent:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - masked_phone
+        - resend_available_at
+        - expires_at
+      properties:
+        status:
+          type: string
+          example: code_sent
+        masked_phone:
+          type: string
+          example: "+56 ••••5678"
+        resend_available_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+    VerifyPhoneCodeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          example: "123456"
+    AccountPhoneVerifyResult:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - verified
+        - masked_phone
+        - verified_at
+      properties:
+        status:
+          type: string
+          example: verified
+        verified:
+          type: boolean
+          example: true
+        masked_phone:
+          type: string
+          example: "+56 ••••5678"
+        verified_at:
+          type: string
+          format: date-time
     Profile:
       type: object
       required: [ display_name, updated_at ]

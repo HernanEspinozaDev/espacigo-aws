@@ -61,3 +61,32 @@ func TestMaskRUT(t *testing.T) {
 		}
 	}
 }
+
+func TestMaskPhone(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"+56912345678", "+56 ••••5678"},
+		{"+56 9 1234 5678", "+56 ••••5678"},
+		{"+56-9-1234-5678", "+56 ••••5678"},
+		{"912345678", "+56 ••••5678"},
+		{"56912345678", "+56 ••••5678"},
+		{"+56 ••••5678", "+56 ••••5678"},
+		{"", "••••"},
+		{"   ", "••••"},
+		{"invalid", "••••"},
+		{"+56212345678", "••••"},
+		{"+1234567890", "••••"},
+		{"••••", "••••"},
+		{"+56 ••••abcd", "••••"},
+	}
+
+	for _, tc := range tests {
+		got := identity.MaskPhone(tc.input)
+		if got != tc.want {
+			t.Errorf("MaskPhone(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
