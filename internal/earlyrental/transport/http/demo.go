@@ -19,13 +19,30 @@ import (
 type demoRepository interface {
 	ListDemoEarlyRentals(context.Context, uuid.UUID, string, time.Time, uuid.UUID, int) ([]earlyrental.Result, bool, error)
 	CreateEarlyRental(context.Context, uuid.UUID, uuid.UUID, time.Time, time.Time, string) (earlyrental.Result, error)
+	CreateScopedEarlyRental(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time, time.Time, string) (earlyrental.Result, error)
 	GetEarlyRental(context.Context, uuid.UUID, uuid.UUID) (earlyrental.Result, error)
 	ConfirmEarlyRental(context.Context, uuid.UUID, uuid.UUID, earlyrental.Command) (earlyrental.Result, error)
 	PayEarlyRental(context.Context, uuid.UUID, uuid.UUID, uint64, booking.LocalPaymentAdapter) (earlyrental.Result, error)
 }
 
 func RegisterDemo(mux *http.ServeMux, auth Authenticator, repo demoRepository, processor booking.LocalPaymentAdapter, cursor *EarlyRentalCursorCodec, origins []string) {
-	h := demoHandler{auth: auth, repo: repo, processor: processor, cursor: cursor, origins: origins}
+	registerDemoRoutes(mux, demoHandler{auth: auth, repo: repo, processor: processor, cursor: cursor, origins: origins})
+	registerDemoScreen(mux)
+}
+
+type DemoScope struct {
+	Space, Host, Renter uuid.UUID
+}
+
+func (s DemoScope) allows(offer earlyrental.Offer) bool {
+	return offer.Snapshot.SpaceID == s.Space && offer.HostID == s.Host.String() && offer.RenterID == s.Renter.String()
+}
+
+func RegisterScopedDemo(mux *http.ServeMux, auth Authenticator, repo demoRepository, processor booking.LocalPaymentAdapter, cursor *EarlyRentalCursorCodec, origins []string, scope DemoScope) {
+	registerDemoRoutes(mux, demoHandler{auth: auth, repo: repo, processor: processor, cursor: cursor, origins: origins, scope: &scope})
+}
+
+func registerDemoRoutes(mux *http.ServeMux, h demoHandler) {
 	const base = "/api/v1/local/early-rentals"
 	mux.HandleFunc("GET "+base, h.serve("list"))
 	mux.HandleFunc("POST "+base, h.serve("create"))
@@ -37,7 +54,6 @@ func RegisterDemo(mux *http.ServeMux, auth Authenticator, repo demoRepository, p
 	mux.HandleFunc("OPTIONS "+base, h.serve(""))
 	mux.HandleFunc("OPTIONS "+base+"/{offerID}", h.serve(""))
 	mux.HandleFunc("OPTIONS "+base+"/{offerID}/{command}", h.serve(""))
-	registerDemoScreen(mux)
 }
 
 type demoHandler struct {
@@ -46,6 +62,7 @@ type demoHandler struct {
 	processor booking.LocalPaymentAdapter
 	cursor    *EarlyRentalCursorCodec
 	origins   []string
+	scope     *DemoScope
 }
 
 func (h demoHandler) serve(command earlyrental.CommandKind) http.HandlerFunc {
@@ -72,6 +89,10 @@ func (h demoHandler) serve(command earlyrental.CommandKind) http.HandlerFunc {
 		actor, err := uuid.Parse(principal.AccountID)
 		if err != nil || actor == uuid.Nil {
 			demoError(w, identity.ErrUnauthorized, requestID)
+			return
+		}
+		if h.scope != nil && actor != h.scope.Host && actor != h.scope.Renter {
+			demoError(w, rentalflow.ErrNotFound, requestID)
 			return
 		}
 		if command == "list" {
@@ -151,6 +172,9 @@ func (h demoHandler) list(w http.ResponseWriter, r *http.Request, actor uuid.UUI
 	}
 	sources := make([]earlyRentalSummarySource, 0, len(rows))
 	for _, row := range rows {
+		if h.scope != nil && !h.scope.allows(row.Offer) {
+			continue
+		}
 		sources = append(sources, earlyRentalSummarySource{Offer: row.Offer, CreatedAt: row.CreatedAt})
 	}
 	var next *string
@@ -197,8 +221,17 @@ func (h demoHandler) dispatch(w http.ResponseWriter, r *http.Request, actor uuid
 		}
 		id = uuid.MustParse(raw)
 	}
-	if kind == "detail" {
-		return h.repo.GetEarlyRental(ctx, actor, id)
+	if kind == "detail" || (kind != "create" && h.scope != nil) {
+		result, err := h.repo.GetEarlyRental(ctx, actor, id)
+		if err != nil {
+			return earlyrental.Result{}, err
+		}
+		if h.scope != nil && !h.scope.allows(result.Offer) {
+			return earlyrental.Result{}, rentalflow.ErrNotFound
+		}
+		if kind == "detail" {
+			return result, nil
+		}
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCommandBodyBytes))
 	if err != nil {
@@ -212,6 +245,12 @@ func (h demoHandler) dispatch(w http.ResponseWriter, r *http.Request, actor uuid
 		input, err := DecodeCreateOfferRequest(body)
 		if err != nil {
 			return earlyrental.Result{}, err
+		}
+		if h.scope != nil {
+			if actor != h.scope.Renter || input.SpaceID != h.scope.Space {
+				return earlyrental.Result{}, rentalflow.ErrNotFound
+			}
+			return h.repo.CreateScopedEarlyRental(ctx, actor, input.SpaceID, h.scope.Host, input.StartAt, input.EndAt, key)
 		}
 		return h.repo.CreateEarlyRental(ctx, actor, input.SpaceID, input.StartAt, input.EndAt, key)
 	}

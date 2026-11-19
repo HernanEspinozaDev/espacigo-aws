@@ -57,7 +57,7 @@ La imagen web anterior se conserva como evidencia de publicación. Para el prime
 
 ## Primer arranque de la API
 
-`APP_PROFILE=production` habilita el catálogo público, la disponibilidad de espacios y las rutas de salud. Las verificaciones de identidad, el contrato, la firma y el pago con invoice de la demo se prueban en `desarrollo-local`. Para publicar el flujo comercial, queda pendiente habilitar y validar los servicios reales de autenticación y arriendo.
+`APP_PROFILE=production` habilita el catálogo público, la disponibilidad de espacios y las rutas de salud. La demo simulada está apagada por defecto. Para la presentación, la tarea API de ECS puede usar `RENTAL_DEMO_ENABLED=1`, `RENTAL_DEMO_SPACE_ID`, `RENTAL_DEMO_HOST_EMAIL` y `RENTAL_DEMO_RENTER_EMAIL`. Usa dos cuentas de prueba activas y una publicación por hora del arrendador destinada a la demo. Mantén los valores fuera de Git y conserva los secretos existentes de la tarea. El API valida la propiedad, las cuentas y el esquema antes de abrir las rutas. La confirmación crea una ocupación en la publicación elegida y un invoice de prueba. Para desactivar la demo, retira las cuatro variables de la revisión ECS y actualiza el servicio.
 
 | Configuración de arranque | Valor esperado |
 | --- | --- |

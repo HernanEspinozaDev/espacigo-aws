@@ -15,6 +15,10 @@ import (
 )
 
 func (r *Repository) CreateEarlyRental(ctx context.Context, actor, space uuid.UUID, starts, ends time.Time, key string) (earlyrental.Result, error) {
+	return r.CreateScopedEarlyRental(ctx, actor, space, uuid.Nil, starts, ends, key)
+}
+
+func (r *Repository) CreateScopedEarlyRental(ctx context.Context, actor, space, expectedHost uuid.UUID, starts, ends time.Time, key string) (earlyrental.Result, error) {
 	return r.earlyRentalTransaction(ctx, func(tx pgx.Tx) (earlyRentalStoredOffer, error) {
 		fingerprint, err := earlyRentalCreateFingerprint(space, starts, ends)
 		if err != nil {
@@ -31,11 +35,18 @@ func (r *Repository) CreateEarlyRental(ctx context.Context, actor, space uuid.UU
 			return earlyRentalStoredOffer{}, err
 		}
 		if replay {
-			return readEarlyRentalOffer(ctx, tx, actor, id)
+			stored, err := readEarlyRentalOffer(ctx, tx, actor, id)
+			if err == nil && expectedHost != uuid.Nil && stored.Offer.HostID != expectedHost.String() {
+				return earlyRentalStoredOffer{}, rentalflow.ErrNotFound
+			}
+			return stored, err
 		}
 		snapshot, err := r.ResolveEarlyRentalOfferSnapshot(ctx, tx, actor.String(), space.String(), rentalflow.Interval{StartAt: starts, EndAt: ends})
 		if err != nil {
 			return earlyRentalStoredOffer{}, err
+		}
+		if expectedHost != uuid.Nil && snapshot.HostID != expectedHost.String() {
+			return earlyRentalStoredOffer{}, rentalflow.ErrNotFound
 		}
 		now := r.now().UTC().Truncate(time.Microsecond)
 		id = uuid.New()
