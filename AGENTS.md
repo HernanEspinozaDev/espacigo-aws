@@ -33,6 +33,11 @@ Consulta la [guía de Mercado Pago Chile](docs/operations/mercado-pago-chile.md)
 
 ---
 
+### Cloudflare para pruebas locales
+
+- Usa el MCP oficial de Cloudflare API con Code Mode (`cloudflare`, `https://mcp.cloudflare.com/mcp`) como opción predeterminada para consultar y administrar Cloudflare desde Codex. Autentica por OAuth en la cuenta de `testingpage.store`.
+- El conector local `cloudflared` mantiene activo el túnel de `prueba-mercadopago.testingpage.store`. Para incidentes de conectividad, comprueba el proceso local y la ruta pública `/api/ready`. Usa Wrangler para los flujos de Workers que lo requieran.
+
 ## 1. Entorno de desarrollo con `aws-emulator`
 
 El proyecto original (`espaciGo`) estaba fuertemente acoplado a Google Cloud Platform (Cloud SQL, Cloud Run, Cloud Storage, y pipelines estrictos de Cloud Build con `release_main.py`). Esto provocaba:
@@ -109,5 +114,12 @@ El script [`scripts/local-dev.sh`](./scripts/local-dev.sh) es la herramienta cen
 # 5. Iniciar servidor Next.js
 ./scripts/local-dev.sh web
 ```
+
+### Reinicio después de cambios grandes
+
+- Después de cambios grandes en Next o Go que deban verse por el túnel público, ejecuta `scripts/reiniciar-local-fondo.sh`. El script compila Next en un directorio aislado, prueba el acceso en Chromium y recién después reinicia las instancias locales. Si el build o la prueba de navegador falla, conserva el sitio que ya estaba activo.
+- El reinicio mantiene PostgreSQL y el túnel de Cloudflare, conserva habilitado el modo local de prueba y valida Go, Next, el túnel y la página `/acceso`. Comprueba el flujo cambiado en un navegador nuevo antes de continuar.
+- El túnel público sirve la versión compilada de Next para evitar recargas repetidas del servidor de desarrollo y sus actualizaciones HMR. Usa `scripts/local-dev.sh web` para desarrollo interactivo local.
+- No consideres el sitio estable basándote solo en HTTP 200. Observa la página afectada en el navegador y verifica que no navegue o se recargue repetidamente.
 
 ---
