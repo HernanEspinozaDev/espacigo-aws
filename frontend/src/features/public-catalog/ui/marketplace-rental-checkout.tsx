@@ -5,9 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "@/features/auth/ui/use-auth";
-import type { RentalQuote } from "../domain/rental-quote";
+import type {
+  RentalQuote,
+  RentalQuoteInterval,
+} from "../domain/rental-quote";
+import type { MarketplaceBookingInterval } from "../domain/marketplace-booking-selection";
 import { formatPublicClp, rateUnitLabel } from "../domain/presentation";
 import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
+import { calculateBuyerFeeBreakdown } from "@/features/rental-checkout/domain/fee-breakdown";
 import { CheckoutProButton } from "@/features/rental-checkout/ui/checkout-pro-button";
 import { CheckoutSummaryCard } from "@/features/rental-checkout/ui/checkout-flow-chrome";
 
@@ -18,6 +23,7 @@ export interface MarketplaceCheckoutSelection {
   timeZone: string;
   duration?: number;
   rateUnit?: "hora" | "dia" | "mes";
+  intervals?: readonly MarketplaceBookingInterval[];
 }
 
 function quoteError(status: number): string {
@@ -62,7 +68,7 @@ export function MarketplaceRentalCheckout({
   const { snapshot: auth } = useAuth();
   const [quoteState, setQuoteState] = useState<{
     authKey: string;
-    quote: RentalQuote | null;
+    quote: (RentalQuote & { intervals?: RentalQuoteInterval[] }) | null;
   } | null>(null);
   const [operationState, setOperationState] = useState<{
     authKey: string;
@@ -99,14 +105,27 @@ export function MarketplaceRentalCheckout({
     setOperationState({ authKey, loading: true, error: null });
     setQuoteState({ authKey, quote: null });
     try {
-      const result = await publicRentalQuote.createQuote(
-        {
-          space_id: selection.spaceId,
-          start_at: selection.startAt,
-          end_at: selection.endAt,
-        },
-        controller.signal,
-      );
+      const hasMulti =
+        selection.intervals && selection.intervals.length > 1;
+      const result = hasMulti
+        ? await publicRentalQuote.createMultiQuote(
+            {
+              space_id: selection.spaceId,
+              intervals: selection.intervals!.map((iv) => ({
+                start_at: iv.startAt,
+                end_at: iv.endAt,
+              })),
+            },
+            controller.signal,
+          )
+        : await publicRentalQuote.createQuote(
+            {
+              space_id: selection.spaceId,
+              start_at: selection.startAt,
+              end_at: selection.endAt,
+            },
+            controller.signal,
+          );
       if (generation !== requestGeneration.current) return;
       if (result.ok) {
         setQuoteState({ authKey, quote: result.value });
@@ -178,7 +197,25 @@ export function MarketplaceRentalCheckout({
     };
   }, [abortInFlightQuoteRequest, auth.status, autoRequestKey, requestQuote]);
 
-  const formattedTotal = quote ? formatPublicClp(quote.subtotal_clp) : null;
+  const feeBreakdown =
+    quote && quote.subtotal_clp !== undefined && quote.subtotal_clp !== null
+      ? calculateBuyerFeeBreakdown(Number(quote.subtotal_clp))
+      : null;
+  const formattedBase = feeBreakdown
+    ? formatPublicClp(feeBreakdown.baseClp)
+    : null;
+  const formattedCommission = feeBreakdown
+    ? formatPublicClp(feeBreakdown.commissionClp)
+    : null;
+  const formattedVat = feeBreakdown
+    ? formatPublicClp(feeBreakdown.vatClp)
+    : null;
+  const formattedServiceFee = feeBreakdown
+    ? formatPublicClp(feeBreakdown.serviceFeeClp)
+    : null;
+  const formattedTotal = feeBreakdown
+    ? formatPublicClp(feeBreakdown.totalClp)
+    : null;
   return (
     <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1.35fr_0.9fr]">
       <section
@@ -283,23 +320,92 @@ export function MarketplaceRentalCheckout({
               </p>
             </div>
 
-            <div className="space-y-1.5 text-sm">
+            <div className="space-y-2 text-sm">
               <p className="font-semibold text-[#332720]">
                 {quote.space_title}
               </p>
               <p className="text-[#66574e]">
                 {quote.units} {rateUnitLabel(quote.rate_unit)}
-                {Number(quote.units) === 1 ? "" : "s"} · {rentalInterval(quote)}
+                {Number(quote.units) === 1 ? "" : "s"}
+                {(!quote.intervals || quote.intervals.length <= 1) &&
+                  ` · ${rentalInterval(quote)}`}
               </p>
-              <div className="flex items-baseline justify-between gap-3 border-t border-[#e8c5b5] pt-3">
-                <span className="font-medium text-[#332720]">
-                  Total del arriendo
-                </span>
-                <span className="text-xl font-bold tabular-nums text-[#702a1b]">
-                  {formattedTotal
-                    ? `${formattedTotal} CLP`
-                    : "Monto no disponible"}
-                </span>
+              {quote.intervals && quote.intervals.length > 1 ? (
+                <div className="space-y-1.5 rounded-lg border border-[#e8c5b5] bg-white/70 p-2.5 text-xs">
+                  <p className="font-semibold uppercase tracking-wider text-[#66574e]">
+                    Desglose de días y horarios ({quote.intervals.length}{" "}
+                    tramos)
+                  </p>
+                  <ul className="space-y-1">
+                    {quote.intervals.map((iv) => {
+                      const rowSubtotal = formatPublicClp(
+                        (
+                          BigInt(quote.unit_price_clp) * BigInt(iv.units)
+                        ).toString(),
+                      );
+                      return (
+                        <li
+                          key={`${iv.start_at}-${iv.end_at}`}
+                          className="flex flex-wrap items-center justify-between gap-2 text-[#332720]"
+                        >
+                          <span className="tabular-nums">
+                            {new Intl.DateTimeFormat("es-CL", {
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                              timeZone: quote.time_zone,
+                            }).formatRange(
+                              new Date(iv.start_at),
+                              new Date(iv.end_at),
+                            )}
+                          </span>
+                          <span className="font-semibold tabular-nums">
+                            {iv.units} {rateUnitLabel(quote.rate_unit)}
+                            {Number(iv.units) === 1 ? "" : "s"}
+                            {rowSubtotal ? ` · ${rowSubtotal} CLP` : ""}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+              <div className="space-y-1.5 border-t border-[#e8c5b5] pt-3">
+                <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
+                  <span>Precio original del espacio</span>
+                  <span className="font-medium tabular-nums text-[#332720]">
+                    {formattedBase
+                      ? `${formattedBase} CLP`
+                      : "Monto no disponible"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
+                  <span>Comisión de servicio (3%)</span>
+                  <span className="font-medium tabular-nums text-[#332720]">
+                    {formattedCommission ? `${formattedCommission} CLP` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
+                  <span>IVA sobre comisión (19%)</span>
+                  <span className="font-medium tabular-nums text-[#332720]">
+                    {formattedVat ? `${formattedVat} CLP` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 border-t border-dashed border-[#e8c5b5] pt-1.5 text-[#66574e]">
+                  <span>Comisión total con IVA (3,57%)</span>
+                  <span className="font-medium tabular-nums text-[#332720]">
+                    {formattedServiceFee ? `${formattedServiceFee} CLP` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3 border-t border-[#e8c5b5] pt-2.5">
+                  <span className="font-semibold text-[#332720]">
+                    Total a pagar
+                  </span>
+                  <span className="text-xl font-bold tabular-nums text-[#702a1b]">
+                    {formattedTotal
+                      ? `${formattedTotal} CLP`
+                      : "Monto no disponible"}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -360,8 +466,11 @@ export function MarketplaceRentalCheckout({
         duration={quote ? quote.units : selection.duration}
         rateUnit={quote?.rate_unit ?? selection.rateUnit}
         unitPriceClp={quote?.unit_price_clp}
-        baseClp={quote?.subtotal_clp}
-        totalClp={quote?.subtotal_clp}
+        baseClp={feeBreakdown?.baseClp ?? quote?.subtotal_clp}
+        commissionClp={feeBreakdown?.commissionClp}
+        vatClp={feeBreakdown?.vatClp}
+        serviceFeeClp={feeBreakdown?.serviceFeeClp}
+        totalClp={feeBreakdown?.totalClp ?? quote?.subtotal_clp}
         expiresAt={quote?.expires_at}
         className="lg:sticky lg:top-6"
       />

@@ -5,3 +5,8 @@ export type PublicRentalAvailability =
   components["schemas"]["PublicRentalAvailability"];
 export type PublicRentalAvailabilityResult =
   CatalogResult<PublicRentalAvailability>;
+
+export type RentalScheduleSlot = components["schemas"]["RentalScheduleSlot"];
+export type PublicRentalSchedule =
+  components["schemas"]["PublicRentalSchedule"];
+export type PublicRentalScheduleResult = CatalogResult<PublicRentalSchedule>;

@@ -678,12 +678,6 @@ function HostAvailabilityCalendarEditor({
                                 null,
                             )}
                     </span>
-                    {isSelected && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#A83820]"
-                      />
-                    )}
                   </button>
                 );
               })}

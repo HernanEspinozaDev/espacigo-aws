@@ -79,6 +79,7 @@ export default async function NuevaReservaPage({
             timeZone: selection.timeZone,
             duration: selection.duration,
             rateUnit: selection.rateUnit,
+            intervals: selection.intervals,
           }}
           signInReturn={canonicalHref}
           checkoutApiEnabled={checkoutApiEnabled}

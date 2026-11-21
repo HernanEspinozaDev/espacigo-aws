@@ -174,6 +174,36 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Adds the optional seller Public Key returned by OAuth without changing grants or storing private credentials. Legacy connections remain NULL and require seller reauthorization before the explicitly opted-in local sandbox tokenization mode."
+    },
+    "V000116__double_sided_marketplace_commission.sql": {
+      "checksum": "8216315859c3561766a3b842406248579f237b95fb2b53ac0849596d477c924c",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds buyer commission/IVA/fee and total_charged_clp columns to public.checkout_preferencia_comercial, backfills historical rows with total_charged_clp = base_clp, and updates the amounts check constraint for double-sided marketplace fees."
+    },
+    "V000117__commercial_quote_intervals.sql": {
+      "checksum": "8b3e621759af78a394ee2718030e6ba348b15c081a9493032a0a1c721709ea84",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds public.cotizacion_arriendo_tramo to support multiple non-contiguous and multi-day intervals per commercial quote/reservation and relaxes the 1:1 occupancy unique constraint while keeping single-interval compatibility."
+    },
+    "V000118__commercial_quote_flexible_units.sql": {
+      "checksum": "5a259fe9f2649ea111ca70bcd21e0ecad96ade8127871a9371788c2f07f84329",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Relaxes cotizacion_arriendo_comercial_unidades_ck to support flexible multi-slot (1..168 hours) and multi-day (1..64 days) commercial quotes."
+    },
+    "V000119__commercial_interval_usage.sql": {
+      "checksum": "394b03ca0bd4462b8200dc9867300835d0ac6c19c585b8c5562882e5fb47ffd4",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds public.reserva_arriendo_tramo_estado to track per-interval check-in and completion status (pendiente, en_uso, completado, no_asistio) for multi-slot and multi-day reservations."
+    },
+    "V000120__commercial_interval_pass_codes.sql": {
+      "checksum": "af107258523aad85e7973c3ceefa8241a2db4306d3227787f5d0f2d052750b03",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds codigo_corto column and index to public.reserva_arriendo_tramo_estado for QR and 6-character reception pass verification, backfilling existing paid reservations."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

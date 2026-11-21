@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { AccountShell } from "../mi-cuenta/account-shell";
 
 export const metadata: Metadata = {
-  title: "Mis Espacios | Mi Cuenta | EspaciGo",
+  title: "Panel de Anfitrión | Mi Cuenta | EspaciGo",
   description:
-    "Gestión de propiedades, tarifas, calendarios y publicaciones de anfitrión en EspaciGo.",
+    "Gestión de propiedades, reservas, pagos con Mercado Pago, tarifas y calendarios de anfitrión en EspaciGo.",
   robots: {
     index: false,
     follow: false,

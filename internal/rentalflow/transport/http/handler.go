@@ -28,8 +28,16 @@ type AvailabilityService interface {
 	ListPublic(context.Context, string, string, int) (rentalflow.Availability, error)
 }
 
+type ScheduleAvailabilityService interface {
+	ListPublicSchedule(context.Context, string, string, int) (rentalflow.ScheduleAvailability, error)
+}
+
 type QuoteService interface {
 	Create(context.Context, string, rentalflow.QuoteRequest) (rentalflow.Quote, error)
+}
+
+type MultiQuoteService interface {
+	CreateMulti(context.Context, string, rentalflow.MultiQuoteRequest) (rentalflow.MultiQuote, error)
 }
 
 type PreviewService interface {
@@ -92,7 +100,9 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 		}
 	}
 	h.mux.HandleFunc("GET /api/v1/spaces/{spaceID}/rental-availability", h.listAvailability)
+	h.mux.HandleFunc("GET /api/v1/spaces/{spaceID}/rental-schedule", h.listSchedule)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes", h.createQuote)
+	h.mux.HandleFunc("POST /api/v1/rental-quotes/multi", h.createMultiQuote)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes/{quoteID}/contract-preview", h.previewContract)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes/{quoteID}/checkout", h.startCheckout)
 	h.mux.HandleFunc("POST /api/v1/rental-quotes/{quoteID}/checkout-wallet", h.startWalletCheckout)
@@ -102,10 +112,18 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/{quoteID}/checkout-api", h.checkoutOptions)
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations", h.listCommercialReservations)
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations/{reservationID}", h.getCommercialReservation)
+	h.mux.HandleFunc("POST /api/v1/commercial-reservations/verify-pass", h.verifyCommercialPass)
+	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/intervals/{intervalID}/usage", h.updateCommercialIntervalUsage)
 	h.mux.HandleFunc("OPTIONS /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodGet)
 	})
+	h.mux.HandleFunc("OPTIONS /api/v1/spaces/{spaceID}/rental-schedule", func(w http.ResponseWriter, r *http.Request) {
+		h.options(w, r, http.MethodGet)
+	})
 	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes", func(w http.ResponseWriter, r *http.Request) {
+		h.options(w, r, http.MethodPost)
+	})
+	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/multi", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodPost)
 	})
 	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/{quoteID}/contract-preview", func(w http.ResponseWriter, r *http.Request) {
@@ -118,6 +136,12 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	})
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodGet)
+	})
+	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/verify-pass", func(w http.ResponseWriter, r *http.Request) {
+		h.options(w, r, http.MethodPost)
+	})
+	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/intervals/{intervalID}/usage", func(w http.ResponseWriter, r *http.Request) {
+		h.options(w, r, http.MethodPost)
 	})
 	h.mux.HandleFunc("HEAD /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "GET, OPTIONS")
@@ -369,6 +393,39 @@ func (h *Handler) listAvailability(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
+func (h *Handler) listSchedule(w http.ResponseWriter, r *http.Request) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || !onlyKeys(query, "date", "duration") || len(query["date"]) != 1 || len(query["duration"]) != 1 {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	duration, err := strconv.Atoi(query.Get("duration"))
+	if err != nil || duration < 1 || duration > 31 {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	spaceID, date := r.PathValue("spaceID"), query.Get("date")
+	if !rentalflow.ValidUUID(spaceID) || !rentalflow.ValidDate(date) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if h.availability == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	schedSvc, ok := h.availability.(ScheduleAvailabilityService)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	result, err := schedSvc.ListPublicSchedule(r.Context(), spaceID, date, duration)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
 func (h *Handler) createQuote(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		writeError(w, http.StatusBadRequest, "invalid_request")
@@ -396,6 +453,46 @@ func (h *Handler) createQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"data": result})
+}
+
+func (h *Handler) createMultiQuote(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	var input rentalflow.MultiQuoteRequest
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if !rentalflow.ValidUUID(input.SpaceID) || len(input.Intervals) == 0 || len(input.Intervals) > 64 {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	for _, iv := range input.Intervals {
+		if !rentalflow.ValidTimestamp(iv.StartAt) || !rentalflow.ValidTimestamp(iv.EndAt) {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+	}
+	if h.quotes == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	multiSvc, ok := h.quotes.(MultiQuoteService)
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	quote, err := multiSvc.CreateMulti(r.Context(), principal.AccountID, input)
+	if err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"data": quote})
 }
 
 func (h *Handler) previewContract(w http.ResponseWriter, r *http.Request) {
@@ -674,10 +771,108 @@ func (h *Handler) getCommercialReservation(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"data": result})
 }
 
+func (h *Handler) updateCommercialIntervalUsage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	reservationID := r.PathValue("reservationID")
+	intervalID := r.PathValue("intervalID")
+	if !rentalflow.ValidUUID(reservationID) || !rentalflow.ValidUUID(intervalID) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	switch body.Status {
+	case "pendiente", "en_uso", "completado", "no_asistio":
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if h.reservations == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	updater, ok := h.reservations.(interface {
+		UpdateIntervalUsage(context.Context, string, string, string, string) (rentalflow.CommercialReservation, error)
+	})
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	result, err := updater.UpdateIntervalUsage(r.Context(), principal.AccountID, reservationID, intervalID, body.Status)
+	if err != nil {
+		writeReservationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (h *Handler) verifyCommercialPass(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		CodeOrQR string `json:"code_or_qr"`
+		SpaceID  string `json:"space_id"`
+		Action   string `json:"action"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.CodeOrQR) == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if body.SpaceID != "" && !rentalflow.ValidUUID(body.SpaceID) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	switch body.Action {
+	case "preview", "check_in", "check_out":
+	default:
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if h.reservations == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	verifier, ok := h.reservations.(interface {
+		VerifyPass(context.Context, string, string, string, string) (rentalflow.VerifiedPassResult, error)
+	})
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	result, err := verifier.VerifyPass(r.Context(), principal.AccountID, body.SpaceID, body.CodeOrQR, body.Action)
+	if err != nil {
+		writeReservationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
 func writeReservationError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, rentalflow.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, rentalflow.ErrConflict):
+		writeError(w, http.StatusConflict, "conflict")
 	case errors.Is(err, rentalflow.ErrInvalid):
 		writeError(w, http.StatusBadRequest, "invalid_request")
 	default:

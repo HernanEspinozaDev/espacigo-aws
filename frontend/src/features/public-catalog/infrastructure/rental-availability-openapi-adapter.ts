@@ -2,9 +2,12 @@ import "client-only";
 
 import createClient from "openapi-fetch";
 import type { paths } from "@/lib/api/generated/openapi";
+import type { CatalogResult } from "../domain/types";
 import type {
   PublicRentalAvailability,
   PublicRentalAvailabilityResult,
+  PublicRentalSchedule,
+  PublicRentalScheduleResult,
 } from "../domain/rental-availability";
 import type { RentalAvailabilityPort } from "../application/rental-availability.port";
 
@@ -33,15 +36,39 @@ function isAvailability(value: unknown): value is PublicRentalAvailability {
   );
 }
 
+function isSchedule(value: unknown): value is PublicRentalSchedule {
+  if (
+    !isRecord(value) ||
+    typeof value.space_id !== "string" ||
+    typeof value.time_zone !== "string" ||
+    (value.rate_unit !== "hora" &&
+      value.rate_unit !== "dia" &&
+      value.rate_unit !== "mes") ||
+    typeof value.checked_at !== "string" ||
+    !Array.isArray(value.slots)
+  )
+    return false;
+
+  return value.slots.every(
+    (slot) =>
+      isRecord(slot) &&
+      typeof slot.start_at === "string" &&
+      typeof slot.end_at === "string" &&
+      (slot.status === "available" ||
+        slot.status === "held" ||
+        slot.status === "booked"),
+  );
+}
+
 function errorCode(error: unknown): string | undefined {
   if (!isRecord(error) || !isRecord(error.error)) return undefined;
   return typeof error.error.code === "string" ? error.error.code : undefined;
 }
 
-function failure(
+function failure<T = never>(
   status: number,
   code?: string,
-): PublicRentalAvailabilityResult {
+): CatalogResult<T> {
   if (status === 404) {
     return {
       ok: false,
@@ -85,6 +112,26 @@ export function createRentalAvailabilityAdapter(
       );
       if (!response.ok) return failure(response.status, errorCode(error));
       if (!data || !isAvailability(data.data)) return failure(502);
+      return { ok: true, value: data.data };
+    },
+    async getSchedule(
+      spaceId,
+      date,
+      duration,
+      signal,
+    ): Promise<PublicRentalScheduleResult> {
+      const { data, error, response } = await client.GET(
+        "/spaces/{spaceID}/rental-schedule",
+        {
+          params: {
+            path: { spaceID: spaceId },
+            query: { date, duration },
+          },
+          signal,
+        },
+      );
+      if (!response.ok) return failure(response.status, errorCode(error));
+      if (!data || !isSchedule(data.data)) return failure(502);
       return { ok: true, value: data.data };
     },
   };

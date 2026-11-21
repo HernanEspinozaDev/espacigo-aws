@@ -25,6 +25,10 @@ type Input struct {
 type Result struct {
 	QuoteID            string            `json:"quote_id"`
 	AmountCLP          int64             `json:"amount_clp"`
+	BaseAmountCLP      int64             `json:"base_amount_clp,omitempty"`
+	BuyerCommissionCLP int64             `json:"buyer_commission_clp,omitempty"`
+	BuyerVATCLP        int64             `json:"buyer_vat_clp,omitempty"`
+	ServiceFeeCLP      int64             `json:"service_fee_clp,omitempty"`
 	Status             string            `json:"status"`
 	SpaceTitle         string            `json:"space_title,omitempty"`
 	StartAt            string            `json:"start_at,omitempty"`
@@ -49,6 +53,10 @@ type CardTokenization struct {
 
 type sellerPublicKeys interface {
 	PublicKey(context.Context, string) (string, bool, error)
+}
+
+type paymentCreateFailureSink interface {
+	RecordPaymentCreateFailure(ctx context.Context, operationID string, deterministic bool, reason string, now time.Time) error
 }
 
 type Options struct {
@@ -119,8 +127,18 @@ func (s *Service) PaymentStatus(ctx context.Context, renter, quoteID string) (Re
 }
 
 func (s *Service) current(q checkoutpro.Quote, op *checkoutpro.Operation) (Result, error) {
+	amounts, err := testPaymentAmounts(q.SubtotalCLP)
+	if err != nil {
+		amounts = checkoutpro.Amounts{BaseCLP: q.SubtotalCLP, TotalChargedCLP: q.SubtotalCLP}
+	}
+	if op != nil && op.CheckoutMethod == method && op.Amounts.TotalChargedCLP > 0 {
+		amounts = op.Amounts
+	}
 	result := Result{
-		QuoteID: q.ID, AmountCLP: q.SubtotalCLP, Status: "not_started",
+		QuoteID: q.ID, AmountCLP: amounts.TotalChargedCLP,
+		BaseAmountCLP: amounts.BaseCLP, BuyerCommissionCLP: amounts.BuyerCommissionCLP,
+		BuyerVATCLP: amounts.BuyerVATCLP, ServiceFeeCLP: amounts.BuyerFeeCLP,
+		Status:     "not_started",
 		SpaceTitle: q.Title, StartAt: q.StartAt.Format(time.RFC3339), EndAt: q.EndAt.Format(time.RFC3339),
 		TimeZone: q.TimeZone, ExpiresAt: q.ExpiresAt.Format(time.RFC3339), Units: q.Units, RateUnit: q.RateUnit,
 	}
@@ -131,7 +149,16 @@ func (s *Service) current(q checkoutpro.Quote, op *checkoutpro.Operation) (Resul
 		return result, nil
 	}
 	if op.CheckoutMethod != method {
+		if op.Status == "pending" && op.ProviderPaymentID == "" {
+			if !q.ExpiresAt.After(s.now()) {
+				result.Status = "expired"
+			}
+			return result, nil
+		}
 		return Result{}, checkoutpro.ErrConflict
+	}
+	if (op.Status == "rejected" || op.Status == "cancelled") && op.ProviderPaymentID == "" && q.ExpiresAt.After(s.now()) {
+		return result, nil
 	}
 	result.Status = op.Status
 	result.PaymentID = op.ProviderPaymentID
@@ -211,7 +238,7 @@ func (s *Service) Pay(ctx context.Context, renter, quoteID, key string, input In
 		// unclaimed pre-change row (if any) must preserve its original contract.
 		amounts = op.Amounts
 	}
-	if err != nil || q.Currency != "CLP" || q.SubtotalCLP != amounts.BaseCLP || (created && op.Amounts.MarketplaceFeeCLP != 0) {
+	if err != nil || q.Currency != "CLP" || q.SubtotalCLP != amounts.BaseCLP || (created && op.Amounts != amounts) {
 		return Result{}, checkoutpro.ErrConflict
 	}
 	result, err := s.current(q, &op)
@@ -239,11 +266,11 @@ func (s *Service) Pay(ctx context.Context, renter, quoteID, key string, input In
 		s.diagnose(ctx, ProviderFailure{Stage: "payment_claim", Code: "claim_not_acquired", QuoteID: q.ID, OperationID: op.ID})
 		return s.PaymentStatus(ctx, renter, quoteID)
 	}
-	s.diagnose(ctx, ProviderFailure{Stage: "payment_claim", Code: "claim_acquired", QuoteID: q.ID, OperationID: op.ID, AmountCLP: amounts.BaseCLP})
-	s.diagnose(ctx, ProviderFailure{Stage: "payment_request", Code: "request_submitted", QuoteID: q.ID, OperationID: op.ID, AmountCLP: amounts.BaseCLP, SellerContextPresent: true})
-	payment, err := s.gateway.Create(ctx, token, op.ID, PaymentRequest{
+	s.diagnose(ctx, ProviderFailure{Stage: "payment_claim", Code: "claim_acquired", QuoteID: q.ID, OperationID: op.ID, AmountCLP: amounts.TotalChargedCLP})
+	s.diagnose(ctx, ProviderFailure{Stage: "payment_request", Code: "request_submitted", QuoteID: q.ID, OperationID: op.ID, AmountCLP: amounts.TotalChargedCLP, SellerContextPresent: true})
+	payment, err := s.gateway.Create(ctx, token, key, PaymentRequest{
 		Token: input.Token, PaymentMethodID: input.PaymentMethodID, IssuerID: input.IssuerID, Payer: input.Payer,
-		TransactionAmountCLP: amounts.BaseCLP, ApplicationFeeCLP: amounts.MarketplaceFeeCLP, ExternalReference: op.ID,
+		TransactionAmountCLP: amounts.TotalChargedCLP, ApplicationFeeCLP: 0, ExternalReference: op.ID,
 		Metadata: map[string]string{"operation_id": op.ID},
 	})
 	if err != nil {
@@ -252,14 +279,22 @@ func (s *Service) Pay(ctx context.Context, renter, quoteID, key string, input In
 		if errors.As(err, &providerErr) {
 			failure = providerErr
 		}
-		failure.QuoteID, failure.OperationID, failure.AmountCLP = q.ID, op.ID, amounts.BaseCLP
+		failure.QuoteID, failure.OperationID, failure.AmountCLP = q.ID, op.ID, amounts.TotalChargedCLP
 		s.diagnose(ctx, *failure)
 		result.ProviderHTTPStatus = failure.HTTPStatus
 		result.ProviderCode = failure.Code
 		result.ProviderRequestID = failure.RequestID
+		deterministic := failure.HTTPStatus >= 400 && failure.HTTPStatus < 500 && failure.HTTPStatus != 408 && failure.HTTPStatus != 409 && failure.HTTPStatus != 429
 		result.Status = "reconciliation_required"
-		if failure.HTTPStatus >= 400 && failure.HTTPStatus < 500 && failure.HTTPStatus != 408 && failure.HTTPStatus != 409 && failure.HTTPStatus != 429 {
+		if deterministic {
 			result.Status = "provider_error"
+		}
+		if sink, ok := s.repo.(paymentCreateFailureSink); ok {
+			reason := failure.Code
+			if reason == "" {
+				reason = "payment_result_unknown"
+			}
+			_ = sink.RecordPaymentCreateFailure(ctx, op.ID, deterministic, reason, s.now().UTC())
 		}
 		return result, nil
 	}
@@ -267,10 +302,24 @@ func (s *Service) Pay(ctx context.Context, renter, quoteID, key string, input In
 	result.StatusDetail = payment.StatusDetail
 	result.ProviderRequestID = payment.RequestID
 	result.PaymentID = payment.Verified.ProviderPaymentID
-	s.diagnose(ctx, ProviderFailure{Stage: "payment_response", Code: "provider_response_received", QuoteID: q.ID, OperationID: op.ID, PaymentID: result.PaymentID, RequestID: payment.RequestID, HTTPStatus: payment.HTTPStatus, AmountCLP: amounts.BaseCLP})
+	s.diagnose(ctx, ProviderFailure{Stage: "payment_response", Code: "provider_response_received", QuoteID: q.ID, OperationID: op.ID, PaymentID: result.PaymentID, RequestID: payment.RequestID, HTTPStatus: payment.HTTPStatus, AmountCLP: amounts.TotalChargedCLP})
 	if !payment.LiveModePresent || payment.Verified.OperationID != op.ID || payment.Verified.ExternalReference != op.ID || payment.Verified.LiveMode {
 		s.diagnose(ctx, ProviderFailure{Stage: "payment_verify", Code: "payment_facts_mismatch", QuoteID: q.ID, OperationID: op.ID, PaymentID: result.PaymentID, RequestID: payment.RequestID})
+		if sink, ok := s.repo.(paymentCreateFailureSink); ok {
+			_ = sink.RecordPaymentCreateFailure(ctx, op.ID, false, "payment_facts_mismatch", s.now().UTC())
+		}
 		result.Status = "reconciliation_required"
+		return result, nil
+	}
+	if payment.Verified.Status == "rejected" || payment.Verified.Status == "cancelled" {
+		if sink, ok := s.repo.(paymentCreateFailureSink); ok {
+			reason := payment.StatusDetail
+			if reason == "" {
+				reason = payment.Verified.Status
+			}
+			_ = sink.RecordPaymentCreateFailure(ctx, op.ID, true, reason, s.now().UTC())
+		}
+		result.Status = payment.Verified.Status
 		return result, nil
 	}
 	payment.Verified.ApplicationFeeCLP = payment.ApplicationFeeCLP
@@ -291,10 +340,7 @@ func (s *Service) Pay(ctx context.Context, renter, quoteID, key string, input In
 }
 
 func testPaymentAmounts(base int64) (checkoutpro.Amounts, error) {
-	if base <= 0 {
-		return checkoutpro.Amounts{}, checkoutpro.ErrInvalid
-	}
-	return checkoutpro.Amounts{BaseCLP: base}, nil
+	return checkoutpro.CalculateAmounts(base)
 }
 
 func (s *Service) diagnose(ctx context.Context, diagnostic ProviderFailure) {

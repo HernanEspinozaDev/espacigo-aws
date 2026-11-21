@@ -221,6 +221,19 @@ ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public REVOKE 
 						t.Fatalf("canonical migration ledger mismatch at V%d", migration.Version)
 					}
 				}
+				if len(all) > 111 {
+					if _, err := admin.Exec(ctx, `GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;
+						GRANT REFERENCES(id) ON TABLE public.usuario, public.espacio TO espacigo_schema_owner`); err != nil {
+						t.Fatalf("prepare isolated V112+ DDL authority: %v", err)
+					}
+					if _, err := RunWithRole(ctx, migrationURL, prefixMigrationDirForCombined(t, all, len(all)), "espacigo_schema_owner"); err != nil {
+						t.Fatalf("apply canonical V112..V%d schema: %v", len(all), err)
+					}
+					if _, err := admin.Exec(ctx, `REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;
+						REVOKE REFERENCES(id) ON TABLE public.usuario, public.espacio FROM espacigo_schema_owner`); err != nil {
+						t.Fatalf("close isolated V112+ DDL authority: %v", err)
+					}
+				}
 
 				t.Run("commercial-quote-suppression", func(t *testing.T) {
 					assertCommercialQuoteSuppression(t, ctx, databaseURL, admin)

@@ -127,11 +127,11 @@ func newGateway(baseURL string, client *http.Client) *HTTPGateway {
 	return &HTTPGateway{baseURL: strings.TrimRight(baseURL, "/"), client: client}
 }
 
-func (g *HTTPGateway) Create(ctx context.Context, sellerAccessToken []byte, operationID string, p PaymentRequest) (Payment, error) {
-	if ctx == nil || g == nil || g.client == nil || !operationIDPattern.MatchString(operationID) || !bytesNonBlank(sellerAccessToken) {
+func (g *HTTPGateway) Create(ctx context.Context, sellerAccessToken []byte, idempotencyKey string, p PaymentRequest) (Payment, error) {
+	if ctx == nil || g == nil || g.client == nil || !operationIDPattern.MatchString(idempotencyKey) || !operationIDPattern.MatchString(p.ExternalReference) || !bytesNonBlank(sellerAccessToken) {
 		return Payment{}, ErrInvalidRequest
 	}
-	if p.ExternalReference != operationID || p.TransactionAmountCLP <= 0 || p.ApplicationFeeCLP < 0 || p.ApplicationFeeCLP >= p.TransactionAmountCLP ||
+	if p.TransactionAmountCLP <= 0 || p.ApplicationFeeCLP < 0 || p.ApplicationFeeCLP >= p.TransactionAmountCLP ||
 		len(p.Token) == 0 || len(p.Token) > 4096 || strings.TrimSpace(p.Token) != p.Token || strings.ContainsAny(p.Token, "\r\n\x00") ||
 		!identifierPattern.MatchString(p.PaymentMethodID) ||
 		(p.IssuerID != "" && !digitsPattern.MatchString(p.IssuerID)) || !validPayer(p.Payer) || !validMetadata(p.Metadata) {
@@ -170,7 +170,7 @@ func (g *HTTPGateway) Create(ctx context.Context, sellerAccessToken []byte, oper
 	req.Header.Set("Authorization", "Bearer "+string(sellerAccessToken))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Idempotency-Key", operationID)
+	req.Header.Set("X-Idempotency-Key", idempotencyKey)
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return Payment{}, &ProviderFailure{Stage: "payment_create", Code: "transport_error"}
@@ -518,7 +518,7 @@ func classifyCause(raw json.RawMessage) string {
 		return "involved_users"
 	case strings.Contains(description, "oauth"), strings.Contains(description, "seller access token"):
 		return "seller_authorization"
-	case strings.Contains(description, "payer.email"), strings.Contains(description, "payer email"):
+	case strings.Contains(description, "payer.email"), strings.Contains(description, "payer email"), strings.Contains(description, "invalid test user email"):
 		return "payer_email"
 	case strings.Contains(description, "identification"):
 		return "payer_identification"
@@ -566,7 +566,7 @@ func allowlistedProviderCode(code string) string {
 	switch strings.ToLower(strings.TrimSpace(code)) {
 	case "bad_request", "unauthorized", "forbidden", "not_found", "internal_error", "invalid_token", "invalid_access_token", "invalid_card_token", "invalid_payment_method", "invalid_parameters", "invalid_amount", "invalid_application_fee", "invalid_installments", "payer_email_invalid", "idempotency_key_conflict", "card_token_used", "cc_rejected_bad_filled_card_number", "cc_rejected_bad_filled_date", "cc_rejected_bad_filled_security_code", "cc_rejected_bad_filled_other", "cc_rejected_insufficient_amount", "cc_rejected_call_for_authorize", "cc_rejected_card_disabled", "cc_rejected_duplicated_payment", "cc_rejected_high_risk", "cc_rejected_invalid_installments", "cc_rejected_max_attempts", "cc_rejected_other_reason", "cc_rejected_blacklist", "cc_rejected_card_error", "cc_rejected_rate_limit":
 		return strings.ToLower(strings.TrimSpace(code))
-	case "3", "2000", "2001", "2002", "2004", "2006", "2007", "2009", "2034", "2059", "2062", "2063", "2065", "2066", "2067", "3012", "4000", "4033", "4038", "4039", "4050", "4051":
+	case "3", "2000", "2001", "2002", "2004", "2006", "2007", "2009", "2034", "2059", "2062", "2063", "2065", "2066", "2067", "2198", "3012", "4000", "4033", "4038", "4039", "4050", "4051":
 		return code
 	default:
 		return "unknown"

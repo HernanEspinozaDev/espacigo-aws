@@ -15,6 +15,7 @@ import {
   Users,
   Maximize2,
   ExternalLink,
+  CalendarCheck,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -202,15 +203,26 @@ export function HostListingsList() {
             Gestiona tus propiedades, actualiza tarifas, horarios y fotografías.
           </p>
         </div>
-        <Button asChild size="lg" className="font-semibold shadow-sm shrink-0">
-          <Link
-            href="/anfitrion/espacios/nuevo"
-            className="inline-flex items-center gap-2"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            Publicar un espacio
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <Button asChild variant="outline" size="lg" className="font-semibold">
+            <Link
+              href="/anfitrion/reservas"
+              className="inline-flex items-center gap-2"
+            >
+              <CalendarCheck className="size-4 text-primary" aria-hidden="true" />
+              Reservas y Finanzas
+            </Link>
+          </Button>
+          <Button asChild size="lg" className="font-semibold shadow-sm">
+            <Link
+              href="/anfitrion/espacios/nuevo"
+              className="inline-flex items-center gap-2"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              Publicar un espacio
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Avisos de éxito o error */}
@@ -421,81 +433,95 @@ export function HostListingsList() {
                   </div>
                 </CardContent>
 
-                <CardFooter className="pt-3 border-t border-border flex flex-wrap gap-2 justify-between items-center">
-                  <Button
-                    asChild
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs flex-1 sm:flex-initial"
-                  >
-                    <Link href={`/anfitrion/espacios/${listing.id}/editar`}>
-                      <Edit3 className="size-3.5" aria-hidden="true" />
-                      Editar
-                    </Link>
-                  </Button>
-
-                  <div className="flex items-center gap-1.5">
-                    {listing.state === "borrador" && (
-                      <>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          disabled={isOperating}
-                          onClick={() => handlePublish(listing.id)}
-                          className="gap-1 text-xs"
-                          aria-label={`Publicar ${listing.title}`}
+                <CardFooter className="pt-3 border-t border-border flex flex-col items-stretch gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs"
+                    >
+                      <Link href={`/anfitrion/espacios/${listing.id}/editar`}>
+                        <Edit3 className="size-3.5" aria-hidden="true" />
+                        Editar
+                      </Link>
+                    </Button>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 text-xs border-primary/30 text-primary hover:bg-primary/5"
+                    >
+                      <Link
+                        href={`/anfitrion/reservas?space_id=${encodeURIComponent(listing.id)}`}
+                        aria-label={`Ver reservas, pagos y horarios de ${listing.title}`}
+                      >
+                        <CalendarCheck className="size-3.5" aria-hidden="true" />
+                        Reservas y Horarios
+                      </Link>
+                    </Button>
+                    {listing.state === "activa" && (
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="gap-1 text-xs"
+                      >
+                        <Link
+                          href={`/espacios/${listing.id}`}
+                          aria-label={`Ver publicación de ${listing.title}`}
                         >
-                          {isOperating ? (
-                            <Loader2
-                              className="size-3.5 animate-spin"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <Send className="size-3.5" aria-hidden="true" />
-                          )}
-                          Publicar
-                        </Button>
-                      </>
+                          <ExternalLink
+                            className="size-3.5"
+                            aria-hidden="true"
+                          />
+                          Ver publicación
+                        </Link>
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-border/50 pt-2">
+                    {listing.state === "borrador" && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        disabled={isOperating}
+                        onClick={() => handlePublish(listing.id)}
+                        className="gap-1 text-xs"
+                        aria-label={`Publicar ${listing.title}`}
+                      >
+                        {isOperating ? (
+                          <Loader2
+                            className="size-3.5 animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Send className="size-3.5" aria-hidden="true" />
+                        )}
+                        Publicar
+                      </Button>
                     )}
 
                     {listing.state === "activa" && (
-                      <>
-                        <Button
-                          asChild
-                          variant="outline"
-                          size="sm"
-                          className="gap-1 text-xs"
-                        >
-                          <Link
-                            href={`/espacios/${listing.id}`}
-                            aria-label={`Ver publicación de ${listing.title}`}
-                          >
-                            <ExternalLink
-                              className="size-3.5"
-                              aria-hidden="true"
-                            />
-                            Ver publicación
-                          </Link>
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={isOperating}
-                          onClick={() => handleArchive(listing.id)}
-                          className="gap-1 text-xs text-amber-700 hover:bg-amber-50"
-                          aria-label={`Archivar ${listing.title}`}
-                        >
-                          {isOperating ? (
-                            <Loader2
-                              className="size-3.5 animate-spin"
-                              aria-hidden="true"
-                            />
-                          ) : (
-                            <Archive className="size-3.5" aria-hidden="true" />
-                          )}
-                          Archivar
-                        </Button>
-                      </>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isOperating}
+                        onClick={() => handleArchive(listing.id)}
+                        className="gap-1 text-xs text-amber-700 hover:bg-amber-50"
+                        aria-label={`Archivar ${listing.title}`}
+                      >
+                        {isOperating ? (
+                          <Loader2
+                            className="size-3.5 animate-spin"
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Archive className="size-3.5" aria-hidden="true" />
+                        )}
+                        Archivar
+                      </Button>
                     )}
 
                     {listing.state === "oculta" && (
@@ -528,11 +554,11 @@ export function HostListingsList() {
                         onClick={() =>
                           handleRetirePublication(listing.id, listing.title)
                         }
-                        className="text-destructive hover:bg-destructive/10 text-xs px-2"
+                        className="text-destructive hover:bg-destructive/10 text-xs px-2.5 gap-1"
                         aria-label={`Retirar publicación ${listing.title}`}
                       >
-                        <Archive className="size-3.5" aria-hidden="true" />
-                        Retirar publicación
+                        <Archive className="size-3.5 shrink-0" aria-hidden="true" />
+                        <span>Retirar publicación</span>
                       </Button>
                     )}
                   </div>

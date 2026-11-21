@@ -8,14 +8,22 @@ import (
 )
 
 func TestCommissionUsesPesosAndRoundsHalfUp(t *testing.T) {
-	for _, tc := range []struct{ base, commission, vat, gross int64 }{
-		{100000, 3000, 570, 3570}, {12000, 360, 68, 428}, {1, 0, 0, 0}, {17, 1, 0, 1}, {50, 2, 0, 2}, {1000000, 30000, 5700, 35700},
+	for _, tc := range []struct{ base, commission, vat, buyerFee, total, gross int64 }{
+		{100000, 3000, 570, 3570, 103570, 7140},
+		{12000, 360, 68, 428, 12428, 856},
+		{1, 0, 0, 0, 1, 0},
+		{17, 1, 0, 1, 18, 2},
+		{50, 2, 0, 2, 52, 4},
+		{1000000, 30000, 5700, 35700, 1035700, 71400},
 	} {
 		got, err := CalculateAmounts(tc.base)
 		if err != nil {
 			t.Fatalf("CalculateAmounts(%d): %v", tc.base, err)
 		}
-		if got.CommissionCLP != tc.commission || got.VATCLP != tc.vat || got.MarketplaceFeeCLP != tc.gross {
+		if got.CommissionCLP != tc.commission || got.VATCLP != tc.vat ||
+			got.BuyerCommissionCLP != tc.commission || got.BuyerVATCLP != tc.vat ||
+			got.BuyerFeeCLP != tc.buyerFee || got.TotalChargedCLP != tc.total ||
+			got.MarketplaceFeeCLP != tc.gross {
 			t.Errorf("base=%d got=%+v", tc.base, got)
 		}
 	}
@@ -79,10 +87,10 @@ func TestWalletPurchaseRequiresTestGateAndCreatesRegisteredBuyerPreference(t *te
 	if result.InitPoint != "https://www.mercadopago.cl/checkout/pref-1" || gateway.calls != 1 {
 		t.Fatalf("result=%+v provider_calls=%d", result, gateway.calls)
 	}
-	if gateway.preferenceRequest.Purpose != "wallet_purchase" || gateway.preferenceRequest.MarketplaceFee != 857 || gateway.preferenceRequest.ExternalReference != result.OperationID {
+	if gateway.preferenceRequest.Purpose != "wallet_purchase" || gateway.preferenceRequest.MarketplaceFee != 1714 || gateway.preferenceRequest.ExternalReference != result.OperationID {
 		t.Fatalf("wallet preference fields=%+v", gateway.preferenceRequest)
 	}
-	if gateway.preferenceRequest.Items[0].UnitPrice != 24000 || gateway.preferenceRequest.Items[0].CurrencyID != "CLP" {
+	if gateway.preferenceRequest.Items[0].UnitPrice != 24857 || gateway.preferenceRequest.Items[0].CurrencyID != "CLP" {
 		t.Fatalf("wallet preference item was not quote-derived: %+v", gateway.preferenceRequest.Items)
 	}
 	reused, err := svc.StartWalletPurchase(context.Background(), quote.RenterID, quote.ID, "wallet-key")
@@ -228,8 +236,13 @@ func TestStartPersistsAndReusesQuotePreferenceWithoutTrustingClientAmounts(t *te
 	if first.OperationID != second.OperationID || gateway.calls != 1 {
 		t.Fatalf("not reused: first=%+v second=%+v provider calls=%d", first, second, gateway.calls)
 	}
-	if gateway.preferenceRequest.MarketplaceFee != 3570 || gateway.preferenceRequest.Items[0].UnitPrice != 100000 || gateway.preferenceRequest.ExternalReference != first.OperationID {
+	if gateway.preferenceRequest.MarketplaceFee != 7140 || gateway.preferenceRequest.Items[0].UnitPrice != 103570 || gateway.preferenceRequest.ExternalReference != first.OperationID {
 		t.Fatalf("provider payload not derived from quote: %+v", gateway.preferenceRequest)
+	}
+	if gateway.preferenceRequest.Metadata["total_charged_clp"] != int64(103570) ||
+		gateway.preferenceRequest.Metadata["buyer_fee_clp"] != int64(3570) ||
+		gateway.preferenceRequest.Metadata["host_fee_clp"] != int64(3570) {
+		t.Fatalf("provider metadata missing double-sided breakdown: %+v", gateway.preferenceRequest.Metadata)
 	}
 	if gateway.preferenceRequest.Purpose != "" {
 		t.Fatalf("existing Checkout Pro flow gained wallet_purchase purpose: %+v", gateway.preferenceRequest)
@@ -286,8 +299,8 @@ func TestStartTestModeCreatesPreferenceWithCardTypesAndNoOfflineTypes(t *testing
 	if len(gateway.preferenceRequest.PaymentMethods.ExcludedPaymentTypes) != 2 || gateway.preferenceRequest.PaymentMethods.ExcludedPaymentTypes[0].ID != "ticket" || gateway.preferenceRequest.PaymentMethods.ExcludedPaymentTypes[1].ID != "bank_transfer" {
 		t.Fatalf("test preference did not exclude only offline/non-card types: %+v", gateway.preferenceRequest.PaymentMethods)
 	}
-	if gateway.preferenceRequest.MarketplaceFee != 428 {
-		t.Fatalf("test card preference has wrong marketplace fee: %v", gateway.preferenceRequest.MarketplaceFee)
+	if gateway.preferenceRequest.MarketplaceFee != 856 || gateway.preferenceRequest.Items[0].UnitPrice != 12428 {
+		t.Fatalf("test card preference has wrong amounts: fee=%v unit_price=%v", gateway.preferenceRequest.MarketplaceFee, gateway.preferenceRequest.Items[0].UnitPrice)
 	}
 	if result.InitPoint != "https://www.mercadopago.cl/checkout/pref-1" {
 		t.Fatalf("test card checkout did not return init_point: %q", result.InitPoint)

@@ -851,8 +851,8 @@ func TestSyntheticHTTPQuoteCharacterizesCurrentDurationMatrix(t *testing.T) {
 		start time.Time
 		end   time.Time
 	}{
-		{name: "hourly three hours", unit: "hora", start: start.Add(10 * time.Hour), end: start.Add(13 * time.Hour)},
-		{name: "daily four days", unit: "dia", start: start, end: start.AddDate(0, 0, 4)},
+		{name: "hourly twenty five hours", unit: "hora", start: start, end: start.Add(25 * time.Hour)},
+		{name: "daily thirty two days", unit: "dia", start: start, end: start.AddDate(0, 0, 32)},
 		{name: "monthly two months", unit: "mes", start: start, end: start.AddDate(0, 2, 0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
