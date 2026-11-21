@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -118,15 +119,36 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	} else {
 		state := r.URL.Query().Get("state")
 		if providerError := r.URL.Query().Get("error"); providerError != "" {
+			providerCode := allowlistedAuthorizationError(providerError)
 			_, err := h.service.Complete(r.Context(), "", state)
-			if errors.Is(err, ErrUserDenied) && providerError == "access_denied" {
+			switch {
+			case errors.Is(err, ErrInvalidState):
+				status = "invalid_state"
+				slog.Warn("Mercado Pago OAuth callback failed", "stage", "authorization", "reason", "invalid_state", "provider_error", providerCode)
+			case errors.Is(err, ErrUserDenied) && providerCode == "access_denied":
 				status = "denied"
-			} else if errors.Is(err, ErrUserDenied) {
+				slog.Info("Mercado Pago OAuth authorization ended", "stage", "authorization", "reason", "access_denied")
+			case errors.Is(err, ErrUserDenied):
 				status = "exchange_failed"
+				slog.Warn("Mercado Pago OAuth callback failed", "stage", "authorization", "reason", "provider_error", "provider_code", providerCode)
+			default:
+				status = "exchange_failed"
+				slog.Warn("Mercado Pago OAuth callback failed", "stage", "callback", "reason", "internal_error", "provider_code", providerCode)
 			}
-		}
-		if r.URL.Query().Get("error") == "" {
+		} else {
 			_, err := h.service.Complete(r.Context(), r.URL.Query().Get("code"), state)
+			if err != nil {
+				var failure CallbackFailure
+				if errors.As(err, &failure) {
+					slog.Warn("Mercado Pago OAuth callback failed", "stage", failure.Stage, "reason", failure.Reason)
+				} else if errors.Is(err, ErrInvalidState) {
+					slog.Warn("Mercado Pago OAuth callback failed", "stage", "callback", "reason", "invalid_state")
+				} else if errors.Is(err, ErrUserDenied) {
+					slog.Warn("Mercado Pago OAuth callback failed", "stage", "callback", "reason", "authorization_code_missing")
+				} else {
+					slog.Warn("Mercado Pago OAuth callback failed", "stage", "callback", "reason", "internal_error")
+				}
+			}
 			switch {
 			case err == nil:
 				status = "connected"
@@ -144,6 +166,16 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	location := h.frontendOrigin + "/anfitrion/mercado-pago?connection=" + url.QueryEscape(status)
 	http.Redirect(w, r, location, http.StatusSeeOther)
 }
+
+func allowlistedAuthorizationError(code string) string {
+	switch code {
+	case "access_denied", "invalid_request", "unauthorized_client", "unsupported_response_type", "invalid_scope", "server_error", "temporarily_unavailable", "login_required", "interaction_required", "consent_required":
+		return code
+	default:
+		return "unknown"
+	}
+}
+
 func (h *Handler) writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)

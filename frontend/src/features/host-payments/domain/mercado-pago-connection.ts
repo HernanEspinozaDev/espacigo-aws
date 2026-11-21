@@ -45,7 +45,8 @@ export function parseAuthorizationUrl(value: unknown): string {
   try {
     const parsed = new URL(url);
     if (
-      parsed.origin !== "https://auth.mercadopago.com" ||
+      (parsed.origin !== "https://auth.mercadopago.cl" &&
+        parsed.origin !== "https://auth.mercadopago.com") ||
       parsed.username.length > 0 ||
       parsed.password.length > 0
     ) {

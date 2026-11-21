@@ -20,6 +20,7 @@ type VerifiedPayment struct {
 	LiveMode             bool
 	ObservedAt           time.Time
 	PaymentUpdatedAt     time.Time
+	ApplicationFeeCLP    *int64
 }
 
 // PaymentOutcomeSink is the application port the webhook/reconciler should use.

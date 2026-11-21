@@ -109,6 +109,14 @@ export function getBookingStateConfig(state: BookingState): {
           "bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20",
         icon: AlertCircle,
       };
+    case "reconciliation_required":
+      return {
+        label: "Conciliación Requerida",
+        group: "cancelada",
+        badgeClass:
+          "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20",
+        icon: AlertCircle,
+      };
     case "cancelada_por_firma":
     case "cancelada_por_pago":
     case "rechazada_arrendador":
@@ -162,6 +170,38 @@ export function ReservationsList({
 
   const filteredReservations = useMemo(() => {
     return reservations.filter((reservation) => {
+      if (mode === "host") {
+        if (
+          reservation.participant_role &&
+          reservation.participant_role !== "anfitrion"
+        ) {
+          return false;
+        }
+        if (
+          reservation.host_id &&
+          accountId &&
+          reservation.host_id !== "me" &&
+          reservation.host_id !== accountId
+        ) {
+          return false;
+        }
+      } else if (mode === "renter") {
+        if (
+          reservation.participant_role &&
+          reservation.participant_role !== "arrendatario"
+        ) {
+          return false;
+        }
+        if (
+          reservation.renter_id &&
+          accountId &&
+          reservation.renter_id !== "me" &&
+          reservation.renter_id !== accountId
+        ) {
+          return false;
+        }
+      }
+
       const stateConfig = getBookingStateConfig(reservation.state);
       const matchesTab =
         activeTab === "todas" || stateConfig.group === activeTab;
@@ -169,11 +209,17 @@ export function ReservationsList({
       const matchesSearch =
         !searchQuery ||
         reservation.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        reservation.space_id.toLowerCase().includes(searchQuery.toLowerCase());
+        reservation.space_id
+          .toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        (reservation.space_title &&
+          reservation.space_title
+            .toLowerCase()
+            .includes(searchQuery.toLowerCase()));
 
       return matchesTab && matchesSearch;
     });
-  }, [reservations, activeTab, searchQuery]);
+  }, [reservations, activeTab, searchQuery, mode, accountId]);
 
   const detailBaseHref = mode === "host" ? "/anfitrion/reservas" : "/reservas";
 
@@ -344,12 +390,19 @@ export function ReservationsList({
 
                     <div className="flex flex-wrap items-baseline gap-2">
                       <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                        Espacio: {reservation.space_id.slice(0, 8)}...
+                        {reservation.space_title
+                          ? reservation.space_title
+                          : `Espacio: ${reservation.space_id.slice(0, 8)}...`}
                       </h2>
                       <span className="text-sm text-muted-foreground">
                         · {reservation.units} {reservation.rate_unit}
                         {reservation.units > 1 ? "s" : ""}
                       </span>
+                      {reservation.checkout_status && (
+                        <span className="text-xs text-muted-foreground">
+                          · Checkout: {reservation.checkout_status}
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">

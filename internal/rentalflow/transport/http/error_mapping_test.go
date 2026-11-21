@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 )
 
@@ -32,6 +33,33 @@ func TestWriteDomainErrorDistinguishesIdentityGateFromAvailabilityConflict(t *te
 			}
 			if response.Code != http.StatusConflict || envelope.Error.Code != test.code {
 				t.Fatalf("status=%d code=%q, want 409 %q", response.Code, envelope.Error.Code, test.code)
+			}
+		})
+	}
+}
+
+func TestWriteCheckoutErrorDistinguishesUnavailableBalanceMethod(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{name: "required payment type absent", err: checkoutpro.ErrPaymentMethodUnavailable, code: "payment_method_unavailable"},
+		{name: "provider failure remains generic", err: checkoutpro.ErrProvider, code: "checkout_unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			writeCheckoutError(response, test.err)
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if response.Code != http.StatusServiceUnavailable || envelope.Error.Code != test.code {
+				t.Fatalf("status=%d code=%q, want 503 %q", response.Code, envelope.Error.Code, test.code)
 			}
 		})
 	}

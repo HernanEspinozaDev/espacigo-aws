@@ -14,14 +14,16 @@ import (
 )
 
 var (
-	ErrInvalid             = errors.New("checkoutpro: invalid request")
-	ErrNotFound            = errors.New("checkoutpro: quote not found")
-	ErrConflict            = errors.New("checkoutpro: quote unavailable or idempotency conflict")
-	ErrIdempotencyConflict = errors.New("checkoutpro: idempotency key conflict")
-	ErrQuoteExpired        = errors.New("checkoutpro: quote or checkout expired")
-	ErrNotConfigured       = errors.New("checkoutpro: provider not configured")
-	ErrHostNotConnected    = errors.New("checkoutpro: seller account is not connected")
-	ErrProvider            = errors.New("checkoutpro: provider unavailable")
+	ErrInvalid                  = errors.New("checkoutpro: invalid request")
+	ErrNotFound                 = errors.New("checkoutpro: quote not found")
+	ErrConflict                 = errors.New("checkoutpro: quote unavailable or idempotency conflict")
+	ErrIdempotencyConflict      = errors.New("checkoutpro: idempotency key conflict")
+	ErrQuoteExpired             = errors.New("checkoutpro: quote or checkout expired")
+	ErrNotConfigured            = errors.New("checkoutpro: provider not configured")
+	ErrHostNotConnected         = errors.New("checkoutpro: seller account is not connected")
+	ErrPaymentMethodUnavailable = errors.New("checkoutpro: required payment method unavailable")
+	ErrProvider                 = errors.New("checkoutpro: provider unavailable")
+	ErrWalletPurchaseDisabled   = errors.New("checkoutpro: wallet purchase is disabled")
 )
 
 type Quote struct {
@@ -35,6 +37,7 @@ type Quote struct {
 
 type Operation struct {
 	ID, QuoteID, Status, PreferenceID, InitPoint string
+	CheckoutMethod, ProviderPaymentID            string
 	ExpiresAt, UpdatedAt                         time.Time
 	Amounts                                      Amounts `json:"-"`
 	TestMode                                     bool    `json:"-"`
@@ -66,9 +69,31 @@ type Gateway interface {
 	FindByExternalReference(context.Context, []byte, string) (Preference, error)
 }
 type Config struct {
-	FrontendOrigin string
-	TestMode       bool
+	FrontendOrigin        string
+	TestMode              bool
+	WalletPurchaseEnabled bool
+	Diagnostics           func(context.Context, Diagnostic)
 }
+
+// Diagnostic contains only fixed stage/reason values and provider metadata that
+// has passed the HTTP adapter allowlist. It must never contain provider bodies,
+// credentials, preference URLs, or user supplied values.
+type Diagnostic struct {
+	Stage        string
+	Reason       string
+	HTTPStatus   int
+	ProviderCode string
+}
+
+type ProviderError struct {
+	Stage        string
+	HTTPStatus   int
+	ProviderCode string
+}
+
+func (e *ProviderError) Error() string { return "checkoutpro: provider unavailable" }
+func (e *ProviderError) Unwrap() error { return ErrProvider }
+
 type Service struct {
 	repo    Repository
 	tokens  SellerTokens
@@ -116,7 +141,45 @@ func CalculateAmounts(base int64) (Amounts, error) {
 	return Amounts{BaseCLP: base, CommissionCLP: commission, VATCLP: vat, MarketplaceFeeCLP: commission + vat}, nil
 }
 
+// AllowedPaymentType constrains payment methods by the operation's persisted
+// mode. Split production accepts only account money. Test operations may also
+// accept card types so test buyers can use test cards.
+func AllowedPaymentType(testMode bool, paymentType string) bool {
+	if paymentType == "account_money" {
+		return true
+	}
+	return testMode && isTestCardType(paymentType)
+}
+
+// PaymentModeMatches requires test preferences to reconcile only a non-live
+// payment, and live preferences only a live payment.
+func PaymentModeMatches(testMode, liveMode bool) bool {
+	return testMode != liveMode
+}
+
+func isTestCardType(paymentType string) bool {
+	switch paymentType {
+	case "credit_card", "debit_card", "prepaid_card":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (StartResult, error) {
+	return s.start(ctx, renter, quoteID, key, false)
+}
+
+// StartWalletPurchase creates a preference that requires the buyer to sign in
+// to their Mercado Pago account before completing checkout.
+func (s *Service) StartWalletPurchase(ctx context.Context, renter, quoteID, key string) (StartResult, error) {
+	if !s.config.WalletPurchaseEnabled || !s.config.TestMode {
+		return StartResult{}, ErrWalletPurchaseDisabled
+	}
+	return s.start(ctx, renter, quoteID, key, true)
+}
+
+func (s *Service) start(ctx context.Context, renter, quoteID, key string, walletPurchase bool) (StartResult, error) {
 	if ctx == nil || !validUUID(renter) || !validUUID(quoteID) || strings.TrimSpace(key) == "" || len(key) > 200 {
 		return StartResult{}, ErrInvalid
 	}
@@ -124,7 +187,11 @@ func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (Start
 	if !validUUID(operationID) {
 		return StartResult{}, ErrProvider
 	}
-	fingerprint := sha256.Sum256([]byte("checkoutpro-preference-v1\n" + quoteID))
+	flow := "checkoutpro-preference-v1\n"
+	if walletPurchase {
+		flow = "checkoutpro-wallet-purchase-v1\n"
+	}
+	fingerprint := sha256.Sum256([]byte(flow + quoteID))
 	now := s.now().UTC()
 	quote, op, created, err := s.repo.Begin(ctx, renter, quoteID, key, operationID, fingerprint[:], s.config.TestMode, now)
 	if err != nil {
@@ -145,23 +212,31 @@ func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (Start
 	}
 	token, err := s.tokens.AccessToken(ctx, quote.HostID)
 	if err != nil {
+		s.diagnose(ctx, "seller_token", "unavailable", err)
 		return StartResult{}, ErrHostNotConnected
 	}
 	defer clear(token)
 	paymentTypes, err := s.gateway.PaymentTypes(ctx, token)
 	if err != nil {
+		s.diagnose(ctx, "payment_methods", "provider_unavailable", err)
 		return StartResult{}, ErrProvider
 	}
 	excluded := make([]ExcludedPaymentType, 0, len(paymentTypes))
 	seenTypes := map[string]bool{}
 	foundAccountMoney := false
+	foundTestCard := false
 	for _, paymentType := range paymentTypes {
 		paymentType = strings.TrimSpace(paymentType)
 		if paymentType == "account_money" {
 			foundAccountMoney = true
 			continue
 		}
+		if s.config.TestMode && isTestCardType(paymentType) {
+			foundTestCard = true
+			continue
+		}
 		if paymentType == "" || len(paymentType) > 64 {
+			s.diagnose(ctx, "payment_methods", "invalid_response", nil)
 			return StartResult{}, ErrProvider
 		}
 		if !seenTypes[paymentType] {
@@ -169,11 +244,22 @@ func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (Start
 			seenTypes[paymentType] = true
 		}
 	}
-	if !foundAccountMoney {
-		return StartResult{}, ErrProvider
+	if s.config.TestMode && !foundTestCard {
+		s.diagnose(ctx, "payment_methods", "test_card_unavailable", nil)
+		return StartResult{}, ErrPaymentMethodUnavailable
+	}
+	if !s.config.TestMode && !foundAccountMoney {
+		s.diagnose(ctx, "payment_methods", "account_money_unavailable", nil)
+		return StartResult{}, ErrPaymentMethodUnavailable
 	}
 	returnURL := s.config.FrontendOrigin + "/reservas/checkout/" + quote.ID
 	request := PreferenceRequest{
+		Purpose: func() string {
+			if walletPurchase {
+				return "wallet_purchase"
+			}
+			return ""
+		}(),
 		ExternalReference: op.ID, MarketplaceFee: float64(amounts.MarketplaceFeeCLP),
 		Items:    []PreferenceItem{{Title: cleanTitle(quote.Title), Quantity: 1, UnitPrice: float64(quote.SubtotalCLP), CurrencyID: "CLP"}},
 		Metadata: map[string]any{"quote_id": quote.ID, "operation_id": op.ID, "space_id": quote.SpaceID, "host_id": quote.HostID, "renter_id": quote.RenterID, "commission_base_clp": amounts.BaseCLP, "commission_clp": amounts.CommissionCLP, "vat_clp": amounts.VATCLP, "marketplace_fee_clp": amounts.MarketplaceFeeCLP},
@@ -183,6 +269,7 @@ func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (Start
 	}
 	claimed, claimErr := s.repo.ClaimPreference(ctx, op.ID, now, 2*time.Minute)
 	if claimErr != nil {
+		s.diagnose(ctx, "claim_preference", "repository_unavailable", nil)
 		return StartResult{}, ErrProvider
 	}
 	if !claimed {
@@ -197,26 +284,47 @@ func (s *Service) Start(ctx context.Context, renter, quoteID, key string) (Start
 		preference, err = s.gateway.FindByExternalReference(ctx, token, op.ID)
 		if errors.Is(err, ErrNotFound) {
 			err = nil
+		} else if err != nil {
+			s.diagnose(ctx, "preference_lookup", "provider_unavailable", err)
 		}
 	}
 	if err == nil && preference.ID == "" {
 		preference, err = s.gateway.Create(ctx, token, request)
+		if err != nil {
+			s.diagnose(ctx, "preference_create", "provider_unavailable", err)
+		}
 	}
 	if err != nil {
 		// A timeout may have reached the provider. Search by our durable external reference.
 		preference, err = s.gateway.FindByExternalReference(ctx, token, op.ID)
 		if err != nil {
+			s.diagnose(ctx, "preference_lookup", "provider_unavailable", err)
 			return StartResult{}, ErrProvider
 		}
 	}
 	if preference.ID == "" || !validInitPoint(preference.InitPoint, s.config.TestMode) {
+		s.diagnose(ctx, "preference_response", "invalid_preference", nil)
 		return StartResult{}, ErrProvider
 	}
 	if err = s.repo.SavePreference(ctx, op.ID, preference.ID, preference.InitPoint, now); err != nil {
+		s.diagnose(ctx, "save_preference", "repository_unavailable", nil)
 		return StartResult{}, ErrProvider
 	}
 	op.PreferenceID, op.InitPoint = preference.ID, preference.InitPoint
 	return startResult(quote, op), nil
+}
+
+func (s *Service) diagnose(ctx context.Context, stage, reason string, err error) {
+	if s.config.Diagnostics == nil {
+		return
+	}
+	d := Diagnostic{Stage: stage, Reason: reason}
+	var providerErr *ProviderError
+	if errors.As(err, &providerErr) {
+		d.HTTPStatus = providerErr.HTTPStatus
+		d.ProviderCode = providerErr.ProviderCode
+	}
+	s.config.Diagnostics(ctx, d)
 }
 
 func (s *Service) Status(ctx context.Context, renter, quoteID string) (StatusResult, error) {

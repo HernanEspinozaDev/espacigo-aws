@@ -51,6 +51,7 @@ type State struct {
 }
 type Connection struct {
 	HostID, SellerID          string
+	PublicKey                 string // non-secret seller key, exposed only to the authorized renter in test tokenization mode
 	AccessToken, RefreshToken []byte // encrypted at rest
 	ExpiresAt                 time.Time
 	Scopes                    []string
@@ -68,6 +69,7 @@ type Repository interface {
 
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
+	PublicKey    string `json:"public_key"`
 	RefreshToken string `json:"refresh_token"`
 	UserID       string `json:"user_id"`
 	ExpiresIn    int64  `json:"expires_in"`
@@ -80,6 +82,7 @@ type TokenResponse struct {
 func (t *TokenResponse) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		AccessToken  string          `json:"access_token"`
+		PublicKey    string          `json:"public_key"`
 		RefreshToken string          `json:"refresh_token"`
 		UserID       json.RawMessage `json:"user_id"`
 		ExpiresIn    int64           `json:"expires_in"`
@@ -97,7 +100,7 @@ func (t *TokenResponse) UnmarshalJSON(data []byte) error {
 	} else {
 		userID = string(wire.UserID)
 	}
-	*t = TokenResponse{AccessToken: wire.AccessToken, RefreshToken: wire.RefreshToken, UserID: userID, ExpiresIn: wire.ExpiresIn, Scope: wire.Scope, LiveMode: wire.LiveMode}
+	*t = TokenResponse{AccessToken: wire.AccessToken, PublicKey: wire.PublicKey, RefreshToken: wire.RefreshToken, UserID: userID, ExpiresIn: wire.ExpiresIn, Scope: wire.Scope, LiveMode: wire.LiveMode}
 	return nil
 }
 
@@ -128,7 +131,7 @@ func New(config Config, repo Repository, exchanger TokenExchanger, now func() ti
 		config.RefreshBefore = 5 * time.Minute
 	}
 	if config.AuthorizationURL == "" {
-		config.AuthorizationURL = "https://auth.mercadopago.com/authorization"
+		config.AuthorizationURL = "https://auth.mercadopago.cl/authorization"
 	}
 	if err := config.validate(); err != nil {
 		return nil, err
@@ -190,37 +193,110 @@ func (s *Service) Complete(ctx context.Context, code, state string) (string, err
 	defer clear(verifierBytes)
 	tokens, err := s.exchanger.Exchange(ctx, code, string(verifierBytes), s.config.TestMode)
 	if err != nil {
-		return record.HostID, ErrProvider
+		return record.HostID, CallbackFailure{Stage: "exchange", Reason: safeProviderReason(err), Cause: err}
 	}
 	if err = validateTokens(tokens, s.config.TestMode); err != nil {
-		return record.HostID, err
+		reason := "invalid_token_response"
+		var tokenFailure TokenValidationFailure
+		if errors.As(err, &tokenFailure) {
+			reason = tokenFailure.Reason
+		}
+		if errors.Is(err, ErrWrongMode) {
+			reason = "mode_mismatch"
+		}
+		return record.HostID, CallbackFailure{Stage: "validation", Reason: reason, Cause: err}
 	}
+	tokens = normalizeVerifiedSandboxLiveMode(tokens, s.config.TestMode)
 	access, err := s.seal([]byte(tokens.AccessToken))
 	if err != nil {
-		return record.HostID, err
+		return record.HostID, CallbackFailure{Stage: "storage", Reason: "encryption_failed", Cause: err}
 	}
 	refresh, err := s.seal([]byte(tokens.RefreshToken))
 	if err != nil {
-		return record.HostID, err
+		return record.HostID, CallbackFailure{Stage: "storage", Reason: "encryption_failed", Cause: err}
 	}
-	connection := Connection{HostID: record.HostID, SellerID: tokens.UserID, AccessToken: access, RefreshToken: refresh, ExpiresAt: s.now().UTC().Add(time.Duration(tokens.ExpiresIn) * time.Second), Scopes: strings.Fields(tokens.Scope), LiveMode: *tokens.LiveMode}
+	connection := Connection{HostID: record.HostID, SellerID: tokens.UserID, PublicKey: validPublicKey(tokens.PublicKey), AccessToken: access, RefreshToken: refresh, ExpiresAt: s.now().UTC().Add(time.Duration(tokens.ExpiresIn) * time.Second), Scopes: strings.Fields(tokens.Scope), LiveMode: *tokens.LiveMode}
 	if err = s.repo.SaveConnection(ctx, connection); err != nil {
-		return record.HostID, err
+		return record.HostID, CallbackFailure{Stage: "storage", Reason: "connection_save_failed", Cause: err}
 	}
 	return record.HostID, nil
 }
 
+// CallbackFailure is safe for structured operational diagnostics. Its fields
+// are fixed enums; it never includes OAuth parameters, provider body, or tokens.
+type CallbackFailure struct {
+	Stage, Reason string
+	Cause         error
+}
+
+func (e CallbackFailure) Error() string { return "marketplace oauth: callback failure" }
+func (e CallbackFailure) Unwrap() error { return e.Cause }
+
+func safeProviderReason(err error) string {
+	var failure ProviderFailure
+	if errors.As(err, &failure) {
+		if failure.Code == "transport_error" {
+			return failure.Code
+		}
+		code := allowlistedProviderCode(failure.Code)
+		status := failure.Status
+		if status < 100 || status > 599 {
+			status = 0
+		}
+		return fmt.Sprintf("http_%d:%s", status, code)
+	}
+	return "provider_rejected"
+}
+
+// TokenValidationFailure carries only a fixed field-level reason for safe
+// diagnostics. It never contains a response value.
+type TokenValidationFailure struct{ Reason string }
+
+func (TokenValidationFailure) Error() string { return "marketplace oauth: invalid token response" }
+func (TokenValidationFailure) Unwrap() error { return ErrProvider }
+
 func validateTokens(t TokenResponse, testMode bool) error {
-	if t.AccessToken == "" || t.RefreshToken == "" || t.UserID == "" || t.ExpiresIn <= 0 || t.ExpiresIn > int64((365*24*time.Hour)/time.Second) || t.LiveMode == nil {
-		return ErrProvider
+	if t.AccessToken == "" {
+		return TokenValidationFailure{Reason: "missing_access_token"}
+	}
+	if t.RefreshToken == "" {
+		return TokenValidationFailure{Reason: "missing_refresh_token"}
+	}
+	if t.UserID == "" {
+		return TokenValidationFailure{Reason: "missing_user_id"}
+	}
+	if t.ExpiresIn <= 0 {
+		return TokenValidationFailure{Reason: "invalid_expires_in"}
+	}
+	if t.ExpiresIn > int64((365*24*time.Hour)/time.Second) {
+		return TokenValidationFailure{Reason: "expires_in_out_of_range"}
 	}
 	if _, err := strconvPositiveDecimal(t.UserID); err != nil {
-		return ErrProvider
+		return TokenValidationFailure{Reason: "invalid_user_id"}
 	}
-	if t.LiveMode == nil || *t.LiveMode == testMode {
+	if t.LiveMode == nil {
+		// Mercado Pago documents TEST tokens as sandbox-only. APP_USR is used
+		// for both test and production credentials, so it is not evidence of mode.
+		if testMode && strings.HasPrefix(t.AccessToken, "TEST-") {
+			return nil
+		}
+		if testMode {
+			return TokenValidationFailure{Reason: "sandbox_mode_unverified"}
+		}
+		return TokenValidationFailure{Reason: "missing_live_mode"}
+	}
+	if *t.LiveMode == testMode {
 		return ErrWrongMode
 	}
 	return nil
+}
+
+func normalizeVerifiedSandboxLiveMode(tokens TokenResponse, testMode bool) TokenResponse {
+	if testMode && tokens.LiveMode == nil && strings.HasPrefix(tokens.AccessToken, "TEST-") {
+		liveMode := false
+		tokens.LiveMode = &liveMode
+	}
+	return tokens
 }
 
 func strconvPositiveDecimal(s string) (uint64, error) {
@@ -274,6 +350,23 @@ func (s *Service) AccessToken(ctx context.Context, hostID string) ([]byte, error
 	return s.open(c.AccessToken)
 }
 
+// PublicKey returns only the active sandbox seller's browser-safe public key.
+// It intentionally reports unavailable for legacy connections and accounts
+// requiring reauthorization, so checkout code cannot silently use another key.
+func (s *Service) PublicKey(ctx context.Context, hostID string) (string, bool, error) {
+	c, err := s.Status(ctx, hostID)
+	if errors.Is(err, ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	if c.NeedsReauthorization || c.LiveMode || c.PublicKey == "" {
+		return "", false, nil
+	}
+	return c.PublicKey, true, nil
+}
+
 func (s *Service) Refresh(ctx context.Context, hostID string) (Connection, error) {
 	return s.repo.RefreshConnection(ctx, hostID, func(current Connection) (Connection, error) {
 		if current.NeedsReauthorization {
@@ -293,6 +386,7 @@ func (s *Service) Refresh(ctx context.Context, hostID string) (Connection, error
 			current.NeedsReauthorization = true
 			return current, err
 		}
+		updated = normalizeVerifiedSandboxLiveMode(updated, s.config.TestMode)
 		if updated.UserID != current.SellerID {
 			current.NeedsReauthorization = true
 			return current, ErrProvider
@@ -311,9 +405,24 @@ func (s *Service) Refresh(ctx context.Context, hostID string) (Connection, error
 		current.ExpiresAt = s.now().UTC().Add(time.Duration(updated.ExpiresIn) * time.Second)
 		current.Scopes = strings.Fields(updated.Scope)
 		current.LiveMode = *updated.LiveMode
+		if key := validPublicKey(updated.PublicKey); key != "" {
+			current.PublicKey = key
+		}
 		current.NeedsReauthorization = false
 		return current, nil
 	})
+}
+
+func validPublicKey(key string) string {
+	if len(key) < 20 || len(key) > 128 || strings.TrimSpace(key) != key || !(strings.HasPrefix(key, "TEST-") || strings.HasPrefix(key, "APP_USR-")) {
+		return ""
+	}
+	for _, r := range key {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') && r != '-' && r != '_' {
+			return ""
+		}
+	}
+	return key
 }
 
 func (s *Service) seal(plain []byte) ([]byte, error) {

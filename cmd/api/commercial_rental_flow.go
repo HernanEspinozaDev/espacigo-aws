@@ -21,6 +21,8 @@ func mountCommercialRentalFlowRoutes(mux *http.ServeMux, handler http.Handler) e
 	mux.Handle("/api/v1/spaces/{spaceID}/rental-availability", handler)
 	mux.Handle("/api/v1/rental-quotes", handler)
 	mux.Handle("/api/v1/rental-quotes/", handler)
+	mux.Handle("/api/v1/commercial-reservations", handler)
+	mux.Handle("/api/v1/commercial-reservations/", handler)
 	return nil
 }
 

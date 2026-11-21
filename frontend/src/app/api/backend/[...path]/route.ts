@@ -313,6 +313,7 @@ async function upstreamError(
   upstream: Response,
   requestId: string,
   headers: Headers,
+  preserveCheckout503Codes: boolean,
 ): Promise<Response> {
   let code = "upstream_error";
   const details: { field: string; code: string }[] = [];
@@ -320,9 +321,17 @@ async function upstreamError(
     const bytes = await readBody(upstream, 4096);
     if (bytes) {
       const payload = JSON.parse(new TextDecoder().decode(bytes))?.error;
-      if (upstream.status < 500 && safeErrorIdentifier(payload?.code)) {
+      const preserveCheckoutMethodError =
+        preserveCheckout503Codes &&
+        upstream.status === 503 &&
+        (payload?.code === "payment_method_unavailable" ||
+          payload?.code === "checkout_not_configured");
+      if (
+        safeErrorIdentifier(payload?.code) &&
+        (upstream.status < 500 || preserveCheckoutMethodError)
+      ) {
         code = payload.code;
-        if (Array.isArray(payload.details)) {
+        if (upstream.status < 500 && Array.isArray(payload.details)) {
           for (const item of payload.details.slice(0, 20)) {
             if (
               safeErrorIdentifier(item?.field) &&
@@ -514,6 +523,8 @@ async function proxy(
       upstream,
       outgoingHeaders.get("x-request-id") ?? requestId,
       outgoingHeaders,
+      operation.operationId === "startCommercialQuoteCheckout" ||
+        operation.operationId === "createCommercialPayment",
     );
   }
 

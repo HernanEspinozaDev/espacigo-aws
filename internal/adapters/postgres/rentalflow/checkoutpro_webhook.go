@@ -3,6 +3,7 @@ package rentalflowpg
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -37,17 +38,19 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return false, err
 	}
-	var opID, hostID, renterID, spaceID, opState, providerPaymentID, providerStatus string
+	var opID, hostID, renterID, spaceID, opState, checkoutMethod, providerPaymentID, providerStatus string
 	var expires, previousUpdated time.Time
 	var testMode bool
 	var base, fee int64
-	err = tx.QueryRow(ctx, `SELECT id::text,host_id::text,arrendatario_id::text,espacio_id::text,estado,vence_en,test_mode,base_clp,marketplace_fee_clp,COALESCE(provider_payment_id,''),COALESCE(provider_payment_status,''),COALESCE(provider_payment_updated_at,'0001-01-01 00:00:00+00'::timestamptz) FROM public.checkout_preferencia_comercial WHERE id=$1 FOR UPDATE`, p.OperationID).Scan(&opID, &hostID, &renterID, &spaceID, &opState, &expires, &testMode, &base, &fee, &providerPaymentID, &providerStatus, &previousUpdated)
+	err = tx.QueryRow(ctx, `SELECT id::text,host_id::text,arrendatario_id::text,espacio_id::text,estado,checkout_method,vence_en,test_mode,base_clp,marketplace_fee_clp,COALESCE(provider_payment_id,''),COALESCE(provider_payment_status,''),COALESCE(provider_payment_updated_at,'0001-01-01 00:00:00+00'::timestamptz) FROM public.checkout_preferencia_comercial WHERE id=$1 FOR UPDATE`, p.OperationID).Scan(&opID, &hostID, &renterID, &spaceID, &opState, &checkoutMethod, &expires, &testMode, &base, &fee, &providerPaymentID, &providerStatus, &previousUpdated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, checkoutpro.ErrNotFound
 	}
 	if err != nil {
 		return false, err
 	}
+	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_received operation_id=%s payment_id=%s amount_clp=%d status=%s application_fee_expected_set=%t application_fee_present=%t",
+		p.OperationID, p.ProviderPaymentID, p.TransactionAmountCLP, p.Status, fee > 0, p.ApplicationFeeCLP != nil)
 	if providerPaymentID != "" && providerPaymentID != p.ProviderPaymentID {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, p.Status, p.PaymentUpdatedAt, "multiple_provider_payments")
 	}
@@ -72,7 +75,10 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	if err != nil {
 		return false, err
 	}
-	if p.OperationID != opID || p.ProviderPaymentID == "" || p.TransactionAmountCLP != base || p.TransactionAmountCLP != quoteTotal || p.Currency != quoteCurrency || p.Currency != "CLP" || p.PaymentType != "account_money" || p.LiveMode == testMode {
+	modeMatches := checkoutpro.PaymentModeMatches(testMode, p.LiveMode)
+	if (checkoutMethod != "checkout_pro" && checkoutMethod != "payments_api") ||
+		checkoutMethod == "payments_api" && !testMode ||
+		p.OperationID != opID || p.ProviderPaymentID == "" || p.TransactionAmountCLP != base || p.TransactionAmountCLP != quoteTotal || p.Currency != quoteCurrency || p.Currency != "CLP" || !checkoutpro.AllowedPaymentType(testMode, p.PaymentType) || !modeMatches {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, p.Status, p.PaymentUpdatedAt, "payment_facts_mismatch")
 	}
 	if providerPaymentID == p.ProviderPaymentID && p.PaymentUpdatedAt.Before(previousUpdated) {
@@ -85,6 +91,15 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "unsupported_provider_status")
 	}
+	if checkoutMethod == "payments_api" && status == "approved" {
+		if !applicationFeeMatches(fee, p.ApplicationFeeCLP) {
+			log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=application_fee_mismatch application_fee_expected_set=%t application_fee_present=%t",
+				p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
+			return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "application_fee_mismatch")
+		}
+	}
+	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=matched application_fee_expected_set=%t application_fee_present=%t",
+		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
 	if opState == "approved" || opState == "rejected" || opState == "cancelled" || opState == "expired" || opState == "reconciliation_required" {
 		if opState == "approved" && status == "approved" {
 			if err = tx.Commit(ctx); err != nil {
@@ -168,6 +183,13 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		return false, err
 	}
 	return false, nil
+}
+
+func applicationFeeMatches(expected int64, observed *int64) bool {
+	if expected == 0 {
+		return observed == nil || *observed == 0
+	}
+	return observed != nil && *observed == expected
 }
 
 func (r *Repository) markCheckoutReconciliation(ctx context.Context, tx pgx.Tx, id, paymentID, status string, updatedAt time.Time, reason string) (bool, error) {

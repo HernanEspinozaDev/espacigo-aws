@@ -104,7 +104,7 @@ func TestStartCreatesBoundExpiringStateAndS256Challenge(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	if u.Host != "auth.mercadopago.com" || q.Get("response_type") != "code" || q.Get("platform_id") != "mp" || q.Get("redirect_uri") != "https://example.test/api/backend/host/mercadopago/oauth/callback" {
+	if u.Host != "auth.mercadopago.cl" || q.Get("response_type") != "code" || q.Get("platform_id") != "mp" || q.Get("redirect_uri") != "https://example.test/api/backend/host/mercadopago/oauth/callback" {
 		t.Fatalf("unexpected authorization URL: %s", u)
 	}
 	state := q.Get("state")
@@ -131,7 +131,9 @@ func TestStartCreatesBoundExpiringStateAndS256Challenge(t *testing.T) {
 func TestCompletePersistsOnlyEncryptedTokensAndConsumesStateOnce(t *testing.T) {
 	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	repo := newMemoryRepository()
-	exchange := &exchangerStub{exchange: testTokens(false, "seller-access-secret", "seller-refresh-secret")}
+	response := testTokens(false, "seller-access-secret", "seller-refresh-secret")
+	response.PublicKey = "TEST-12345678901234567890"
+	exchange := &exchangerStub{exchange: response}
 	svc := testService(t, repo, exchange, func() time.Time { return now })
 	authorization, err := svc.Start(context.Background(), "host-1")
 	if err != nil {
@@ -146,7 +148,7 @@ func TestCompletePersistsOnlyEncryptedTokensAndConsumesStateOnce(t *testing.T) {
 		t.Fatal("callback did not use stored host, PKCE verifier, and test mode")
 	}
 	connection := repo.connections[host]
-	if connection.SellerID != "123456789" || connection.LiveMode || !connection.ExpiresAt.Equal(now.Add(time.Hour)) || strings.Join(connection.Scopes, " ") != "offline_access read" {
+	if connection.SellerID != "123456789" || connection.PublicKey != response.PublicKey || connection.LiveMode || !connection.ExpiresAt.Equal(now.Add(time.Hour)) || strings.Join(connection.Scopes, " ") != "offline_access read" {
 		t.Fatalf("unexpected connection metadata: %#v", connection)
 	}
 	if strings.Contains(string(connection.AccessToken), "seller-access-secret") || strings.Contains(string(connection.RefreshToken), "seller-refresh-secret") {
@@ -154,6 +156,66 @@ func TestCompletePersistsOnlyEncryptedTokensAndConsumesStateOnce(t *testing.T) {
 	}
 	if _, err = svc.Complete(context.Background(), "second-code", state); !errors.Is(err, ErrInvalidState) {
 		t.Fatalf("replayed state accepted: %v", err)
+	}
+}
+
+func TestCompleteAcceptsSandboxOnlyTokenWithoutLiveModeAndPersistsFalse(t *testing.T) {
+	repo := newMemoryRepository()
+	exchange := &exchangerStub{exchange: TokenResponse{AccessToken: "TEST-sandbox", RefreshToken: "refresh", UserID: "123456789", ExpiresIn: 3600, Scope: "offline_access read"}}
+	svc := testService(t, repo, exchange, time.Now)
+	authorization, err := svc.Start(context.Background(), "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := mustURL(t, authorization).Query().Get("state")
+	if _, err = svc.Complete(context.Background(), "authorization-code", state); err != nil {
+		t.Fatal(err)
+	}
+	connection := repo.connections["host"]
+	if connection.LiveMode || connection.NeedsReauthorization {
+		t.Fatalf("sandbox-only token persisted unsafe mode/reauthorization flags: %#v", connection)
+	}
+}
+
+func TestRefreshAcceptsSandboxOnlyTokenWithoutLiveModeAndPersistsFalse(t *testing.T) {
+	repo := newMemoryRepository()
+	refreshed := TokenResponse{AccessToken: "TEST-sandbox-new", PublicKey: "TEST-12345678901234567890", RefreshToken: "refresh-new", UserID: "123456789", ExpiresIn: 3600, Scope: "offline_access read"}
+	exchange := &exchangerStub{refresh: refreshed}
+	svc := testService(t, repo, exchange, time.Now)
+	access, err := svc.seal([]byte("old-access"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh, err := svc.seal([]byte("old-refresh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.connections["host"] = Connection{HostID: "host", SellerID: "123456789", PublicKey: "TEST-olderkey01234567890", AccessToken: access, RefreshToken: refresh, ExpiresAt: time.Now().Add(time.Hour)}
+	connection, err := svc.Refresh(context.Background(), "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection.LiveMode || connection.NeedsReauthorization || connection.PublicKey != refreshed.PublicKey {
+		t.Fatalf("sandbox-only refreshed token persisted unsafe mode/reauthorization flags: %#v", connection)
+	}
+}
+
+func TestPublicKeyRequiresActiveSandboxConnectionAndCanBeReauthorized(t *testing.T) {
+	repo := newMemoryRepository()
+	svc := testService(t, repo, &exchangerStub{}, time.Now)
+	if key, available, err := svc.PublicKey(context.Background(), "missing"); err != nil || available || key != "" {
+		t.Fatalf("missing seller key should require reconnect: key=%q available=%t err=%v", key, available, err)
+	}
+	access, _ := svc.seal([]byte("access"))
+	refresh, _ := svc.seal([]byte("refresh"))
+	repo.connections["host"] = Connection{HostID: "host", SellerID: "123456789", PublicKey: "TEST-12345678901234567890", AccessToken: access, RefreshToken: refresh, ExpiresAt: time.Now().Add(time.Hour), LiveMode: false}
+	key, available, err := svc.PublicKey(context.Background(), "host")
+	if err != nil || !available || key != "TEST-12345678901234567890" {
+		t.Fatalf("active sandbox seller key unavailable: key=%q available=%t err=%v", key, available, err)
+	}
+	repo.connections["host"] = Connection{HostID: "host", SellerID: "123456789", PublicKey: key, AccessToken: access, RefreshToken: refresh, ExpiresAt: time.Now().Add(time.Hour), LiveMode: true}
+	if key, available, err = svc.PublicKey(context.Background(), "host"); err != nil || available || key != "" {
+		t.Fatalf("live seller key leaked into test mode: key=%q available=%t err=%v", key, available, err)
 	}
 }
 
@@ -189,7 +251,7 @@ func TestCompleteRejectsWrongCredentialMode(t *testing.T) {
 func TestTokenResponseAcceptsNumericOrStringSellerID(t *testing.T) {
 	for _, body := range []string{
 		`{"access_token":"a","refresh_token":"r","user_id":123456789,"expires_in":3600,"live_mode":false}`,
-		`{"access_token":"a","refresh_token":"r","user_id":"123456789","expires_in":3600,"live_mode":false}`,
+		`{"access_token":"a","public_key":"TEST-12345678901234567890","refresh_token":"r","user_id":"123456789","expires_in":3600,"live_mode":false}`,
 	} {
 		var response TokenResponse
 		if err := json.Unmarshal([]byte(body), &response); err != nil {
@@ -198,6 +260,10 @@ func TestTokenResponseAcceptsNumericOrStringSellerID(t *testing.T) {
 		if response.UserID != "123456789" {
 			t.Fatalf("unexpected seller id %q", response.UserID)
 		}
+	}
+	var response TokenResponse
+	if err := json.Unmarshal([]byte(`{"access_token":"a","public_key":"TEST-12345678901234567890","refresh_token":"r","user_id":123456789,"expires_in":3600,"live_mode":false}`), &response); err != nil || response.PublicKey != "TEST-12345678901234567890" {
+		t.Fatalf("OAuth response public key was not decoded: key=%q err=%v", response.PublicKey, err)
 	}
 }
 

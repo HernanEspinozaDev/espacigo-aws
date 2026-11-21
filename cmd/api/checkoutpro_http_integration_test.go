@@ -270,7 +270,7 @@ VALUES($1,$2,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),$3,'{}'
 	checkoutHandler := rentalflowhttp.New(checkoutIntegrationAuthenticator{renterID: renterID}, nil, nil, nil, nil, checkoutService)
 	provider := &checkoutIntegrationProvider{result: checkoutpro.VerifiedPayment{
 		OperationID: operationID, ProviderPaymentID: paymentID, SellerID: sellerID, ExternalReference: operationID,
-		Status: "approved", TransactionAmountCLP: 10000, Currency: "CLP", PaymentType: "account_money",
+		Status: "approved", TransactionAmountCLP: 10000, Currency: "CLP", PaymentType: "credit_card",
 		LiveMode: false, ObservedAt: now, PaymentUpdatedAt: now.Add(time.Second),
 	}}
 	secretPath := filepath.Join(t.TempDir(), "webhook-secret")

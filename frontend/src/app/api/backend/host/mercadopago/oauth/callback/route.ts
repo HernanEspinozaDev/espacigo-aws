@@ -1,5 +1,8 @@
 import "server-only";
-import { getApiBackendBaseUrl } from "@/lib/api/server-config";
+import {
+  getApiBackendBaseUrl,
+  getFrontendPublicOrigin,
+} from "@/lib/api/server-config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -70,8 +73,10 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   let baseUrl: URL;
+  let publicOrigin: URL;
   try {
     baseUrl = getApiBackendBaseUrl();
+    publicOrigin = getFrontendPublicOrigin();
   } catch {
     return errorResponse(503, "api_not_configured", requestId);
   }
@@ -103,13 +108,13 @@ export async function GET(request: Request): Promise<Response> {
       return errorResponse(502, "invalid_upstream_redirect", requestId);
     let target: URL;
     try {
-      target = new URL(location, request.url);
+      target = new URL(location, publicOrigin);
     } catch {
       return errorResponse(502, "invalid_upstream_redirect", requestId);
     }
     const connection = target.searchParams.get("connection");
     if (
-      target.origin !== incoming.origin ||
+      target.origin !== publicOrigin.origin ||
       target.pathname !== "/anfitrion/mercado-pago" ||
       !connection ||
       target.searchParams.getAll("connection").length !== 1 ||

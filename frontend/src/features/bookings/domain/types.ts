@@ -13,7 +13,8 @@ export type BookingState =
   | "rechazada_arrendador"
   | "vencida_pago"
   | "vencida_host"
-  | "cancelada_arrendatario";
+  | "cancelada_arrendatario"
+  | "reconciliation_required";
 
 export type RateUnit = "hora" | "dia" | "mes";
 
@@ -56,8 +57,12 @@ export interface BookingReservation {
   readonly id: string;
   readonly quote_id: string;
   readonly space_id: string;
+  readonly space_title?: string;
   readonly host_id: string;
   readonly renter_id: string;
+  readonly participant_role?: "anfitrion" | "arrendatario";
+  readonly checkout_status?: string;
+  readonly is_commercial?: boolean;
   readonly state: BookingState;
   readonly rate_unit: RateUnit;
   readonly unit_price_clp: number;

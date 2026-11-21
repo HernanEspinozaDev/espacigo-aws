@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
 import { formatBookingClp } from "./format";
@@ -104,12 +105,17 @@ export function ReservationLifecyclePanel({
   // Initial load
   useEffect(() => {
     if (isAuthenticated && reservationId) {
-      loadReservationDetail(reservationId).catch(() => {});
+      loadReservationDetail(reservationId)
+        .then((detail) => {
+          if (detail && !detail.is_commercial) {
       loadContract(reservationId).catch(() => {});
       loadOperations(reservationId).catch(() => {});
       loadGuarantee(reservationId).catch(() => {});
       loadSettlement(reservationId).catch(() => {});
       getBusinessClock().catch(() => {});
+    }
+        })
+        .catch(() => {});
     }
   }, [
     isAuthenticated,
@@ -137,6 +143,9 @@ export function ReservationLifecyclePanel({
 
   const stateConfig = getBookingStateConfig(currentReservation.state);
   const StateIcon = stateConfig.icon;
+  const checkoutApiTestEnabled =
+    process.env.NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED === "1" &&
+    Boolean(process.env.NEXT_PUBLIC_MP_PUBLIC_KEY?.startsWith("TEST-"));
 
   // Download contract PDF with private Blob cleanup
   const handleDownloadPdf = async () => {
@@ -201,12 +210,16 @@ export function ReservationLifecyclePanel({
               </span>
             </div>
             <h1 className="mt-2 text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              Arriendo de Espacio
+              {currentReservation.space_title || "Arriendo de Espacio"}
             </h1>
             <p className="text-xs text-muted-foreground break-all">
-              Espacio: {currentReservation.space_id} · Anfitrión:{" "}
-              {currentReservation.host_id} · Arrendatario:{" "}
-              {currentReservation.renter_id}
+              Espacio: {currentReservation.space_id}
+              {currentReservation.participant_role &&
+                ` · Rol: ${currentReservation.participant_role}`}
+              {currentReservation.host_id &&
+                ` · Anfitrión: ${currentReservation.host_id}`}
+              {currentReservation.renter_id &&
+                ` · Arrendatario: ${currentReservation.renter_id}`}
             </p>
           </div>
 
@@ -290,7 +303,7 @@ export function ReservationLifecyclePanel({
           )}
       </section>
 
-      {/* 2. Pago Simulado Mercado Pago */}
+      {/* 2. Pasarela de Pago */}
       <section className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
         <div className="flex items-center justify-between gap-2 border-b border-border pb-3">
           <div className="flex items-center gap-2">
@@ -300,10 +313,73 @@ export function ReservationLifecyclePanel({
             </h2>
           </div>
           <span className="rounded-full bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:text-sky-300">
-            Ensayo Sandboxed
+            {currentReservation.is_commercial
+              ? "Checkout Pro Comercial"
+              : "Ensayo Sandboxed"}
           </span>
         </div>
 
+        {currentReservation.is_commercial ? (
+          <div className="mt-4 space-y-4">
+            <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-4 text-xs text-sky-900 dark:text-sky-200">
+              <p className="font-semibold">
+                Reserva Comercial con Mercado Pago Checkout Pro
+              </p>
+              <p className="mt-1">
+                Estado de la preferencia de pago:{" "}
+                <strong className="capitalize">
+                  {currentReservation.checkout_status ||
+                    currentReservation.state}
+                </strong>
+              </p>
+              {currentReservation.pay_expires_at && (
+                <p className="mt-1 text-muted-foreground">
+                  Vence en:{" "}
+                  {new Date(currentReservation.pay_expires_at).toLocaleString(
+                    "es-CL",
+                  )}
+                </p>
+              )}
+            </div>
+            {currentReservation.state === "pendiente_de_pago" &&
+              currentReservation.quote_id && (
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    asChild
+                    className="bg-sky-600 text-white hover:bg-sky-700"
+                  >
+                    <Link
+                      href={
+                        checkoutApiTestEnabled
+                          ? `/reservas/checkout/tarjeta/${currentReservation.quote_id}`
+                          : `/reservas/checkout/${currentReservation.quote_id}`
+                      }
+                    >
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      Ir al Checkout de Mercado Pago
+                    </Link>
+                  </Button>
+                </div>
+              )}
+            {currentReservation.state === "pagada" && (
+              <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
+                <CheckCircle className="h-5 w-5" />
+                <span className="font-medium">
+                  Pago aprobado y confirmado en Mercado Pago.
+                </span>
+              </div>
+            )}
+            {currentReservation.state === "vencida_pago" && (
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <XCircle className="h-5 w-5" />
+                <span className="font-medium">
+                  El plazo de pago de esta reserva ha expirado.
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
         {/* Permanent Warning Notice */}
         <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-xs text-amber-800 dark:text-amber-300">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
@@ -312,9 +388,9 @@ export function ReservationLifecyclePanel({
               Aviso Permanente de Entorno de Ensayo
             </p>
             <p className="mt-0.5 leading-relaxed">
-              Este módulo simula la integración con Mercado Pago. No se conecta
-              a servidores de producción, no debita fondos reales ni procesa
-              tarjetas bancarias verdaderas.
+                  Este módulo simula la integración con Mercado Pago. No se
+                  conecta a servidores de producción, no debita fondos reales ni
+                  procesa tarjetas bancarias verdaderas.
             </p>
           </div>
         </div>
@@ -381,8 +457,12 @@ export function ReservationLifecyclePanel({
             </div>
           )}
         </div>
+          </>
+        )}
       </section>
 
+      {!currentReservation.is_commercial && (
+        <>
       {/* 3. Decisión de Anfitrión (Aprobar / Rechazar) */}
       {currentReservation.state === "pagada" && (
         <section className="rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-4 sm:p-6 shadow-sm">
@@ -492,14 +572,17 @@ export function ReservationLifecyclePanel({
               <div className="flex justify-between font-semibold text-emerald-600 dark:text-emerald-400 text-sm">
                 <span>Monto a devolver:</span>
                 <span>
-                  {formatBookingClp(cancellationPreview.refund_amount_clp)} CLP
+                      {formatBookingClp(cancellationPreview.refund_amount_clp)}{" "}
+                      CLP
                 </span>
               </div>
               {cancellationPreview.penalty_amount_clp > 0 && (
                 <div className="flex justify-between text-destructive">
                   <span>Penalización aplicada:</span>
                   <span>
-                    {formatBookingClp(cancellationPreview.penalty_amount_clp)}{" "}
+                        {formatBookingClp(
+                          cancellationPreview.penalty_amount_clp,
+                        )}{" "}
                     CLP
                   </span>
                 </div>
@@ -530,7 +613,10 @@ export function ReservationLifecyclePanel({
                 variant="destructive"
                 onClick={async () => {
                   if (!isAuthenticated) return;
-                  await cancelReservation(currentReservation.id, cancelReason);
+                      await cancelReservation(
+                        currentReservation.id,
+                        cancelReason,
+                      );
                 }}
                 disabled={actionLoading}
               >
@@ -555,7 +641,8 @@ export function ReservationLifecyclePanel({
                 <div className="flex justify-between font-semibold">
                   <span>Monto reembolso:</span>
                   <span>
-                    {formatBookingClp(currentReservation.refund_amount_clp)} CLP
+                        {formatBookingClp(currentReservation.refund_amount_clp)}{" "}
+                        CLP
                   </span>
                 </div>
               )}
@@ -614,7 +701,9 @@ export function ReservationLifecyclePanel({
                 <span className="font-bold uppercase text-foreground">
                   {contract.state}
                 </span>
-                <span className="ml-2 font-mono">(v{contract.version})</span>
+                    <span className="ml-2 font-mono">
+                      (v{contract.version})
+                    </span>
               </div>
               <span
                 className="font-mono text-[10px] truncate max-w-xs"
@@ -633,7 +722,9 @@ export function ReservationLifecyclePanel({
                 >
                   <div className="flex justify-between items-center">
                     <span className="font-semibold capitalize text-foreground">
-                      {sig.role === "anfitrion" ? "Anfitrión" : "Arrendatario"}
+                          {sig.role === "anfitrion"
+                            ? "Anfitrión"
+                            : "Arrendatario"}
                     </span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -659,7 +750,8 @@ export function ReservationLifecyclePanel({
             </div>
 
             {/* Action Buttons for Signing */}
-            {contract.state !== "firmado" && contract.state !== "anulado" && (
+                {contract.state !== "firmado" &&
+                  contract.state !== "anulado" && (
               <div className="flex flex-wrap gap-3 pt-2">
                 <Button
                   onClick={async () => {
@@ -703,8 +795,8 @@ export function ReservationLifecyclePanel({
               Operación Física y Acceso
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
-              Registro inmutable de entrega, devolución y recepción del espacio
-              con registro de evidencias.
+                  Registro inmutable de entrega, devolución y recepción del
+                  espacio con registro de evidencias.
             </p>
           </div>
         </div>
@@ -872,7 +964,9 @@ export function ReservationLifecyclePanel({
                   <input
                     type="text"
                     value={receptionObservations}
-                    onChange={(e) => setReceptionObservations(e.target.value)}
+                        onChange={(e) =>
+                          setReceptionObservations(e.target.value)
+                        }
                     placeholder="Detalle de la inspección física..."
                     className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-1.5 text-xs shadow-sm focus:border-primary focus:outline-none"
                   />
@@ -951,7 +1045,9 @@ export function ReservationLifecyclePanel({
             <span className="text-xs text-muted-foreground font-mono flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               Reloj:{" "}
-              {new Date(businessClock.current_time).toLocaleTimeString("es-CL")}
+                  {new Date(businessClock.current_time).toLocaleTimeString(
+                    "es-CL",
+                  )}
             </span>
           )}
         </div>
@@ -1045,17 +1141,23 @@ export function ReservationLifecyclePanel({
               <div className="space-y-1.5">
                 <div className="flex justify-between">
                   <span>Arriendo Bruto:</span>
-                  <span>{formatBookingClp(settlement.gross_rent_clp)} CLP</span>
+                      <span>
+                        {formatBookingClp(settlement.gross_rent_clp)} CLP
+                      </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Comisión ({settlement.commission_bps / 100}%):</span>
+                      <span>
+                        Comisión ({settlement.commission_bps / 100}%):
+                      </span>
                   <span className="text-muted-foreground">
                     - {formatBookingClp(settlement.commission_clp)} CLP
                   </span>
                 </div>
                 <div className="flex justify-between font-bold text-foreground border-t border-border pt-1 text-sm">
                   <span>Transferencia Neta:</span>
-                  <span>{formatBookingClp(settlement.transfer_clp)} CLP</span>
+                      <span>
+                        {formatBookingClp(settlement.transfer_clp)} CLP
+                      </span>
                 </div>
                 <div className="flex justify-between font-semibold">
                   <span>Estado:</span>
@@ -1075,7 +1177,10 @@ export function ReservationLifecyclePanel({
                 variant="outline"
                 onClick={async () => {
                   if (!isAuthenticated) return;
-                  await submitFinancialDecision(currentReservation.id, "exito");
+                      await submitFinancialDecision(
+                        currentReservation.id,
+                        "exito",
+                      );
                 }}
                 disabled={actionLoading}
               >
@@ -1106,11 +1211,15 @@ export function ReservationLifecyclePanel({
             </div>
             <p className="mt-1 text-muted-foreground">
               Comprobante N° {settlementReceipt.receipt_id} · Confirmado el{" "}
-              {new Date(settlementReceipt.confirmed_at).toLocaleString("es-CL")}
+                  {new Date(settlementReceipt.confirmed_at).toLocaleString(
+                    "es-CL",
+                  )}
             </p>
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -17,6 +17,35 @@ type HTTPExchanger struct {
 	Client                              *http.Client
 }
 
+// ProviderFailure contains only an HTTP status and a narrowly allowlisted
+// provider error code. Never retain or expose the provider response body.
+type ProviderFailure struct {
+	Status int
+	Code   string
+}
+
+func (e ProviderFailure) Error() string { return "marketplace oauth: provider failure" }
+func (e ProviderFailure) Unwrap() error { return ErrProvider }
+
+func providerErrorCode(body []byte) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return "unknown"
+	}
+	return allowlistedProviderCode(payload.Error)
+}
+
+func allowlistedProviderCode(code string) string {
+	switch code {
+	case "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope":
+		return code
+	default:
+		return "unknown"
+	}
+}
+
 func (e *HTTPExchanger) Exchange(ctx context.Context, code, verifier string, testMode bool) (TokenResponse, error) {
 	form := url.Values{"grant_type": {"authorization_code"}, "client_id": {e.ClientID}, "client_secret": {e.ClientSecret}, "code": {code}, "redirect_uri": {e.RedirectURI}, "code_verifier": {verifier}}
 	if testMode {
@@ -47,20 +76,21 @@ func (e *HTTPExchanger) request(ctx context.Context, form url.Values) (TokenResp
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := client.Do(req)
 	if err != nil {
-		return TokenResponse{}, ErrProvider
+		return TokenResponse{}, ProviderFailure{Code: "transport_error"}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return TokenResponse{}, ErrProvider
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		return TokenResponse{}, ProviderFailure{Status: resp.StatusCode, Code: providerErrorCode(body)}
 	}
 	var result TokenResponse
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 32<<10))
 	if err = decoder.Decode(&result); err != nil {
-		return TokenResponse{}, ErrProvider
+		return TokenResponse{}, ProviderFailure{Status: resp.StatusCode, Code: "invalid_response"}
 	}
 	var extra any
 	if err = decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return TokenResponse{}, ErrProvider
+		return TokenResponse{}, ProviderFailure{Status: resp.StatusCode, Code: "invalid_response"}
 	}
 	return result, nil
 }

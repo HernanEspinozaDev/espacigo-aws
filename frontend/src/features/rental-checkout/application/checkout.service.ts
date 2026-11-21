@@ -11,6 +11,14 @@ export function createCheckoutService(port: CheckoutPort) {
     ) {
       return port.start(quoteId, idempotencyKey, token, signal);
     },
+    startWallet(
+      quoteId: string,
+      idempotencyKey: string,
+      token: AccessToken,
+      signal: AbortSignal,
+    ) {
+      return port.startWallet(quoteId, idempotencyKey, token, signal);
+    },
     read(quoteId: string, token: AccessToken, signal: AbortSignal) {
       return port.read(quoteId, token, signal);
     },

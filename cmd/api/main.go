@@ -242,6 +242,17 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid commercial rental flow configuration")
 	}
+	webhookOnlyEnabled, err := mercadoPagoWebhookOnlyEnabled(os.Getenv, commercialFlowEnabled)
+	if err != nil {
+		return errors.New("invalid Mercado Pago webhook-only configuration")
+	}
+	if _, err = mercadoPagoWalletPurchaseEnabled(os.Getenv); err != nil {
+		return errors.New("invalid Mercado Pago wallet purchase configuration")
+	}
+	paymentsEnabled, err := mercadoPagoPaymentsEnabled(os.Getenv, webhookOnlyEnabled)
+	if err != nil {
+		return err
+	}
 
 	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
 	if err != nil {
@@ -384,21 +395,33 @@ func run() error {
 			if serviceErr != nil {
 				return errors.New("commercial Checkout Pro initialization failed")
 			}
-			if checkoutService != nil {
+			if checkoutService != nil || webhookOnlyEnabled {
 				webhookHandler, webhookWorker, webhookErr := newCheckoutWebhook(commercialQuoteRepository, pool, marketplaceTokens, os.Getenv)
 				if webhookErr != nil {
-					return errors.New("commercial Checkout Pro webhook initialization failed")
+					return errors.New("commercial Mercado Pago webhook initialization failed")
 				}
 				checkoutPaymentWorker = webhookWorker
 				if routeErr := mountCheckoutWebhook(mux, webhookHandler); routeErr != nil {
-					return errors.New("commercial Checkout Pro webhook route registration failed")
+					return errors.New("commercial Mercado Pago webhook route registration failed")
 				}
 				checkoutNoticeService, serviceErr = checkoutnotice.New(checkoutnoticepg.New(pool), localNoticeSender, time.Now)
 				if serviceErr != nil {
 					return errors.New("commercial Checkout Pro notice initialization failed")
 				}
 			}
-			rentalHandler := rentalflowhttp.New(service, availabilityService, quoteService, previewService, cfg.allowedOrigins, checkoutService)
+			commercialReservationService, serviceErr := rentalflow.NewCommercialReservationService(commercialQuoteRepository)
+			if serviceErr != nil {
+				return errors.New("commercial rental reservation initialization failed")
+			}
+			var checkoutAPI rentalflowhttp.CheckoutAPIService
+			if paymentsEnabled {
+				payments, paymentErr := newMercadoPagoPayments(commercialQuoteRepository, marketplaceTokens, os.Getenv)
+				if paymentErr != nil {
+					return errors.New("commercial Checkout API initialization failed")
+				}
+				checkoutAPI = payments
+			}
+			rentalHandler := rentalflowhttp.New(service, availabilityService, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService, checkoutAPI)
 			if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 				return errors.New("commercial rental route registration failed")
 			}

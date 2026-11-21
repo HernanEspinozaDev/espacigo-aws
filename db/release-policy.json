@@ -161,6 +161,18 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Adds a deduplicated durable email outbox for backend-verified commercial checkout transitions. Requires migration, transaction atomicity, retry/dedupe and Mailpit delivery review before release."
+    },
+    "V000114__checkout_api_payment_operation.sql": {
+      "checksum": "71b1e62e61c1e6ed603bd3b98c58ab8e4fabf268677ad8aace3efa26b40ee343",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds an explicit test-only Payments API operation mode and durable one-shot payment-create claim while preserving existing Checkout Pro rows. Requires idempotency, direct-payment split-fee, hold, webhook and reconciliation review before release."
+    },
+    "V000115__marketplace_seller_public_key.sql": {
+      "checksum": "a3f90c887b9656ae3e72a5698d5e08e992a146ee07bc37247fc7b69295d25685",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds the optional seller Public Key returned by OAuth without changing grants or storing private credentials. Legacy connections remain NULL and require seller reauthorization before the explicitly opted-in local sandbox tokenization mode."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

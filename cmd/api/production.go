@@ -236,6 +236,10 @@ func newCheckoutPreferenceServiceWithGateway(repo *rentalflowpg.Repository, toke
 	if getenv == nil {
 		return nil, errors.New("checkout configuration is unavailable")
 	}
+	walletPurchaseEnabled, err := mercadoPagoWalletPurchaseEnabled(getenv)
+	if err != nil {
+		return nil, errors.New("invalid Mercado Pago wallet purchase configuration")
+	}
 	enabled := strings.TrimSpace(getenv("MERCADOPAGO_CHECKOUT_ENABLED"))
 	if enabled == "" || enabled == "0" {
 		return nil, nil
@@ -250,7 +254,24 @@ func newCheckoutPreferenceServiceWithGateway(repo *rentalflowpg.Repository, toke
 	if err != nil || settings == nil {
 		return nil, errors.New("Checkout Pro OAuth configuration is unavailable")
 	}
-	return checkoutpro.New(repo, tokens, gateway, checkoutpro.Config{FrontendOrigin: strings.TrimSpace(getenv("MERCADOPAGO_RETURN_ORIGIN")), TestMode: settings.TestMode}, time.Now, func() string {
+	if walletPurchaseEnabled && !settings.TestMode {
+		return nil, errors.New("wallet purchase is only enabled in the test environment")
+	}
+	return checkoutpro.New(repo, tokens, gateway, checkoutpro.Config{
+		FrontendOrigin:        strings.TrimSpace(getenv("MERCADOPAGO_RETURN_ORIGIN")),
+		TestMode:              settings.TestMode,
+		WalletPurchaseEnabled: walletPurchaseEnabled,
+		Diagnostics: func(ctx context.Context, d checkoutpro.Diagnostic) {
+			fields := []safelog.Field{safelog.F("stage", d.Stage), safelog.F("reason", d.Reason)}
+			if d.HTTPStatus >= 400 && d.HTTPStatus <= 599 {
+				fields = append(fields, safelog.F("provider_http_status", d.HTTPStatus))
+			}
+			if d.ProviderCode != "" {
+				fields = append(fields, safelog.F("provider_code", d.ProviderCode))
+			}
+			safelog.Warn(ctx, "checkout preference start failed", fields...)
+		},
+	}, time.Now, func() string {
 		id, e := (credentials.Generator{}).ID()
 		if e != nil {
 			return ""

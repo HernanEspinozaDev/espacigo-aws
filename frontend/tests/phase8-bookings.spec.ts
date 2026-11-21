@@ -662,6 +662,53 @@ function createBookingStore() {
 }
 
 test.describe("Phase 8 Bookings — Controlled E2E Suite", () => {
+  test("@phase8 Account navigation matches reservation SSR and browser back", async ({
+    page,
+  }) => {
+    const store = createBookingStore();
+    await installMockGateway(page, store.handler);
+    const hydrationErrors: string[] = [];
+    page.on("console", (message) => {
+      if (
+        message.type() === "error" &&
+        /hydration|server rendered html/i.test(message.text())
+      ) {
+        hydrationErrors.push(message.text());
+      }
+    });
+
+    await loginAndNavigate(page, "/reservas");
+    const response = await page.goto("/reservas");
+    expect(response?.status()).toBe(200);
+    const serverHtml = await response?.text();
+    expect(serverHtml).toMatch(/aria-current="page"[^>]*href="\/reservas"/);
+
+    const navigation = page.getByRole("navigation", {
+      name: "Secciones de mi cuenta",
+    });
+    const reservationsLink = navigation.getByRole("link", {
+      name: /^Mis reservas/,
+    });
+    await expect(reservationsLink).toHaveAttribute("aria-current", "page");
+
+    await page.goto("/reservas/res-test-1");
+    await expect(page).toHaveURL(/\/reservas\/res-test-1$/);
+    await expect(reservationsLink).toHaveAttribute("aria-current", "page");
+    await page.goBack();
+    await expect(page).toHaveURL(/\/reservas$/);
+    await expect(reservationsLink).toHaveAttribute("aria-current", "page");
+
+    const generalLink = navigation.getByRole("link", { name: /^General/ });
+    await generalLink.click();
+    await expect(page).toHaveURL(/\/mi-cuenta$/);
+    await expect(generalLink).toHaveAttribute("aria-current", "page");
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/reservas$/);
+    await expect(reservationsLink).toHaveAttribute("aria-current", "page");
+    expect(hydrationErrors).toEqual([]);
+  });
+
   test("@phase8 Quote and booking request calculates CLP breakdown and creates reservation with Idempotency-Key UUIDv4", async ({
     page,
   }) => {
@@ -716,6 +763,13 @@ test.describe("Phase 8 Bookings — Controlled E2E Suite", () => {
     await installMockGateway(page, store.handler);
 
     await loginAndNavigate(page, "/reservas");
+    const reservationsNavigation = page
+      .getByRole("navigation", { name: "Secciones de mi cuenta" })
+      .getByRole("link", { name: /^Mis reservas/ });
+    await expect(reservationsNavigation).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     // Verify inbox heading and filter tabs
     await expect(page.locator("h1")).toHaveText("Mis Reservas");
@@ -739,12 +793,23 @@ test.describe("Phase 8 Bookings — Controlled E2E Suite", () => {
     // Navigate to reservation detail
     await page.getByRole("link", { name: "Gestionar" }).click();
     await expect(page).toHaveURL(/\/reservas\/res-test-1$/);
+    await expect(reservationsNavigation).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     // Verify detail snapshot and state
     await expect(page.locator("h1")).toHaveText("Arriendo de Espacio");
     await expect(page.getByText("Pendiente de Pago").first()).toBeVisible();
     await page.getByText(/Ver historial de transiciones/).click();
     await expect(page.getByText("Reserva creada exitosamente")).toBeVisible();
+
+    await page.goBack();
+    await expect(page).toHaveURL(/\/reservas$/);
+    await expect(reservationsNavigation).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   test("@phase8 Full operational lifecycle: payment notice, host decision, contracts, check-in, check-out, messaging, review and dispute", async ({

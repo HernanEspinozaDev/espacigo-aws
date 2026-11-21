@@ -8,6 +8,12 @@ export interface CheckoutPort {
     token: AccessToken,
     signal: AbortSignal,
   ): Promise<CheckoutLaunch>;
+  startWallet(
+    quoteId: string,
+    idempotencyKey: string,
+    token: AccessToken,
+    signal: AbortSignal,
+  ): Promise<CheckoutLaunch>;
   read(
     quoteId: string,
     token: AccessToken,

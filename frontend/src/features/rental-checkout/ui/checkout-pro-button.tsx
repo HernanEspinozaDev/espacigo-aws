@@ -16,6 +16,8 @@ function checkoutError(error: unknown): string {
         return "El anfitrión todavía no conectó Mercado Pago. No se inició ningún pago.";
       case "checkout_not_configured":
         return "El pago con Mercado Pago no está habilitado en este entorno.";
+      case "payment_method_unavailable":
+        return "Mercado Pago no mostró un medio de pago compatible para esta compra. No se inició ningún pago.";
       case "quote_expired":
         return "La cotización venció. Vuelve a consultar el precio y la disponibilidad.";
       case "availability_changed":

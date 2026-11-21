@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import {
   Building2,
   CalendarDays,
@@ -72,8 +73,22 @@ const items = [
   },
 ];
 
-export function AccountNavigation() {
+const subscribeToHydration = () => () => {};
+const getClientHydrationSnapshot = () => true;
+const getServerHydrationSnapshot = () => false;
+
+export function AccountNavigation({
+  currentNavPath,
+}: {
+  currentNavPath?: string;
+}) {
   const pathname = usePathname();
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot,
+  );
+  const activePath = currentNavPath ?? (hydrated ? pathname : null);
 
   return (
     <aside
@@ -86,9 +101,9 @@ export function AccountNavigation() {
       >
         {items.map((item) => {
           const isActive =
-            pathname === item.href ||
+            activePath === item.href ||
             (item.href !== "/mi-cuenta" &&
-              Boolean(pathname?.startsWith(item.href)));
+              Boolean(activePath?.startsWith(item.href)));
           const Icon = item.icon;
 
           return (

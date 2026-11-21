@@ -29,6 +29,28 @@ export class CheckoutOpenApiAdapter implements CheckoutPort {
     return parseCheckoutLaunch(result.data, quoteId);
   }
 
+  async startWallet(
+    quoteId: string,
+    idempotencyKey: string,
+    token: AccessToken,
+    signal: AbortSignal,
+  ) {
+    const result = await apiClient.POST(
+      "/rental-quotes/{quoteID}/checkout-wallet",
+      {
+        params: {
+          path: { quoteID: quoteId },
+          header: { "Idempotency-Key": idempotencyKey },
+        },
+        headers: auth(token),
+        signal,
+      },
+    );
+    if (!result.response.ok)
+      throw normalizeApiError(result.response, result.error);
+    return parseCheckoutLaunch(result.data, quoteId);
+  }
+
   async read(quoteId: string, token: AccessToken, signal: AbortSignal) {
     const result = await apiClient.GET("/rental-quotes/{quoteID}/checkout", {
       params: { path: { quoteID: quoteId } },

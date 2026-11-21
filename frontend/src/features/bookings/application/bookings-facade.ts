@@ -536,7 +536,7 @@ export class BookingsFacade {
       throw err;
     }
   }
-  async loadContract(reservationId: string): Promise<SyntheticContract> {
+  async loadContract(reservationId: string): Promise<SyntheticContract | null> {
     const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {

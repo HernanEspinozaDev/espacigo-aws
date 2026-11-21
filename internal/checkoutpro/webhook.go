@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -134,6 +135,7 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid payment notification", http.StatusBadRequest)
 		return
 	}
+	log.Printf("mercadopago_webhook stage=notification_verified type=payment payment_id=%s signature_valid=true", queryID)
 	sellerID, _ := notificationValue(wire.UserID)
 	if !decimalID(sellerID) {
 		// user_id is not part of MP's HMAC canonical string. Keep it only as an
@@ -146,9 +148,11 @@ func (h *WebhookReceiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ReceivedAt: h.now().UTC(),
 	})
 	if err != nil {
+		log.Printf("mercadopago_webhook stage=notification_receipt payment_id=%s result=storage_failed", queryID)
 		http.Error(w, "notification receipt unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	log.Printf("mercadopago_webhook stage=notification_received payment_id=%s result=stored", queryID)
 	if h.wake != nil {
 		h.wake()
 	}

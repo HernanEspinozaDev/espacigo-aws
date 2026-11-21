@@ -3,6 +3,7 @@
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { SessionControls } from "@/features/auth/ui/session-controls";
 import {
   Sheet,
   SheetContent,
@@ -41,6 +42,15 @@ export function Navbar({ links }: { links: NavLink[] }) {
               </Link>
             ))}
           </nav>
+          {open ? (
+            <div className="mt-4 border-t border-border pt-4">
+              <SessionControls
+                variant="public"
+                anonymousOnly
+                onNavigate={() => setOpen(false)}
+              />
+            </div>
+          ) : null}
         </SheetContent>
       </Sheet>
       <nav className="hidden lg:absolute lg:left-1/2 lg:top-1/2 lg:flex lg:-translate-x-1/2 lg:-translate-y-1/2 items-center gap-6">

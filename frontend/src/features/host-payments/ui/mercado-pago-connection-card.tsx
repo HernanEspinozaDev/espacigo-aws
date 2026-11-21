@@ -205,7 +205,7 @@ export function MercadoPagoConnectionCard({
               ) : (
                 <ExternalLink className="mr-2 size-4" aria-hidden="true" />
               )}
-              Conectar Mercado Pago
+              Vincular Mercado Pago
             </Button>
           </div>
         )}

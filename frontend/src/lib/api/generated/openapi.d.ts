@@ -430,6 +430,87 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/rental-quotes/{quoteID}/checkout-wallet": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Crear o reutilizar un Checkout Pro que exige iniciar sesión en Mercado Pago
+     * @description Disponible únicamente con la opción local de prueba habilitada. El arrendatario se deriva de la sesión. El backend crea la preferencia con purpose wallet_purchase, el importe y marketplace_fee derivados de la cotización y el access token OAuth del anfitrión. La respuesta contiene solo el init_point validado de Mercado Pago.
+     */
+    post: operations["startCommercialQuoteWalletPurchase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/{quoteID}/checkout-api": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar el pago de prueba de una cotización */
+    get: operations["getCommercialPayment"];
+    put?: never;
+    /**
+     * Enviar un pago de prueba tokenizado a Mercado Pago
+     * @description Solo disponible en desarrollo local. El importe y la comisión se calculan en el servidor. El token de tarjeta emitido por MercadoPago.js es de un solo uso y no se almacena.
+     */
+    post: operations["createCommercialPayment"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar reservas comerciales del usuario autenticado (anfitrión o arrendatario) */
+    get: operations["listCommercialReservations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    /** Obtener el detalle de una reserva comercial por ID */
+    get: operations["getCommercialReservation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/local/early-rentals/capabilities": {
     parameters: {
       query?: never;
@@ -4541,6 +4622,109 @@ export interface components {
     };
     CheckoutStatusEnvelope: {
       data: components["schemas"]["CheckoutStatus"];
+    };
+    CheckoutAPIPaymentRequest: {
+      token: string;
+      payment_method_id: string;
+      issuer_id?: string;
+      /** @description Solo requerido cuando el modo local optativo de tokenización usa la Public Key OAuth vigente del anfitrión; el backend la compara y nunca la envía a Mercado Pago en el body del pago. */
+      tokenization_public_key?: string;
+      payer: {
+        /** Format: email */
+        email: string;
+        identification?: {
+          type: string;
+          number: string;
+        };
+      };
+    };
+    CheckoutAPIPaymentEnvelope: {
+      data: {
+        /** Format: uuid */
+        quote_id: string;
+        amount_clp: number;
+        /** @enum {string} */
+        status:
+          | "not_started"
+          | "pending"
+          | "approved"
+          | "rejected"
+          | "expired"
+          | "cancelled"
+          | "provider_error"
+          | "reconciliation_required";
+        space_title?: string;
+        /** Format: date-time */
+        start_at?: string;
+        /** Format: date-time */
+        end_at?: string;
+        time_zone?: string;
+        /** Format: date-time */
+        expires_at?: string;
+        units?: number;
+        /** @enum {string} */
+        rate_unit?: "hora" | "dia" | "mes";
+        payment_id?: string;
+        status_detail?: string;
+        provider_http_status?: number;
+        provider_code?: string;
+        provider_request_id?: string;
+        card_tokenization?: {
+          /** @constant */
+          mode: "seller_public_key";
+          /** @description Clave pública del anfitrión OAuth; solo aparece en el modo optativo local de pruebas. */
+          public_key?: string;
+          /**
+           * @description La conexión OAuth anterior no contiene la Public Key; volver a vincular el anfitrión.
+           * @constant
+           */
+          reconnect_required?: true;
+        };
+      };
+    };
+    CommercialReservation: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** @enum {string} */
+      participant_role: "anfitrion" | "arrendatario";
+      status: string;
+      checkout_status: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      /** Format: date-time */
+      payment_expires_at: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    CommercialReservationEnvelope: {
+      data: components["schemas"]["CommercialReservation"];
+    };
+    CommercialReservationListPage: {
+      items: components["schemas"]["CommercialReservation"][];
+      next_cursor?: string;
+    };
+    CommercialReservationListEnvelope: {
+      data: components["schemas"]["CommercialReservationListPage"];
     };
     LocalEarlyRentalCapabilities: {
       enabled: boolean;
@@ -9276,6 +9460,172 @@ export interface operations {
         };
         content?: never;
       };
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  startCommercialQuoteWalletPurchase: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Preferencia de compra con billetera reutilizada o recién creada. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CheckoutPreferenceEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      /** @description Cotización vencida */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialPayment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Importe oficial y estado persistido. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CheckoutAPIPaymentEnvelope"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      /** @description La cotización ya tiene otro tipo de checkout. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  createCommercialPayment: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CheckoutAPIPaymentRequest"];
+      };
+    };
+    responses: {
+      /** @description Resultado del intento de pago o estado de conciliación. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CheckoutAPIPaymentEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      /** @description Cotización vencida */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialReservations: {
+    parameters: {
+      query?: {
+        page_size?: number;
+        cursor?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista paginada de reservas comerciales */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialReservationListEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialReservation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle de la reserva comercial */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialReservationEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
