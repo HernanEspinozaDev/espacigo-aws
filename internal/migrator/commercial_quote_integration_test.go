@@ -209,7 +209,7 @@ func assertCommercialQuotePersistenceWithExistingRuntimeACL(t *testing.T, ctx co
 		{name: "invalid rate modality", constraintName: "cotizacion_arriendo_comercial_tarifa_ck", mutate: func(f *quoteCheckFixture) { f.modality = "año" }},
 		{name: "nonpositive unit price", constraintName: "cotizacion_arriendo_comercial_tarifa_ck", mutate: func(f *quoteCheckFixture) { f.unitPrice, f.subtotal = 0, 0 }},
 		{name: "unsupported currency", constraintName: "cotizacion_arriendo_comercial_tarifa_ck", mutate: func(f *quoteCheckFixture) { f.currency = "USD" }},
-		{name: "unsupported units", constraintName: "cotizacion_arriendo_comercial_unidades_ck", mutate: func(f *quoteCheckFixture) { f.units, f.subtotal = 3, 24000 }},
+		{name: "unsupported units", constraintName: "cotizacion_arriendo_comercial_unidades_ck", mutate: func(f *quoteCheckFixture) { f.units, f.subtotal = 169, 169*8000 }},
 		{name: "subtotal mismatch", constraintName: "cotizacion_arriendo_comercial_subtotal_ck", mutate: func(f *quoteCheckFixture) { f.subtotal = 7999 }},
 		{name: "empty time zone", constraintName: "cotizacion_arriendo_comercial_intervalo_ck", mutate: func(f *quoteCheckFixture) { f.timeZone = "" }},
 		{name: "nonpositive interval", constraintName: "cotizacion_arriendo_comercial_intervalo_ck", mutate: func(f *quoteCheckFixture) { f.endAt = f.startAt }},
