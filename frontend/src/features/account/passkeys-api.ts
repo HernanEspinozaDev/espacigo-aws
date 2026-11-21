@@ -62,7 +62,10 @@ export class PasskeysApiError extends Error {
   }
 }
 
-export function parseErrorMessage(status: number, data: unknown): PasskeysApiError {
+export function parseErrorMessage(
+  status: number,
+  data: unknown,
+): PasskeysApiError {
   let code = "unknown_error";
   let backendMessage = "";
 
@@ -105,8 +108,7 @@ export function parseErrorMessage(status: number, data: unknown): PasskeysApiErr
         "Los datos de validación emitidos por el navegador son incorrectos.";
       break;
     case "invalid_public_key":
-      userMessage =
-        "La clave pública emitida por el dispositivo no es válida.";
+      userMessage = "La clave pública emitida por el dispositivo no es válida.";
       break;
     case "credential_conflict":
       userMessage =
@@ -134,8 +136,7 @@ export function parseErrorMessage(status: number, data: unknown): PasskeysApiErr
         "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
       break;
     case "not_found":
-      userMessage =
-        "El recurso solicitado no fue encontrado.";
+      userMessage = "El recurso solicitado no fue encontrado.";
       break;
     default:
       if (status === 401) {
@@ -165,9 +166,7 @@ export function parseErrorMessage(status: number, data: unknown): PasskeysApiErr
 export function base64UrlToUint8Array(base64url: string): Uint8Array {
   try {
     const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
-    const base64 = (base64url + padding)
-      .replace(/-/g, "+")
-      .replace(/_/g, "/");
+    const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
     const rawData = atob(base64);
     const outputArray = new Uint8Array(rawData.length);
     for (let i = 0; i < rawData.length; ++i) {
@@ -198,9 +197,7 @@ export function isWebAuthnSupported(): boolean {
         : undefined;
 
   return Boolean(
-    nav &&
-      nav.credentials &&
-      typeof nav.credentials.create === "function",
+    nav && nav.credentials && typeof nav.credentials.create === "function",
   );
 }
 
@@ -416,15 +413,18 @@ export async function listAccountPasskeys(
 export async function beginAccountPasskeyRegistration(
   signal?: AbortSignal,
 ): Promise<AccountPasskeyRegistrationOptions> {
-  const res = await fetch("/api/backend/account/security/passkeys/register/options", {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
+  const res = await fetch(
+    "/api/backend/account/security/passkeys/register/options",
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+      signal,
     },
-    signal,
-  });
+  );
 
   const data = await res.json().catch(() => null);
 
@@ -439,17 +439,20 @@ export async function completeAccountPasskeyRegistration(
   input: AccountPasskeyRegistrationVerifyInput,
   signal?: AbortSignal,
 ): Promise<AccountPasskey> {
-  const res = await fetch("/api/backend/account/security/passkeys/register/verify", {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
+  const res = await fetch(
+    "/api/backend/account/security/passkeys/register/verify",
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal,
     },
-    body: JSON.stringify(input),
-    signal,
-  });
+  );
 
   const data = await res.json().catch(() => null);
 

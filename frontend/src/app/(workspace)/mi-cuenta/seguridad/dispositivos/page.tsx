@@ -84,8 +84,11 @@ export default function DispositivosSeguridadPage() {
     clearError,
   } = useLinkedDevices();
 
-  const [confirmingSessionId, setConfirmingSessionId] = useState<string | null>(null);
-  const [confirmingRevokeAllOthers, setConfirmingRevokeAllOthers] = useState(false);
+  const [confirmingSessionId, setConfirmingSessionId] = useState<string | null>(
+    null,
+  );
+  const [confirmingRevokeAllOthers, setConfirmingRevokeAllOthers] =
+    useState(false);
 
   const handleRevokeSingle = async (device: LinkedDevice) => {
     setConfirmingSessionId(null);
@@ -130,8 +133,8 @@ export default function DispositivosSeguridadPage() {
             Dispositivos vinculados
           </h1>
           <p className="text-sm text-muted-foreground">
-            Revisa y gestiona los navegadores y dispositivos que tienen acceso a tu
-            cuenta de EspaciGo.
+            Revisa y gestiona los navegadores y dispositivos que tienen acceso a
+            tu cuenta de EspaciGo.
           </p>
         </div>
 
@@ -142,7 +145,9 @@ export default function DispositivosSeguridadPage() {
           aria-label="Refrescar lista de dispositivos"
           className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-border bg-card hover:bg-muted/50 text-xs font-semibold text-foreground transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`size-3.5 ${isLoading ? "animate-spin" : ""}`}
+          />
           <span>Actualizar</span>
         </button>
       </div>
@@ -233,9 +238,14 @@ export default function DispositivosSeguridadPage() {
                   <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span>IP: {currentDevice.ip_masked}</span>
                     <span>•</span>
-                    <span>Última actividad: {formatRelativeActivity(currentDevice.last_activity_at)}</span>
+                    <span>
+                      Última actividad:{" "}
+                      {formatRelativeActivity(currentDevice.last_activity_at)}
+                    </span>
                     <span>•</span>
-                    <span>Iniciado: {formatCreatedAt(currentDevice.created_at)}</span>
+                    <span>
+                      Iniciado: {formatCreatedAt(currentDevice.created_at)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -418,8 +428,8 @@ export default function DispositivosSeguridadPage() {
       <div className="p-4 rounded-xl bg-muted/40 border border-border/60 text-xs text-muted-foreground flex items-start gap-3">
         <Info className="size-4 text-primary shrink-0 mt-0.5" />
         <p>
-          <strong>Plan de seguridad EspaciGo (Fase 2):</strong> La revocación
-          de sesiones invalida de forma atómica los tokens Bearer emitidos en AWS
+          <strong>Plan de seguridad EspaciGo (Fase 2):</strong> La revocación de
+          sesiones invalida de forma atómica los tokens Bearer emitidos en AWS
           ECS y PostgreSQL bajo control de acceso de sesión.
         </p>
       </div>

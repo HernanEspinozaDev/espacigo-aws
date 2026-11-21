@@ -33,7 +33,9 @@ export function useLinkedDevices(): UseLinkedDevicesReturn {
 
   const [devices, setDevices] = useState<LinkedDevice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(
+    null,
+  );
   const [isRevokingOthers, setIsRevokingOthers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);

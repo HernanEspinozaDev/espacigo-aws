@@ -69,8 +69,7 @@ export default function MetodosVerificacionPage() {
     {
       id: "telefono",
       title: "Teléfono",
-      subtitle:
-        "Código de verificación SMS o mensaje a tu número celular.",
+      subtitle: "Código de verificación SMS o mensaje a tu número celular.",
       href: "/mi-cuenta/seguridad/metodos/telefono",
       icon: Smartphone,
       iconColor: isPhoneActive
@@ -83,8 +82,7 @@ export default function MetodosVerificacionPage() {
     {
       id: "contrasena",
       title: "Contraseña",
-      subtitle:
-        "Clave alfanumérica registrada para acceso seguro.",
+      subtitle: "Clave alfanumérica registrada para acceso seguro.",
       href: "/mi-cuenta/seguridad/metodos/contrasena",
       icon: Lock,
       iconColor: isPasswordActive
@@ -97,8 +95,7 @@ export default function MetodosVerificacionPage() {
     {
       id: "email",
       title: "E-mail",
-      subtitle:
-        "Enlaces mágicos y códigos de seguridad enviados a tu casilla.",
+      subtitle: "Enlaces mágicos y códigos de seguridad enviados a tu casilla.",
       href: "/mi-cuenta/seguridad/metodos/email",
       icon: Mail,
       iconColor: isEmailActive
@@ -153,7 +150,8 @@ export default function MetodosVerificacionPage() {
   ];
 
   const isProtected = summary?.protected ?? false;
-  const activeCount = summary?.active_count ?? methods.filter((m) => m.active).length;
+  const activeCount =
+    summary?.active_count ?? methods.filter((m) => m.active).length;
   const totalCount = summary?.total_count ?? methods.length;
   const progressPercent = Math.round((activeCount / totalCount) * 100);
 

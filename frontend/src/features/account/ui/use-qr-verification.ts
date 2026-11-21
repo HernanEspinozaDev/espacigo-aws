@@ -28,7 +28,10 @@ export interface UseQRVerificationReturn {
   notification: string | null;
   refresh: (signal?: AbortSignal) => Promise<void>;
   generateTicket: () => Promise<AccountQRTicket | null>;
-  approveTicket: (token: string, deviceLabel?: string) => Promise<AccountQRApproveResponse | null>;
+  approveTicket: (
+    token: string,
+    deviceLabel?: string,
+  ) => Promise<AccountQRApproveResponse | null>;
   disableQR: () => Promise<AccountQRDisableResponse | null>;
   cancelTicket: () => void;
   clearError: () => void;
@@ -39,8 +42,11 @@ export function useQRVerification(): UseQRVerificationReturn {
   const { checkSession } = useAuth();
 
   const [status, setStatus] = useState<AccountQRStatus | null>(null);
-  const [activeTicket, setActiveTicket] = useState<AccountQRTicket | null>(null);
-  const [ticketStatus, setTicketStatus] = useState<AccountQRTicketStatus | null>(null);
+  const [activeTicket, setActiveTicket] = useState<AccountQRTicket | null>(
+    null,
+  );
+  const [ticketStatus, setTicketStatus] =
+    useState<AccountQRTicketStatus | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingTicket, setIsGeneratingTicket] = useState(false);
@@ -186,7 +192,10 @@ export function useQRVerification(): UseQRVerificationReturn {
           setNotification(
             "¡Dispositivo de verificación QR vinculado y aprobado con éxito!",
           );
-        } else if (result.status === "expired" || result.status === "rejected") {
+        } else if (
+          result.status === "expired" ||
+          result.status === "rejected"
+        ) {
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
@@ -215,34 +224,35 @@ export function useQRVerification(): UseQRVerificationReturn {
     };
   }, [activeTicket, currentTicketStatus, handleUnauthorized]);
 
-  const generateTicket = useCallback(async (): Promise<AccountQRTicket | null> => {
-    try {
-      setIsGeneratingTicket(true);
-      setError(null);
-      clearNotification();
+  const generateTicket =
+    useCallback(async (): Promise<AccountQRTicket | null> => {
+      try {
+        setIsGeneratingTicket(true);
+        setError(null);
+        clearNotification();
 
-      const ticket = await createAccountQRTicket();
-      setActiveTicket(ticket);
-      setTicketStatus({
-        ticket_id: ticket.ticket_id,
-        status: "pending",
-        expires_at: ticket.expires_at,
-      });
-      return ticket;
-    } catch (err) {
-      if (err instanceof QRApiError && err.status === 401) {
-        await handleUnauthorized();
+        const ticket = await createAccountQRTicket();
+        setActiveTicket(ticket);
+        setTicketStatus({
+          ticket_id: ticket.ticket_id,
+          status: "pending",
+          expires_at: ticket.expires_at,
+        });
+        return ticket;
+      } catch (err) {
+        if (err instanceof QRApiError && err.status === 401) {
+          await handleUnauthorized();
+        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo generar el código QR. Inténtalo de nuevo.",
+        );
+        return null;
+      } finally {
+        setIsGeneratingTicket(false);
       }
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo generar el código QR. Inténtalo de nuevo.",
-      );
-      return null;
-    } finally {
-      setIsGeneratingTicket(false);
-    }
-  }, [clearNotification, handleUnauthorized]);
+    }, [clearNotification, handleUnauthorized]);
 
   const approveTicket = useCallback(
     async (
@@ -295,35 +305,36 @@ export function useQRVerification(): UseQRVerificationReturn {
     [clearNotification, handleUnauthorized],
   );
 
-  const disableQR = useCallback(async (): Promise<AccountQRDisableResponse | null> => {
-    try {
-      setIsDisabling(true);
-      setError(null);
-      clearNotification();
+  const disableQR =
+    useCallback(async (): Promise<AccountQRDisableResponse | null> => {
+      try {
+        setIsDisabling(true);
+        setError(null);
+        clearNotification();
 
-      const response = await disableAccountQR();
-      setStatus({
-        enabled: false,
-        enabled_at: null,
-        trusted_device_label: null,
-      });
-      cancelTicket();
-      setNotification("Verificación por código QR desactivada con éxito.");
-      return response;
-    } catch (err) {
-      if (err instanceof QRApiError && err.status === 401) {
-        await handleUnauthorized();
+        const response = await disableAccountQR();
+        setStatus({
+          enabled: false,
+          enabled_at: null,
+          trusted_device_label: null,
+        });
+        cancelTicket();
+        setNotification("Verificación por código QR desactivada con éxito.");
+        return response;
+      } catch (err) {
+        if (err instanceof QRApiError && err.status === 401) {
+          await handleUnauthorized();
+        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo desactivar la verificación por código QR.",
+        );
+        return null;
+      } finally {
+        setIsDisabling(false);
       }
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo desactivar la verificación por código QR.",
-      );
-      return null;
-    } finally {
-      setIsDisabling(false);
-    }
-  }, [cancelTicket, clearNotification, handleUnauthorized]);
+    }, [cancelTicket, clearNotification, handleUnauthorized]);
 
   return {
     status,

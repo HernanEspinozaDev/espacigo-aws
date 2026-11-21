@@ -77,7 +77,11 @@ export default function UbicacionSeguridadPage() {
   const handleDetectApproximateRegion = () => {
     try {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-      if (tz.includes("Santiago") || tz.includes("Chile") || tz.includes("Easter")) {
+      if (
+        tz.includes("Santiago") ||
+        tz.includes("Chile") ||
+        tz.includes("Easter")
+      ) {
         setUserRegionInput("Región Metropolitana, Chile");
       } else {
         setUserRegionInput("Región Metropolitana, Chile");
@@ -149,8 +153,8 @@ export default function UbicacionSeguridadPage() {
           Permiso de ubicación
         </h1>
         <p className="text-sm text-muted-foreground">
-          Ayuda a prevenir accesos no autorizados validando tu ubicación habitual
-          al iniciar sesión.
+          Ayuda a prevenir accesos no autorizados validando tu ubicación
+          habitual al iniciar sesión.
         </p>
       </div>
 
@@ -219,8 +223,8 @@ export default function UbicacionSeguridadPage() {
                 )}
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground">
-                Permite verificar si los intentos de acceso coinciden con tus zonas
-                habituales de navegación en Chile.
+                Permite verificar si los intentos de acceso coinciden con tus
+                zonas habituales de navegación en Chile.
               </p>
             </div>
           </div>
@@ -258,8 +262,8 @@ export default function UbicacionSeguridadPage() {
               Región habitual aproximada
             </h3>
             <p className="text-xs text-muted-foreground">
-              Indica tu región en Chile para comparar inicios de sesión sin exponer
-              coordenadas de geolocalización precisas.
+              Indica tu región en Chile para comparar inicios de sesión sin
+              exponer coordenadas de geolocalización precisas.
             </p>
           </div>
 
@@ -352,8 +356,8 @@ export default function UbicacionSeguridadPage() {
             <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
             <p>
               <strong>Prevención en tiempo real:</strong> Si alguien intenta
-              iniciar sesión desde un país distinto al habitual, solicitaremos un
-              código de verificación adicional.
+              iniciar sesión desde un país distinto al habitual, solicitaremos
+              un código de verificación adicional.
             </p>
           </div>
         </div>

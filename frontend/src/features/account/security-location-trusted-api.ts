@@ -112,8 +112,7 @@ function parseErrorMessage(
         "No se permiten coordenadas GPS exactas; usa una etiqueta de región aproximada (ej. Región Metropolitana).";
       break;
     case "invalid_region_label":
-      userMessage =
-        "La etiqueta de región no debe exceder 80 caracteres.";
+      userMessage = "La etiqueta de región no debe exceder 80 caracteres.";
       break;
     case "trusted_contact_limit":
       userMessage =
@@ -123,7 +122,8 @@ function parseErrorMessage(
       userMessage = "El nombre debe tener entre 2 y 80 caracteres.";
       break;
     case "invalid_relationship":
-      userMessage = "El parentesco o relación debe tener entre 2 y 40 caracteres.";
+      userMessage =
+        "El parentesco o relación debe tener entre 2 y 40 caracteres.";
       break;
     case "invalid_email":
       userMessage = "Formato de correo electrónico inválido.";
@@ -276,7 +276,11 @@ export async function addAccountTrustedContact(
     email: input.email,
     relationship: input.relationship,
   };
-  if (input.phone !== undefined && input.phone !== null && input.phone.trim() !== "") {
+  if (
+    input.phone !== undefined &&
+    input.phone !== null &&
+    input.phone.trim() !== ""
+  ) {
     payload.phone = input.phone.trim();
   }
 
@@ -305,9 +309,12 @@ export async function addAccountTrustedContact(
   return {
     id: typeof data?.id === "string" ? data.id : "",
     full_name: typeof data?.full_name === "string" ? data.full_name : "",
-    masked_email: typeof data?.masked_email === "string" ? data.masked_email : "",
-    masked_phone: typeof data?.masked_phone === "string" ? data.masked_phone : null,
-    relationship: typeof data?.relationship === "string" ? data.relationship : "",
+    masked_email:
+      typeof data?.masked_email === "string" ? data.masked_email : "",
+    masked_phone:
+      typeof data?.masked_phone === "string" ? data.masked_phone : null,
+    relationship:
+      typeof data?.relationship === "string" ? data.relationship : "",
     created_at: typeof data?.created_at === "string" ? data.created_at : "",
   };
 }
@@ -341,7 +348,8 @@ export async function removeAccountTrustedContact(
 
   return {
     status: typeof data?.status === "string" ? data.status : "revoked",
-    contact_id: typeof data?.contact_id === "string" ? data.contact_id : contactId,
+    contact_id:
+      typeof data?.contact_id === "string" ? data.contact_id : contactId,
   };
 }
 
@@ -372,7 +380,8 @@ export async function getAccountSecurityMethodsSummary(
 
   return {
     protected: Boolean(data?.protected),
-    active_count: typeof data?.active_count === "number" ? data.active_count : 0,
+    active_count:
+      typeof data?.active_count === "number" ? data.active_count : 0,
     total_count: typeof data?.total_count === "number" ? data.total_count : 7,
     methods: {
       password: {
@@ -391,14 +400,20 @@ export async function getAccountSecurityMethodsSummary(
       },
       passkeys: {
         enabled: Boolean(rawMethods?.passkeys?.enabled),
-        count: typeof rawMethods?.passkeys?.count === "number" ? rawMethods.passkeys.count : 0,
+        count:
+          typeof rawMethods?.passkeys?.count === "number"
+            ? rawMethods.passkeys.count
+            : 0,
       },
       qr: {
         enabled: Boolean(rawMethods?.qr?.enabled),
       },
       facial_kyc: {
         enabled: Boolean(rawMethods?.facial_kyc?.enabled),
-        status: typeof rawMethods?.facial_kyc?.status === "string" ? rawMethods.facial_kyc.status : "pending_kyc_module",
+        status:
+          typeof rawMethods?.facial_kyc?.status === "string"
+            ? rawMethods.facial_kyc.status
+            : "pending_kyc_module",
       },
     },
   };

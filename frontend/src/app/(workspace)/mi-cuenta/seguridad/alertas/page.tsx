@@ -184,8 +184,8 @@ export default function AlertasSeguridadPage() {
             Alertas de seguridad
           </h1>
           <p className="text-sm text-muted-foreground">
-            Te avisaremos inmediatamente si detectamos movimientos inusuales en tu
-            cuenta de EspaciGo o accesos desde nuevos dispositivos.
+            Te avisaremos inmediatamente si detectamos movimientos inusuales en
+            tu cuenta de EspaciGo o accesos desde nuevos dispositivos.
           </p>
         </div>
         <button
@@ -238,7 +238,9 @@ export default function AlertasSeguridadPage() {
       {/* Sección Canales estilo Mercado Pago */}
       <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
         <div>
-          <h2 className="text-lg font-bold text-foreground">Canales de aviso</h2>
+          <h2 className="text-lg font-bold text-foreground">
+            Canales de aviso
+          </h2>
           <p className="text-xs text-muted-foreground">
             Selecciona por dónde deseas recibir las notificaciones de seguridad.
           </p>
@@ -376,9 +378,7 @@ export default function AlertasSeguridadPage() {
                 }
                 className={cn(
                   "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50 mt-1",
-                  preferences?.email_alerts_enabled
-                    ? "bg-primary"
-                    : "bg-muted",
+                  preferences?.email_alerts_enabled ? "bg-primary" : "bg-muted",
                 )}
               >
                 <span
@@ -542,8 +542,9 @@ export default function AlertasSeguridadPage() {
         <div className="pt-2 border-t border-border/50 text-xs text-muted-foreground flex items-start gap-2">
           <ShieldAlert className="size-4 text-primary shrink-0 mt-0.5" />
           <p>
-            Si detectas alguna actividad que no reconoces, te recomendamos cambiar
-            tu contraseña de inmediato y revisar tus dispositivos vinculados.
+            Si detectas alguna actividad que no reconoces, te recomendamos
+            cambiar tu contraseña de inmediato y revisar tus dispositivos
+            vinculados.
           </p>
         </div>
       </div>

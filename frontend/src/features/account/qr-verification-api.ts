@@ -107,8 +107,7 @@ function parseErrorMessage(status: number, data: unknown): QRApiError {
       } else if (status === 409) {
         userMessage = "El ticket ya fue resuelto previamente.";
       } else if (status === 422) {
-        userMessage =
-          "El código QR ha expirado o no puede ser procesado.";
+        userMessage = "El código QR ha expirado o no puede ser procesado.";
       } else if (status === 400) {
         userMessage =
           backendMessage && backendMessage.length <= 100

@@ -71,10 +71,7 @@ describe("Passkeys / WebAuthn API Client and Helpers", () => {
       path.join(root, "src/features/auth/domain/return-target.ts"),
       "utf8",
     );
-    assert.match(
-      source,
-      /"\/mi-cuenta\/seguridad\/metodos\/llaves-de-acceso"/,
-    );
+    assert.match(source, /"\/mi-cuenta\/seguridad\/metodos\/llaves-de-acceso"/);
   });
 
   describe("WebAuthn Base64URL and Encoding Helpers", () => {
@@ -181,10 +178,7 @@ describe("Passkeys / WebAuthn API Client and Helpers", () => {
       };
 
       const result = await passkeysApi.beginAccountPasskeyRegistration();
-      assert.equal(
-        result.challenge_id,
-        "c4636fcb-b935-4ae2-a279-b1dca09886eb",
-      );
+      assert.equal(result.challenge_id, "c4636fcb-b935-4ae2-a279-b1dca09886eb");
       assert.equal(result.rp.id, "127.0.0.1");
       assert.equal(result.user.name, "u••••o@ejemplo.cl");
     });
@@ -315,7 +309,9 @@ describe("Passkeys / WebAuthn API Client and Helpers", () => {
       setMockNavigator({
         credentials: {
           create: async () => {
-            const err = new Error("The operation either timed out or was not allowed.");
+            const err = new Error(
+              "The operation either timed out or was not allowed.",
+            );
             err.name = "NotAllowedError";
             throw err;
           },
@@ -337,7 +333,8 @@ describe("Passkeys / WebAuthn API Client and Helpers", () => {
       };
 
       await assert.rejects(
-        async () => passkeysApi.createWebAuthnCredential(options, "Mi Dispositivo"),
+        async () =>
+          passkeysApi.createWebAuthnCredential(options, "Mi Dispositivo"),
         (err) => {
           assert.equal(err.name, "PasskeysApiError");
           assert.equal(err.code, "user_cancelled");

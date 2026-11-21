@@ -69,7 +69,9 @@ export default function PersonasConfianzaPage() {
     }
 
     if (trimmedRelationship.length < 2 || trimmedRelationship.length > 40) {
-      setFormError("El parentesco o relación debe tener entre 2 y 40 caracteres.");
+      setFormError(
+        "El parentesco o relación debe tener entre 2 y 40 caracteres.",
+      );
       return;
     }
 
@@ -80,7 +82,9 @@ export default function PersonasConfianzaPage() {
     }
 
     if (trimmedPhone && trimmedPhone.length < 8) {
-      setFormError("Ingresa un número telefónico chileno válido (ej. +56912345678).");
+      setFormError(
+        "Ingresa un número telefónico chileno válido (ej. +56912345678).",
+      );
       return;
     }
 
@@ -193,7 +197,8 @@ export default function PersonasConfianzaPage() {
                 Tus contactos asignados ({contacts.length}/3)
               </h2>
               <p className="text-xs text-muted-foreground">
-                Máximo 3 personas de confianza autorizadas para asistir en la recuperación.
+                Máximo 3 personas de confianza autorizadas para asistir en la
+                recuperación.
               </p>
             </div>
           </div>
@@ -228,8 +233,8 @@ export default function PersonasConfianzaPage() {
               Aún no has configurado personas de confianza.
             </p>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              Te recomendamos agregar al menos un contacto cercano para ayudarte a
-              recuperar tu acceso en situaciones imprevistas.
+              Te recomendamos agregar al menos un contacto cercano para ayudarte
+              a recuperar tu acceso en situaciones imprevistas.
             </p>
           </div>
         ) : (
@@ -314,7 +319,9 @@ export default function PersonasConfianzaPage() {
             </h3>
             <p className="text-xs text-muted-foreground">
               ¿Estás seguro de que deseas revocar a{" "}
-              <strong className="text-foreground">{contactToDelete.name}</strong>{" "}
+              <strong className="text-foreground">
+                {contactToDelete.name}
+              </strong>{" "}
               como persona de confianza? Ya no podrá validar tu identidad en
               recuperaciones de emergencia.
             </p>
@@ -389,7 +396,8 @@ export default function PersonasConfianzaPage() {
                   htmlFor="contactRel"
                   className="block text-xs font-semibold text-foreground mb-1"
                 >
-                  Parentesco o relación <span className="text-destructive">*</span>
+                  Parentesco o relación{" "}
+                  <span className="text-destructive">*</span>
                 </label>
                 <input
                   id="contactRel"

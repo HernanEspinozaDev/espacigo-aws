@@ -257,7 +257,9 @@ export default function MetodoDetallePage() {
 
         {/* Datos y descripción */}
         <div className="space-y-4 text-xs sm:text-sm text-muted-foreground">
-          <p className="text-foreground leading-relaxed">{config.description}</p>
+          <p className="text-foreground leading-relaxed">
+            {config.description}
+          </p>
 
           {slug === "email" && (
             <div className="p-4 rounded-xl bg-muted/30 border border-border/60 space-y-1">
