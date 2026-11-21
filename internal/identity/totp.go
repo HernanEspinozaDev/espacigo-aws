@@ -141,6 +141,13 @@ func LoadTOTPKeyringFromFile(path string) (*TOTPKeyring, error) {
 	if err != nil || len(data) > 64*1024 {
 		return nil, errors.New("cannot read totp keyring file")
 	}
+	return loadTOTPKeyringJSON(data)
+}
+
+func loadTOTPKeyringJSON(data []byte) (*TOTPKeyring, error) {
+	if len(data) == 0 || len(data) > 64*1024 {
+		return nil, errors.New("invalid totp keyring json size")
+	}
 	var config totpFileConfig
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, errors.New("invalid totp keyring json")
@@ -159,7 +166,8 @@ func LoadTOTPKeyringFromFile(path string) (*TOTPKeyring, error) {
 	return NewTOTPKeyring(config.Current, keys)
 }
 
-// LoadTOTPKeyring loads the TOTP keyring using environment, secrets file, or fallback in development.
+// LoadTOTPKeyring loads the TOTP keyring from a protected file or an ECS-injected secret.
+// The JSON environment variable must never be logged or persisted by callers.
 func LoadTOTPKeyring(getenv func(string) string) (*TOTPKeyring, error) {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -168,8 +176,15 @@ func LoadTOTPKeyring(getenv func(string) string) (*TOTPKeyring, error) {
 	if path == "" {
 		path = strings.TrimSpace(getenv("LOCAL_TOTP_KEYRING_FILE"))
 	}
+	jsonSecret := strings.TrimSpace(getenv("TOTP_KEYRING_JSON"))
+	if path != "" && jsonSecret != "" {
+		return nil, errors.New("multiple totp keyring sources configured")
+	}
 	if path != "" {
 		return LoadTOTPKeyringFromFile(path)
+	}
+	if jsonSecret != "" {
+		return loadTOTPKeyringJSON([]byte(jsonSecret))
 	}
 
 	isProduction := getenv("APP_PROFILE") == "production"
@@ -553,4 +568,3 @@ func (s *AuthenticationService) DisableTOTP(ctx context.Context, accountID strin
 		Enabled: false,
 	}, nil
 }
-

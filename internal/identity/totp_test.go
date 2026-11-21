@@ -219,6 +219,66 @@ func TestTOTPKeyring_ProductionRequirement(t *testing.T) {
 	}
 }
 
+func TestTOTPKeyring_ProductionJSONSecret(t *testing.T) {
+	valid := `{"current":"v1","keys":{"v1":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}`
+	getenv := func(key string) string {
+		switch key {
+		case "APP_PROFILE":
+			return "production"
+		case "TOTP_KEYRING_JSON":
+			return valid
+		default:
+			return ""
+		}
+	}
+	kr, err := identity.LoadTOTPKeyring(getenv)
+	if err != nil {
+		t.Fatalf("valid ECS-injected keyring rejected: %v", err)
+	}
+	version, ciphertext, err := kr.Seal([]byte("production-secret"))
+	if err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	opened, err := kr.Open(version, ciphertext)
+	if err != nil || string(opened) != "production-secret" {
+		t.Fatalf("keyring did not round-trip: err=%v", err)
+	}
+}
+
+func TestTOTPKeyring_ProductionJSONSecretRejectsInvalidConfiguration(t *testing.T) {
+	valid := `{"current":"v1","keys":{"v1":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}`
+	tests := []struct {
+		name       string
+		jsonSecret string
+		file       string
+	}{
+		{name: "malformed", jsonSecret: `{"current":`},
+		{name: "empty key map", jsonSecret: `{"current":"v1","keys":{}}`},
+		{name: "invalid key length", jsonSecret: `{"current":"v1","keys":{"v1":"00"}}`},
+		{name: "current key missing", jsonSecret: `{"current":"v2","keys":{"v1":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}}`},
+		{name: "both sources", jsonSecret: valid, file: "/unused/keyring.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(key string) string {
+				switch key {
+				case "APP_PROFILE":
+					return "production"
+				case "TOTP_KEYRING_JSON":
+					return tt.jsonSecret
+				case "TOTP_KEYRING_FILE":
+					return tt.file
+				default:
+					return ""
+				}
+			}
+			if _, err := identity.LoadTOTPKeyring(getenv); err == nil {
+				t.Fatal("expected invalid keyring configuration to fail closed")
+			}
+		})
+	}
+}
+
 func TestTOTPKeyring_DevelopmentFallback(t *testing.T) {
 	// In development, fallback returns valid working keyring
 	getenv := func(key string) string {
