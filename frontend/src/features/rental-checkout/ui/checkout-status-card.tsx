@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { authFacade } from "@/features/auth/auth-runtime";
+import { bookingsFacade } from "@/features/bookings/bookings-runtime";
 import { ApiError } from "@/lib/api/errors";
 import type { CheckoutRead } from "../domain/checkout";
 import { rentalCheckout } from "../infrastructure/checkout-runtime";
@@ -36,7 +37,8 @@ function statusCopy(status: CheckoutRead["status"]): {
     case "approved":
       return {
         title: "Pago confirmado",
-        detail: "EspaciGo verificó el resultado con Mercado Pago.",
+        detail:
+          "EspaciGo verificó el resultado con Mercado Pago y guardó tu reserva.",
         tone: "success",
       };
     case "pending":
@@ -127,13 +129,17 @@ export function CheckoutStatusCard({ quoteId }: { quoteId: string }) {
         );
       })
       .then((result) => {
-        if (active)
+        if (active) {
           setResultState({
             key: requestKey,
             loading: false,
             checkout: result,
             error: null,
           });
+          if (result.status === "approved") {
+            void bookingsFacade.loadReservations().catch(() => {});
+          }
+        }
       })
       .catch((cause: unknown) => {
         if (active && !controller.signal.aborted)
@@ -249,8 +255,30 @@ export function CheckoutStatusCard({ quoteId }: { quoteId: string }) {
             <div>
               <p className="font-semibold">{copy.title}</p>
               <p className="mt-1">{copy.detail}</p>
+              {checkout.operationId ? (
+                <p className="mt-1.5 font-mono text-xs opacity-90">
+                  Reserva guardada: {checkout.operationId}
+                </p>
+              ) : null}
             </div>
           </div>
+
+          {checkout.status === "approved" ? (
+            <div className="flex flex-wrap items-center gap-3">
+              {checkout.operationId ? (
+                <Button asChild>
+                  <Link
+                    href={`/reservas/${encodeURIComponent(checkout.operationId)}`}
+                  >
+                    Ver detalle de la reserva
+                  </Link>
+                </Button>
+              ) : null}
+              <Button asChild variant="outline">
+                <Link href="/reservas">Ir a Mis reservas</Link>
+              </Button>
+            </div>
+          ) : null}
 
           {checkout.status === "pending" && checkout.initPoint ? (
             <Button
@@ -264,10 +292,24 @@ export function CheckoutStatusCard({ quoteId }: { quoteId: string }) {
           ) : null}
 
           {checkout.status !== "approved" ? (
-            <Button type="button" variant="outline" onClick={refresh}>
-              <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-              Actualizar estado
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" onClick={refresh}>
+                <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+                Actualizar estado
+              </Button>
+              {checkout.operationId ? (
+                <Button asChild variant="outline">
+                  <Link
+                    href={`/reservas/${encodeURIComponent(checkout.operationId)}`}
+                  >
+                    Ver reserva
+                  </Link>
+                </Button>
+              ) : null}
+              <Button asChild variant="ghost">
+                <Link href="/reservas">Mis reservas</Link>
+              </Button>
+            </div>
           ) : null}
           {checkout.updatedAt ? (
             <p className="text-xs text-muted-foreground">

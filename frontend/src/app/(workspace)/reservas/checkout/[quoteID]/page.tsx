@@ -20,7 +20,12 @@ export default async function RentalCheckoutReturnPage({
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 py-4">
       <header className="space-y-2">
-        <p className="text-sm font-medium text-primary">Mis reservas</p>
+        <Link
+          href="/reservas"
+          className="inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Mis reservas
+        </Link>
         <h1 className="text-2xl font-semibold tracking-tight">
           Volviste de Mercado Pago
         </h1>
@@ -29,12 +34,23 @@ export default async function RentalCheckoutReturnPage({
         </p>
       </header>
       <CheckoutStatusCard quoteId={quoteID} />
-      <Link
-        href="/explorar"
-        className="inline-flex min-h-11 items-center font-medium underline underline-offset-4"
+      <nav
+        aria-label="Navegación de retorno de checkout"
+        className="flex flex-wrap items-center gap-4 border-t border-border/60 pt-4 text-sm"
       >
-        Volver al marketplace
-      </Link>
+        <Link
+          href="/reservas"
+          className="inline-flex min-h-11 items-center font-medium underline underline-offset-4"
+        >
+          Ir a Mis reservas
+        </Link>
+        <Link
+          href="/explorar"
+          className="inline-flex min-h-11 items-center font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
+        >
+          Volver al marketplace
+        </Link>
+      </nav>
     </div>
   );
 }

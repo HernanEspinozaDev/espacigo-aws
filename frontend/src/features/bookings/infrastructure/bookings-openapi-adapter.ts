@@ -33,9 +33,23 @@ import type {
 type CommercialReservationSchema =
   components["schemas"]["CommercialReservation"];
 
+type CommercialReservationWithBuyerFees = CommercialReservationSchema & {
+  buyer_commission_clp?: number | string;
+  buyer_vat_clp?: number | string;
+  buyer_fee_clp?: number | string;
+  total_charged_clp?: number | string;
+};
+
+function optionalNumber(value: number | string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function mapCommercialToBookingReservation(
   item: CommercialReservationSchema,
 ): BookingReservation {
+  const extended = item as CommercialReservationWithBuyerFees;
   return {
     id: item.id,
     quote_id: item.quote_id,
@@ -45,6 +59,16 @@ function mapCommercialToBookingReservation(
     renter_id: item.participant_role === "arrendatario" ? "me" : "",
     participant_role: item.participant_role,
     checkout_status: item.checkout_status,
+    checkout_method: item.checkout_method,
+    provider_payment_id: item.provider_payment_id,
+    commission_clp: optionalNumber(item.commission_clp),
+    vat_clp: optionalNumber(item.vat_clp),
+    marketplace_fee_clp: optionalNumber(item.marketplace_fee_clp),
+    net_host_amount_clp: optionalNumber(item.net_host_amount_clp),
+    buyer_commission_clp: optionalNumber(extended.buyer_commission_clp),
+    buyer_vat_clp: optionalNumber(extended.buyer_vat_clp),
+    buyer_fee_clp: optionalNumber(extended.buyer_fee_clp),
+    total_charged_clp: optionalNumber(extended.total_charged_clp),
     is_commercial: true,
     state: item.status as BookingState,
     rate_unit: item.rate_unit,
@@ -55,6 +79,21 @@ function mapCommercialToBookingReservation(
     start_at: item.start_at,
     end_at: item.end_at,
     time_zone: item.time_zone,
+    ...(Array.isArray(item.intervals) && item.intervals.length > 0
+      ? {
+          intervals: item.intervals.map((iv) => ({
+            ...(iv.id ? { id: iv.id } : {}),
+            start_at: iv.start_at,
+            end_at: iv.end_at,
+            units: Number(iv.units),
+            ...(iv.usage_status ? { usage_status: iv.usage_status } : {}),
+            ...(iv.check_in_at ? { check_in_at: iv.check_in_at } : {}),
+            ...(iv.check_out_at ? { check_out_at: iv.check_out_at } : {}),
+            ...(iv.pass_code ? { pass_code: iv.pass_code } : {}),
+            ...(iv.qr_payload ? { qr_payload: iv.qr_payload } : {}),
+          })),
+        }
+      : {}),
     conditions: "",
     cancellation_policy_version: "v1",
     pay_expires_at: item.payment_expires_at,
@@ -68,13 +107,20 @@ function mapCommercialToBookingDetail(
   item: CommercialReservationSchema,
 ): BookingDetail {
   const reservation = mapCommercialToBookingReservation(item);
+  const methodLabel =
+    item.checkout_method === "payments_api"
+      ? "Checkout API (Tarjeta)"
+      : "Checkout Pro";
+  const paymentSuffix = item.provider_payment_id
+    ? ` · Operación #${item.provider_payment_id}`
+    : "";
   return {
     ...reservation,
     history: [
       {
         sequence: 1,
         to: item.status,
-        reason: `Checkout Pro: ${item.checkout_status}`,
+        reason: `${methodLabel}: ${item.checkout_status}${paymentSuffix}`,
         at: item.updated_at,
       },
     ],

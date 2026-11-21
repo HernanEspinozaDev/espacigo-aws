@@ -110,6 +110,8 @@ export interface CheckoutSummaryCardProps {
   rateUnit?: "hora" | "dia" | "mes";
   unitPriceClp?: number | string | null;
   baseClp?: number | string | null;
+  commissionClp?: number | string | null;
+  vatClp?: number | string | null;
   serviceFeeClp?: number | string | null;
   totalClp?: number | string | null;
   expiresAt?: string | null;
@@ -175,6 +177,8 @@ export function CheckoutSummaryCard({
   rateUnit,
   unitPriceClp,
   baseClp,
+  commissionClp,
+  vatClp,
   serviceFeeClp,
   totalClp,
   expiresAt,
@@ -190,9 +194,17 @@ export function CheckoutSummaryCard({
   const formattedDuration = formatDuration(duration, rateUnit);
   const formattedUnit = formatPublicClp(unitPriceClp);
   const formattedBase = formatPublicClp(baseClp);
+  const formattedCommission = formatPublicClp(commissionClp);
+  const formattedVat = formatPublicClp(vatClp);
   const formattedFee = formatPublicClp(serviceFeeClp);
   const formattedTotal = formatPublicClp(totalClp);
-  const hasBreakdown = Boolean(formattedBase || formattedFee || formattedTotal);
+  const hasBreakdown = Boolean(
+    formattedBase ||
+      formattedCommission ||
+      formattedVat ||
+      formattedFee ||
+      formattedTotal,
+  );
   const hasDetails = Boolean(
     formattedRange || timeZone || quoteId || statusLabel,
   );
@@ -309,35 +321,55 @@ export function CheckoutSummaryCard({
       ) : null}
 
       {hasBreakdown ? (
-        <div className="space-y-2.5 border-t border-[#ded5cc] pt-3.5 text-sm">
+        <div className="space-y-2 border-t border-[#ded5cc] pt-3.5 text-sm">
           {formattedBase ? (
             <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
               <span>
-                Arriendo base
+                Precio original del espacio
                 {formattedUnit && formattedDuration
                   ? ` (${formattedUnit} × ${formattedDuration})`
                   : ""}
               </span>
               <span className="font-medium tabular-nums text-[#332720]">
-                {formattedBase}
+                {formattedBase} CLP
+              </span>
+            </div>
+          ) : null}
+
+          {formattedCommission ? (
+            <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
+              <span>Comisión de servicio (3%)</span>
+              <span className="font-medium tabular-nums text-[#332720]">
+                {formattedCommission} CLP
+              </span>
+            </div>
+          ) : null}
+
+          {formattedVat ? (
+            <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
+              <span>IVA sobre comisión (19%)</span>
+              <span className="font-medium tabular-nums text-[#332720]">
+                {formattedVat} CLP
               </span>
             </div>
           ) : null}
 
           {formattedFee ? (
-            <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
-              <span>Comisión de servicio</span>
+            <div className="flex items-baseline justify-between gap-3 border-t border-dashed border-[#ded5cc] pt-2 text-[#66574e]">
+              <span>Comisión total con IVA (3,57%)</span>
               <span className="font-medium tabular-nums text-[#332720]">
-                {formattedFee}
+                {formattedFee} CLP
               </span>
             </div>
           ) : null}
 
           {formattedTotal ? (
             <div className="flex items-baseline justify-between gap-3 rounded-xl border border-[#e8c5b5] bg-[#fbf7f2] px-3.5 py-2.5">
-              <span className="font-semibold text-[#332720]">Total (CLP)</span>
+              <span className="font-semibold text-[#332720]">
+                Total a pagar
+              </span>
               <span className="text-lg font-bold tabular-nums text-[#702a1b]">
-                {formattedTotal}
+                {formattedTotal} CLP
               </span>
             </div>
           ) : null}

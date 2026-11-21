@@ -1,4 +1,7 @@
-import type { PublicRentalAvailabilityResult } from "../domain/rental-availability";
+import type {
+  PublicRentalAvailabilityResult,
+  PublicRentalScheduleResult,
+} from "../domain/rental-availability";
 
 export interface RentalAvailabilityPort {
   getAvailability(
@@ -7,4 +10,10 @@ export interface RentalAvailabilityPort {
     duration: number,
     signal?: AbortSignal,
   ): Promise<PublicRentalAvailabilityResult>;
+  getSchedule?(
+    spaceId: string,
+    date: string,
+    duration: number,
+    signal?: AbortSignal,
+  ): Promise<PublicRentalScheduleResult>;
 }

@@ -1309,6 +1309,26 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "POST",
+    path: "/commercial-reservations/{reservationID}/intervals/{intervalID}/usage",
+    operationId: "updateCommercialIntervalUsage",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/commercial-reservations/verify-pass",
+    operationId: "verifyCommercialPass",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "GET",
     path: "/document-verification/cases",
     operationId: "listOwnDocumentVerificationCases",
@@ -2753,6 +2773,16 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "POST",
+    path: "/rental-quotes/multi",
+    operationId: "createMultiRentalQuote",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "GET",
     path: "/rights-requests",
     operationId: "listOwnRightsRequests",
@@ -3091,6 +3121,25 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/spaces/{spaceID}/rental-schedule",
+    operationId: "listPublicRentalSchedule",
+    query: [
+      {
+        name: "date",
+        allowRepeated: false,
+      },
+      {
+        name: "duration",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/spaces/{spaceID}/reviews",
     operationId: "listActiveSpaceReviews",
     query: [],
@@ -3303,7 +3352,16 @@ export const gatewayOperations = [
     method: "POST",
     path: "/webhooks/mercadopago",
     operationId: "receiveMercadoPagoPaymentWebhook",
-    query: [],
+    query: [
+      {
+        name: "data.id",
+        allowRepeated: false,
+      },
+      {
+        name: "type",
+        allowRepeated: false,
+      },
+    ],
     headers: ["x-request-id", "x-signature"],
     bearer: false,
     requestMediaTypes: ["application/json"],

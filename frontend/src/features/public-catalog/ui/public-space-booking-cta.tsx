@@ -96,16 +96,40 @@ export function PublicSpaceBookingCta({
       )}
 
       {selection && durationLabel ? (
-        <p
-          className={
-            mobile
-              ? "min-w-0 truncate text-xs font-medium text-foreground"
-              : "min-w-0 break-words text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]"
-          }
-        >
-          {durationLabel}
-          {mobile && durationText ? ` · ${durationText}` : ""}
-        </p>
+        selection.intervals && selection.intervals.length > 1 ? (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Tramos seleccionados ({selection.intervals.length})
+            </p>
+            <ul className="max-h-36 space-y-1 overflow-y-auto pr-1 text-xs text-foreground">
+              {selection.intervals.map((iv) => (
+                <li
+                  key={`${iv.startAt}-${iv.endAt}`}
+                  className="flex items-center justify-between gap-2 rounded-md border border-[var(--brand-border)]/70 bg-background px-2.5 py-1 tabular-nums"
+                >
+                  <span>
+                    {new Intl.DateTimeFormat("es-CL", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                      timeZone: selection.timeZone,
+                    }).formatRange(new Date(iv.startAt), new Date(iv.endAt))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p
+            className={
+              mobile
+                ? "min-w-0 truncate text-xs font-medium text-foreground"
+                : "min-w-0 break-words text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]"
+            }
+          >
+            {durationLabel}
+            {mobile && durationText ? ` · ${durationText}` : ""}
+          </p>
+        )
       ) : null}
 
       {!mobile && selection && formattedSubtotal && unitPrice ? (
