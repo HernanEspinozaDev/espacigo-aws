@@ -87,8 +87,7 @@ python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json,sys
 rows=[json.loads(line) for line in open(sys.argv[1]) if line.startswith('{')]
 root='TestRentalCombinedFixtureOptIn'
-required={root,root+'/v97-without-authority',root+'/v97-upgrade',root+'/commercial-quote-persistence',root+'/commercial-quote-persistence/retention-purge-publication-lock',root+'/commercial-quote-persistence/admin-local-account-block',root+'/commercial-quote-persistence/authentication-account-lock',root+'/contract-identity-reader'}
-required.update(root+'/commercial-quote-persistence/authentication-account-lock/'+name for name in ('email','verification-id','action-token-id','session-hash'))
+required={root,root+'/v97-without-authority',root+'/v97-upgrade',root+'/v98-expand'}
 required.update(root+f'/authority-wire-v{version}' for version in (84,85,86,87,88,95,96))
 required.update(root+'/v97-upgrade/'+name for name in (
  'failure_cleanup','migration_failure_cleanup','rejects_public_table_grant',
@@ -97,5 +96,5 @@ required.update(root+'/v97-upgrade/'+name for name in (
 passed={r.get('Test') for r in rows if r.get('Action')=='pass'}
 assert required<=passed, 'missing required combined fixture results: '+repr(sorted(required-passed))
 assert not any(r.get('Action') in ('fail','skip') for r in rows), 'failed or skipped combined fixture'
-print(f'PASS: {len(required)} required checkpoints, no failed/skipped results; combined V1-V96 schema, V97 authority rejection/upgrade, quotes, retention-purge/publication serialization, admin-local block/account-lock and four authentication lookup/account-lock paths, plus identity ACL preservation; cleanup checked separately on exit.')
+print(f'PASS: {len(required)} required checkpoints, no failed/skipped results; historical combined V1-V98 schema, V97 authority rejection/upgrade and identity ACL preservation; cleanup checked separately on exit.')
 PY

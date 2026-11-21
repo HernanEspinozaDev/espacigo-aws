@@ -7,10 +7,11 @@ SCOPE="${1:-full}"
 case "$SCOPE" in
   full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
   aws-bootstrap|aws-bootstrap-preview) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
+  checkout-pro) GO_TEST_PATTERN='^TestCurrentSchemaMigrationCheckoutProUpToV111$' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
   v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
   authority-window) GO_TEST_PATTERN='^Test(NativeKYCAuthorityWindow|OwnerSensitiveMigrationChoreography)Postgres$' ;;
-  *) echo 'usage: test-migration-runner-postgres.sh [full|aws-bootstrap|aws-bootstrap-preview|v19|v76|authority-window]' >&2; exit 2 ;;
+  *) echo 'usage: test-migration-runner-postgres.sh [full|checkout-pro|aws-bootstrap|aws-bootstrap-preview|v19|v76|authority-window]' >&2; exit 2 ;;
 esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 if [[ "$SCOPE" == authority-window ]]; then
@@ -131,6 +132,32 @@ elif [[ "$SCOPE" == v76 ]]; then
   echo 'PASS: isolated disposable PostgreSQL V1-V68-to-V76 gallery capacity transition (10 to 30), concurrent 30th slot, and 31st-slot rejection.'
 elif [[ "$SCOPE" == authority-window ]]; then
   echo 'PASS: isolated PostgreSQL 18.7 V95/V96 authority-window checks plus owner-sensitive migration choreography, transactional rollback, ownership and ledger readback; no persistent database touched.'
+elif [[ "$SCOPE" == checkout-pro ]]; then
+  python3 - "$TMP_DIR/results.jsonl" <<'PY'
+import json, sys
+root = 'TestCurrentSchemaMigrationCheckoutProUpToV111'
+required = {root}
+for baseline in (0, 75):
+    prefix = f'{root}/baseline-{baseline}'
+    required.update({prefix, prefix+'/v97-upgrade', prefix+'/v98-expand',
+        prefix+'/commercial-quote-suppression', prefix+'/commercial-quote-persistence',
+        prefix+'/commercial-quote-persistence/retention-purge-publication-lock',
+        prefix+'/commercial-quote-persistence/admin-local-account-block',
+        prefix+'/commercial-quote-persistence/authentication-account-lock',
+        prefix+'/contract-identity-reader'})
+    required.update(prefix+'/commercial-quote-persistence/authentication-account-lock/'+name for name in
+        ('email','verification-id','action-token-id','session-hash'))
+actions = {}
+with open(sys.argv[1]) as source:
+    for line in source:
+        event = json.loads(line)
+        if event.get('Test') and event.get('Action') in ('pass', 'fail', 'skip'):
+            actions[event['Test']] = event['Action']
+missing = sorted(name for name in required if actions.get(name) != 'pass')
+if missing:
+    raise SystemExit('Checkout Pro canonical V111 evidence missing/failed/skipped: ' + ', '.join(missing))
+print(f'PASS: canonical V1–V111 migration sequence plus Checkout Pro quote suppression/persistence and contract identity passed for fresh and V75 upgrade fixtures.')
+PY
 else
   python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json, sys
@@ -192,6 +219,17 @@ operational_required.add('TestRunnerEarlyRentalOperationalCandidatePostgres/empt
 operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['terminal-reason-required','terminal-reasons-preserved','expiration-respects-deadline'])
 operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/catalog-refuses-missing-trigger' for baseline in (0,75))
 required.update(operational_required)
+checkout_root = 'TestCurrentSchemaMigrationCheckoutProUpToV111'
+for baseline in (0, 75):
+    root = f'{checkout_root}/baseline-{baseline}'
+    required.update({root, root+'/v97-upgrade', root+'/v98-expand',
+        root+'/commercial-quote-suppression', root+'/commercial-quote-persistence',
+        root+'/commercial-quote-persistence/retention-purge-publication-lock',
+        root+'/commercial-quote-persistence/admin-local-account-block',
+        root+'/commercial-quote-persistence/authentication-account-lock',
+        root+'/contract-identity-reader'})
+    required.update(root+'/commercial-quote-persistence/authentication-account-lock/'+name for name in
+        ('email','verification-id','action-token-id','session-hash'))
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:

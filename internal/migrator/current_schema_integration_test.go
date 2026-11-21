@@ -86,12 +86,6 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 				if err := admin.QueryRow(ctx, `SELECT has_schema_privilege('espacigo_schema_owner','public','CREATE') OR has_schema_privilege('espacigo_runtime','public','CREATE') OR (SELECT count(*)<>0 FROM public.usuario)`).Scan(&unsafe); err != nil || unsafe {
 					t.Fatalf("unsafe final synthetic state: %v", err)
 				}
-				t.Run("commercial-quote-suppression", func(t *testing.T) {
-					assertCommercialQuoteSuppression(t, ctx, databaseURL, admin)
-				})
-				t.Run("commercial-quote-persistence", func(t *testing.T) {
-					assertCommercialQuotePersistenceWithExistingRuntimeACL(t, ctx, databaseURL, admin)
-				})
 				var legacyReadable bool
 				if err := admin.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.identity_verification_attempts','SELECT')`).Scan(&legacyReadable); err != nil || legacyReadable {
 					t.Fatalf("current-schema behaviors reopened legacy identity access: readable=%t err=%v", legacyReadable, err)

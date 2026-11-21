@@ -1,9 +1,7 @@
 package rentalflowpg
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -56,51 +54,9 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	if os.Getenv("TEST_RENTALFLOW_POSTGRES_ISOLATED") != "1" {
 		t.Skip("TEST_RENTALFLOW_POSTGRES_ISOLATED=1 is required for disposable PostgreSQL integration")
 	}
-	adminURL := os.Getenv("TEST_DATABASE_URL")
-	if adminURL == "" {
-		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL integration")
-	}
-	adminConfig, err := validateDisposablePostgresTarget(adminURL, os.Getenv("TEST_RENTALFLOW_POSTGRES_ISOLATION_TOKEN"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	admin, err := pgx.Connect(ctx, adminURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := admin.Close(context.Background()); err != nil {
-			t.Errorf("close disposable PostgreSQL admin connection: %v", err)
-		}
-	})
-
-	dbName := fmt.Sprintf("rentalflow_availability_%d", time.Now().UnixNano())
-	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{dbName}.Sanitize()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec(context.Background(), "DROP DATABASE "+pgx.Identifier{dbName}.Sanitize()+" WITH (FORCE)"); err != nil {
-			t.Errorf("drop owned disposable database: %v", err)
-		}
-	})
-	dbURL := adminConfig
-	dbURL.Path = "/" + dbName
+	ctx, dbURL := earlyInsertPostgresFixture(t)
 	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
 	if err != nil {
-		t.Fatal(err)
-	}
-	migrationPrefix := t.TempDir()
-	for _, migration := range migrations {
-		if migration.Version > 61 {
-			break
-		}
-		if err := os.WriteFile(filepath.Join(migrationPrefix, migration.Name), migration.SQL, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err = migrator.Run(ctx, dbURL.String(), migrationPrefix); err != nil {
 		t.Fatal(err)
 	}
 	var calendarMigration *migrator.Migration
@@ -124,6 +80,7 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 	if err := calendarDB.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+	applyCommercialHoldReadSchemaFixture(t, ctx, dbURL.String(), migrations)
 	pool, err := pgxpool.New(ctx, dbURL.String())
 	if err != nil {
 		t.Fatal(err)

@@ -195,6 +195,55 @@ GRANT SELECT, INSERT ON TABLE public.ocupacion TO espacigo_runtime`)
 	return ctx, &dbURL
 }
 
+// applyCommercialHoldReadSchemaFixture applies the exact canonical commercial
+// quote and Checkout Pro hold DDL required by snapshot readers. These adapter
+// tests intentionally keep their legacy V1..V61 + V99 data fixture; applying
+// V97/V111 bytes gives the reader's referenced relations their production
+// shape without pretending the fixture is a full migration-chain test.
+func applyCommercialHoldReadSchemaFixture(t *testing.T, ctx context.Context, databaseURL string, migrations []migrator.Migration) {
+	t.Helper()
+	for _, version := range []int64{97, 111} {
+		var migration *migrator.Migration
+		for i := range migrations {
+			if migrations[i].Version == version {
+				migration = &migrations[i]
+				break
+			}
+		}
+		if migration == nil {
+			t.Fatalf("canonical V%d migration is unavailable", version)
+		}
+		conn, err := pgx.Connect(ctx, databaseURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			_ = conn.Close(ctx)
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, string(migration.SQL)); err != nil {
+			_ = tx.Rollback(ctx)
+			_ = conn.Close(ctx)
+			t.Fatalf("apply exact canonical V%d commercial hold schema: %v", version, err)
+		}
+		if version == 111 {
+			if _, err := tx.Exec(ctx, `GRANT SELECT ON public.checkout_preferencia_comercial, public.cotizacion_arriendo_comercial TO espacigo_runtime`); err != nil {
+				_ = tx.Rollback(ctx)
+				_ = conn.Close(ctx)
+				t.Fatalf("grant fixture-only commercial hold read privileges: %v", err)
+			}
+		}
+		if err := tx.Commit(ctx); err != nil {
+			_ = conn.Close(ctx)
+			t.Fatalf("commit exact canonical V%d fixture schema: %v", version, err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestPostgresEarlyRentalInitialInsert(t *testing.T) {
 	ctx, dbURL := earlyInsertPostgresFixture(t)
 	scenarios := []struct {
