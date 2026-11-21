@@ -26,6 +26,18 @@ data "aws_secretsmanager_secret" "auth_smtp" {
   name  = "espacigo/${var.environment}/auth/smtp"
 }
 
+# The secret container is provisioned here, but its SecretString is supplied
+# out of band and must never enter Terraform state or source control.
+resource "aws_secretsmanager_secret" "totp_keyring" {
+  count       = local.provision_app ? 1 : 0
+  name        = "espacigo/${var.environment}/auth/totp-keyring"
+  description = "TOTP encryption keyring for the EspaciGo production API"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "aws_cloudwatch_log_group" "app" {
   count             = local.provision_app ? 1 : 0
   name              = "/aws/ecs/${local.app_family}"
@@ -64,6 +76,7 @@ resource "aws_iam_role_policy" "app_execution" {
         Resource = [
           data.aws_secretsmanager_secret.api[0].arn,
           data.aws_secretsmanager_secret.auth_smtp[0].arn,
+          aws_secretsmanager_secret.totp_keyring[0].arn,
         ]
         Condition = {
           StringEquals = { "aws:SourceVpce" = try(aws_vpc_endpoint.private_services["secretsmanager"].id, "") }
@@ -140,6 +153,7 @@ resource "aws_ecs_task_definition" "app" {
         { name = "DATABASE_ECS_PASSWORD", valueFrom = "${data.aws_secretsmanager_secret.api[0].arn}:password::" },
         { name = "PUBLIC_CATALOG_ECS_CURSOR_KEY", valueFrom = "${data.aws_secretsmanager_secret.api[0].arn}:cursor_key::" },
         { name = "AUTH_SMTP_ECS_PASSWORD", valueFrom = "${data.aws_secretsmanager_secret.auth_smtp[0].arn}:password::" },
+        { name = "TOTP_KEYRING_JSON", valueFrom = aws_secretsmanager_secret.totp_keyring[0].arn },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -228,6 +242,11 @@ resource "aws_ecs_service" "app" {
 
 output "app_task_definition_arn" {
   value = try(aws_ecs_task_definition.app[0].arn, null)
+}
+
+output "totp_keyring_secret_arn" {
+  description = "Non-secret ARN of the TOTP keyring secret referenced by the production API task."
+  value       = try(aws_secretsmanager_secret.totp_keyring[0].arn, null)
 }
 
 output "public_nlb_dns" {
