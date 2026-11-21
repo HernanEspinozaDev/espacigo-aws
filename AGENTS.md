@@ -8,7 +8,7 @@
 | `desarrollo-local` | AWS Emulator, PostgreSQL y Mailpit locales | Cambios de código e infraestructura, fixtures y pruebas de desarrollo. |
 | `main` | Producción en AWS real | Recibe commits probados de `desarrollo-local` mediante promoción explícita del usuario. La CI y CodePipeline publican automáticamente el SHA integrado cuando pasan las comprobaciones. |
 
-1. Usa `desarrollo-local` para integrar y probar los cambios. Usa Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
+1. Desarrolla y prueba los cambios de cada módulo en su rama y worktree aislados. Cuando el módulo esté completo y probado, intégralo en `desarrollo-local` y ejecuta allí las comprobaciones de integración. Usa Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
 2. Ejecuta `scripts/local-dev.sh` y usa credenciales del emulador sólo para desarrollo local. Mantén `.local/`, dumps, tokens y llaves fuera de Git.
 3. GitHub Actions ejecuta la CI de `main`. Si `release-ready` aprueba el SHA vigente, el workflow avanza la referencia técnica `publicacion-aws`. Sólo el workflow debe actualizar esa rama. CodePipeline detecta el cambio mediante CodeConnections, valida el mismo SHA, publica imágenes, verifica migraciones y despliega. Mantén desactivado el job de despliegue OIDC en el proyecto administrado mientras la SCP bloquee los proveedores IAM. Para operaciones humanas, usa AWS CLI v2 con `aws login` y un perfil de producción explícito en la Región seleccionada. Mantén las sesiones, los endpoints y los secretos separados de los del emulador.
 4. Mantén Go en AWS SDK v2. Usa endpoint local y `UsePathStyle` para S3 emulado. Usa la resolución estándar de AWS para producción. Conserva la arquitectura AWS del repositorio.
@@ -18,7 +18,7 @@
 
 ### Flujo del módulo de pagos
 
-Crea y mantén la rama `codex/marketplace/feature/pagos-1-modulo-pagos` a partir de `origin/desarrollo-local`. Haz los cambios del módulo allí y usa `desarrollo-local` como destino de integración en GitHub. Una vez integrado el módulo, ejecuta las comprobaciones en `desarrollo-local`. La promoción de los commits aprobados desde `desarrollo-local` a `main` requiere autorización explícita del usuario. Si abres un PR para el módulo, selecciona `desarrollo-local` como base.
+Crea y mantén la rama `codex/marketplace/feature/pagos-1-modulo-pagos` a partir de `origin/desarrollo-local` en un worktree aislado. Desarrolla y prueba el módulo en esa rama; intégralo en `desarrollo-local` sólo cuando esté completo y haya pasado sus comprobaciones. Usa `desarrollo-local` como destino de integración en GitHub. Una vez integrado el módulo, ejecuta las comprobaciones de integración en `desarrollo-local`. La promoción de los commits aprobados desde `desarrollo-local` a `main` requiere autorización explícita del usuario. Si abres un PR para el módulo, selecciona `desarrollo-local` como base.
 
 Consulta la [guía de Mercado Pago Chile](docs/operations/mercado-pago-chile.md) para preparar el entorno de prueba.
 
