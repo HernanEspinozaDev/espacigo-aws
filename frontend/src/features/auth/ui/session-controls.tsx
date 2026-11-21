@@ -11,9 +11,15 @@ import { useSessionIdentity } from "./use-session-identity";
 
 export interface SessionControlsProps {
   variant: "workspace" | "public";
+  anonymousOnly?: boolean;
+  onNavigate?: () => void;
 }
 
-export function SessionControls({ variant }: SessionControlsProps) {
+export function SessionControls({
+  variant,
+  anonymousOnly = false,
+  onNavigate,
+}: SessionControlsProps) {
   const router = useRouter();
   const { status, accountId, label } = useSessionIdentity();
   const { snapshot: accountSnapshot, loadProfilePhoto } = useAccount();
@@ -21,10 +27,12 @@ export function SessionControls({ variant }: SessionControlsProps) {
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    if (status === "authenticated" && accountId) {
+    if (!anonymousOnly && status === "authenticated" && accountId) {
       void loadProfilePhoto();
     }
-  }, [accountId, loadProfilePhoto, status]);
+  }, [accountId, anonymousOnly, loadProfilePhoto, status]);
+
+  if (anonymousOnly && status !== "anonymous") return null;
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -145,6 +153,7 @@ export function SessionControls({ variant }: SessionControlsProps) {
   return (
     <Link
       href="/acceso"
+      onClick={onNavigate}
       className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
     >
       Ingresar a EspaciGo
