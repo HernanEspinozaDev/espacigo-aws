@@ -206,4 +206,54 @@ func TestCommercialReservationService_Get(t *testing.T) {
 			t.Errorf("expected %+v, got %+v", expected, got)
 		}
 	})
+
+	t.Run("reconciles pending reservation before returning", func(t *testing.T) {
+		quoteID := "44444444-4444-4444-8444-444444444444"
+		currentState := "pendiente_de_pago"
+		currentCheckout := "pending"
+		reconciledQuotes := []string{}
+		reader := &mockCommercialReservationReader{
+			getFn: func(ctx context.Context, actor, reservationID string) (rentalflow.CommercialReservation, error) {
+				return rentalflow.CommercialReservation{
+					ID:             validReservation,
+					QuoteID:        quoteID,
+					Status:         currentState,
+					CheckoutStatus: currentCheckout,
+				}, nil
+			},
+			listFn: func(ctx context.Context, actor string, pageSize int, cursor string) (rentalflow.CommercialReservationPage, error) {
+				return rentalflow.CommercialReservationPage{
+					Items: []rentalflow.CommercialReservation{{
+						ID:             validReservation,
+						QuoteID:        quoteID,
+						Status:         currentState,
+						CheckoutStatus: currentCheckout,
+					}},
+				}, nil
+			},
+		}
+		svc, _ := rentalflow.NewCommercialReservationService(reader)
+		svc.SetReconciler(func(ctx context.Context, actor, qid string) {
+			reconciledQuotes = append(reconciledQuotes, qid)
+			currentState = "pagada"
+			currentCheckout = "approved"
+		})
+		got, err := svc.Get(ctx, validActor, validReservation)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(reconciledQuotes) != 1 || reconciledQuotes[0] != quoteID || got.Status != "pagada" || got.CheckoutStatus != "approved" {
+			t.Fatalf("expected reconciliation on Get, got quotes=%v item=%+v", reconciledQuotes, got)
+		}
+
+		currentState = "pendiente_de_pago"
+		currentCheckout = "pending"
+		page, err := svc.List(ctx, validActor, 20, "")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(reconciledQuotes) != 2 || len(page.Items) != 1 || page.Items[0].Status != "pagada" {
+			t.Fatalf("expected reconciliation on List, got quotes=%v page=%+v", reconciledQuotes, page)
+		}
+	})
 }

@@ -42,12 +42,34 @@ type Interval struct {
 	EndAt   time.Time `json:"end_at"`
 }
 
+type SlotStatus string
+
+const (
+	SlotAvailable SlotStatus = "available"
+	SlotHeld      SlotStatus = "held"
+	SlotBooked    SlotStatus = "booked"
+)
+
+type ScheduleSlot struct {
+	StartAt time.Time  `json:"start_at"`
+	EndAt   time.Time  `json:"end_at"`
+	Status  SlotStatus `json:"status"`
+}
+
 type Availability struct {
 	SpaceID   string     `json:"space_id"`
 	TimeZone  string     `json:"time_zone"`
 	RateUnit  string     `json:"rate_unit"`
 	CheckedAt time.Time  `json:"checked_at"`
 	Items     []Interval `json:"items"`
+}
+
+type ScheduleAvailability struct {
+	SpaceID   string         `json:"space_id"`
+	TimeZone  string         `json:"time_zone"`
+	RateUnit  string         `json:"rate_unit"`
+	CheckedAt time.Time      `json:"checked_at"`
+	Slots     []ScheduleSlot `json:"slots"`
 }
 
 type PublicListingReader interface {
@@ -57,6 +79,10 @@ type PublicListingReader interface {
 type AvailabilityReader interface {
 	PublicIntervals(context.Context, Listing, string, int) ([]Interval, error)
 	IntervalAvailable(context.Context, Listing, Interval) (bool, error)
+}
+
+type PublicScheduleCalendar interface {
+	PublicScheduleSlots(context.Context, Listing, string, int) ([]ScheduleSlot, error)
 }
 
 type AvailabilityService struct {
@@ -134,6 +160,87 @@ func (s *AvailabilityService) ListPublic(ctx context.Context, spaceID, dateText 
 	return Availability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Items: validated}, nil
 }
 
+// ListPublicSchedule returns all candidate schedule slots for the requested date
+// with their occupancy status ("available", "held", or "booked").
+func (s *AvailabilityService) ListPublicSchedule(ctx context.Context, spaceID, dateText string, duration int) (ScheduleAvailability, error) {
+	if s == nil || ctx == nil || !validUUID(spaceID) || !validDate(dateText) {
+		return ScheduleAvailability{}, ErrInvalid
+	}
+	spaceID = canonicalUUID(spaceID)
+	if ctx.Err() != nil {
+		return ScheduleAvailability{}, ErrUnavailable
+	}
+	now := s.now()
+	if now.IsZero() {
+		return ScheduleAvailability{}, ErrInvalid
+	}
+	now = now.UTC()
+	listing, err := s.listings.PublicListing(ctx, spaceID)
+	if ctx.Err() != nil {
+		return ScheduleAvailability{}, ErrUnavailable
+	}
+	listing.ID = canonicalUUID(listing.ID)
+	listing.OwnerID = canonicalUUID(listing.OwnerID)
+	if errors.Is(err, ErrNotFound) {
+		return ScheduleAvailability{}, ErrNotFound
+	}
+	if err != nil {
+		return ScheduleAvailability{}, ErrUnavailable
+	}
+	if listing.ID != spaceID || listing.State != "activa" {
+		return ScheduleAvailability{}, ErrNotFound
+	}
+	loc, err := validateListing(listing)
+	if err != nil {
+		return ScheduleAvailability{}, err
+	}
+	if !dateWithinHorizon(dateText, now, loc) || !ValidFlexibleDuration(listing.RateUnit, duration) {
+		return ScheduleAvailability{}, ErrInvalid
+	}
+	scheduleCal, ok := s.calendar.(PublicScheduleCalendar)
+	if !ok {
+		items, availErr := s.calendar.PublicIntervals(ctx, listing, dateText, duration)
+		if availErr != nil {
+			return ScheduleAvailability{}, ErrUnavailable
+		}
+		slots := make([]ScheduleSlot, 0, len(items))
+		for _, item := range items {
+			if intervalMatchesRequest(item, listing.RateUnit, dateText, duration, listing.TimeZone, now) {
+				slots = append(slots, ScheduleSlot{StartAt: item.StartAt.UTC(), EndAt: item.EndAt.UTC(), Status: SlotAvailable})
+			}
+		}
+		sort.Slice(slots, func(i, j int) bool { return slots[i].StartAt.Before(slots[j].StartAt) })
+		return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Slots: slots}, nil
+	}
+	rawSlots, err := scheduleCal.PublicScheduleSlots(ctx, listing, dateText, duration)
+	if err != nil || ctx.Err() != nil {
+		return ScheduleAvailability{}, ErrUnavailable
+	}
+	slots := make([]ScheduleSlot, 0, len(rawSlots))
+	seen := make(map[string]struct{}, len(rawSlots))
+	for _, slot := range rawSlots {
+		if !intervalMatchesRequest(Interval{StartAt: slot.StartAt, EndAt: slot.EndAt}, listing.RateUnit, dateText, duration, listing.TimeZone, now) {
+			continue
+		}
+		key := slot.StartAt.UTC().Format(time.RFC3339Nano) + "/" + slot.EndAt.UTC().Format(time.RFC3339Nano)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		status := slot.Status
+		if status != SlotAvailable && status != SlotHeld && status != SlotBooked {
+			status = SlotBooked
+		}
+		slots = append(slots, ScheduleSlot{
+			StartAt: slot.StartAt.UTC(),
+			EndAt:   slot.EndAt.UTC(),
+			Status:  status,
+		})
+	}
+	sort.Slice(slots, func(i, j int) bool { return slots[i].StartAt.Before(slots[j].StartAt) })
+	return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Slots: slots}, nil
+}
+
 func validateListing(listing Listing) (*time.Location, error) {
 	if !validUUID(listing.ID) || !validUUID(listing.OwnerID) || listing.State != "activa" ||
 		!utf8.ValidString(listing.Title) || listing.Title == "" || listing.Title != strings.TrimSpace(listing.Title) || utf8.RuneCountInString(listing.Title) > 70 ||
@@ -156,13 +263,29 @@ func validateListing(listing Listing) (*time.Location, error) {
 
 func validDuration(unit string, duration int) bool { return ValidDuration(unit, duration) }
 
-// ValidDuration reports whether duration is supported for the rental unit.
+// ValidDuration reports whether duration is supported by the legacy public
+// rental-availability endpoint.
 func ValidDuration(unit string, duration int) bool {
 	switch unit {
 	case "hora":
 		return duration == 1 || duration == 2 || duration == 4
 	case "dia":
 		return duration >= 1 && duration <= 3
+	case "mes":
+		return duration == 1
+	default:
+		return false
+	}
+}
+
+// ValidFlexibleDuration reports whether duration is supported for multi-slot
+// schedule selection, quotes, and contract previews (1..24 hours, 1..31 days, 1 month).
+func ValidFlexibleDuration(unit string, duration int) bool {
+	switch unit {
+	case "hora":
+		return duration >= 1 && duration <= 24
+	case "dia":
+		return duration >= 1 && duration <= 31
 	case "mes":
 		return duration == 1
 	default:

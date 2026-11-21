@@ -38,6 +38,8 @@ type PreferenceRequest struct {
 	Items              []PreferenceItem `json:"items"`
 	Metadata           map[string]any   `json:"metadata"`
 	BackURLs           BackURLs         `json:"back_urls"`
+	AutoReturn         string           `json:"auto_return,omitempty"`
+	NotificationURL    string           `json:"notification_url,omitempty"`
 	Expires            bool             `json:"expires"`
 	ExpirationDateFrom string           `json:"expiration_date_from"`
 	ExpirationDateTo   string           `json:"expiration_date_to"`
@@ -56,6 +58,91 @@ func (g *HTTPGateway) LookupPayment(ctx context.Context, token []byte, paymentID
 	if err != nil {
 		return VerifiedPayment{}, err
 	}
+	return decodeVerifiedPaymentJSON(body)
+}
+
+func (g *HTTPGateway) FindPaymentByExternalReference(ctx context.Context, token []byte, externalReference string) (VerifiedPayment, error) {
+	if strings.TrimSpace(externalReference) == "" || len(externalReference) > 128 {
+		return VerifiedPayment{}, ErrInvalid
+	}
+	path := "/v1/payments/search?external_reference=" + url.QueryEscape(externalReference) + "&sort=date_last_updated&criteria=desc&limit=5"
+	body, err := g.requestRawAtStage(ctx, http.MethodGet, path, token, nil, "payment_search")
+	if err == nil {
+		var searchResult struct {
+			Results []json.RawMessage `json:"results"`
+		}
+		if json.Unmarshal(body, &searchResult) == nil && len(searchResult.Results) > 0 {
+			var firstCandidateID string
+			for _, rawItem := range searchResult.Results {
+				vp, parseErr := decodeVerifiedPaymentJSON(rawItem)
+				if parseErr != nil || vp.ExternalReference != externalReference {
+					continue
+				}
+				if strings.EqualFold(vp.Status, "approved") {
+					if full, lookupErr := g.LookupPayment(ctx, token, vp.ProviderPaymentID); lookupErr == nil {
+						return full, nil
+					}
+					return vp, nil
+				}
+				if firstCandidateID == "" {
+					firstCandidateID = vp.ProviderPaymentID
+				}
+			}
+			if firstCandidateID != "" {
+				if full, lookupErr := g.LookupPayment(ctx, token, firstCandidateID); lookupErr == nil {
+					return full, nil
+				}
+			}
+		}
+	}
+	return g.findPaymentByMerchantOrder(ctx, token, externalReference)
+}
+
+func (g *HTTPGateway) findPaymentByMerchantOrder(ctx context.Context, token []byte, externalReference string) (VerifiedPayment, error) {
+	path := "/merchant_orders/search?external_reference=" + url.QueryEscape(externalReference)
+	body, err := g.requestRawAtStage(ctx, http.MethodGet, path, token, nil, "merchant_order_search")
+	if err != nil {
+		return VerifiedPayment{}, err
+	}
+	var orders struct {
+		Elements []struct {
+			ExternalReference string `json:"external_reference"`
+			Payments          []struct {
+				ID     json.Number `json:"id"`
+				Status string      `json:"status"`
+			} `json:"payments"`
+		} `json:"elements"`
+	}
+	if err := json.Unmarshal(body, &orders); err != nil {
+		return VerifiedPayment{}, ErrProvider
+	}
+	var fallbackID string
+	for _, elem := range orders.Elements {
+		if elem.ExternalReference != externalReference {
+			continue
+		}
+		for _, p := range elem.Payments {
+			pid := strings.TrimSpace(p.ID.String())
+			if pid == "" {
+				continue
+			}
+			if strings.EqualFold(p.Status, "approved") {
+				if full, lookupErr := g.LookupPayment(ctx, token, pid); lookupErr == nil {
+					return full, nil
+				}
+			}
+			if fallbackID == "" {
+				fallbackID = pid
+			}
+		}
+	}
+	if fallbackID == "" {
+		return VerifiedPayment{}, ErrNotFound
+	}
+	return g.LookupPayment(ctx, token, fallbackID)
+}
+
+func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 	var p struct {
 		ID                json.Number     `json:"id"`
 		CollectorID       json.RawMessage `json:"collector_id"`

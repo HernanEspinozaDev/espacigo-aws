@@ -59,8 +59,14 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 	}
 	var op checkoutpro.Operation
 	var oldFingerprint []byte
-	err = tx.QueryRow(ctx, `SELECT id::text, cotizacion_id::text, estado, COALESCE(preference_id,''), COALESCE(init_point,''), vence_en, actualizada_en, fingerprint,base_clp,commission_clp,iva_clp,marketplace_fee_clp,test_mode,checkout_method,COALESCE(provider_payment_id,'') FROM public.checkout_preferencia_comercial WHERE arrendatario_id=$1 AND cotizacion_id=$2 AND idempotency_key=$3 FOR UPDATE`, renterID, quoteID, key).Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &oldFingerprint, &op.Amounts.BaseCLP, &op.Amounts.CommissionCLP, &op.Amounts.VATCLP, &op.Amounts.MarketplaceFeeCLP, &op.TestMode, &op.CheckoutMethod, &op.ProviderPaymentID)
-	if err == nil {
+	var existingKey string
+	var existingClaimedAt *time.Time
+	err = tx.QueryRow(ctx, `SELECT id::text, cotizacion_id::text, idempotency_key, estado, COALESCE(preference_id,''), COALESCE(init_point,''), vence_en, actualizada_en, fingerprint,base_clp,commission_clp,iva_clp,buyer_commission_clp,buyer_iva_clp,buyer_fee_clp,total_charged_clp,marketplace_fee_clp,test_mode,checkout_method,COALESCE(provider_payment_id,''),payment_create_claimed_at FROM public.checkout_preferencia_comercial WHERE arrendatario_id=$1 AND cotizacion_id=$2 ORDER BY creada_en DESC LIMIT 1 FOR UPDATE`, renterID, quoteID).Scan(&op.ID, &op.QuoteID, &existingKey, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &oldFingerprint, &op.Amounts.BaseCLP, &op.Amounts.CommissionCLP, &op.Amounts.VATCLP, &op.Amounts.BuyerCommissionCLP, &op.Amounts.BuyerVATCLP, &op.Amounts.BuyerFeeCLP, &op.Amounts.TotalChargedCLP, &op.Amounts.MarketplaceFeeCLP, &op.TestMode, &op.CheckoutMethod, &op.ProviderPaymentID, &existingClaimedAt)
+	hasExistingOp := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	}
+	if hasExistingOp && existingKey == key {
 		if !equalBytes(oldFingerprint, fingerprint) || op.CheckoutMethod != checkoutMethod || op.TestMode != testMode {
 			return q, checkoutpro.Operation{}, false, checkoutpro.ErrIdempotencyConflict
 		}
@@ -69,8 +75,22 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 		}
 		return q, op, false, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	canRecycleExisting := false
+	if hasExistingOp {
+		switch {
+		case op.ProviderPaymentID != "":
+			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+		case op.Status == "approved" || op.Status == "reconciliation_required":
+			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+		case op.Status == "rejected" || op.Status == "cancelled":
+			canRecycleExisting = true
+		case op.Status == "pending" && op.CheckoutMethod == "checkout_pro" && checkoutMethod == "payments_api":
+			canRecycleExisting = true
+		case op.Status == "pending" && op.CheckoutMethod == "payments_api" && checkoutMethod == "checkout_pro" && existingClaimedAt == nil:
+			canRecycleExisting = true
+		default:
+			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+		}
 	}
 	if !q.ExpiresAt.After(now) {
 		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, checkoutpro.ErrQuoteExpired
@@ -89,13 +109,41 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 	if !q.ExpiresAt.After(now) {
 		return q, checkoutpro.Operation{}, false, checkoutpro.ErrQuoteExpired
 	}
-	var occupied bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.ocupacion WHERE espacio_id=$1 AND activo AND intervalo && tstzrange($2,$3,'[)'))`, q.SpaceID, q.StartAt, q.EndAt).Scan(&occupied)
-	if err != nil {
-		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	var quoteIntervals []rentalflow.QuoteInterval
+	ivRows, ivErr := tx.Query(ctx, `SELECT inicio, termino, unidades FROM public.cotizacion_arriendo_tramo WHERE cotizacion_id=$1 ORDER BY orden`, q.ID)
+	if ivErr != nil {
+		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, ivErr
 	}
-	if occupied {
-		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+	for ivRows.Next() {
+		var iv rentalflow.QuoteInterval
+		if scanErr := ivRows.Scan(&iv.StartAt, &iv.EndAt, &iv.Units); scanErr != nil {
+			ivRows.Close()
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, scanErr
+		}
+		quoteIntervals = append(quoteIntervals, iv)
+	}
+	if ivRows.Err() != nil {
+		ivRows.Close()
+		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, ivRows.Err()
+	}
+	ivRows.Close()
+	if len(quoteIntervals) == 0 {
+		quoteIntervals = []rentalflow.QuoteInterval{{StartAt: q.StartAt, EndAt: q.EndAt, Units: q.Units}}
+	}
+
+	for _, iv := range quoteIntervals {
+		var occupied bool
+		if canRecycleExisting {
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.ocupacion WHERE espacio_id=$1 AND activo AND COALESCE(reserva_arriendo_comercial_id::text,'')<>$4::text AND intervalo && tstzrange($2,$3,'[)'))`, q.SpaceID, iv.StartAt, iv.EndAt, op.ID).Scan(&occupied)
+		} else {
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.ocupacion WHERE espacio_id=$1 AND activo AND intervalo && tstzrange($2,$3,'[)'))`, q.SpaceID, iv.StartAt, iv.EndAt).Scan(&occupied)
+		}
+		if err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		if occupied {
+			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+		}
 	}
 	var rateCurrent bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio e JOIN public.tarifa_espacio t ON t.espacio_id=e.id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='activa' AND t.version=$3 AND t.modalidad=$4 AND t.precio_base_clp=$5 AND t.moneda=$6)`, q.SpaceID, q.HostID, q.RateVersion, q.RateUnit, q.UnitPriceCLP, q.Currency).Scan(&rateCurrent)
@@ -110,50 +158,76 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 	if err != nil {
 		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 	}
-	dateText := q.StartAt.In(zone).Format("2006-01-02")
 	listing := rentalflow.Listing{ID: q.SpaceID, OwnerID: q.HostID, State: "activa", Title: q.Title, RateUnit: q.RateUnit, UnitPriceCLP: q.UnitPriceCLP, Currency: q.Currency, RateVersion: q.RateVersion, TimeZone: q.TimeZone}
-	availableIntervals, err := (&Repository{db: tx, now: r.now, newID: r.newID}).PublicIntervals(ctx, listing, dateText, int(q.Units))
-	if err != nil {
-		return q, checkoutpro.Operation{}, false, err
-	}
-	available := false
-	for _, candidate := range availableIntervals {
-		if candidate.StartAt.Equal(q.StartAt) && candidate.EndAt.Equal(q.EndAt) {
-			available = true
-			break
+	if !canRecycleExisting {
+		for _, iv := range quoteIntervals {
+			dateText := iv.StartAt.In(zone).Format("2006-01-02")
+			availableIntervals, availErr := (&Repository{db: tx, now: r.now, newID: r.newID}).PublicIntervals(ctx, listing, dateText, int(iv.Units))
+			if availErr != nil {
+				return q, checkoutpro.Operation{}, false, availErr
+			}
+			available := false
+			for _, candidate := range availableIntervals {
+				if candidate.StartAt.Equal(iv.StartAt) && candidate.EndAt.Equal(iv.EndAt) {
+					available = true
+					break
+				}
+			}
+			if !available {
+				return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+			}
 		}
 	}
-	if !available {
-		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
-	}
-	var conflict bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c JOIN public.cotizacion_arriendo_comercial x ON x.id=c.cotizacion_id WHERE c.espacio_id=$1 AND c.estado IN ('pending','reconciliation_required') AND (c.estado='reconciliation_required' OR c.vence_en>$2) AND x.inicio < $4 AND $3 < x.termino)`, q.SpaceID, now, q.StartAt, q.EndAt).Scan(&conflict)
-	if err != nil {
-		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
-	}
-	if conflict {
-		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+	for _, iv := range quoteIntervals {
+		var conflict bool
+		if canRecycleExisting {
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c JOIN public.cotizacion_arriendo_comercial x ON x.id=c.cotizacion_id LEFT JOIN public.cotizacion_arriendo_tramo t ON t.cotizacion_id=x.id WHERE c.espacio_id=$1 AND c.id<>$5::uuid AND c.estado IN ('pending','reconciliation_required') AND (c.estado='reconciliation_required' OR c.vence_en>$2) AND COALESCE(t.inicio,x.inicio) < $4 AND $3 < COALESCE(t.termino,x.termino))`, q.SpaceID, now, iv.StartAt, iv.EndAt, op.ID).Scan(&conflict)
+		} else {
+			err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c JOIN public.cotizacion_arriendo_comercial x ON x.id=c.cotizacion_id LEFT JOIN public.cotizacion_arriendo_tramo t ON t.cotizacion_id=x.id WHERE c.espacio_id=$1 AND c.estado IN ('pending','reconciliation_required') AND (c.estado='reconciliation_required' OR c.vence_en>$2) AND COALESCE(t.inicio,x.inicio) < $4 AND $3 < COALESCE(t.termino,x.termino))`, q.SpaceID, now, iv.StartAt, iv.EndAt).Scan(&conflict)
+		}
+		if err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		if conflict {
+			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+		}
 	}
 	amounts, amountErr := checkoutpro.CalculateAmounts(q.SubtotalCLP)
 	if amountErr != nil {
 		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 	}
-	// Payments API local test operations currently validate the direct seller
-	// transfer without charging an EspaciGo marketplace fee. Persist the exact
-	// expected charge breakdown for webhook reconciliation. Existing operations
-	// and Checkout Pro continue to retain their original fee calculation.
-	if checkoutMethod == "payments_api" {
-		amounts = checkoutpro.Amounts{BaseCLP: q.SubtotalCLP}
+	if canRecycleExisting {
+		existingID := op.ID
+		if _, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET idempotency_key=$2,fingerprint=$3,estado='pending',preference_id=NULL,init_point=NULL,preference_claimed_at=NULL,payment_create_claimed_at=NULL,provider_payment_id=NULL,provider_payment_status=NULL,provider_payment_updated_at=NULL,payment_verified_at=NULL,reconciliation_reason=NULL,base_clp=$4,commission_clp=$5,iva_clp=$6,buyer_commission_clp=$7,buyer_iva_clp=$8,buyer_fee_clp=$9,total_charged_clp=$10,marketplace_fee_clp=$11,test_mode=$12,vence_en=$13,actualizada_en=$14,checkout_method=$15 WHERE id=$1`, existingID, key, fingerprint, amounts.BaseCLP, amounts.CommissionCLP, amounts.VATCLP, amounts.BuyerCommissionCLP, amounts.BuyerVATCLP, amounts.BuyerFeeCLP, amounts.TotalChargedCLP, amounts.MarketplaceFeeCLP, testMode, q.ExpiresAt, now, checkoutMethod); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='pendiente_de_pago',pago_vence_en=$2,actualizada_en=$3 WHERE operacion_checkout_id=$1`, existingID, q.ExpiresAt, now); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=true,desactivada_en=NULL,tipo='retencion_comercial',expira_en=$2 WHERE reserva_arriendo_comercial_id=$1`, existingID, q.ExpiresAt); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		op = checkoutpro.Operation{ID: existingID, QuoteID: q.ID, Status: "pending", CheckoutMethod: checkoutMethod, ExpiresAt: q.ExpiresAt, UpdatedAt: now, Amounts: amounts, TestMode: testMode}
+		if err = tx.Commit(ctx); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
+		return q, op, true, nil
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.checkout_preferencia_comercial(id,cotizacion_id,espacio_id,arrendatario_id,host_id,idempotency_key,fingerprint,estado,base_clp,commission_clp,iva_clp,marketplace_fee_clp,test_mode,vence_en,creada_en,actualizada_en,checkout_method) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,$11,$12,$13,$14,$14,$15)`, operationID, q.ID, q.SpaceID, renterID, q.HostID, key, fingerprint, amounts.BaseCLP, amounts.CommissionCLP, amounts.VATCLP, amounts.MarketplaceFeeCLP, testMode, q.ExpiresAt, now, checkoutMethod); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO public.checkout_preferencia_comercial(id,cotizacion_id,espacio_id,arrendatario_id,host_id,idempotency_key,fingerprint,estado,base_clp,commission_clp,iva_clp,buyer_commission_clp,buyer_iva_clp,buyer_fee_clp,total_charged_clp,marketplace_fee_clp,test_mode,vence_en,creada_en,actualizada_en,checkout_method) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19)`, operationID, q.ID, q.SpaceID, renterID, q.HostID, key, fingerprint, amounts.BaseCLP, amounts.CommissionCLP, amounts.VATCLP, amounts.BuyerCommissionCLP, amounts.BuyerVATCLP, amounts.BuyerFeeCLP, amounts.TotalChargedCLP, amounts.MarketplaceFeeCLP, testMode, q.ExpiresAt, now, checkoutMethod); err != nil {
 		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
 	}
 	occupancyID := r.newID()
 	if _, err = tx.Exec(ctx, `INSERT INTO public.reserva_arriendo_comercial(id,operacion_checkout_id,cotizacion_id,espacio_id,anfitrion_id,arrendatario_id,estado,tarifa_version,modalidad,precio_unitario_clp,unidades,subtotal_clp,moneda,inicio,termino,zona_horaria,ocupacion_id,pago_vence_en,creada_en,actualizada_en) VALUES($1,$1,$2,$3,$4,$5,'pendiente_de_pago',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)`, operationID, q.ID, q.SpaceID, q.HostID, renterID, q.RateVersion, q.RateUnit, q.UnitPriceCLP, q.Units, q.SubtotalCLP, q.Currency, q.StartAt, q.EndAt, q.TimeZone, occupancyID, q.ExpiresAt, now); err != nil {
 		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_arriendo_comercial_id,intervalo,tipo,activo,expira_en) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'retencion_comercial',true,$6)`, occupancyID, q.SpaceID, operationID, q.StartAt, q.EndAt, q.ExpiresAt); err != nil {
-		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	for idx, iv := range quoteIntervals {
+		rowOccupancyID := occupancyID
+		if idx > 0 {
+			rowOccupancyID = r.newID()
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_arriendo_comercial_id,intervalo,tipo,activo,expira_en) VALUES($1,$2,$3,tstzrange($4,$5,'[)'),'retencion_comercial',true,$6)`, rowOccupancyID, q.SpaceID, operationID, iv.StartAt, iv.EndAt, q.ExpiresAt); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
 	}
 	op = checkoutpro.Operation{ID: operationID, QuoteID: q.ID, Status: "pending", CheckoutMethod: checkoutMethod, ExpiresAt: q.ExpiresAt, UpdatedAt: now, Amounts: amounts, TestMode: testMode}
 	if err = tx.Commit(ctx); err != nil {
@@ -203,7 +277,7 @@ func (r *Repository) ByQuote(ctx context.Context, renterID, quoteID string) (che
 		return checkoutpro.Quote{}, nil, err
 	}
 	var op checkoutpro.Operation
-	err = r.db.QueryRow(ctx, `SELECT id::text,cotizacion_id::text,estado,COALESCE(preference_id,''),COALESCE(init_point,''),vence_en,actualizada_en,checkout_method,COALESCE(provider_payment_id,''),test_mode FROM public.checkout_preferencia_comercial WHERE cotizacion_id=$1 AND arrendatario_id=$2 ORDER BY creada_en DESC LIMIT 1`, quoteID, renterID).Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &op.CheckoutMethod, &op.ProviderPaymentID, &op.TestMode)
+	err = r.db.QueryRow(ctx, `SELECT id::text,cotizacion_id::text,estado,COALESCE(preference_id,''),COALESCE(init_point,''),vence_en,actualizada_en,checkout_method,COALESCE(provider_payment_id,''),test_mode,base_clp,commission_clp,iva_clp,buyer_commission_clp,buyer_iva_clp,buyer_fee_clp,total_charged_clp,marketplace_fee_clp FROM public.checkout_preferencia_comercial WHERE cotizacion_id=$1 AND arrendatario_id=$2 ORDER BY creada_en DESC LIMIT 1`, quoteID, renterID).Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &op.CheckoutMethod, &op.ProviderPaymentID, &op.TestMode, &op.Amounts.BaseCLP, &op.Amounts.CommissionCLP, &op.Amounts.VATCLP, &op.Amounts.BuyerCommissionCLP, &op.Amounts.BuyerVATCLP, &op.Amounts.BuyerFeeCLP, &op.Amounts.TotalChargedCLP, &op.Amounts.MarketplaceFeeCLP)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return q, nil, nil
 	}

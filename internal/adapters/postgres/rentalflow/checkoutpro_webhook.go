@@ -41,13 +41,16 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	var opID, hostID, renterID, spaceID, opState, checkoutMethod, providerPaymentID, providerStatus string
 	var expires, previousUpdated time.Time
 	var testMode bool
-	var base, fee int64
-	err = tx.QueryRow(ctx, `SELECT id::text,host_id::text,arrendatario_id::text,espacio_id::text,estado,checkout_method,vence_en,test_mode,base_clp,marketplace_fee_clp,COALESCE(provider_payment_id,''),COALESCE(provider_payment_status,''),COALESCE(provider_payment_updated_at,'0001-01-01 00:00:00+00'::timestamptz) FROM public.checkout_preferencia_comercial WHERE id=$1 FOR UPDATE`, p.OperationID).Scan(&opID, &hostID, &renterID, &spaceID, &opState, &checkoutMethod, &expires, &testMode, &base, &fee, &providerPaymentID, &providerStatus, &previousUpdated)
+	var base, totalCharged, fee int64
+	err = tx.QueryRow(ctx, `SELECT id::text,host_id::text,arrendatario_id::text,espacio_id::text,estado,checkout_method,vence_en,test_mode,base_clp,total_charged_clp,marketplace_fee_clp,COALESCE(provider_payment_id,''),COALESCE(provider_payment_status,''),COALESCE(provider_payment_updated_at,'0001-01-01 00:00:00+00'::timestamptz) FROM public.checkout_preferencia_comercial WHERE id=$1 FOR UPDATE`, p.OperationID).Scan(&opID, &hostID, &renterID, &spaceID, &opState, &checkoutMethod, &expires, &testMode, &base, &totalCharged, &fee, &providerPaymentID, &providerStatus, &previousUpdated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, checkoutpro.ErrNotFound
 	}
 	if err != nil {
 		return false, err
+	}
+	if totalCharged == 0 {
+		totalCharged = base
 	}
 	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_received operation_id=%s payment_id=%s amount_clp=%d status=%s application_fee_expected_set=%t application_fee_present=%t",
 		p.OperationID, p.ProviderPaymentID, p.TransactionAmountCLP, p.Status, fee > 0, p.ApplicationFeeCLP != nil)
@@ -78,7 +81,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	modeMatches := checkoutpro.PaymentModeMatches(testMode, p.LiveMode)
 	if (checkoutMethod != "checkout_pro" && checkoutMethod != "payments_api") ||
 		checkoutMethod == "payments_api" && !testMode ||
-		p.OperationID != opID || p.ProviderPaymentID == "" || p.TransactionAmountCLP != base || p.TransactionAmountCLP != quoteTotal || p.Currency != quoteCurrency || p.Currency != "CLP" || !checkoutpro.AllowedPaymentType(testMode, p.PaymentType) || !modeMatches {
+		p.OperationID != opID || p.ProviderPaymentID == "" || base != quoteTotal || p.TransactionAmountCLP != totalCharged || p.Currency != quoteCurrency || p.Currency != "CLP" || !checkoutpro.AllowedPaymentType(testMode, p.PaymentType) || !modeMatches {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, p.Status, p.PaymentUpdatedAt, "payment_facts_mismatch")
 	}
 	if providerPaymentID == p.ProviderPaymentID && p.PaymentUpdatedAt.Before(previousUpdated) {
@@ -91,7 +94,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "unsupported_provider_status")
 	}
-	if checkoutMethod == "payments_api" && status == "approved" {
+	if checkoutMethod == "payments_api" && status == "approved" && p.ApplicationFeeCLP != nil {
 		if !applicationFeeMatches(fee, p.ApplicationFeeCLP) {
 			log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=application_fee_mismatch application_fee_expected_set=%t application_fee_present=%t",
 				p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
@@ -100,7 +103,8 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	}
 	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=matched application_fee_expected_set=%t application_fee_present=%t",
 		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
-	if opState == "approved" || opState == "rejected" || opState == "cancelled" || opState == "expired" || opState == "reconciliation_required" {
+	recoverableExpiredApproval := (opState == "expired" || opState == "reconciliation_required") && status == "approved"
+	if !recoverableExpiredApproval && (opState == "approved" || opState == "rejected" || opState == "cancelled" || opState == "expired" || opState == "reconciliation_required") {
 		if opState == "approved" && status == "approved" {
 			if err = tx.Commit(ctx); err != nil {
 				return false, err
@@ -126,30 +130,56 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		return false, nil
 	}
 	if status == "approved" {
-		var reservationState string
+		var reservationState, occupancyID string
 		var occupancyActive bool
 		var occupancyExpiry *time.Time
-		err = tx.QueryRow(ctx, `SELECT r.estado,o.activo,o.expira_en FROM public.reserva_arriendo_comercial r JOIN public.ocupacion o ON o.id=r.ocupacion_id WHERE r.operacion_checkout_id=$1 FOR UPDATE OF r,o`, p.OperationID).Scan(&reservationState, &occupancyActive, &occupancyExpiry)
+		var startAt, endAt time.Time
+		err = tx.QueryRow(ctx, `SELECT r.estado,r.ocupacion_id::text,r.inicio,r.termino,o.activo,o.expira_en FROM public.reserva_arriendo_comercial r JOIN public.ocupacion o ON o.id=r.ocupacion_id WHERE r.operacion_checkout_id=$1 FOR UPDATE OF r,o`, p.OperationID).Scan(&reservationState, &occupancyID, &startAt, &endAt, &occupancyActive, &occupancyExpiry)
 		if err != nil {
 			return false, err
 		}
-		if !p.PaymentUpdatedAt.Before(expires) || reservationState != "pendiente_de_pago" || !occupancyActive || occupancyExpiry == nil || !occupancyExpiry.After(p.PaymentUpdatedAt) {
+		if reservationState == "pendiente_de_pago" && occupancyActive && occupancyExpiry != nil && !p.PaymentUpdatedAt.After(*occupancyExpiry) {
+			_, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET estado='approved',provider_payment_id=$2,provider_payment_status='approved',provider_payment_updated_at=$3,payment_verified_at=$4,actualizada_en=$4 WHERE id=$1 AND estado IN ('pending','expired')`, p.OperationID, p.ProviderPaymentID, p.PaymentUpdatedAt.UTC(), r.now().UTC())
+			if err != nil {
+				return false, err
+			}
+			_, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='pagada',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado='pendiente_de_pago'`, p.OperationID, r.now().UTC())
+			if err != nil {
+				return false, err
+			}
+			tag, updateErr := tx.Exec(ctx, `UPDATE public.ocupacion SET tipo='reserva_comercial',expira_en=NULL WHERE reserva_arriendo_comercial_id=$1 AND activo AND tipo='retencion_comercial'`, p.OperationID)
+			if updateErr != nil {
+				return false, updateErr
+			}
+			if tag.RowsAffected() < 1 {
+				return false, checkoutpro.ErrConflict
+			}
+		} else if reservationState == "pendiente_de_pago" || reservationState == "vencida_pago" || reservationState == "reconciliation_required" {
+			var overlapping bool
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(
+				SELECT 1 FROM public.ocupacion o
+				JOIN public.reserva_arriendo_comercial r ON r.operacion_checkout_id=$1
+				JOIN public.cotizacion_arriendo_tramo t ON t.cotizacion_id=r.cotizacion_id
+				WHERE o.espacio_id=$2 AND o.activo
+				  AND COALESCE(o.reserva_arriendo_comercial_id::text,'') <> $1::text
+				  AND o.intervalo && tstzrange(t.inicio,t.termino,'[)')
+			)`, p.OperationID, spaceID).Scan(&overlapping); err != nil {
+				return false, err
+			}
+			if overlapping {
+				return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "payment_after_hold_expiry")
+			}
+			if _, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET estado='approved',provider_payment_id=$2,provider_payment_status='approved',provider_payment_updated_at=$3,payment_verified_at=$4,reconciliation_reason=NULL,actualizada_en=$4 WHERE id=$1 AND estado IN ('pending','expired','reconciliation_required')`, p.OperationID, p.ProviderPaymentID, p.PaymentUpdatedAt.UTC(), r.now().UTC()); err != nil {
+				return false, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='pagada',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado IN ('pendiente_de_pago','vencida_pago','reconciliation_required')`, p.OperationID, r.now().UTC()); err != nil {
+				return false, err
+			}
+			if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=true,desactivada_en=NULL,tipo='reserva_comercial',expira_en=NULL WHERE reserva_arriendo_comercial_id=$1::uuid`, p.OperationID); err != nil {
+				return false, err
+			}
+		} else {
 			return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "payment_after_hold_expiry")
-		}
-		_, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET estado='approved',provider_payment_id=$2,provider_payment_status='approved',provider_payment_updated_at=$3,payment_verified_at=$4,actualizada_en=$4 WHERE id=$1 AND estado='pending'`, p.OperationID, p.ProviderPaymentID, p.PaymentUpdatedAt.UTC(), r.now().UTC())
-		if err != nil {
-			return false, err
-		}
-		_, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='pagada',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado='pendiente_de_pago'`, p.OperationID, r.now().UTC())
-		if err != nil {
-			return false, err
-		}
-		tag, updateErr := tx.Exec(ctx, `UPDATE public.ocupacion SET tipo='reserva_comercial',expira_en=NULL WHERE reserva_arriendo_comercial_id=$1 AND activo AND tipo='retencion_comercial'`, p.OperationID)
-		if updateErr != nil {
-			return false, updateErr
-		}
-		if tag.RowsAffected() != 1 {
-			return false, checkoutpro.ErrConflict
 		}
 		if err = enqueueCheckoutPaymentNotices(ctx, tx, p.OperationID, "approved", r.now().UTC()); err != nil {
 			return false, err
@@ -190,6 +220,65 @@ func applicationFeeMatches(expected int64, observed *int64) bool {
 		return observed == nil || *observed == 0
 	}
 	return observed != nil && *observed == expected
+}
+
+// RecordPaymentCreateFailure persists the outcome of a failed synchronous
+// Payments API creation attempt. Deterministic 4xx rejections release the
+// reservation hold immediately so the interval does not stay locked for 15
+// minutes, while ambiguous failures move the operation to reconciliation_required.
+func validReconciliationReason(reason string) string {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	if reason == "" {
+		return "provider_error"
+	}
+	var out strings.Builder
+	for _, r := range reason {
+		if r >= 'a' && r <= 'z' || r == '_' {
+			out.WriteRune(r)
+			if out.Len() == 64 {
+				break
+			}
+		}
+	}
+	res := strings.Trim(out.String(), "_")
+	if res == "" {
+		return "provider_error"
+	}
+	return res
+}
+
+func (r *Repository) RecordPaymentCreateFailure(ctx context.Context, operationID string, deterministic bool, reason string, now time.Time) error {
+	if r == nil || ctx == nil || r.beginner == nil || !validUUIDText(operationID) {
+		return checkoutpro.ErrInvalid
+	}
+	reason = validReconciliationReason(reason)
+	tx, err := r.beginner.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	ts := now.UTC()
+	if !deterministic {
+		if _, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET estado='reconciliation_required',reconciliation_reason=$2,actualizada_en=$3 WHERE id=$1 AND checkout_method='payments_api' AND estado='pending'`, operationID, reason, ts); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	}
+
+	tag, err := tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET estado='rejected',provider_payment_status='rejected',reconciliation_reason=$2,actualizada_en=$3 WHERE id=$1 AND checkout_method='payments_api' AND estado='pending' AND provider_payment_id IS NULL`, operationID, reason, ts)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 1 {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='cancelada_por_pago',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado='pendiente_de_pago'`, operationID, ts); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND activo`, operationID, ts); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *Repository) markCheckoutReconciliation(ctx context.Context, tx pgx.Tx, id, paymentID, status string, updatedAt time.Time, reason string) (bool, error) {
