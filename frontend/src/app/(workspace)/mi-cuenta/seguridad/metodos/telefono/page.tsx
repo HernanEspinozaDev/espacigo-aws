@@ -38,7 +38,9 @@ export default function TelefonoMetodoPage() {
   const [phoneInput, setPhoneInput] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [isChanging, setIsChanging] = useState(false);
-  const [stepOverride, setStepOverride] = useState<"phone" | "code" | null>(null);
+  const [stepOverride, setStepOverride] = useState<"phone" | "code" | null>(
+    null,
+  );
 
   const handleSendCode = async (e: FormEvent) => {
     e.preventDefault();
@@ -72,8 +74,7 @@ export default function TelefonoMetodoPage() {
     stepOverride === "code" ||
     (status?.pending_verification && stepOverride !== "phone");
 
-  const isVerifiedView =
-    status?.verified && !isChanging && !isPendingStep;
+  const isVerifiedView = status?.verified && !isChanging && !isPendingStep;
 
   return (
     <div className="space-y-8">
@@ -112,7 +113,8 @@ export default function TelefonoMetodoPage() {
           Teléfono y SMS
         </h1>
         <p className="text-sm text-muted-foreground">
-          Gestiona tu número celular para recibir códigos de seguridad por mensaje de texto.
+          Gestiona tu número celular para recibir códigos de seguridad por
+          mensaje de texto.
         </p>
       </div>
 
@@ -210,7 +212,8 @@ export default function TelefonoMetodoPage() {
                   Seguridad y cifrado A.8.11
                 </strong>
                 <span>
-                  Tu número de teléfono está enmascarado y cifrado en PostgreSQL.
+                  Tu número de teléfono está enmascarado y cifrado en
+                  PostgreSQL.
                 </span>
               </div>
             </div>
@@ -221,7 +224,8 @@ export default function TelefonoMetodoPage() {
                   Uso en verificación
                 </strong>
                 <span>
-                  Recibirás códigos OTP temporales de 6 dígitos para validar operaciones y accesos sensibles.
+                  Recibirás códigos OTP temporales de 6 dígitos para validar
+                  operaciones y accesos sensibles.
                 </span>
               </div>
             </div>
@@ -235,15 +239,21 @@ export default function TelefonoMetodoPage() {
             <form onSubmit={handleSendCode} className="space-y-6 max-w-xl">
               <div className="space-y-1">
                 <h2 className="text-lg font-bold text-foreground">
-                  {isChanging ? "Cambiar número de teléfono" : "Registrar número de teléfono"}
+                  {isChanging
+                    ? "Cambiar número de teléfono"
+                    : "Registrar número de teléfono"}
                 </h2>
                 <p className="text-xs sm:text-sm text-muted-foreground">
-                  Ingresa tu número de teléfono móvil chileno. Te enviaremos un código de seguridad por mensaje de texto.
+                  Ingresa tu número de teléfono móvil chileno. Te enviaremos un
+                  código de seguridad por mensaje de texto.
                 </p>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="phone-number" className="text-xs sm:text-sm font-semibold text-foreground">
+                <Label
+                  htmlFor="phone-number"
+                  className="text-xs sm:text-sm font-semibold text-foreground"
+                >
                   Número de teléfono celular
                 </Label>
                 <Input
@@ -323,7 +333,9 @@ export default function TelefonoMetodoPage() {
                   <span>Mensaje en entorno local (Mailpit)</span>
                 </div>
                 <p className="text-muted-foreground leading-relaxed">
-                  En este entorno de desarrollo local, el SMS simulado se entrega en tu bandeja Mailpit. Abre tu bandeja para consultar el código OTP:
+                  En este entorno de desarrollo local, el SMS simulado se
+                  entrega en tu bandeja Mailpit. Abre tu bandeja para consultar
+                  el código OTP:
                 </p>
                 <div className="pt-1">
                   <a
@@ -339,7 +351,10 @@ export default function TelefonoMetodoPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="verification-code" className="text-xs sm:text-sm font-semibold text-foreground">
+                <Label
+                  htmlFor="verification-code"
+                  className="text-xs sm:text-sm font-semibold text-foreground"
+                >
                   Código de 6 dígitos
                 </Label>
                 <Input
@@ -350,7 +365,9 @@ export default function TelefonoMetodoPage() {
                   maxLength={6}
                   placeholder="123456"
                   value={codeInput}
-                  onChange={(e) => setCodeInput(e.target.value.replace(/\D/g, ""))}
+                  onChange={(e) =>
+                    setCodeInput(e.target.value.replace(/\D/g, ""))
+                  }
                   className="font-mono text-center text-lg tracking-widest max-w-xs"
                   disabled={isVerifying}
                   autoFocus
@@ -383,7 +400,9 @@ export default function TelefonoMetodoPage() {
                   disabled={!canResend || isSending}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border text-foreground hover:bg-muted disabled:opacity-50 font-medium text-xs sm:text-sm transition-colors w-full sm:w-auto"
                 >
-                  <RefreshCw className={`size-3.5 ${isSending ? "animate-spin" : ""}`} />
+                  <RefreshCw
+                    className={`size-3.5 ${isSending ? "animate-spin" : ""}`}
+                  />
                   {canResend
                     ? "Reenviar código"
                     : `Reenviar código (${cooldownSeconds}s)`}

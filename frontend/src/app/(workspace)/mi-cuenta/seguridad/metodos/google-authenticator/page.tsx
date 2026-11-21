@@ -26,7 +26,12 @@ import { Label } from "@/components/ui/label";
 import { useTOTP } from "@/features/account/ui/use-totp";
 
 function formatKeyBlocks(key: string): string {
-  return key.replace(/\s+/g, "").match(/.{1,4}/g)?.join(" ") || key;
+  return (
+    key
+      .replace(/\s+/g, "")
+      .match(/.{1,4}/g)
+      ?.join(" ") || key
+  );
 }
 
 function formatFullDate(isoDate?: string | null): string {
@@ -285,9 +290,9 @@ export default function GoogleAuthenticatorPage() {
                 Atención: estos códigos solo se mostrarán esta vez.
               </p>
               <p className="text-amber-900/80 dark:text-amber-300/80">
-                Por motivos de seguridad, EspaciGo almacena únicamente un resumen
-                criptográfico no reversible. Cópialos o descárgalos ahora mismo
-                en un lugar seguro.
+                Por motivos de seguridad, EspaciGo almacena únicamente un
+                resumen criptográfico no reversible. Cópialos o descárgalos
+                ahora mismo en un lugar seguro.
               </p>
             </div>
           </div>
@@ -549,8 +554,8 @@ export default function GoogleAuthenticatorPage() {
                     <span>Estándar abierto</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Compatible con Google Authenticator, Microsoft Authenticator,
-                    Authy o 1Password.
+                    Compatible con Google Authenticator, Microsoft
+                    Authenticator, Authy o 1Password.
                   </p>
                 </div>
               </div>

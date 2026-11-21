@@ -57,10 +57,7 @@ export function useLocationPermission(): UseLocationPermissionReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
 
@@ -91,10 +88,7 @@ export function useLocationPermission(): UseLocationPermissionReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           handleUnauthorized().catch(() => {});
         }
         setError(
@@ -128,10 +122,7 @@ export function useLocationPermission(): UseLocationPermissionReturn {
         );
         return true;
       } catch (err) {
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
         setError(

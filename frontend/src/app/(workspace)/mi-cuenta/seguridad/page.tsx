@@ -185,16 +185,17 @@ export default function SeguridadPage() {
               </h3>
             </div>
             <p className="text-sm text-muted-foreground">
-              Si detectaste actividad sospechosa, inicios de sesión no autorizados o
-              vulnerabilidades, nuestro equipo de ciberseguridad está disponible
-              24/7.
+              Si detectaste actividad sospechosa, inicios de sesión no
+              autorizados o vulnerabilidades, nuestro equipo de ciberseguridad
+              está disponible 24/7.
             </p>
             <div className="bg-muted/50 rounded-xl p-3 text-xs text-foreground space-y-1">
               <p>
                 <strong>Canal directo:</strong> seguridad@espacigo.cl
               </p>
               <p>
-                <strong>Tiempo estimado de respuesta:</strong> menos de 15 minutos.
+                <strong>Tiempo estimado de respuesta:</strong> menos de 15
+                minutos.
               </p>
             </div>
             <div className="flex justify-end gap-2 pt-2">
@@ -225,10 +226,21 @@ export default function SeguridadPage() {
               </h3>
             </div>
             <ul className="text-xs sm:text-sm text-muted-foreground space-y-2 list-disc list-inside">
-              <li>Nunca compartas tus contraseñas ni códigos de verificación por WhatsApp o teléfono.</li>
-              <li>EspaciGo nunca te pedirá contraseñas por correo ni enlaces externos.</li>
-              <li>Utiliza contraseñas robustas con letras, números y símbolos.</li>
-              <li>Revisa periódicamente tus dispositivos vinculados y cierra sesiones inactivas.</li>
+              <li>
+                Nunca compartas tus contraseñas ni códigos de verificación por
+                WhatsApp o teléfono.
+              </li>
+              <li>
+                EspaciGo nunca te pedirá contraseñas por correo ni enlaces
+                externos.
+              </li>
+              <li>
+                Utiliza contraseñas robustas con letras, números y símbolos.
+              </li>
+              <li>
+                Revisa periódicamente tus dispositivos vinculados y cierra
+                sesiones inactivas.
+              </li>
             </ul>
             <div className="flex justify-end gap-2 pt-2">
               <button

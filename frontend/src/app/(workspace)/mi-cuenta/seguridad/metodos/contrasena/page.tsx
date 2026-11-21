@@ -120,7 +120,8 @@ export default function ContrasenaMetodoPage() {
           </h3>
           {!isEditing && (
             <span className="text-xs text-muted-foreground">
-              Haz clic en &ldquo;Modificar&rdquo; arriba o utiliza los campos a continuación.
+              Haz clic en &ldquo;Modificar&rdquo; arriba o utiliza los campos a
+              continuación.
             </span>
           )}
         </div>

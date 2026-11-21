@@ -50,10 +50,7 @@ describe("QR Verification API Client and Domain", () => {
       path.join(root, "src/features/auth/domain/return-target.ts"),
       "utf8",
     );
-    assert.match(
-      source,
-      /"\/mi-cuenta\/seguridad\/metodos\/codigo-qr"/,
-    );
+    assert.match(source, /"\/mi-cuenta\/seguridad\/metodos\/codigo-qr"/);
   });
 
   describe("getAccountQRStatus", () => {
@@ -218,7 +215,9 @@ describe("QR Verification API Client and Domain", () => {
     it("maps ticket_expired error (422) properly", async () => {
       globalThis.fetch = async () =>
         jsonResponse(
-          { error: { code: "ticket_expired", message: "El ticket ha expirado" } },
+          {
+            error: { code: "ticket_expired", message: "El ticket ha expirado" },
+          },
           422,
         );
 
@@ -235,10 +234,7 @@ describe("QR Verification API Client and Domain", () => {
 
     it("maps ticket_already_resolved error (409) properly", async () => {
       globalThis.fetch = async () =>
-        jsonResponse(
-          { error: { code: "ticket_already_resolved" } },
-          409,
-        );
+        jsonResponse({ error: { code: "ticket_already_resolved" } }, 409);
 
       await assert.rejects(
         async () => qrApi.approveAccountQRTicket({ token: "used-token" }),

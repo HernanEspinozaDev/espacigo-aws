@@ -622,8 +622,8 @@ export function AdminDisputesView() {
                         {notice.event_type}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        Destinatario: {maskEmail(notice.recipient_email)} • Estado
-                        terminal: {notice.terminal_status}
+                        Destinatario: {maskEmail(notice.recipient_email)} •
+                        Estado terminal: {notice.terminal_status}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

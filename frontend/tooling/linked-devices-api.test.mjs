@@ -239,10 +239,7 @@ describe("Linked Devices API Client and Domain", () => {
         (err) => {
           assert(err instanceof devicesApi.LinkedDevicesApiError);
           assert.equal(err.status, 500);
-          assert.match(
-            err.message,
-            /Servicio temporalmente no disponible/,
-          );
+          assert.match(err.message, /Servicio temporalmente no disponible/);
           return true;
         },
       );

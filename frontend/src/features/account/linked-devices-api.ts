@@ -34,7 +34,10 @@ export class LinkedDevicesApiError extends Error {
   }
 }
 
-function parseErrorMessage(status: number, data: unknown): LinkedDevicesApiError {
+function parseErrorMessage(
+  status: number,
+  data: unknown,
+): LinkedDevicesApiError {
   let code = "unknown_error";
   let backendMessage = "";
 
@@ -57,16 +60,19 @@ function parseErrorMessage(status: number, data: unknown): LinkedDevicesApiError
     }
   }
 
-  let userMessage = "Ocurrió un error al gestionar los dispositivos vinculados.";
+  let userMessage =
+    "Ocurrió un error al gestionar los dispositivos vinculados.";
 
   switch (code) {
     case "unauthenticated":
     case "unauthorized":
-      userMessage = "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
+      userMessage =
+        "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
       break;
     case "device_not_found":
     case "not_found":
-      userMessage = "El dispositivo o sesión que intentas revocar no fue encontrado o ya expiró.";
+      userMessage =
+        "El dispositivo o sesión que intentas revocar no fue encontrado o ya expiró.";
       break;
     case "invalid_device":
     case "invalid_session_id":
@@ -75,15 +81,18 @@ function parseErrorMessage(status: number, data: unknown): LinkedDevicesApiError
       break;
     default:
       if (status === 401) {
-        userMessage = "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
+        userMessage =
+          "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
       } else if (status === 404) {
         userMessage = "El dispositivo o sesión no fue encontrado.";
       } else if (status === 400) {
-        userMessage = backendMessage && backendMessage.length <= 100
-          ? backendMessage
-          : "Solicitud inválida al gestionar dispositivos.";
+        userMessage =
+          backendMessage && backendMessage.length <= 100
+            ? backendMessage
+            : "Solicitud inválida al gestionar dispositivos.";
       } else if (status >= 500) {
-        userMessage = "Servicio temporalmente no disponible. Inténtalo más tarde.";
+        userMessage =
+          "Servicio temporalmente no disponible. Inténtalo más tarde.";
       }
       break;
   }
@@ -160,15 +169,18 @@ export async function revokeLinkedDevice(
 export async function revokeOtherLinkedDevices(
   signal?: AbortSignal,
 ): Promise<RevokeOtherLinkedDevicesResult> {
-  const res = await fetch("/api/backend/account/security/devices/revoke-others", {
-    method: "POST",
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: {
-      Accept: "application/json",
+  const res = await fetch(
+    "/api/backend/account/security/devices/revoke-others",
+    {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+      },
+      signal,
     },
-    signal,
-  });
+  );
 
   if (!res.ok) {
     let body: unknown = null;

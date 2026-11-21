@@ -25,9 +25,7 @@ export function maskRUT(rut: string): string {
     if (characters.length === 8) {
       const suffix = characters.slice(4);
       if (
-        suffix.every(
-          (c) => (c >= "0" && c <= "9") || c === "K" || c === "k",
-        )
+        suffix.every((c) => (c >= "0" && c <= "9") || c === "K" || c === "k")
       ) {
         return `••••${suffix.join("").toUpperCase()}`;
       }

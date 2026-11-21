@@ -86,7 +86,8 @@ describe("Phone verification client and return-target", () => {
         {
           error: {
             code: "cooldown_active",
-            message: "Debes esperar 60 segundos antes de solicitar un nuevo código.",
+            message:
+              "Debes esperar 60 segundos antes de solicitar un nuevo código.",
           },
         },
         429,

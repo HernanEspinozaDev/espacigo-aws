@@ -495,8 +495,8 @@ export default function CodigoQRPage() {
                   </h2>
                   <p className="text-sm text-muted-foreground">
                     Genera un código QR temporal en tu pantalla para escanearlo
-                    con la cámara de tu teléfono y registrarlo como tu dispositivo
-                    móvil de confianza.
+                    con la cámara de tu teléfono y registrarlo como tu
+                    dispositivo móvil de confianza.
                   </p>
                 </div>
               </div>
@@ -531,7 +531,8 @@ export default function CodigoQRPage() {
                     <span>Sin contraseñas</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Autoriza accesos futuros con un solo escaneo desde tu celular.
+                    Autoriza accesos futuros con un solo escaneo desde tu
+                    celular.
                   </p>
                 </div>
               </div>
@@ -694,9 +695,7 @@ export default function CodigoQRPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          handleCopyToken(activeTicket.qr_payload)
-                        }
+                        onClick={() => handleCopyToken(activeTicket.qr_payload)}
                         className="shrink-0 text-xs flex items-center gap-1.5"
                       >
                         {copiedToken ? (

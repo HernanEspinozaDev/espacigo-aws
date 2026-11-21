@@ -36,7 +36,9 @@ export function usePasskeys(): UsePasskeysReturn {
   const [passkeys, setPasskeys] = useState<AccountPasskey[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
-  const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
+  const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -131,7 +133,8 @@ export function usePasskeys(): UsePasskeysReturn {
       try {
         const options = await beginAccountPasskeyRegistration();
         const verifyInput = await createWebAuthnCredential(options, label);
-        const newPasskey = await completeAccountPasskeyRegistration(verifyInput);
+        const newPasskey =
+          await completeAccountPasskeyRegistration(verifyInput);
 
         setPasskeys((prev) => [
           newPasskey,

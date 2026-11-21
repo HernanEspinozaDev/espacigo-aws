@@ -33,7 +33,9 @@ test.after(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-const { maskEmail, maskRUT, maskPhone } = await import(pathToFileURL(modulePath).href);
+const { maskEmail, maskRUT, maskPhone } = await import(
+  pathToFileURL(modulePath).href
+);
 
 test("maskEmail masks valid emails preserving first and last characters", () => {
   assert.equal(maskEmail("ana@ejemplo.cl"), "a••••l");

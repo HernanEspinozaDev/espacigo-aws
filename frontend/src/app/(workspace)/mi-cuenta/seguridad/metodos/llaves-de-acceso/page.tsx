@@ -120,9 +120,7 @@ export default function LlavesDeAccesoPage() {
           Métodos de verificación
         </Link>
         <ChevronRight className="size-3.5" />
-        <span className="text-foreground font-semibold">
-          Llaves de acceso
-        </span>
+        <span className="text-foreground font-semibold">Llaves de acceso</span>
       </nav>
 
       {/* Header */}
@@ -200,10 +198,10 @@ export default function LlavesDeAccesoPage() {
             </h4>
             <p className="text-xs sm:text-sm text-muted-foreground">
               Tu navegador o dispositivo actual no es compatible con el estándar
-              WebAuthn / Passkeys. Para registrar y utilizar llaves de acceso, te
-              recomendamos acceder desde un navegador moderno (Chrome, Safari,
-              Edge o Firefox) con autenticación biométrica o llave de seguridad
-              habilitada.
+              WebAuthn / Passkeys. Para registrar y utilizar llaves de acceso,
+              te recomendamos acceder desde un navegador moderno (Chrome,
+              Safari, Edge o Firefox) con autenticación biométrica o llave de
+              seguridad habilitada.
             </p>
           </div>
         </div>
@@ -278,7 +276,8 @@ export default function LlavesDeAccesoPage() {
                 Llaves registradas
               </h2>
               <p className="text-xs sm:text-sm text-muted-foreground">
-                Dispositivos autorizados para iniciar sesión con biometría o PIN.
+                Dispositivos autorizados para iniciar sesión con biometría o
+                PIN.
               </p>
             </div>
           </div>
@@ -300,8 +299,8 @@ export default function LlavesDeAccesoPage() {
               Aún no tienes llaves de acceso configuradas
             </h3>
             <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-              Agrega una llave arriba para acceder a EspaciGo con mayor rapidez y
-              seguridad sin ingresar contraseñas.
+              Agrega una llave arriba para acceder a EspaciGo con mayor rapidez
+              y seguridad sin ingresar contraseñas.
             </p>
           </div>
         ) : (
@@ -331,7 +330,9 @@ export default function LlavesDeAccesoPage() {
                       </div>
 
                       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span>Creada: {formatFullDate(passkey.created_at)}</span>
+                        <span>
+                          Creada: {formatFullDate(passkey.created_at)}
+                        </span>
                         <span>•</span>
                         <span>
                           {passkey.last_used_at

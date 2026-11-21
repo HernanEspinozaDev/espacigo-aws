@@ -128,7 +128,9 @@ export default function MiCuentaPage() {
                 {displayName}
               </p>
               <p>
-                <strong className="text-foreground font-medium">Teléfono:</strong>{" "}
+                <strong className="text-foreground font-medium">
+                  Teléfono:
+                </strong>{" "}
                 <span className="font-mono">{maskedUserPhone}</span>
               </p>
               <p>
@@ -326,7 +328,9 @@ export default function MiCuentaPage() {
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">
-              <p>Revisa tu documentación respaldada en almacenamiento seguro.</p>
+              <p>
+                Revisa tu documentación respaldada en almacenamiento seguro.
+              </p>
             </div>
           </div>
           <div className="pt-4 mt-2">

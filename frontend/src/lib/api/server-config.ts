@@ -119,7 +119,8 @@ export function validateServerConfig(): ServerConfigValidation {
       valid: false,
       environment: fallbackEnv,
       apiBackendBaseUrl: null,
-      error: err instanceof Error ? err.message : "Invalid server configuration",
+      error:
+        err instanceof Error ? err.message : "Invalid server configuration",
     };
   }
 }

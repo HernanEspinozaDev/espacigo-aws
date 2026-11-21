@@ -19,8 +19,9 @@ export interface UseSecurityMethodsSummaryReturn {
 export function useSecurityMethodsSummary(): UseSecurityMethodsSummaryReturn {
   const { checkSession } = useAuth();
 
-  const [summary, setSummary] =
-    useState<AccountSecurityMethodsResponse | null>(null);
+  const [summary, setSummary] = useState<AccountSecurityMethodsResponse | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,10 +46,7 @@ export function useSecurityMethodsSummary(): UseSecurityMethodsSummaryReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
 
@@ -79,10 +77,7 @@ export function useSecurityMethodsSummary(): UseSecurityMethodsSummaryReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           handleUnauthorized().catch(() => {});
         }
         setError(

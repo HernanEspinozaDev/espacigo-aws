@@ -59,10 +59,7 @@ export function useTrustedContacts(): UseTrustedContactsReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
 
@@ -93,10 +90,7 @@ export function useTrustedContacts(): UseTrustedContactsReturn {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
 
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           handleUnauthorized().catch(() => {});
         }
         setError(
@@ -123,10 +117,7 @@ export function useTrustedContacts(): UseTrustedContactsReturn {
         setNotification("Contacto de confianza agregado exitosamente.");
         return true;
       } catch (err) {
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
         setError(
@@ -152,10 +143,7 @@ export function useTrustedContacts(): UseTrustedContactsReturn {
         setNotification("El contacto de confianza fue retirado.");
         return true;
       } catch (err) {
-        if (
-          err instanceof SecurityLocationTrustedError &&
-          err.status === 401
-        ) {
+        if (err instanceof SecurityLocationTrustedError && err.status === 401) {
           await handleUnauthorized();
         }
         setError(
