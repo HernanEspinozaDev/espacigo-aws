@@ -238,10 +238,31 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 		return nil, err
 	}
+	startCommercialExpirySweeper(ctx, commercialQuoteRepo)
 	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
 		return nil, err
 	}
 	return authService, nil
+}
+
+func startCommercialExpirySweeper(ctx context.Context, repo *rentalflowpg.Repository) {
+	if repo == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, _ = repo.PurgeExpiredCommercialQuotes(sweepCtx, time.Now(), 100)
+				cancel()
+			}
+		}
+	}()
 }
 
 func mountMarketplaceOAuth(mux *http.ServeMux, pool *pgxpool.Pool, auth marketplaceoauth.Authorizer, cfg config, getenv func(string) string) (*marketplaceoauth.Service, error) {

@@ -16,6 +16,7 @@ import {
 import { ReservationPassesModal } from "./reservation-passes-modal";
 import { HostReceptionModal } from "./host-reception-modal";
 import type { BookingReservation, BookingState } from "../domain/types";
+import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 import { Button } from "@/components/workspace/ui/button";
 import {
   BarChart3,
@@ -143,14 +144,14 @@ export function getBookingStateConfig(state: BookingState): {
     case "cancelada_por_firma":
     case "cancelada_por_pago":
       return {
-        label: "Pago Cancelado o Rechazado",
+        label: "Reserva cancelada por no pago",
         group: "cancelada",
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
       };
     case "vencida_pago":
       return {
-        label: "Plazo de Pago Vencido",
+        label: "Reserva cancelada por tiempo (no pagada)",
         group: "cancelada",
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
@@ -657,6 +658,12 @@ export function ReservationsList({
                             Operación MP #{reservation.provider_payment_id}
                           </span>
                         )}
+                        {reservation.state === "pendiente_de_pago" &&
+                          reservation.pay_expires_at && (
+                            <ReservationCountdown
+                              expiresAt={reservation.pay_expires_at}
+                            />
+                          )}
                       </div>
 
                       <div className="flex flex-wrap items-baseline gap-2">

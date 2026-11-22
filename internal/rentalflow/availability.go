@@ -287,7 +287,7 @@ func validateListing(listing Listing) (*time.Location, error) {
 	if !validUUID(listing.ID) || !validUUID(listing.OwnerID) || listing.State != "activa" ||
 		!utf8.ValidString(listing.Title) || listing.Title == "" || listing.Title != strings.TrimSpace(listing.Title) || utf8.RuneCountInString(listing.Title) > 70 ||
 		(listing.RateUnit != "hora" && listing.RateUnit != "dia" && listing.RateUnit != "mes") ||
-		listing.UnitPriceCLP <= 5000 || listing.Currency != "CLP" || listing.RateVersion < 1 ||
+		listing.UnitPriceCLP < 1000 || listing.Currency != "CLP" || listing.RateVersion < 1 ||
 		listing.TimeZone == "" || listing.TimeZone == "Local" {
 		return nil, ErrUnavailable
 	}

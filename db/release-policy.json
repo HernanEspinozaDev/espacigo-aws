@@ -96,6 +96,10 @@
     "V000121__space_month_rules_and_installments.sql": {
       "checksum": "a677ed8fa648dda1783b0784628c10aa5d7d7e2bf4bff41581e7dd415f5af7a8",
       "strategy": "expand"
+    },
+    "V000122__lower_minimum_price_1000_clp.sql": {
+      "checksum": "6ebabece4e399baf1a13f995839cfe7df3c662480994f9d6760489204467630f",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

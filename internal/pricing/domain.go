@@ -76,7 +76,7 @@ type Repository interface {
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func validateRate(in RateInput) error {
-	if (in.Unit != "hora" && in.Unit != "dia" && in.Unit != "mes") || in.Amount <= 5000 {
+	if (in.Unit != "hora" && in.Unit != "dia" && in.Unit != "mes") || in.Amount < 1000 {
 		return ErrInvalid
 	}
 	return nil

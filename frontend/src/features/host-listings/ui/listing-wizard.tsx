@@ -254,9 +254,9 @@ export function ListingWizard() {
           });
       }
     } else if (step === 3) {
-      if (basePriceCLP <= 5000 || !Number.isSafeInteger(basePriceCLP))
+      if (basePriceCLP < 1000 || !Number.isSafeInteger(basePriceCLP))
         errors.price =
-          "El precio base debe ser un monto entero mayor a 5000 CLP.";
+          "El precio base debe ser un monto entero de al menos 1.000 CLP.";
       if (
         Array.from(
           `Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`,
@@ -1265,7 +1265,7 @@ export function ListingWizard() {
                   <Input
                     id="wizard-price"
                     type="number"
-                    min={5001}
+                    min={1000}
                     step={1}
                     value={basePriceCLP}
                     onChange={(e) => {

@@ -11,6 +11,7 @@ import { ReservationInvoiceModal } from "./reservation-invoice-modal";
 import { ReservationPassesModal } from "./reservation-passes-modal";
 import { HostReceptionModal } from "./host-reception-modal";
 import { ReservationScheduleBreakdown } from "./reservation-schedule-breakdown";
+import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 import { Button } from "@/components/workspace/ui/button";
 import {
   CreditCard,
@@ -494,10 +495,14 @@ export function ReservationLifecyclePanel({
                 </div>
               )}
             </div>
-            {currentReservation.state === "pendiente_de_pago" &&
-              !isHost &&
-              currentReservation.quote_id && (
-                <div className="flex flex-wrap gap-3">
+            {currentReservation.state === "pendiente_de_pago" && (
+              <div className="flex flex-wrap items-center gap-3">
+                {currentReservation.pay_expires_at && (
+                  <ReservationCountdown
+                    expiresAt={currentReservation.pay_expires_at}
+                  />
+                )}
+                {!isHost && currentReservation.quote_id && (
                   <Button
                     asChild
                     className="bg-sky-600 text-white hover:bg-sky-700"
@@ -513,8 +518,9 @@ export function ReservationLifecyclePanel({
                       Ir al Checkout de Mercado Pago
                     </Link>
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
+            )}
             {(currentReservation.state === "pagada" ||
               currentReservation.checkout_status === "approved") && (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-800 dark:text-emerald-300">

@@ -12,7 +12,7 @@ func TestCreateQuoteRejectsListingAtPublicPriceFloorBeforeAvailability(t *testin
 	start := time.Date(2030, time.May, 11, 15, 0, 0, 0, time.UTC)
 	listing := Listing{
 		ID: testSpaceID, OwnerID: testOwnerID, State: "activa", Title: "Sala sintética",
-		RateUnit: "hora", UnitPriceCLP: 5000, Currency: "CLP", RateVersion: 3, TimeZone: "America/Santiago",
+		RateUnit: "hora", UnitPriceCLP: 999, Currency: "CLP", RateVersion: 3, TimeZone: "America/Santiago",
 	}
 	catalog := &catalogStub{listing: listing}
 	calendar := &calendarStub{available: true}

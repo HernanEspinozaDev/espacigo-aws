@@ -32,7 +32,7 @@ export function generateIdempotencyKey(): string {
 
 export function isValidPriceCLP(price: unknown): boolean {
   if (typeof price !== "number") return false;
-  return Number.isSafeInteger(price) && price > 5000;
+  return Number.isSafeInteger(price) && price >= 1000;
 }
 
 export function isValidAreaM2(area: unknown): boolean {

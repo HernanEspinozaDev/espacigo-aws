@@ -22,7 +22,7 @@ func TestValidateRateRejectsAmountAtOrBelowMinimum(t *testing.T) {
 	}{
 		{name: "negative", amount: -1},
 		{name: "zero", amount: 0},
-		{name: "minimum boundary", amount: 5000},
+		{name: "minimum boundary", amount: 999},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := validateRate(RateInput{Unit: "hora", Amount: tc.amount}); !errors.Is(err, ErrInvalid) {
