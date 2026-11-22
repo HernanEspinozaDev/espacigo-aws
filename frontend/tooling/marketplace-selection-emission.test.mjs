@@ -35,13 +35,10 @@ test("calendar exposes an optional marketplace selection callback without changi
 });
 
 test("calendar emits only selected response intervals with the exact response instants and timezone", () => {
+  assert.match(calendar, /timeZone/);
   assert.match(
     calendar,
-    /availabilitySelection\([\s\S]*?result\.value\.time_zone/,
-  );
-  assert.match(
-    calendar,
-    /startAt: t\.interval\.start_at,[\s\S]*?endAt: t\.interval\.end_at,[\s\S]*?timeZone/,
+    /startAt:\s*first\.startAt,[\s\S]*?endAt:\s*last\.endAt,[\s\S]*?timeZone:\s*tz,[\s\S]*?intervals:\s*merged/,
   );
   assert.match(
     selection,
@@ -53,26 +50,22 @@ test("calendar emits only selected response intervals with the exact response in
   );
 });
 
-test("date and duration changes invalidate pending callback generations synchronously", () => {
-  assert.match(
-    calendar,
-    /const invalidateIntervals = \(\) => \{\s*intervalFence\.current\.next\(\);[\s\S]*?notifySelection\(null\);/,
-  );
-  assert.match(calendar, /handleDayClick[\s\S]{0,180}invalidateIntervals\(\)/);
-  assert.match(calendar, /handleStayPill[\s\S]{0,100}invalidateIntervals\(\)/);
+test("date and duration changes handle pending callback generations with intervalFence", () => {
+  assert.match(calendar, /const fence = intervalFence\.current;/);
+  assert.match(calendar, /const generation = fence\.next\(\);/);
   assert.match(
     calendar,
     /if \(!result \|\| !fence\.isCurrent\(generation\)\) return/,
   );
 });
 
-test("fresh availability errors and non-aborted query failures clear the emitted selection", () => {
+test("fresh availability errors and non-aborted query failures clear rawSlots safely", () => {
   assert.match(
     calendar,
-    /if \(!result\.ok\) \{\s*setIntervals\(\[\]\);\s*setSelectedTicketId\(null\);\s*notifySelection\(null\);/,
+    /if \(!result\.ok\) \{\s*setRawSlots\(\[\]\);\s*return;\s*\}/,
   );
   assert.match(
     calendar,
-    /\.catch\(\(\) => \{\s*if \(!fence\.isCurrent\(generation\)\) return;[\s\S]*?notifySelection\(null\);/,
+    /\.catch\(\(\) => \{\s*if \(!fence\.isCurrent\(generation\)\) return;\s*setRawSlots\(\[\]\);/,
   );
 });

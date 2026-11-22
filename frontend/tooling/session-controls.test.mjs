@@ -65,8 +65,8 @@ test("SessionControls component exports, variants and contract rules", async () 
     "SessionControls must import useRouter for post-logout navigation",
   );
   assert.ok(
-    source.includes('router.replace("/acceso")'),
-    "SessionControls must navigate to /acceso upon logout",
+    source.includes('router.replace("/")'),
+    "SessionControls must navigate to / upon logout",
   );
 });
 
