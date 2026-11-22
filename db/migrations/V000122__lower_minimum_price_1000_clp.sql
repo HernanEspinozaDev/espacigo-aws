@@ -70,6 +70,6 @@ BEGIN
             DROP CONSTRAINT IF EXISTS cotizacion_arriendo_comercial_vigencia_ck;
         ALTER TABLE public.cotizacion_arriendo_comercial
             ADD CONSTRAINT cotizacion_arriendo_comercial_vigencia_ck
-                CHECK (vence_en > creada_en AND vence_en <= creada_en + interval '15 minutes');
+                CHECK (vence_en = creada_en + interval '6 minutes') NOT VALID;
     END IF;
 END $migration$;
