@@ -390,7 +390,7 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub '${AppLogGroup.Arn}:log-stream:application/*'
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AppLogGroup}:log-stream:application/*'
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource:
@@ -401,10 +401,6 @@ Resources:
                     - EnableMercadoPago
                     - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
                     - !Ref AWS::NoValue
-                Condition:
-                  StringEquals:
-                    aws:SourceVpce:
-                      Fn::ImportValue: !Sub ${NetworkStackName}-SecretsManagerVpceId
 
   AppRuntimeRole:
     Type: AWS::IAM::Role
@@ -452,7 +448,6 @@ Resources:
     Properties:
       Name: !Sub espacigo-${Environment}
       Type: network
-      Scheme: internet-facing
       Subnets:
         - Fn::ImportValue: !Sub ${NetworkStackName}-PublicSubnet1Id
       SecurityGroups:
@@ -493,6 +488,9 @@ Resources:
   AppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Condition: ProvisionApp
+    DependsOn:
+      - AppExecutionRole
+      - AppRuntimeRole
     Properties:
       Family: !Sub espacigo-app-${Environment}
       RequiresCompatibilities:
@@ -556,11 +554,7 @@ Resources:
               Value: contacto@hotusoft.com
             - Name: AUTH_SMTP_FROM
               Value: contacto@hotusoft.com
-            - Name: COMMERCIAL_RENTAL_FLOW_ENABLED
-              Value: !If [EnableMercadoPago, '1', '0']
             - Name: MERCADOPAGO_CHECKOUT_ENABLED
-              Value: !If [EnableMercadoPago, '1', '0']
-            - Name: MERCADOPAGO_WEBHOOK_ENABLED
               Value: !If [EnableMercadoPago, '1', '0']
             - Name: MERCADOPAGO_TEST_MODE
               Value: !Ref MercadoPagoTestMode
@@ -643,7 +637,6 @@ Resources:
       ServiceName: !Sub espacigo-app-${Environment}
       Cluster: espacigo-production
       TaskDefinition: !Ref AppTaskDefinition
-      LaunchType: FARGATE
       PlatformVersion: 1.4.0
       DesiredCount: 1
       HealthCheckGracePeriodSeconds: 60
@@ -702,7 +695,7 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub '${MigratorLogGroup.Arn}:log-stream:migration/dbmigrate/*'
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${MigratorLogGroup}:log-stream:migration/dbmigrate/*'
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/migrator-*'
@@ -790,7 +783,7 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub '${MigrateBuildLogGroup.Arn}:log-stream:*'
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${MigrateBuildLogGroup}:log-stream:*'
               - Effect: Allow
                 Action:
                   - ecs:DescribeTaskDefinition
