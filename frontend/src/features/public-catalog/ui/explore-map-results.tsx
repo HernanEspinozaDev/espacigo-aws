@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { MapBounds } from "@/components/maps/location-map";
 import { serializeCatalogQuery } from "../domain/query-state";
 import { formatPublicClp, rateUnitLabel } from "../domain/presentation";
@@ -18,15 +18,12 @@ export function ExploreMapResults({
   query,
   markers,
   mapUnavailable,
-  children,
 }: {
   query: CatalogQuery;
   markers: PublicMapMarker[];
   mapUnavailable: boolean;
-  children: ReactNode;
 }) {
   const router = useRouter();
-  const [view, setView] = useState<"grid" | "map">("grid");
   const [selectedId, setSelectedId] = useState<string>();
   const [bounds, setBounds] = useState<MapBounds>();
   const [message, setMessage] = useState("");
@@ -53,7 +50,7 @@ export function ExploreMapResults({
   const selected = markers.find((m) => m.space_id === selectedId);
   function navigate(next: CatalogQuery) {
     router.push(
-      `/explorar?${serializeCatalogQuery({ ...next, cursor: undefined })}`,
+      `/explorar/mapa?${serializeCatalogQuery({ ...next, cursor: undefined })}`,
       { scroll: false },
     );
   }
@@ -94,24 +91,8 @@ export function ExploreMapResults({
     );
   }
   return (
-    <section aria-label="Resultados y mapa" className="space-y-4">
+    <section aria-label="Resultados en el mapa" className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <div
-          className="inline-flex rounded-full border p-1 lg:hidden"
-          aria-label="Vista de resultados"
-        >
-          {(["grid", "map"] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={view === mode}
-              onClick={() => setView(mode)}
-              className={`min-h-11 rounded-full px-4 text-sm ${view === mode ? "bg-foreground text-background" : ""}`}
-            >
-              {mode === "grid" ? "Cuadrícula" : "Mapa"}
-            </button>
-          ))}
-        </div>
         <button
           type="button"
           onClick={nearMe}
@@ -150,92 +131,70 @@ export function ExploreMapResults({
           {message}
         </p>
       )}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div
-          className={`${view === "map" ? "hidden" : ""} min-w-0 lg:block`}
-          onFocusCapture={(event) => {
-            const card = (event.target as HTMLElement).closest<HTMLElement>(
-              "[data-space-id]",
-            );
-            if (card?.dataset.spaceId) setSelectedId(card.dataset.spaceId);
+      <div className="space-y-3">
+        <LocationMap
+          center={center}
+          markers={pins}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onBoundsChange={setBounds}
+        />
+        <button
+          type="button"
+          disabled={!bounds}
+          onClick={() => {
+            if (bounds)
+              navigate({
+                ...query,
+                bbox: [
+                  bounds.west,
+                  bounds.south,
+                  bounds.east,
+                  bounds.north,
+                ].join(","),
+                latitude: undefined,
+                longitude: undefined,
+                radius_km: undefined,
+                sort: query.sort === "distance_asc" ? undefined : query.sort,
+              });
           }}
+          className="min-h-11 w-full rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-50"
         >
-          {children}
-        </div>
-        <div className={`${view === "grid" ? "hidden" : ""} min-w-0 lg:block`}>
-          <div className="space-y-3 lg:sticky lg:top-24">
-            <LocationMap
-              center={center}
-              markers={pins}
-              selectedId={selectedId}
-              onSelect={(id) => {
-                setSelectedId(id);
-                document
-                  .getElementById(`space-card-${id}`)
-                  ?.focus({ preventScroll: true });
-              }}
-              onBoundsChange={setBounds}
-            />
-            <button
-              type="button"
-              disabled={!bounds}
-              onClick={() => {
-                if (bounds)
-                  navigate({
-                    ...query,
-                    bbox: [
-                      bounds.west,
-                      bounds.south,
-                      bounds.east,
-                      bounds.north,
-                    ].join(","),
-                    latitude: undefined,
-                    longitude: undefined,
-                    radius_km: undefined,
-                    sort:
-                      query.sort === "distance_asc" ? undefined : query.sort,
-                  });
-              }}
-              className="min-h-11 w-full rounded-full bg-foreground px-5 text-sm font-medium text-background disabled:opacity-50"
-            >
-              Buscar en esta zona
-            </button>
-            {mapUnavailable ? (
-              <p role="status" className="text-sm text-muted-foreground">
-                No pudimos cargar los marcadores. La cuadrícula sigue
-                disponible.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {markers.length} espacios con ubicación confirmada. Mueve el
-                mapa para buscar otra zona.
-              </p>
-            )}
-            {selected && (
-              <article aria-live="polite" className="rounded-xl border p-4">
-                <h3 className="font-medium">{selected.title}</h3>
-                <p className="mt-2 text-sm">{selected.location.address}</p>
-                <p className="mt-1 text-sm">
-                  {formatPublicClp(selected.base_price_clp)} /{" "}
-                  {rateUnitLabel(selected.rate_unit)}
-                  {selected.distance_km !== undefined
-                    ? ` · ${selected.distance_km.toFixed(1)} km`
-                    : ""}
-                </p>
-                <Link
-                  href={`/espacios/${encodeURIComponent(selected.space_id)}`}
-                  className="mt-3 inline-flex min-h-11 items-center underline"
-                >
-                  Ver espacio
-                </Link>
-              </article>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Los horarios se confirman al cotizar. También puedes buscar por
-              destino o comuna sin compartir tu ubicación.
+          Buscar en esta zona
+        </button>
+        {mapUnavailable ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            No pudimos cargar los marcadores. La cuadrícula sigue disponible.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {markers.length} espacios con ubicación confirmada. Mueve el mapa
+            para buscar otra zona.
+          </p>
+        )}
+        {selected && (
+          <article aria-live="polite" className="rounded-xl border p-4">
+            <h3 className="font-medium">{selected.title}</h3>
+            <p className="mt-2 text-sm">{selected.location.address}</p>
+            <p className="mt-1 text-sm">
+              {formatPublicClp(selected.base_price_clp)} /{" "}
+              {rateUnitLabel(selected.rate_unit)}
+              {selected.distance_km !== undefined
+                ? ` · ${selected.distance_km.toFixed(1)} km`
+                : ""}
             </p>
-          </div>
-        </div>
+            <Link
+              href={`/espacios/${encodeURIComponent(selected.space_id)}`}
+              className="mt-3 inline-flex min-h-11 items-center underline"
+            >
+              Ver espacio
+            </Link>
+          </article>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Los horarios se confirman al cotizar. También puedes buscar por
+          destino o comuna sin compartir tu ubicación.
+        </p>
       </div>
     </section>
   );

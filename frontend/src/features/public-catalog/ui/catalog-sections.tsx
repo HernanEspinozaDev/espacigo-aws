@@ -12,7 +12,6 @@ export function PublicCatalogGrid({
   emptyTitle = "Todavía no hay publicaciones que mostrar",
   emptyDescription = "Prueba con otra búsqueda o vuelve más tarde.",
   ownerCta = false,
-  compact = false,
 }: {
   spaces: readonly PublicSpace[];
   query: CatalogQuery;
@@ -21,7 +20,6 @@ export function PublicCatalogGrid({
   emptyTitle?: string;
   emptyDescription?: string;
   ownerCta?: boolean;
-  compact?: boolean;
 }) {
   if (spaces.length === 0) {
     return (
@@ -34,9 +32,7 @@ export function PublicCatalogGrid({
   }
   return (
     <>
-      <div
-        className={`grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 sm:gap-x-8 ${compact ? "lg:grid-cols-1 xl:grid-cols-2" : "lg:grid-cols-3"} lg:gap-y-14`}
-      >
+      <div className="grid grid-cols-1 gap-x-6 gap-y-10 sm:grid-cols-2 sm:gap-x-8 lg:grid-cols-3 lg:gap-y-14">
         {spaces.map((space, index) => (
           <div
             key={space.space_id}

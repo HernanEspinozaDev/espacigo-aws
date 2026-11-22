@@ -14,15 +14,26 @@ for (const viewport of [
         await route.abort();
       } else await route.continue();
     });
-    await page.goto("/explorar");
+    await page.goto("/explorar?q=Sala");
     await expect(
       page.getByRole("heading", { name: "Explorar arriendos" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: /Sala con ubicación confirmada/ }).first(),
     ).toBeVisible();
-    if (viewport.width < 1024)
-      await page.getByRole("button", { name: "Mapa", exact: true }).click();
+    await expect(
+      page.getByLabel("Mapa de espacios", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Buscar en esta zona" }),
+    ).toHaveCount(0);
+
+    await page.getByRole("link", { name: "Ver mapa", exact: true }).click();
+    await expect(page).toHaveURL(/\/explorar\/mapa\?q=Sala/);
+    await expect(
+      page.getByRole("heading", { name: "Mapa de arriendos" }),
+    ).toBeVisible();
+    await expect(page.locator("[data-space-id]")).toHaveCount(0);
     await expect(
       page.getByText("2 espacios con ubicación confirmada.", { exact: false }),
     ).toBeVisible();
@@ -35,24 +46,35 @@ for (const viewport of [
     ).toBeVisible();
     await expect(page.getByText("Calle Sintética 123").first()).toBeVisible();
     const map = page.getByLabel("Mapa de espacios", { exact: true });
-    await map.hover();
+    const box = (await map.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(400, 350);
+    await page.mouse.move(
+      box.x + box.width / 2 - 50,
+      box.y + box.height / 2 + 25,
+      { steps: 5 },
+    );
     await page.mouse.up();
     const search = page.getByRole("button", { name: "Buscar en esta zona" });
     await expect(search).toBeEnabled();
     await search.click();
     await expect(page).toHaveURL(/bbox=/);
-    if (viewport.width < 1024) {
-      await page
-        .getByRole("button", { name: "Cuadrícula", exact: true })
-        .click();
-      await expect(
-        page
-          .getByRole("link", { name: /Sala con ubicación confirmada/ })
-          .first(),
-      ).toBeVisible();
-    }
+    await expect(page).toHaveURL(/\/explorar\/mapa\?/);
+    await page
+      .getByRole("link", { name: "Ver cuadrícula", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === "/explorar" &&
+        url.searchParams.get("q") === "Sala" &&
+        url.searchParams.has("bbox"),
+    );
+    await expect(
+      page.getByRole("link", { name: /Sala con ubicación confirmada/ }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel("Mapa de espacios", { exact: true }),
+    ).toHaveCount(0);
     expect(external).toEqual([]);
   });
 }
@@ -66,7 +88,7 @@ test("ubicación aproximada solo tras acción y destino manual disponible", asyn
     longitude: -70.654321,
     accuracy: 20,
   });
-  await page.goto("/explorar");
+  await page.goto("/explorar/mapa");
   await expect(page).not.toHaveURL(/latitude=/);
   await page.getByRole("button", { name: "Cerca de mí" }).click();
   await expect(page).toHaveURL(/latitude=-33.46/);
@@ -74,11 +96,11 @@ test("ubicación aproximada solo tras acción y destino manual disponible", asyn
   await expect(page).toHaveURL(/radius_km=10/);
   await expect(page.getByText(/ubicación aproximada/)).toBeVisible();
   await context.clearPermissions();
-  await page.goto("/explorar");
+  await page.goto("/explorar/mapa");
   await page.getByRole("button", { name: "Cerca de mí" }).click();
   await expect(page.getByText(/Puedes escribir un destino/)).toBeVisible();
 });
-test("ficha muestra dirección confirmada y falla de mapa conserva cuadrícula", async ({
+test("la ficha del espacio conserva su mapa y dirección confirmada", async ({
   page,
 }) => {
   await page.goto("/espacios/00000000-0000-4000-8000-000000000007");

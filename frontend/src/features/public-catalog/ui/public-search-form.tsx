@@ -2,12 +2,14 @@ import { Search } from "lucide-react";
 
 export function PublicSearchForm({
   initialQuery = "",
+  actionPath = "/explorar",
 }: {
   initialQuery?: string;
+  actionPath?: string;
 }) {
   return (
     <form
-      action="/explorar"
+      action={actionPath}
       method="get"
       role="search"
       aria-label="Buscar publicaciones"
