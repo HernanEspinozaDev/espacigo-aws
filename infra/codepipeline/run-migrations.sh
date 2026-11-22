@@ -47,5 +47,15 @@ if ! jq -e '.failures == [] and (.tasks | length == 1) and
            any(.tasks[0].containers[]; .name == "dbmigrate" and .exitCode == 0)' <<<"$result" >/dev/null; then
   jq '{failures, tasks: [.tasks[] | {stopCode, stoppedReason, containers: [.containers[] | {name, exitCode, reason}]}]}' \
     <<<"$result" >&2
+  log_group="$(jq -r '.containerDefinitions[] | select(.name == "dbmigrate") | .logConfiguration.options["awslogs-group"] // empty' <<<"$template" 2>/dev/null)" || true
+  log_prefix="$(jq -r '.containerDefinitions[] | select(.name == "dbmigrate") | .logConfiguration.options["awslogs-stream-prefix"] // empty' <<<"$template" 2>/dev/null)" || true
+  task_id="${task##*/}"
+  if [[ -n "${log_group:-}" && -n "${log_prefix:-}" && -n "${task_id:-}" ]]; then
+    printf 'Logs de dbmigrate (%s / %s):\n' "$log_group" "${log_prefix}/dbmigrate/${task_id}" >&2 || true
+    aws logs get-log-events \
+      --log-group-name "$log_group" \
+      --log-stream-name "${log_prefix}/dbmigrate/${task_id}" \
+      --limit 80 | jq -r '.events[].message' >&2 || true
+  fi
   exit 1
 fi

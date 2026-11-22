@@ -57,6 +57,8 @@ jobs:
           attests: |
             type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
             type=provenance,mode=min
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
       - name: Build Next.js Standalone OCI image and verify SBOM/provenance without publishing
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
@@ -69,10 +71,22 @@ jobs:
           attests: |
             type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
             type=provenance,mode=min
-      - name: Build and inspect the database migration image without publishing
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+      - name: Build the database migration image with GHA cache
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: ./Dockerfile.dbmigrate
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: espacigo-dbmigrate:ci
+          cache-from: type=gha,scope=dbmigrate
+          cache-to: type=gha,mode=max,scope=dbmigrate
+      - name: Inspect the database migration image without publishing
         run: |
           set -o pipefail
-          docker buildx build --file Dockerfile.dbmigrate --platform linux/amd64 --load --tag espacigo-dbmigrate:ci .
           docker run --rm --network none espacigo-dbmigrate:ci -inventory-only |
             jq -e '.format == "espacigo.migrations.inventory.v1" and (.migrations | length > 0)'
       - name: Remove temporary OCI images and attestations
