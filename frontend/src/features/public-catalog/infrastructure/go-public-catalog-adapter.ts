@@ -368,8 +368,12 @@ function adaptPublicSpaceDetail(
     features: publicFeatures(space.features),
     images: publicImages(space.images),
     verification: publicVerification(space.verification),
-    ...(disponibleDesde !== undefined ? { disponible_desde: disponibleDesde } : {}),
-    ...(estadiaMinimaMeses !== undefined ? { estadia_minima_meses: estadiaMinimaMeses } : {}),
+    ...(disponibleDesde !== undefined
+      ? { disponible_desde: disponibleDesde }
+      : {}),
+    ...(estadiaMinimaMeses !== undefined
+      ? { estadia_minima_meses: estadiaMinimaMeses }
+      : {}),
   } as PublicSpaceDetail;
 }
 
