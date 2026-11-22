@@ -488,28 +488,28 @@ export function MarketplaceRentalCheckout({
                     Solicitar nueva cotización
                   </Button>
                 </div>
-            ) : walletPurchaseEnabled || checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-options"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Ir a pagar
-              </Link>
-            ) : checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-api"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Pagar con Mercado Pago
-              </Link>
-            ) : (
-              <CheckoutProButton
-                quoteId={quote.id}
-                expiresAt={quote.expires_at}
-              />
-            )}
+              ) : walletPurchaseEnabled || checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-options"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
+                >
+                  Ir a pagar
+                </Link>
+              ) : checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-api"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
+                >
+                  Pagar con Mercado Pago
+                </Link>
+              ) : (
+                <CheckoutProButton
+                  quoteId={quote.id}
+                  expiresAt={quote.expires_at}
+                />
+              )}
             </ContractCheckoutGate>
 
             {selection.rateUnit === "mes" && (
