@@ -16,6 +16,8 @@ export interface MarketplaceBookingSelection {
   endAt: string;
   timeZone: string;
   intervals?: readonly MarketplaceBookingInterval[];
+  billingMode?: "full" | "monthly_installments";
+  minMonths?: number;
 }
 
 const int64Max = BigInt("9223372036854775807");
@@ -29,7 +31,12 @@ const requiredSelectionKeys = [
   "time_zone",
   "source",
 ] as const;
-const allowedSelectionKeys = [...requiredSelectionKeys, "intervals"] as const;
+const allowedSelectionKeys = [
+  ...requiredSelectionKeys,
+  "intervals",
+  "billing_mode",
+  "min_months",
+] as const;
 
 export function marketplaceSubtotal(
   basePrice: number | string | null,
@@ -124,6 +131,23 @@ export function marketplaceBookingHref(
   ) {
     params.set("intervals", serializedIntervals);
   }
+  if (
+    selection.rateUnit === "mes" &&
+    selection.billingMode &&
+    (selection.billingMode === "full" ||
+      selection.billingMode === "monthly_installments")
+  ) {
+    params.set("billing_mode", selection.billingMode);
+  }
+  if (
+    selection.rateUnit === "mes" &&
+    selection.minMonths !== undefined &&
+    Number.isSafeInteger(selection.minMonths) &&
+    selection.minMonths >= 1 &&
+    selection.minMonths <= 24
+  ) {
+    params.set("min_months", String(selection.minMonths));
+  }
   if (!parseMarketplaceBookingSelection(params.toString())) return null;
   return `/reservas/nueva?${params.toString()}`;
 }
@@ -154,12 +178,31 @@ export function parseMarketplaceBookingSelection(
   const rateUnit = params.get("rate_unit") ?? "";
   const timeZone = params.get("time_zone") ?? "";
   const rawIntervals = params.get("intervals");
+  const rawBillingMode = params.get("billing_mode");
+  const rawMinMonths = params.get("min_months");
   if (
     !isPublicUuid(spaceId) ||
     !validTimeZone(timeZone) ||
     !/^\d{1,2}$/.test(rawDuration)
   )
     return null;
+
+  if (
+    rawBillingMode !== null &&
+    (rateUnit !== "mes" ||
+      (rawBillingMode !== "full" && rawBillingMode !== "monthly_installments"))
+  ) {
+    return null;
+  }
+
+  if (
+    rawMinMonths !== null &&
+    (rateUnit !== "mes" ||
+      !/^[1-9]\d{0,1}$/.test(rawMinMonths) ||
+      Number(rawMinMonths) > 24)
+  ) {
+    return null;
+  }
 
   const parsedIntervals = rawIntervals
     ? parseIntervalsParam(rawIntervals)
@@ -173,6 +216,9 @@ export function parseMarketplaceBookingSelection(
   rental.set("rental_end_at", endAt);
   const validated = parseRentalReturnSelection(rental.toString());
   if (!validated || !allowedDuration(rateUnit, validated.duration)) return null;
+  if (rawMinMonths !== null && validated.duration < Number(rawMinMonths))
+    return null;
+
   return {
     spaceId,
     date: validated.date,
@@ -182,5 +228,11 @@ export function parseMarketplaceBookingSelection(
     endAt: validated.endAt,
     timeZone,
     ...(parsedIntervals ? { intervals: parsedIntervals } : {}),
+    ...(rawBillingMode
+      ? {
+          billingMode: rawBillingMode as "full" | "monthly_installments",
+        }
+      : {}),
+    ...(rawMinMonths !== null ? { minMonths: Number(rawMinMonths) } : {}),
   };
 }

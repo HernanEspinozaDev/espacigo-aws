@@ -235,3 +235,49 @@ test("optional undefined keys are omitted before strict payload serialization", 
     overrides: [{ fecha: "2027-01-02", estado: "disponible" }],
   });
 });
+
+test("calendar contract supports disponible_desde and estadia_minima_meses", async () => {
+  const adapter = new OpenApiCalendarConfigurationAdapter();
+  const monthRuleDto = {
+    ...dto,
+    rule: {
+      ...dto.rule,
+      disponible_desde: "2027-03-01",
+      estadia_minima_meses: 3,
+    },
+  };
+  reset(response(200, '"etag-month"', monthRuleDto));
+  const readRes = await adapter.read("s-1");
+  assert.equal(readRes.configuration.rule.disponible_desde, "2027-03-01");
+  assert.equal(readRes.configuration.rule.estadia_minima_meses, 3);
+
+  reset(
+    response(200, '"etag-next"', {
+      space_id: "s-1",
+      time_zone: "America/Santiago",
+    }),
+  );
+  await adapter.update(
+    "s-1",
+    {
+      disponible_desde: "2027-04-01",
+      estadia_minima_meses: 6,
+    },
+    '"etag-month"',
+  );
+  assert.deepEqual(calls[0][1].body, {
+    disponible_desde: "2027-04-01",
+    estadia_minima_meses: 6,
+  });
+
+  // Rejects invalid date format or out-of-range min months
+  await assert.rejects(() =>
+    adapter.update("s-1", { disponible_desde: "not-a-date" }, '"etag-month"'),
+  );
+  await assert.rejects(() =>
+    adapter.update("s-1", { estadia_minima_meses: 0 }, '"etag-month"'),
+  );
+  await assert.rejects(() =>
+    adapter.update("s-1", { estadia_minima_meses: 25 }, '"etag-month"'),
+  );
+});

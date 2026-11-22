@@ -41,6 +41,8 @@ export interface PublicBookingCalendarProps {
   initialSelection?: RentalReturnSelection;
   onSelectionChange?: (selection: MarketplaceBookingSelection | null) => void;
   disabled?: boolean;
+  disponibleDesde?: string | null;
+  estadiaMinimaMeses?: number | null;
 }
 
 interface SelectedSlotEntry {
@@ -49,6 +51,21 @@ interface SelectedSlotEntry {
   startAt: string;
   endAt: string;
   units?: number;
+}
+
+function formatCivilDate(dateISO: string): string {
+  try {
+    const [y, m, d] = dateISO.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return new Intl.DateTimeFormat("es-CL", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }).format(date);
+  } catch {
+    return dateISO;
+  }
 }
 
 function addMonthsCivilDay(dateISO: string, months: number): string {
@@ -134,11 +151,35 @@ export function PublicBookingCalendar({
   initialSelection,
   onSelectionChange,
   disabled = false,
+  disponibleDesde: propDisponibleDesde,
+  estadiaMinimaMeses: propEstadiaMinimaMeses,
 }: PublicBookingCalendarProps) {
   const headingId = useId();
   const [currentMonth, setCurrentMonth] = useState(
     initialSelection?.date.slice(0, 7) ?? today.slice(0, 7),
   );
+
+  const [disponibleDesde, setDisponibleDesde] = useState<string | null>(
+    propDisponibleDesde ?? null,
+  );
+  const [estadiaMinimaMeses, setEstadiaMinimaMeses] = useState<number | null>(
+    propEstadiaMinimaMeses ?? null,
+  );
+
+  useEffect(() => {
+    if (propDisponibleDesde !== undefined) {
+      setDisponibleDesde(propDisponibleDesde);
+    }
+  }, [propDisponibleDesde]);
+
+  useEffect(() => {
+    if (propEstadiaMinimaMeses !== undefined) {
+      setEstadiaMinimaMeses(propEstadiaMinimaMeses);
+    }
+  }, [propEstadiaMinimaMeses]);
+
+  const effectiveMinMonths =
+    estadiaMinimaMeses && estadiaMinimaMeses >= 1 ? estadiaMinimaMeses : 1;
 
   const [startDate, setStartDate] = useState<string | null>(
     initialSelection?.date ?? null,
@@ -162,13 +203,20 @@ export function PublicBookingCalendar({
       ? initialSelection.duration
       : 1,
   );
-  const [monthCount, setMonthCount] = useState<number>(
-    rateUnit === "mes" &&
-      initialSelection?.duration &&
-      initialSelection.duration >= 1
-      ? Math.min(12, initialSelection.duration)
-      : 1,
-  );
+  const [monthCount, setMonthCount] = useState<number>(() => {
+    if (rateUnit !== "mes") return 1;
+    const initial =
+      initialSelection?.duration && initialSelection.duration >= 1
+        ? initialSelection.duration
+        : 1;
+    return Math.min(12, Math.max(effectiveMinMonths, initial));
+  });
+
+  useEffect(() => {
+    if (rateUnit === "mes" && estadiaMinimaMeses && estadiaMinimaMeses > 1) {
+      setMonthCount((prev) => Math.max(prev, estadiaMinimaMeses));
+    }
+  }, [rateUnit, estadiaMinimaMeses]);
 
   const effectiveDuration = useMemo(() => {
     if (rateUnit === "dia") {
@@ -249,9 +297,18 @@ export function PublicBookingCalendar({
         endAt: last.endAt,
         timeZone: tz,
         intervals: merged,
+        ...(rateUnit === "mes" && estadiaMinimaMeses && estadiaMinimaMeses > 1
+          ? { minMonths: estadiaMinimaMeses }
+          : {}),
       });
     },
-    [spaceId, rateUnit, effectiveDuration, notifySelection],
+    [
+      spaceId,
+      rateUnit,
+      effectiveDuration,
+      notifySelection,
+      estadiaMinimaMeses,
+    ],
   );
 
   // Load the authoritative typed month snapshot.
@@ -280,6 +337,12 @@ export function PublicBookingCalendar({
         for (const day of result.value.days) map.set(day.date, day);
         setMonthData(map);
         setTimeZone(result.value.timeZone);
+        if (result.value.disponible_desde !== undefined) {
+          setDisponibleDesde(result.value.disponible_desde);
+        }
+        if (result.value.estadia_minima_meses !== undefined) {
+          setEstadiaMinimaMeses(result.value.estadia_minima_meses);
+        }
       } catch {
         if (active) {
           setMonthData(new Map());
@@ -408,6 +471,7 @@ export function PublicBookingCalendar({
 
   const handleDayClick = (date: string) => {
     if (disabled || date < minDate || date > maxDate) return;
+    if (rateUnit === "mes" && disponibleDesde && date < disponibleDesde) return;
     if (rateUnit === "hora") {
       intervalFence.current.next();
       setLoadingIntervals(false);
@@ -469,7 +533,9 @@ export function PublicBookingCalendar({
 
     // rateUnit === "mes": toggle or select N-month period starting on `date`
     const existingMonthKey = Array.from(selectedSlots.entries()).find(
-      ([, entry]) => entry.date === date,
+      ([, entry]) =>
+        entry.date === date ||
+        (entry.endDate && date >= entry.date && date < entry.endDate),
     )?.[0];
     if (existingMonthKey) {
       const next = new Map(selectedSlots);
@@ -480,7 +546,9 @@ export function PublicBookingCalendar({
       return;
     }
 
-    const durationMonths = Math.max(1, Math.min(12, monthCount));
+    const minMonths =
+      estadiaMinimaMeses && estadiaMinimaMeses >= 1 ? estadiaMinimaMeses : 1;
+    const durationMonths = Math.max(minMonths, Math.min(12, monthCount));
     setStartDate(date);
     setLoadingIntervals(true);
     void publicRentalAvailability
@@ -495,7 +563,10 @@ export function PublicBookingCalendar({
         if (!availSlot) return;
         const endPeriod = addMonthsCivilDay(date, durationMonths);
         setSelectedSlots((prev) => {
-          const next = new Map(prev);
+          const next =
+            estadiaMinimaMeses && estadiaMinimaMeses > 1
+              ? new Map<string, SelectedSlotEntry>()
+              : new Map(prev);
           next.set(availSlot.start_at, {
             date,
             endDate: endPeriod,
@@ -631,6 +702,34 @@ export function PublicBookingCalendar({
                 : "Elige la fecha de inicio disponible y la cantidad de meses"}
           </p>
           {rateUnit === "mes" && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs">
+              {disponibleDesde && (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8c5b5] bg-[#fbf7f2] px-2.5 py-1 text-xs font-medium text-[#702a1b]">
+                  <span
+                    className="h-2 w-2 rounded-full bg-[#a44731]"
+                    aria-hidden="true"
+                  />
+                  Disponible desde:{" "}
+                  <strong className="font-semibold text-[#332720]">
+                    {formatCivilDate(disponibleDesde)}
+                  </strong>
+                </span>
+              )}
+              {estadiaMinimaMeses && estadiaMinimaMeses > 1 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8c5b5] bg-[#fbf7f2] px-2.5 py-1 text-xs font-medium text-[#702a1b]">
+                  <span
+                    className="h-2 w-2 rounded-full bg-[#a44731]"
+                    aria-hidden="true"
+                  />
+                  Estancia mínima:{" "}
+                  <strong className="font-semibold text-[#332720]">
+                    {estadiaMinimaMeses} meses
+                  </strong>
+                </span>
+              ) : null}
+            </div>
+          )}
+          {rateUnit === "mes" && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <label
                 htmlFor={`${headingId}-month-count`}
@@ -642,10 +741,20 @@ export function PublicBookingCalendar({
                 id={`${headingId}-month-count`}
                 value={monthCount}
                 disabled={disabled}
-                onChange={(e) => setMonthCount(Number(e.target.value) || 1)}
+                onChange={(e) =>
+                  setMonthCount(
+                    Math.max(
+                      effectiveMinMonths,
+                      Number(e.target.value) || effectiveMinMonths,
+                    ),
+                  )
+                }
                 className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800"
               >
-                {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
+                {Array.from(
+                  { length: 12 - effectiveMinMonths + 1 },
+                  (_, idx) => effectiveMinMonths + idx,
+                ).map((m) => (
                   <option key={m} value={m}>
                     {m} {m === 1 ? "mes" : "meses"}
                   </option>
@@ -722,7 +831,11 @@ export function PublicBookingCalendar({
 
             const dayNumber = Number(date.slice(-2));
             const dayAvail = monthData.get(date);
-            const isOutsideRange = date < minDate || date > maxDate;
+            const isBeforeDisponibleDesde =
+              rateUnit === "mes" &&
+              Boolean(disponibleDesde && date < disponibleDesde);
+            const isOutsideRange =
+              date < minDate || date > maxDate || isBeforeDisponibleDesde;
             const isBlocked =
               isOutsideRange ||
               !dayAvail ||
