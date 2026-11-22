@@ -1,12 +1,20 @@
 import type { components } from "@/lib/api/generated/openapi";
 
+export type MonthlyBillingMode = "full" | "monthly_installments";
+
 export type CreateRentalQuoteRequest =
-  components["schemas"]["CreateRentalQuoteRequest"];
+  components["schemas"]["CreateRentalQuoteRequest"] & {
+    billing_mode?: MonthlyBillingMode;
+  };
 export type RentalQuoteRequest = CreateRentalQuoteRequest;
-export type RentalQuote = components["schemas"]["RentalQuote"];
+export type RentalQuote = components["schemas"]["RentalQuote"] & {
+  billing_mode?: MonthlyBillingMode;
+};
 
 export type CreateMultiRentalQuoteRequest =
-  components["schemas"]["CreateMultiRentalQuoteRequest"];
+  components["schemas"]["CreateMultiRentalQuoteRequest"] & {
+    billing_mode?: MonthlyBillingMode;
+  };
 export type RentalQuoteInterval = components["schemas"]["RentalQuoteInterval"];
 export type RentalMultiQuote = components["schemas"]["RentalMultiQuote"];
 

@@ -44,7 +44,7 @@ func (r *Repository) GetCalendarConfiguration(ctx context.Context, owner, spaceI
 		return spaces.CalendarConfiguration{}, fmt.Errorf("invalid space timezone %q: %w", out.TimeZone, err)
 	}
 
-	out.Rule = spaces.AvailabilityRule{SpaceID: spaceID, DiasOperacion: []int{1, 2, 3, 4, 5, 6, 7}, HoraApertura: "09:00", HoraCierre: "20:00", CheckInHora: "15:00", CheckOutHora: "12:00", TarifaBaseDia: basePrice, EstadiaMinima: 1, EstadiaMaxima: 30}
+	out.Rule = spaces.AvailabilityRule{SpaceID: spaceID, DiasOperacion: []int{1, 2, 3, 4, 5, 6, 7}, HoraApertura: "09:00", HoraCierre: "20:00", CheckInHora: "15:00", CheckOutHora: "12:00", TarifaBaseDia: basePrice, EstadiaMinima: 1, EstadiaMaxima: 30, EstadiaMinimaMeses: 1}
 	var days []int16
 	var open, close, checkIn, checkOut *string
 	var rate *int
@@ -82,6 +82,18 @@ func (r *Repository) GetCalendarConfiguration(ctx context.Context, owner, spaceI
 		out.Rule.ActualizadoEn = ruleUpdated
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return spaces.CalendarConfiguration{}, err
+	}
+
+	var monthStart *string
+	var minMonths int16
+	monthErr := tx.QueryRow(ctx, `SELECT disponible_desde::text, estadia_minima_meses FROM public.espacio_regla_mensual WHERE espacio_id=$1`, spaceID).Scan(&monthStart, &minMonths)
+	if monthErr == nil {
+		out.Rule.DisponibleDesde = monthStart
+		if minMonths > 0 {
+			out.Rule.EstadiaMinimaMeses = int(minMonths)
+		}
+	} else if !errors.Is(monthErr, pgx.ErrNoRows) {
+		return spaces.CalendarConfiguration{}, monthErr
 	}
 
 	rows, err := tx.Query(ctx, `SELECT fecha::text,estado,tarifa_personalizada_clp,COALESCE(motivo,'') FROM public.espacio_calendario_override WHERE espacio_id=$1 ORDER BY fecha`, spaceID)

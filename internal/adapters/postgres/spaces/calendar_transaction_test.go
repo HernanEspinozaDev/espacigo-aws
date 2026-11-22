@@ -51,6 +51,8 @@ func (tx *calendarTestTx) QueryRow(_ context.Context, q string, args ...any) pgx
 				return tx.ruleErr
 			}
 			return pgx.ErrNoRows
+		case strings.Contains(q, "FROM public.espacio_regla_mensual"):
+			return pgx.ErrNoRows
 		case strings.Contains(q, "FROM public.espacio"):
 			if len(args) != 2 || args[0] != monthReadSpaceID || args[1] != calendarOwnerID {
 				return errors.New("owner scope missing")

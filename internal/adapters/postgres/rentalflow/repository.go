@@ -864,3 +864,25 @@ WHERE current_case.purpose='identity' AND current_case.subject_id=$1 AND current
 	}
 	return rentalflow.ContractIdentity{SubjectID: subjectID, LegalName: projection.LegalFirstName + " " + projection.LegalLastName, RUT: projection.CanonicalRUT}, nil
 }
+
+func (r *Repository) PublicMonthlyRule(ctx context.Context, spaceID string) (rentalflow.MonthlyRule, error) {
+	var availFrom *string
+	var minMonths int16 = 1
+	err := r.db.QueryRow(ctx, `SELECT disponible_desde::text, estadia_minima_meses FROM public.espacio_regla_mensual WHERE espacio_id=$1`, spaceID).Scan(&availFrom, &minMonths)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return rentalflow.MonthlyRule{EstadiaMinimaMeses: 1}, nil
+	}
+	if err != nil {
+		return rentalflow.MonthlyRule{}, err
+	}
+	return rentalflow.MonthlyRule{DisponibleDesde: availFrom, EstadiaMinimaMeses: int(minMonths)}, nil
+}
+
+func (r *Repository) SaveQuoteBillingMode(ctx context.Context, quoteID, billingMode string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO public.cotizacion_modalidad_cobro (cotizacion_id, modalidad_cobro)
+		VALUES ($1, $2)
+		ON CONFLICT (cotizacion_id) DO UPDATE SET modalidad_cobro = EXCLUDED.modalidad_cobro
+	`, quoteID, billingMode)
+	return err
+}

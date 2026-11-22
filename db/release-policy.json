@@ -92,6 +92,10 @@
     "V000120__commercial_interval_pass_codes.sql": {
       "checksum": "af107258523aad85e7973c3ceefa8241a2db4306d3227787f5d0f2d052750b03",
       "strategy": "expand"
+    },
+    "V000121__space_month_rules_and_installments.sql": {
+      "checksum": "a677ed8fa648dda1783b0784628c10aa5d7d7e2bf4bff41581e7dd415f5af7a8",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

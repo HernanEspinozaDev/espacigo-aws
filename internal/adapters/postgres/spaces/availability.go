@@ -114,6 +114,24 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 		return spaces.MonthlyAvailability{}, ruleErr
 	}
 
+	if rateUnit == "mes" {
+		var availFromDate *string
+		var minMonths int16 = 1
+		monthRuleErr := r.pool.QueryRow(ctx, `
+			SELECT disponible_desde::text, estadia_minima_meses
+			FROM public.espacio_regla_mensual
+			WHERE espacio_id = $1
+		`, spaceID).Scan(&availFromDate, &minMonths)
+		if monthRuleErr == nil {
+			if minMonths > 0 {
+				rule.EstadiaMinimaMeses = int(minMonths)
+			}
+			rule.DisponibleDesde = availFromDate
+		} else if !errors.Is(monthRuleErr, pgx.ErrNoRows) {
+			return spaces.MonthlyAvailability{}, monthRuleErr
+		}
+	}
+
 	monthStart := time.Date(year, time.Month(m), 1, 0, 0, 0, 0, loc)
 	lastDay := time.Date(year, time.Month(m)+1, 0, 0, 0, 0, 0, loc).Day()
 	monthEnd := time.Date(year, time.Month(m)+1, 1, 0, 0, 0, 0, loc)
@@ -233,7 +251,7 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 
 		if isPast {
 			status = "PAST"
-		} else if isOverrideBlocked || (!isOperatingDay && !isOverrideAvailable) {
+		} else if (rateUnit == "mes" && rule.DisponibleDesde != nil && dateStr < *rule.DisponibleDesde) || isOverrideBlocked || (!isOperatingDay && !isOverrideAvailable) {
 			status = "BLOCKED"
 		} else {
 			s1Avail = !s1Occupied
@@ -299,11 +317,13 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 	}
 
 	return spaces.MonthlyAvailability{
-		Month:        month,
-		TimeZone:     timeZone,
-		RateUnit:     rateUnit,
-		BasePriceCLP: rule.TarifaBaseDia,
-		Days:         days,
+		Month:              month,
+		TimeZone:           timeZone,
+		RateUnit:           rateUnit,
+		BasePriceCLP:       rule.TarifaBaseDia,
+		DisponibleDesde:    rule.DisponibleDesde,
+		EstadiaMinimaMeses: rule.EstadiaMinimaMeses,
+		Days:               days,
 	}, nil
 }
 
@@ -437,6 +457,37 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 		}
 	}
 
+	if in.DisponibleDesde != nil || in.EstadiaMinimaMeses != nil {
+		var cleanMonthStart *string
+		if in.DisponibleDesde != nil {
+			trimmed := strings.TrimSpace(*in.DisponibleDesde)
+			if trimmed != "" {
+				parsed, dateErr := time.Parse("2006-01-02", trimmed)
+				if dateErr != nil || parsed.Format("2006-01-02") != trimmed {
+					return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
+				}
+				cleanMonthStart = &trimmed
+			}
+		}
+		if in.EstadiaMinimaMeses != nil && (*in.EstadiaMinimaMeses < 1 || *in.EstadiaMinimaMeses > 24) {
+			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO public.espacio_regla_mensual (
+				espacio_id, disponible_desde, estadia_minima_meses, actualizado_en
+			) VALUES (
+				$1, $2::date, COALESCE($3, 1::smallint), now()
+			)
+			ON CONFLICT (espacio_id) DO UPDATE SET
+				disponible_desde = CASE WHEN $4 THEN $2::date ELSE espacio_regla_mensual.disponible_desde END,
+				estadia_minima_meses = CASE WHEN $3 IS NOT NULL THEN $3 ELSE espacio_regla_mensual.estadia_minima_meses END,
+				actualizado_en = now()
+		`, spaceID, cleanMonthStart, in.EstadiaMinimaMeses, in.DisponibleDesde != nil)
+		if err != nil {
+			return spaces.AvailabilityRule{}, "", err
+		}
+	}
+
 	for _, ov := range in.Overrides {
 		date, dateErr := time.Parse("2006-01-02", ov.Fecha)
 		if dateErr != nil || date.Format("2006-01-02") != ov.Fecha {
@@ -460,6 +511,37 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 				tarifa_personalizada_clp = EXCLUDED.tarifa_personalizada_clp,
 				motivo = EXCLUDED.motivo
 		`, spaceID, ov.Fecha, ov.Estado, ov.TarifaPersonalizadaCLP, ov.Motivo)
+		if err != nil {
+			return spaces.AvailabilityRule{}, "", err
+		}
+	}
+
+	if in.DisponibleDesde != nil || in.EstadiaMinimaMeses != nil {
+		var cleanMonthStart *string
+		if in.DisponibleDesde != nil {
+			trimmed := strings.TrimSpace(*in.DisponibleDesde)
+			if trimmed != "" {
+				parsed, dateErr := time.Parse("2006-01-02", trimmed)
+				if dateErr != nil || parsed.Format("2006-01-02") != trimmed {
+					return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
+				}
+				cleanMonthStart = &trimmed
+			}
+		}
+		if in.EstadiaMinimaMeses != nil && (*in.EstadiaMinimaMeses < 1 || *in.EstadiaMinimaMeses > 24) {
+			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
+		}
+		_, err = tx.Exec(ctx, `
+			INSERT INTO public.espacio_regla_mensual (
+				espacio_id, disponible_desde, estadia_minima_meses, actualizado_en
+			) VALUES (
+				$1, $2::date, COALESCE($3, 1::smallint), now()
+			)
+			ON CONFLICT (espacio_id) DO UPDATE SET
+				disponible_desde = CASE WHEN $4 THEN $2::date ELSE espacio_regla_mensual.disponible_desde END,
+				estadia_minima_meses = CASE WHEN $3 IS NOT NULL THEN $3 ELSE espacio_regla_mensual.estadia_minima_meses END,
+				actualizado_en = now()
+		`, spaceID, cleanMonthStart, in.EstadiaMinimaMeses, in.DisponibleDesde != nil)
 		if err != nil {
 			return spaces.AvailabilityRule{}, "", err
 		}
@@ -518,6 +600,22 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 		}
 		resRule.ActualizadoEn = actEn
 	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return spaces.AvailabilityRule{}, "", err
+	}
+
+	var monthStart *string
+	var minMonths int16
+	monthErr := tx.QueryRow(ctx, `
+		SELECT disponible_desde::text, estadia_minima_meses
+		FROM public.espacio_regla_mensual
+		WHERE espacio_id = $1
+	`, spaceID).Scan(&monthStart, &minMonths)
+	if monthErr == nil {
+		resRule.DisponibleDesde = monthStart
+		if minMonths > 0 {
+			resRule.EstadiaMinimaMeses = int(minMonths)
+		}
+	} else if !errors.Is(monthErr, pgx.ErrNoRows) {
 		return spaces.AvailabilityRule{}, "", err
 	}
 
