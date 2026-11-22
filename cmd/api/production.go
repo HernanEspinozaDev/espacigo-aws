@@ -295,28 +295,11 @@ func newCheckoutWebhookWithProvider(repo *rentalflowpg.Repository, pool *pgxpool
 	if provider == nil {
 		return nil, nil, errors.New("Checkout Pro payment provider is unavailable")
 	}
-	secretPath := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET_FILE"))
-	if secretPath == "" {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is unavailable")
-	}
-	secretPath, err := filepath.Abs(secretPath)
-	if err != nil || filepath.Clean(secretPath) != secretPath {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is invalid")
-	}
-	info, err := os.Lstat(secretPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is invalid")
-	}
-	contents, err := os.ReadFile(secretPath)
+	secret, err := readMercadoPagoWebhookSecret(getenv)
 	if err != nil {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+		return nil, nil, err
 	}
-	defer clear(contents)
-	secret := bytes.TrimSpace(contents)
 	defer clear(secret)
-	if len(secret) < 32 {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret is invalid")
-	}
 	credentials, err := marketplaceoauthpg.NewSellerCredentialResolver(pool, tokens)
 	if err != nil {
 		return nil, nil, errors.New("Mercado Pago webhook seller credentials are unavailable")
@@ -330,6 +313,42 @@ func newCheckoutWebhookWithProvider(repo *rentalflowpg.Repository, pool *pgxpool
 		return nil, nil, errors.New("Mercado Pago webhook receiver initialization failed")
 	}
 	return receiver, worker, nil
+}
+
+func readMercadoPagoWebhookSecret(getenv func(string) string) ([]byte, error) {
+	if getenv == nil {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if secretPath := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET_FILE")); secretPath != "" {
+		absPath, err := filepath.Abs(secretPath)
+		if err != nil || filepath.Clean(absPath) != absPath {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		info, err := os.Lstat(absPath)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		contents, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+		}
+		defer clear(contents)
+		trimmed := bytes.TrimSpace(contents)
+		if len(trimmed) < 32 {
+			return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+		}
+		secret := make([]byte, len(trimmed))
+		copy(secret, trimmed)
+		return secret, nil
+	}
+	raw := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET"))
+	if raw == "" {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if len(raw) < 32 || len(raw) > 4096 {
+		return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+	}
+	return []byte(raw), nil
 }
 
 func mountProductionAuth(
