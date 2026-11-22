@@ -38,7 +38,7 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 		{"capacity", func(i *Input) { i.Capacity = 0 }},
 		{"rules", func(i *Input) { i.UsageRules = strings.Repeat("a", 251) }},
 		{"rate", func(i *Input) { i.RateUnit = "week" }},
-		{"price", func(i *Input) { i.BasePriceCLP = 5000 }},
+		{"price", func(i *Input) { i.BasePriceCLP = 999 }},
 		{"address", func(i *Input) { i.Address = " " }},
 	}
 	for _, check := range checks {
@@ -79,7 +79,7 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 	description := strings.Repeat("Descripción local válida. ", 5)
 	capacity := int32(5)
 	usageRules := "Respetar el horario y no fumar"
-	price := int64(5001)
+	price := int64(1000)
 	for name, input := range map[string]PublishedContentInput{
 		"title only":       {Title: &title},
 		"description only": {Description: &description},
@@ -102,7 +102,7 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 		"zero capacity":             {Capacity: ptrInt32(0)},
 		"blank rules":               {UsageRules: ptrString(" ")},
 		"long rules":                {UsageRules: ptrString(strings.Repeat("x", 251))},
-		"low price":                 {BasePriceCLP: ptrInt64(5000)},
+		"low price":                 {BasePriceCLP: ptrInt64(999)},
 		"partial region field":      {RegionCode: ptrString("13")},
 		"partial commune field":     {CommuneCode: ptrString("13123")},
 		"empty region with commune": {RegionCode: ptrString(""), CommuneCode: ptrString("13123")},

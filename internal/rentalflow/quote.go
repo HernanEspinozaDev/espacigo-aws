@@ -12,7 +12,7 @@ import (
 )
 
 // QuoteLifetime is the validity window assigned when a quote is created.
-const QuoteLifetime = 15 * time.Minute
+const QuoteLifetime = 6 * time.Minute
 
 const (
 	BillingModeFull                = "full"

@@ -25,6 +25,7 @@ export interface CheckoutRead {
   operationId: string | null;
   status: CheckoutStatus;
   initPoint: string | null;
+  expiresAt?: string | null;
   updatedAt: string | null;
 }
 
@@ -116,6 +117,9 @@ export function parseCheckoutRead(
     (data.updated_at !== undefined &&
       data.updated_at !== null &&
       !dateTime(data.updated_at)) ||
+    (data.expires_at !== undefined &&
+      data.expires_at !== null &&
+      !dateTime(data.expires_at)) ||
     (data.init_point !== undefined && data.init_point !== null && !initPoint)
   ) {
     throw new ApiProtocolError();
@@ -126,6 +130,7 @@ export function parseCheckoutRead(
       typeof data.operation_id === "string" ? data.operation_id : null,
     status: data.status as CheckoutStatus,
     initPoint,
+    expiresAt: typeof data.expires_at === "string" ? data.expires_at : null,
     updatedAt: typeof data.updated_at === "string" ? data.updated_at : null,
   };
 }

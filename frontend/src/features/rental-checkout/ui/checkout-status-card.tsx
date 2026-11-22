@@ -17,6 +17,7 @@ import { bookingsFacade } from "@/features/bookings/bookings-runtime";
 import { ApiError } from "@/lib/api/errors";
 import type { CheckoutRead } from "../domain/checkout";
 import { rentalCheckout } from "../infrastructure/checkout-runtime";
+import { ReservationCountdown } from "./reservation-countdown";
 
 function loadError(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) {
@@ -259,6 +260,13 @@ export function CheckoutStatusCard({ quoteId }: { quoteId: string }) {
                 <p className="mt-1.5 font-mono text-xs opacity-90">
                   Reserva guardada: {checkout.operationId}
                 </p>
+              ) : null}
+              {checkout.status === "pending" && checkout.expiresAt ? (
+                <ReservationCountdown
+                  expiresAt={checkout.expiresAt}
+                  onExpire={() => setVersion((v) => v + 1)}
+                  className="mt-2"
+                />
               ) : null}
             </div>
           </div>

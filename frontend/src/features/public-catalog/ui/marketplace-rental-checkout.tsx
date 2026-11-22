@@ -12,6 +12,7 @@ import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
 import { calculateBuyerFeeBreakdown } from "@/features/rental-checkout/domain/fee-breakdown";
 import { CheckoutProButton } from "@/features/rental-checkout/ui/checkout-pro-button";
 import { CheckoutSummaryCard } from "@/features/rental-checkout/ui/checkout-flow-chrome";
+import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 
 export interface MarketplaceCheckoutSelection {
   spaceId: string;
@@ -68,6 +69,7 @@ export function MarketplaceRentalCheckout({
     authKey: string;
     quote: (RentalQuote & { intervals?: RentalQuoteInterval[] }) | null;
   } | null>(null);
+  const [expiredQuoteId, setExpiredQuoteId] = useState<string | null>(null);
   const [operationState, setOperationState] = useState<{
     authKey: string;
     loading: boolean;
@@ -360,14 +362,10 @@ export function MarketplaceRentalCheckout({
                 />
                 Cotización oficial
               </h4>
-              <p className="text-xs font-medium text-[#66574e]">
-                Vence{" "}
-                {new Intl.DateTimeFormat("es-CL", {
-                  dateStyle: "short",
-                  timeStyle: "short",
-                  timeZone: quote.time_zone || "America/Santiago",
-                }).format(new Date(quote.expires_at))}
-              </p>
+              <ReservationCountdown
+                expiresAt={quote.expires_at}
+                onExpire={() => setExpiredQuoteId(quote.id)}
+              />
             </div>
 
             <div className="space-y-2 text-sm">
@@ -466,7 +464,24 @@ export function MarketplaceRentalCheckout({
                   : "Completarás el pago en EspaciGo. Mercado Pago procesa la transacción."
                 : "El pago continúa en el sitio seguro de Mercado Pago y EspaciGo confirma el estado al regresar."}
             </p>
-            {walletPurchaseEnabled || checkoutApiEnabled ? (
+            {expiredQuoteId === quote.id ? (
+              <div className="space-y-3 rounded-xl border border-red-300 bg-red-50 p-3.5 text-sm text-red-800">
+                <p>
+                  El tiempo de 6 minutos para esta reserva venció y el horario
+                  volvió a quedar libre en el calendario.
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setExpiredQuoteId(null);
+                    void requestQuote();
+                  }}
+                  className="min-h-11 w-full rounded-xl bg-[#a44731] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#843522]"
+                >
+                  Solicitar nueva cotización
+                </Button>
+              </div>
+            ) : walletPurchaseEnabled || checkoutApiEnabled ? (
               <Link
                 href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
                 data-mp-checkout-cta="checkout-options"

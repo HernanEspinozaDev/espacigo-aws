@@ -54,6 +54,9 @@ func (r *Repository) ListCommercialReservations(ctx context.Context, actor strin
 	if r == nil || r.db == nil || ctx == nil || !rentalflow.ValidUUID(actor) || pageSize < 1 || pageSize > 100 {
 		return rentalflow.CommercialReservationPage{}, rentalflow.ErrInvalid
 	}
+	if r.beginner != nil && r.now != nil {
+		_, _ = r.PurgeExpiredCommercialQuotes(ctx, r.now(), 100)
+	}
 	actor = strings.ToLower(actor)
 	cursor, err := decodeCommercialReservationCursor(encodedCursor, actor, pageSize)
 	if err != nil {
@@ -172,6 +175,9 @@ ORDER BY r.actualizada_en DESC,r.id DESC LIMIT $4`, actor, lastUpdated, lastID, 
 func (r *Repository) GetCommercialReservation(ctx context.Context, actor, reservationID string) (rentalflow.CommercialReservation, error) {
 	if r == nil || r.db == nil || ctx == nil || !rentalflow.ValidUUID(actor) || !rentalflow.ValidUUID(reservationID) {
 		return rentalflow.CommercialReservation{}, rentalflow.ErrInvalid
+	}
+	if r.beginner != nil && r.now != nil {
+		_, _ = r.PurgeExpiredCommercialQuotes(ctx, r.now(), 100)
 	}
 	var item rentalflow.CommercialReservation
 	var start, end, paymentExpires, created, updated time.Time

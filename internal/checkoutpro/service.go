@@ -135,6 +135,7 @@ type StatusResult struct {
 	ReservationID *string    `json:"reservation_id,omitempty"`
 	Status        string     `json:"status"`
 	InitPoint     string     `json:"init_point,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 }
 
@@ -390,10 +391,13 @@ func (s *Service) Status(ctx context.Context, renter, quoteID string) (StatusRes
 	if op.Status == "pending" && !op.ExpiresAt.After(s.now().UTC()) {
 		return StatusResult{QuoteID: quote.ID, OperationID: &op.ID, ReservationID: &op.ID, Status: "expired", UpdatedAt: &op.UpdatedAt}, nil
 	}
-	id, updated := op.ID, op.UpdatedAt
+	id, updated, expiresAt := op.ID, op.UpdatedAt, op.ExpiresAt
 	result := StatusResult{QuoteID: quote.ID, OperationID: &id, ReservationID: &id, Status: op.Status, UpdatedAt: &updated}
-	if op.Status == "pending" && validInitPoint(op.InitPoint, s.config.TestMode) {
-		result.InitPoint = op.InitPoint
+	if op.Status == "pending" {
+		result.ExpiresAt = &expiresAt
+		if validInitPoint(op.InitPoint, s.config.TestMode) {
+			result.InitPoint = op.InitPoint
+		}
 	}
 	return result, nil
 }

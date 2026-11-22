@@ -139,7 +139,7 @@ func (i PublishedContentInput) FieldErrors() []FieldError {
 			fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
 		}
 	}
-	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
+	if i.BasePriceCLP != nil && *i.BasePriceCLP < 1000 {
 		fields = append(fields, FieldError{Field: "base_price_clp", Code: "minimum"})
 	}
 	if (i.RegionCode == nil) != (i.CommuneCode == nil) {
@@ -197,7 +197,7 @@ func (i Input) FieldErrors() []FieldError {
 	if i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes" {
 		fields = append(fields, FieldError{Field: "rate_unit", Code: "invalid_value"})
 	}
-	if i.BasePriceCLP <= 5000 {
+	if i.BasePriceCLP < 1000 {
 		fields = append(fields, FieldError{Field: "base_price_clp", Code: "minimum"})
 	}
 	if strings.TrimSpace(i.Address) == "" {
