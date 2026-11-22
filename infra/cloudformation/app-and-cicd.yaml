@@ -488,9 +488,6 @@ Resources:
   AppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Condition: ProvisionApp
-    DependsOn:
-      - AppExecutionRole
-      - AppRuntimeRole
     Properties:
       Family: !Sub espacigo-app-${Environment}
       RequiresCompatibilities:
