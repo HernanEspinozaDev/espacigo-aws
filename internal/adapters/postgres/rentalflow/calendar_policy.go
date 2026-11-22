@@ -26,7 +26,7 @@ func (r *Repository) readCalendarRestrictions(ctx context.Context, l rentalflow.
 	if err != nil {
 		return calendarRestrictions{}, rentalflow.ErrInvalid
 	}
-	p := calendarRestrictions{loc: loc, days: map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}, open: 9 * 60, close: 20 * 60, minStay: 1, maxStay: 30, overrides: map[string]string{}}
+	p := calendarRestrictions{loc: loc, days: map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}, open: 0, close: 24 * 60, minStay: 1, maxStay: 30, overrides: map[string]string{}}
 	var days []int16
 	var open, close string
 	var minStay, maxStay int

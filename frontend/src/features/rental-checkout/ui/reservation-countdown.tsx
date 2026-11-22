@@ -6,6 +6,7 @@ import { Clock3 } from "lucide-react";
 interface ReservationCountdownProps {
   expiresAt?: string | null;
   onExpire?: () => void;
+  size?: "sm" | "lg";
   className?: string;
 }
 
@@ -19,6 +20,7 @@ function formatRemaining(ms: number): string {
 export function ReservationCountdown({
   expiresAt,
   onExpire,
+  size = "sm",
   className = "",
 }: ReservationCountdownProps) {
   const targetMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
@@ -55,11 +57,17 @@ export function ReservationCountdown({
   const expired = remainingMs <= 0;
   const urgent = !expired && remainingMs <= 60_000;
 
+  const isLarge = size === "lg";
+
   return (
     <span
       role="timer"
       aria-live="polite"
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
+      className={`inline-flex items-center gap-2 rounded-xl border font-semibold tabular-nums ${
+        isLarge
+          ? "px-3.5 py-2 text-sm sm:text-base"
+          : "rounded-full px-2.5 py-0.5 text-xs"
+      } ${
         expired
           ? "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
           : urgent
@@ -67,7 +75,10 @@ export function ReservationCountdown({
             : "border-[#e8c5b5] bg-[#f5e3db] text-[#702a1b] dark:border-amber-800/60 dark:bg-amber-950/20 dark:text-amber-200"
       } ${className}`.trim()}
     >
-      <Clock3 className="size-3.5 shrink-0" aria-hidden="true" />
+      <Clock3
+        className={isLarge ? "size-4 sm:size-5 shrink-0" : "size-3.5 shrink-0"}
+        aria-hidden="true"
+      />
       {expired
         ? "Tiempo agotado (00:00)"
         : `Tiempo restante para esta reserva: ${formatRemaining(remainingMs)}`}
