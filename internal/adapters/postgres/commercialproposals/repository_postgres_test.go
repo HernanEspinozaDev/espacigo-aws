@@ -60,7 +60,7 @@ GRANT SELECT ON public.tarifa_espacio TO espacigo_runtime;`
 	if _, err = setup.Exec(ctx, fixture); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"V000117__commercial_space_contract_templates.sql", "V000118__commercial_contract_proposals.sql"} {
+	for _, file := range []string{"V000124__commercial_space_contract_templates.sql", "V000125__commercial_contract_proposals.sql"} {
 		sql, e := os.ReadFile("../../../../db/migrations/" + file)
 		if e != nil {
 			t.Fatal(e)

@@ -92,7 +92,7 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 	if _, err = setup.Exec(ctx, foundation); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"V000117__commercial_space_contract_templates.sql", "V000118__commercial_contract_proposals.sql", "V000119__commercial_agreement_signatures.sql"} {
+	for _, file := range []string{"V000124__commercial_space_contract_templates.sql", "V000125__commercial_contract_proposals.sql", "V000126__commercial_agreement_signatures.sql"} {
 		blob, e := os.ReadFile("../../../../db/migrations/" + file)
 		if e != nil {
 			t.Fatal(e)

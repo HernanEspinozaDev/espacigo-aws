@@ -51,7 +51,7 @@ func TestContractTemplatePostgresIsolationAndPublication(t *testing.T) {
 	if _, err = setup.Exec(ctx, `GRANT USAGE, CREATE ON SCHEMA public TO espacigo_schema_owner; GRANT USAGE ON SCHEMA public TO espacigo_runtime; SET SESSION AUTHORIZATION espacigo_migrator_login; SET ROLE espacigo_schema_owner; CREATE TABLE public.usuario(id uuid PRIMARY KEY); CREATE TABLE public.espacio(id uuid PRIMARY KEY, propietario_id uuid NOT NULL REFERENCES public.usuario(id),estado text NOT NULL); GRANT SELECT, UPDATE ON public.espacio TO espacigo_runtime;`); err != nil {
 		t.Fatal(err)
 	}
-	sql, err := os.ReadFile("../../../../db/migrations/V000117__commercial_space_contract_templates.sql")
+	sql, err := os.ReadFile("../../../../db/migrations/V000124__commercial_space_contract_templates.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
