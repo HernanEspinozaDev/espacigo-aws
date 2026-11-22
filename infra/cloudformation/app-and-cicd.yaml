@@ -394,10 +394,13 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource:
-                  - !Ref DatabaseApiSecretArn
-                  - !Ref AuthSmtpSecretArn
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/api-*'
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/auth/smtp-*'
                   - !Ref TotpKeyringSecret
-                  - !If [EnableMercadoPago, !Ref MercadoPagoSecretArn, !Ref AWS::NoValue]
+                  - !If
+                    - EnableMercadoPago
+                    - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
+                    - !Ref AWS::NoValue
                 Condition:
                   StringEquals:
                     aws:SourceVpce:
@@ -702,7 +705,7 @@ Resources:
                 Resource: !Sub '${MigratorLogGroup.Arn}:log-stream:migration/dbmigrate/*'
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: !Ref DatabaseMigratorSecretArn
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/migrator-*'
                 Condition:
                   StringEquals:
                     aws:SourceVpce:
