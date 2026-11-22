@@ -72,12 +72,6 @@ cmd_status() {
 cmd_bootstrap() {
   echo "=== [EspaciGo AWS] Aprovisionando Stack Local en aws-emulator ==="
   bash "${REPO_ROOT}/scripts/local-aws-bootstrap.sh"
-  
-  echo "Aplicando configuración IaC con Terraform..."
-  (
-    cd "${REPO_ROOT}/infra/terraform/environments/local-emulator"
-    terraform apply -auto-approve
-  )
 
   # Asegurar permisos ACL de runtime y soporte S3 en PostgreSQL
   echo "Asegurando permisos para espacigo_runtime y soporte S3 en PostgreSQL..."
