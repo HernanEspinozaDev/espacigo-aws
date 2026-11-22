@@ -92,10 +92,10 @@ Parameters:
     Default: ''
     Description: owner/repo para reportar Commit Status desde AWS a GitHub (ej. org/espacigo-aws).
 
-  GitHubStatusSecretArn:
+  GitHubStatusSsmParameterName:
     Type: String
     Default: ''
-    Description: ARN de Secrets Manager con el token de GitHub ({"token":"..."} o string plano) para publicar Commit Status. Vacio omite la Lambda.
+    Description: Nombre del parametro SecureString en SSM Parameter Store con el token de GitHub (ej. /espacigo/prod/github/commit_status_token). Vacio omite la Lambda.
 
 Conditions:
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
@@ -109,7 +109,7 @@ Conditions:
   EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
   HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
   EnableGitHubCommitStatus: !And
-    - !Not [!Equals [!Ref GitHubStatusSecretArn, '']]
+    - !Not [!Equals [!Ref GitHubStatusSsmParameterName, '']]
     - !Not [!Equals [!Ref GitHubRepository, '']]
 
 Resources:
@@ -1017,8 +1017,8 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: secretsmanager:GetSecretValue
-                Resource: !Ref GitHubStatusSecretArn
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GitHubStatusSsmParameterName}
               - Effect: Allow
                 Action: codepipeline:GetPipelineExecution
                 Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineName}
@@ -1036,7 +1036,7 @@ Resources:
       Environment:
         Variables:
           GITHUB_REPOSITORY: !Ref GitHubRepository
-          GITHUB_SECRET_ARN: !Ref GitHubStatusSecretArn
+          GITHUB_SSM_PARAM: !Ref GitHubStatusSsmParameterName
           CODEPIPELINE_NAME: !Ref CodePipelineName
       Code:
         ZipFile: |
@@ -1047,7 +1047,7 @@ Resources:
           import urllib.request
           import boto3
 
-          sm_client = boto3.client("secretsmanager")
+          ssm_client = boto3.client("ssm")
           cp_client = boto3.client("codepipeline")
 
           STATE_MAP = {
@@ -1060,11 +1060,11 @@ Resources:
           }
 
 
-          def _get_github_token(secret_arn):
-              resp = sm_client.get_secret_value(SecretId=secret_arn)
-              raw = (resp.get("SecretString") or "").strip()
+          def _get_github_token(param_name):
+              resp = ssm_client.get_parameter(Name=param_name, WithDecryption=True)
+              raw = (resp.get("Parameter", {}).get("Value") or "").strip()
               if not raw:
-                  raise RuntimeError("Secrets Manager secret is empty")
+                  raise RuntimeError("SSM parameter is empty")
               if raw.startswith("{"):
                   parsed = json.loads(raw)
                   token = (parsed.get("token") or parsed.get("github_token") or "").strip()
@@ -1108,7 +1108,7 @@ Resources:
               gh_state, description = mapped
               repo = os.environ["GITHUB_REPOSITORY"].strip()
               region = os.environ.get("AWS_REGION", "us-east-1")
-              token = _get_github_token(os.environ["GITHUB_SECRET_ARN"])
+              token = _get_github_token(os.environ["GITHUB_SSM_PARAM"])
               target_url = (
                   f"https://{region}.console.aws.amazon.com/codesuite/codepipeline/"
                   f"pipelines/{pipeline}/executions/{execution_id}/timeline?region={region}"
