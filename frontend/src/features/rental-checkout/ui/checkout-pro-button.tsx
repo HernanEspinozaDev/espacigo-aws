@@ -42,11 +42,12 @@ export function CheckoutProButton({
 }) {
   const { snapshot: auth } = useAuth();
   const [starting, setStarting] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const key = useRef<string | null>(null);
   const statusHref = `/reservas/checkout/${encodeURIComponent(quoteId)}`;
   async function startCheckout() {
-    if (starting || auth.status !== "authenticated") return;
+    if (starting || redirecting || auth.status !== "authenticated") return;
     setError(null);
     if (Date.parse(expiresAt) <= Date.now()) {
       setError("La cotización venció. Solicita una cotización actualizada.");
@@ -59,6 +60,8 @@ export function CheckoutProButton({
         (token, signal) =>
           rentalCheckout.start(quoteId, key.current!, token, signal),
       );
+      setRedirecting(true);
+      setError(null);
       window.location.assign(result.initPoint);
     } catch (cause) {
       setError(checkoutError(cause));
@@ -69,7 +72,24 @@ export function CheckoutProButton({
 
   return (
     <div className="space-y-3">
-      {error ? (
+      {starting || redirecting ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
+        >
+          <Loader2
+            className="mt-0.5 size-4 shrink-0 animate-spin"
+            aria-hidden="true"
+          />
+          <span>
+            {redirecting
+              ? "Procesando pago… Redirigiendo a Mercado Pago."
+              : "Procesando pago…"}
+          </span>
+        </div>
+      ) : null}
+      {error && !redirecting ? (
         <div
           role="alert"
           className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive"
@@ -85,16 +105,18 @@ export function CheckoutProButton({
         type="button"
         className="w-full"
         onClick={startCheckout}
-        disabled={starting || auth.status !== "authenticated"}
+        disabled={starting || redirecting || auth.status !== "authenticated"}
       >
-        {starting ? (
+        {starting || redirecting ? (
           <Loader2 className="mr-2 size-4 animate-spin" aria-hidden="true" />
         ) : (
           <ExternalLink className="mr-2 size-4" aria-hidden="true" />
         )}
-        {starting ? "Preparando checkout…" : "Pagar con Mercado Pago"}
+        {starting || redirecting
+          ? "Procesando pago…"
+          : "Pagar con Mercado Pago"}
       </Button>
-      {error ? (
+      {error && !redirecting ? (
         <Link
           className="inline-flex min-h-11 items-center text-sm font-medium underline underline-offset-4"
           href={statusHref}

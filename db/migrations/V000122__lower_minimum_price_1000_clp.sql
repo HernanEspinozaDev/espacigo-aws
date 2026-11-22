@@ -4,6 +4,7 @@ DECLARE
     tbl text;
     col text;
     con_name text;
+    is_owned boolean;
 BEGIN
     IF session_user <> current_user AND current_user <> 'espacigo_schema_owner' THEN
         RAISE EXCEPTION 'candidate requires session/effective role equality before owner switching';
@@ -21,7 +22,15 @@ BEGIN
         ('cotizacion_reserva_ensayo', 'precio_unitario_clp'),
         ('arriendo_temprano', 'precio_unitario_clp')
     LOOP
-        IF to_regclass(format('public.%I', tbl)) IS NULL THEN
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relname = tbl
+              AND pg_catalog.pg_get_userbyid(c.relowner) = current_user
+        ) INTO is_owned;
+        IF NOT is_owned THEN
             CONTINUE;
         END IF;
         FOR con_name IN
