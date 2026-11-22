@@ -1,4 +1,5 @@
--- Lower minimum space/rate base price from > 5000 CLP to >= 1000 CLP.
+-- Lower minimum space/rate base price from > 5000 CLP to >= 1000 CLP
+-- and allow commercial quote lifetimes up to 15 minutes (6 minutes default).
 DO $migration$
 DECLARE
     tbl text;
@@ -55,4 +56,20 @@ BEGIN
             col
         );
     END LOOP;
+
+    SELECT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = 'cotizacion_arriendo_comercial'
+          AND pg_catalog.pg_get_userbyid(c.relowner) = current_user
+    ) INTO is_owned;
+    IF is_owned THEN
+        ALTER TABLE public.cotizacion_arriendo_comercial
+            DROP CONSTRAINT IF EXISTS cotizacion_arriendo_comercial_vigencia_ck;
+        ALTER TABLE public.cotizacion_arriendo_comercial
+            ADD CONSTRAINT cotizacion_arriendo_comercial_vigencia_ck
+                CHECK (vence_en > creada_en AND vence_en <= creada_en + interval '15 minutes');
+    END IF;
 END $migration$;
