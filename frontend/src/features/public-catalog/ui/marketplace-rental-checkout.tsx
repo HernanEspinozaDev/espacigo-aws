@@ -72,9 +72,9 @@ export function MarketplaceRentalCheckout({
     loading: boolean;
     error: string | null;
   } | null>(null);
-  const [billingMode, setBillingMode] = useState<"full" | "monthly_installments">(
-    "full",
-  );
+  const [billingMode, setBillingMode] = useState<
+    "full" | "monthly_installments"
+  >("full");
   const requestGeneration = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const loadingRef = useRef(false);

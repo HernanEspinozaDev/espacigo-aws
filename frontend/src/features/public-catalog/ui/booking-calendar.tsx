@@ -163,7 +163,9 @@ export function PublicBookingCalendar({
       : 1,
   );
   const [monthCount, setMonthCount] = useState<number>(
-    rateUnit === "mes" && initialSelection?.duration && initialSelection.duration >= 1
+    rateUnit === "mes" &&
+      initialSelection?.duration &&
+      initialSelection.duration >= 1
       ? Math.min(12, initialSelection.duration)
       : 1,
   );
@@ -234,7 +236,10 @@ export function PublicBookingCalendar({
       const merged = mergeContiguousIntervals(entries);
       const first = entries[0];
       const last = entries[entries.length - 1];
-      const totalUnits = entries.reduce((sum, entry) => sum + (entry.units ?? 1), 0);
+      const totalUnits = entries.reduce(
+        (sum, entry) => sum + (entry.units ?? 1),
+        0,
+      );
       notifySelection({
         spaceId,
         date: first.date,
@@ -741,7 +746,8 @@ export function PublicBookingCalendar({
                   : entry.date === date,
               );
             const isStart =
-              (rateUnit === "hora" && startDate === date) || isDirectDaySelected;
+              (rateUnit === "hora" && startDate === date) ||
+              isDirectDaySelected;
             const isEnd = endDate === date;
             const isSingle = isStart && (!endDate || endDate === startDate);
             const isIntermediate =
