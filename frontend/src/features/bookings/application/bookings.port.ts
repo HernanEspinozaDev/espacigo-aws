@@ -75,7 +75,7 @@ export interface BookingsPort {
   createOrGetContract(
     reservationId: string,
     signal?: AbortSignal,
-  ): Promise<SyntheticContract>;
+  ): Promise<SyntheticContract | null>;
 
   getContract(
     contractId: string,

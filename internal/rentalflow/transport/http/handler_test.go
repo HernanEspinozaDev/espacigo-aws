@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 )
@@ -92,8 +93,72 @@ func (s *previewStub) Preview(ctx context.Context, actor, quote string) (rentalf
 	return s.result, s.err
 }
 
+type walletCheckoutStub struct {
+	result checkoutpro.StartResult
+	err    error
+	calls  int
+	actor  string
+	quote  string
+	key    string
+}
+
+func (s *walletCheckoutStub) StartWalletPurchase(_ context.Context, actor, quote, key string) (checkoutpro.StartResult, error) {
+	s.calls++
+	s.actor, s.quote, s.key = actor, quote, key
+	return s.result, s.err
+}
+
 func newTestHandler(auth *authStub, availability *availabilityStub, quote *quoteStub, preview *previewStub) http.Handler {
 	return New(auth, availability, quote, preview, nil)
+}
+
+func TestWalletCheckoutRequiresIdempotencyAndReturnsHostedPreference(t *testing.T) {
+	auth := &authStub{principal: identity.Principal{AccountID: testActorID}}
+	wallet := &walletCheckoutStub{result: checkoutpro.StartResult{QuoteID: testQuoteID, OperationID: "op-1", ReservationID: "reservation-1", Status: "pending", InitPoint: "https://www.mercadopago.cl/checkout/pref-1"}}
+	h := New(auth, &availabilityStub{}, &quoteStub{}, &previewStub{}, nil, wallet)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/rental-quotes/"+testQuoteID+"/checkout-wallet", nil)
+	r.Header.Set("Authorization", "Bearer session-token")
+	r.Header.Set("Idempotency-Key", "wallet-key")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || auth.calls != 1 || wallet.calls != 1 {
+		t.Fatalf("status=%d auth_calls=%d wallet_calls=%d body=%s", w.Code, auth.calls, wallet.calls, w.Body.String())
+	}
+	if wallet.actor != testActorID || wallet.quote != testQuoteID || wallet.key != "wallet-key" {
+		t.Fatalf("wallet service args actor=%q quote=%q key=%q", wallet.actor, wallet.quote, wallet.key)
+	}
+	for _, expected := range []string{`"data"`, `"quote_id":"` + testQuoteID + `"`, `"init_point":"https://www.mercadopago.cl/checkout/pref-1"`} {
+		if !strings.Contains(w.Body.String(), expected) {
+			t.Fatalf("response missing %s: %s", expected, w.Body.String())
+		}
+	}
+	if w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control=%q, want no-store", w.Header().Get("Cache-Control"))
+	}
+}
+
+func TestWalletCheckoutRejectsMissingKeyOrClientOverridesBeforeService(t *testing.T) {
+	for _, tc := range []struct{ name, path, key, body string }{
+		{name: "missing idempotency key", path: "/api/v1/rental-quotes/" + testQuoteID + "/checkout-wallet"},
+		{name: "query override", path: "/api/v1/rental-quotes/" + testQuoteID + "/checkout-wallet?amount=1", key: "wallet-key"},
+		{name: "body override", path: "/api/v1/rental-quotes/" + testQuoteID + "/checkout-wallet", key: "wallet-key", body: `{"amount":1}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			auth := &authStub{principal: identity.Principal{AccountID: testActorID}}
+			wallet := &walletCheckoutStub{}
+			h := New(auth, &availabilityStub{}, &quoteStub{}, &previewStub{}, nil, wallet)
+			r := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			r.Header.Set("Authorization", "Bearer session-token")
+			if tc.key != "" {
+				r.Header.Set("Idempotency-Key", tc.key)
+			}
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != http.StatusBadRequest || wallet.calls != 0 {
+				t.Fatalf("status=%d wallet_calls=%d body=%s", w.Code, wallet.calls, w.Body.String())
+			}
+		})
+	}
 }
 
 func TestPublicAvailabilityIsUnauthenticatedMinimizedAllowlistedAndNoStore(t *testing.T) {

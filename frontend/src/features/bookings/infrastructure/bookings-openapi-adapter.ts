@@ -1,13 +1,19 @@
 import "client-only";
 
 import { apiClient } from "@/lib/api/client";
-import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
+import {
+  ApiError,
+  ApiProtocolError,
+  normalizeApiError,
+} from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
+import type { components } from "@/lib/api/generated/openapi";
 import type { BookingsPort } from "../application/bookings.port";
 import type {
   BookingDetail,
   BookingQuote,
   BookingReservation,
+  BookingState,
   BusinessClock,
   CancellationPreview,
   DamageClaim,
@@ -23,6 +29,105 @@ import type {
   TrialDispute,
   TrialDisputeTransition,
 } from "../domain/types";
+
+type CommercialReservationSchema =
+  components["schemas"]["CommercialReservation"];
+
+type CommercialReservationWithBuyerFees = CommercialReservationSchema & {
+  buyer_commission_clp?: number | string;
+  buyer_vat_clp?: number | string;
+  buyer_fee_clp?: number | string;
+  total_charged_clp?: number | string;
+};
+
+function optionalNumber(
+  value: number | string | undefined,
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function mapCommercialToBookingReservation(
+  item: CommercialReservationSchema,
+): BookingReservation {
+  const extended = item as CommercialReservationWithBuyerFees;
+  return {
+    id: item.id,
+    quote_id: item.quote_id,
+    space_id: item.space_id,
+    space_title: item.space_title,
+    host_id: item.participant_role === "anfitrion" ? "me" : "",
+    renter_id: item.participant_role === "arrendatario" ? "me" : "",
+    participant_role: item.participant_role,
+    checkout_status: item.checkout_status,
+    checkout_method: item.checkout_method,
+    provider_payment_id: item.provider_payment_id,
+    commission_clp: optionalNumber(item.commission_clp),
+    vat_clp: optionalNumber(item.vat_clp),
+    marketplace_fee_clp: optionalNumber(item.marketplace_fee_clp),
+    net_host_amount_clp: optionalNumber(item.net_host_amount_clp),
+    buyer_commission_clp: optionalNumber(extended.buyer_commission_clp),
+    buyer_vat_clp: optionalNumber(extended.buyer_vat_clp),
+    buyer_fee_clp: optionalNumber(extended.buyer_fee_clp),
+    total_charged_clp: optionalNumber(extended.total_charged_clp),
+    is_commercial: true,
+    state: item.status as BookingState,
+    rate_unit: item.rate_unit,
+    unit_price_clp: Number(item.unit_price_clp),
+    currency: "CLP",
+    units: Number(item.units),
+    subtotal_clp: Number(item.subtotal_clp),
+    start_at: item.start_at,
+    end_at: item.end_at,
+    time_zone: item.time_zone,
+    ...(Array.isArray(item.intervals) && item.intervals.length > 0
+      ? {
+          intervals: item.intervals.map((iv) => ({
+            ...(iv.id ? { id: iv.id } : {}),
+            start_at: iv.start_at,
+            end_at: iv.end_at,
+            units: Number(iv.units),
+            ...(iv.usage_status ? { usage_status: iv.usage_status } : {}),
+            ...(iv.check_in_at ? { check_in_at: iv.check_in_at } : {}),
+            ...(iv.check_out_at ? { check_out_at: iv.check_out_at } : {}),
+            ...(iv.pass_code ? { pass_code: iv.pass_code } : {}),
+            ...(iv.qr_payload ? { qr_payload: iv.qr_payload } : {}),
+          })),
+        }
+      : {}),
+    conditions: "",
+    cancellation_policy_version: "v1",
+    pay_expires_at: item.payment_expires_at,
+    created_at: item.created_at,
+    updated_at: item.updated_at,
+    unread_count: 0,
+  };
+}
+
+function mapCommercialToBookingDetail(
+  item: CommercialReservationSchema,
+): BookingDetail {
+  const reservation = mapCommercialToBookingReservation(item);
+  const methodLabel =
+    item.checkout_method === "payments_api"
+      ? "Checkout API (Tarjeta)"
+      : "Checkout Pro";
+  const paymentSuffix = item.provider_payment_id
+    ? ` · Operación #${item.provider_payment_id}`
+    : "";
+  return {
+    ...reservation,
+    history: [
+      {
+        sequence: 1,
+        to: item.status,
+        reason: `${methodLabel}: ${item.checkout_status}${paymentSuffix}`,
+        at: item.updated_at,
+      },
+    ],
+  };
+}
 
 export class OpenApiBookingsAdapter implements BookingsPort {
   async quote(
@@ -52,9 +157,37 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async listReservations(signal?: AbortSignal): Promise<BookingReservation[]> {
+    try {
+      const commercial = await apiClient.GET("/commercial-reservations", {
+        signal,
+      });
+      if (commercial.response.ok && commercial.data?.data) {
+        const items = commercial.data.data.items ?? [];
+        return items.map(mapCommercialToBookingReservation);
+      }
+      if (commercial.response.status !== 404) {
+        throw normalizeApiError(commercial.response, commercial.error);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status !== 404) {
+        throw err;
+      }
+      if (
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        err.status !== 404
+      ) {
+        throw err;
+      }
+    }
+
     const result = await apiClient.GET("/local/booking-trial/reservations", {
       signal,
     });
+    if (result.response.status === 404) {
+      return [];
+    }
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -65,6 +198,26 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<BookingDetail | null> {
+    try {
+      const commercial = await apiClient.GET(
+        "/commercial-reservations/{reservationID}",
+        {
+          params: { path: { reservationID: reservationId } },
+          signal,
+        },
+      );
+      if (commercial.response.ok && commercial.data?.data) {
+        return mapCommercialToBookingDetail(commercial.data.data);
+      }
+      if (commercial.response.status !== 404) {
+        throw normalizeApiError(commercial.response, commercial.error);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status !== 404) {
+        throw err;
+      }
+    }
+
     const result = await apiClient.GET(
       "/local/booking-trial/reservations/{reservationId}",
       {
@@ -231,7 +384,7 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   async createOrGetContract(
     reservationId: string,
     signal?: AbortSignal,
-  ): Promise<SyntheticContract> {
+  ): Promise<SyntheticContract | null> {
     const result = await apiClient.POST(
       "/local/booking-trial/reservations/{reservationId}/contract",
       {
@@ -239,10 +392,11 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         signal,
       },
     );
+    if (result.response.status === 404) return null;
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
-    if (!result.data?.data) throw new ApiProtocolError();
+    if (!result.data?.data) return null;
     return result.data.data as unknown as SyntheticContract;
   }
 
@@ -421,6 +575,7 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         signal,
       },
     );
+    if (result.response.status === 404) return [];
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -464,6 +619,7 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         signal,
       },
     );
+    if (result.response.status === 404) return [];
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -527,6 +683,7 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         signal,
       },
     );
+    if (result.response.status === 404) return [];
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -603,6 +760,7 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         signal,
       },
     );
+    if (result.response.status === 404) return [];
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
@@ -894,6 +1052,12 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     const result = await apiClient.GET("/local/booking-trial/business-clock", {
       signal,
     });
+    if (result.response.status === 404) {
+      return {
+        current_time: new Date().toISOString(),
+        time_zone: "America/Santiago",
+      };
+    }
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }

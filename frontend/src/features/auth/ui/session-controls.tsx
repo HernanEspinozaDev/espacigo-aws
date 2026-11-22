@@ -43,7 +43,7 @@ export function SessionControls({
       // useAuth.logout handles local clear and sets pending without false remote success
     } finally {
       setLoggingOut(false);
-      router.replace("/acceso");
+      router.replace("/");
     }
   };
 

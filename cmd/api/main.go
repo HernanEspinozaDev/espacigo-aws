@@ -22,6 +22,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	checkoutnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/checkoutnotice"
 	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
@@ -48,6 +49,8 @@ import (
 	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutnotice"
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
@@ -66,6 +69,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
+	"github.com/HernanEspinozaDev/espaciGo/internal/marketplaceoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
@@ -238,6 +242,17 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid commercial rental flow configuration")
 	}
+	webhookOnlyEnabled, err := mercadoPagoWebhookOnlyEnabled(os.Getenv, commercialFlowEnabled)
+	if err != nil {
+		return errors.New("invalid Mercado Pago webhook-only configuration")
+	}
+	if _, err = mercadoPagoWalletPurchaseEnabled(os.Getenv); err != nil {
+		return errors.New("invalid Mercado Pago wallet purchase configuration")
+	}
+	paymentsEnabled, err := mercadoPagoPaymentsEnabled(os.Getenv, webhookOnlyEnabled)
+	if err != nil {
+		return err
+	}
 
 	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
 	if err != nil {
@@ -248,6 +263,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	var localPaymentService *booking.Service
+	var marketplaceTokens *marketplaceoauth.Service
 	var localIdentityService *identity.AuthenticationService
 	var localPrivacyService *privacy.Service
 	var localM02Service *m02local.Service
@@ -259,6 +275,8 @@ func run() error {
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
+	var checkoutNoticeService *checkoutnotice.Service
+	var checkoutPaymentWorker *checkoutpro.PaymentWorker
 	var localContractRepository *contractpg.Repository
 	var publicCatalogMasterKey []byte
 	var privacyReplayRegistryPath string
@@ -313,6 +331,10 @@ func run() error {
 			service.SetTOTPKeyring(totpKeyring)
 		}
 		localIdentityService = service
+		marketplaceTokens, err = mountMarketplaceOAuth(mux, pool, service, cfg, os.Getenv)
+		if err != nil {
+			return err
+		}
 		documentVerificationRepository := documentverificationpg.New(pool)
 		documentVerificationService, err := documentverification.NewService(documentVerificationRepository)
 		if err != nil {
@@ -369,7 +391,42 @@ func run() error {
 			if serviceErr != nil {
 				return errors.New("commercial rental preview initialization failed")
 			}
-			rentalHandler := rentalflowhttp.New(service, availabilityService, quoteService, previewService, cfg.allowedOrigins)
+			checkoutService, serviceErr := newCheckoutPreferenceService(commercialQuoteRepository, marketplaceTokens, cfg, os.Getenv)
+			if serviceErr != nil {
+				return errors.New("commercial Checkout Pro initialization failed")
+			}
+			if checkoutService != nil || webhookOnlyEnabled {
+				webhookHandler, webhookWorker, webhookErr := newCheckoutWebhook(commercialQuoteRepository, pool, marketplaceTokens, os.Getenv)
+				if webhookErr != nil {
+					return errors.New("commercial Mercado Pago webhook initialization failed")
+				}
+				checkoutPaymentWorker = webhookWorker
+				if routeErr := mountCheckoutWebhook(mux, webhookHandler); routeErr != nil {
+					return errors.New("commercial Mercado Pago webhook route registration failed")
+				}
+				checkoutNoticeService, serviceErr = checkoutnotice.New(checkoutnoticepg.New(pool), localNoticeSender, time.Now)
+				if serviceErr != nil {
+					return errors.New("commercial Checkout Pro notice initialization failed")
+				}
+			}
+			commercialReservationService, serviceErr := rentalflow.NewCommercialReservationService(commercialQuoteRepository)
+			if serviceErr != nil {
+				return errors.New("commercial rental reservation initialization failed")
+			}
+			if checkoutService != nil {
+				commercialReservationService.SetReconciler(func(ctx context.Context, actor, quoteID string) {
+					_, _ = checkoutService.Status(ctx, actor, quoteID)
+				})
+			}
+			var checkoutAPI rentalflowhttp.CheckoutAPIService
+			if paymentsEnabled {
+				payments, paymentErr := newMercadoPagoPayments(commercialQuoteRepository, marketplaceTokens, os.Getenv)
+				if paymentErr != nil {
+					return errors.New("commercial Checkout API initialization failed")
+				}
+				checkoutAPI = payments
+			}
+			rentalHandler := rentalflowhttp.New(service, availabilityService, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService, checkoutAPI)
 			if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 				return errors.New("commercial rental route registration failed")
 			}
@@ -703,6 +760,7 @@ func run() error {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
+		mountLocalAPIDocs(mux, os.Getenv)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -805,6 +863,20 @@ func run() error {
 				}()
 			}},
 		)
+	}
+	if checkoutNoticeService != nil {
+		workers = append(workers, namedWorker{"commercial-checkout-notice-delivery", func() {
+			go checkoutNoticeService.Run(ctx, time.Second)
+		}})
+	}
+	if checkoutPaymentWorker != nil {
+		workers = append(workers, namedWorker{"commercial-checkout-payment-reconciliation", func() {
+			trackedWorkers.Go(func(workerCtx context.Context) {
+				if err := checkoutPaymentWorker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+					log.Print("commercial checkout payment reconciliation worker stopped")
+				}
+			})
+		}})
 	}
 	if localPrivacyService != nil {
 		workers = append(workers,

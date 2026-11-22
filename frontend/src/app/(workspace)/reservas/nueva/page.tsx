@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { EarlyRentalPanel } from "@/features/bookings/ui/early-rental-panel";
 import { BookingQuoteCard } from "@/features/bookings/ui/booking-quote-card";
 import { serializeRentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
+import { MarketplaceRentalCheckout } from "@/features/public-catalog/ui/marketplace-rental-checkout";
 import {
   marketplaceBookingHref,
   parseMarketplaceBookingSelection,
 } from "@/features/public-catalog/domain/marketplace-booking-selection";
+import { CheckoutStepper } from "@/features/rental-checkout/ui/checkout-flow-chrome";
+
+export const dynamic = "force-dynamic";
 
 interface NuevaReservaPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -14,6 +17,11 @@ interface NuevaReservaPageProps {
 export default async function NuevaReservaPage({
   searchParams,
 }: NuevaReservaPageProps) {
+  const checkoutApiEnabled =
+    process.env.NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED === "1" &&
+    Boolean(process.env.NEXT_PUBLIC_MP_PUBLIC_KEY?.startsWith("TEST-"));
+  const walletPurchaseEnabled =
+    process.env.NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED === "1";
   const params = await searchParams;
   const sourceValues = params.source;
   const hasMarketplaceSource =
@@ -48,92 +56,48 @@ export default async function NuevaReservaPage({
     });
     return (
       <section
-        className="mx-auto min-w-0 max-w-2xl break-words py-4"
+        className="mx-auto min-w-0 max-w-4xl space-y-6 break-words py-2"
         aria-labelledby="booking-handoff-title"
       >
-        <h1 id="booking-handoff-title" className="text-2xl font-semibold">
-          Preparar solicitud de arriendo
-        </h1>
-        <dl className="mt-6 grid min-w-0 gap-3 break-words">
-          <div>
-            <dt className="font-medium">ID público</dt>
-            <dd className="break-all">{selection.spaceId}</dd>
-          </div>
-          <div>
-            <dt className="font-medium">Rango seleccionado</dt>
-            <dd>
-              {selection.startAt} – {selection.endAt}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-medium">Zona horaria</dt>
-            <dd>{selection.timeZone}</dd>
-          </div>
-          <div>
-            <dt className="font-medium">Modalidad</dt>
-            <dd>{selection.rateUnit}</dd>
-          </div>
-          <div>
-            <dt className="font-medium">Duración</dt>
-            <dd>
-              {selection.duration}{" "}
-              {selection.rateUnit === "hora"
-                ? "hora(s)"
-                : selection.rateUnit === "dia"
-                  ? "día(s)"
-                  : "mes"}
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-8 border-t border-border pt-6">
-          {selection.rateUnit === "hora" ? (
-            <EarlyRentalPanel
-              selection={{
-                space_id: selection.spaceId,
-                start_at: selection.startAt,
-                end_at: selection.endAt,
-              }}
-              fallback={
-                <BookingQuoteCard
-                  spaceId={selection.spaceId}
-                  defaultRateUnit={selection.rateUnit}
-                  initialStartDate={selection.startAt}
-                  initialDurationUnits={selection.duration}
-                  authoritativeInterval={{
-                    startAt: selection.startAt,
-                    endAt: selection.endAt,
-                    timeZone: selection.timeZone,
-                  }}
-                />
-              }
-            />
-          ) : (
-            <BookingQuoteCard
-              spaceId={selection.spaceId}
-              defaultRateUnit={selection.rateUnit}
-              initialStartDate={selection.startAt}
-              initialDurationUnits={selection.duration}
-              authoritativeInterval={{
-                startAt: selection.startAt,
-                endAt: selection.endAt,
-                timeZone: selection.timeZone,
-              }}
-            />
-          )}
-        </div>
+        <CheckoutStepper activeStep={2} />
+        <header className="space-y-1">
+          <h2
+            id="booking-handoff-title"
+            className="text-2xl font-semibold tracking-tight text-foreground"
+          >
+            Cotizar arriendo y continuar al pago
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Revisa tu selección y confirma la cotización oficial antes de pagar.
+          </p>
+        </header>
+        <MarketplaceRentalCheckout
+          selection={{
+            spaceId: selection.spaceId,
+            startAt: selection.startAt,
+            endAt: selection.endAt,
+            timeZone: selection.timeZone,
+            duration: selection.duration,
+            rateUnit: selection.rateUnit,
+            intervals: selection.intervals,
+          }}
+          signInReturn={canonicalHref}
+          checkoutApiEnabled={checkoutApiEnabled}
+          walletPurchaseEnabled={walletPurchaseEnabled}
+        />
         <nav
-          className="mt-6 flex flex-wrap gap-4 text-sm"
+          className="flex flex-wrap gap-4 border-t border-border/60 pt-4 text-sm"
           aria-label="Opciones para esta selección"
         >
           <Link
             href={`/espacios/${selection.spaceId}?${rentalQuery}`}
-            className="underline text-muted-foreground hover:text-foreground"
+            className="inline-flex min-h-10 items-center text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
             Volver a la publicación
           </Link>
           <Link
             href={`/acceso?return_to=${encodeURIComponent(canonicalHref)}`}
-            className="underline text-muted-foreground hover:text-foreground"
+            className="inline-flex min-h-10 items-center text-muted-foreground underline underline-offset-4 hover:text-foreground"
           >
             Iniciar sesión
           </Link>

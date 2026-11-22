@@ -57,6 +57,8 @@ func TestMountCommercialRentalFlowRoutes(t *testing.T) {
 		"/api/v1/spaces/space-1/rental-availability",
 		"/api/v1/rental-quotes",
 		"/api/v1/rental-quotes/quote-1/contract-preview",
+		"/api/v1/commercial-reservations",
+		"/api/v1/commercial-reservations/reservation-1",
 	} {
 		response := httptest.NewRecorder()
 		mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))

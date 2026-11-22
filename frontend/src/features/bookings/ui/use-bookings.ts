@@ -105,7 +105,7 @@ export interface BookingsView {
     outcome: "exito" | "fallo" | "sin_respuesta",
     idempotencyKey?: string,
   ): Promise<BookingReservation>;
-  loadContract(reservationId: string): Promise<SyntheticContract>;
+  loadContract(reservationId: string): Promise<SyntheticContract | null>;
   signContract(contractId: string): Promise<SyntheticContract>;
   rejectContract(contractId: string): Promise<SyntheticContract>;
   downloadContractPdf(contractId: string): Promise<Blob | null>;

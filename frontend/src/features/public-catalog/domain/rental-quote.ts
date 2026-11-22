@@ -5,6 +5,11 @@ export type CreateRentalQuoteRequest =
 export type RentalQuoteRequest = CreateRentalQuoteRequest;
 export type RentalQuote = components["schemas"]["RentalQuote"];
 
+export type CreateMultiRentalQuoteRequest =
+  components["schemas"]["CreateMultiRentalQuoteRequest"];
+export type RentalQuoteInterval = components["schemas"]["RentalQuoteInterval"];
+export type RentalMultiQuote = components["schemas"]["RentalMultiQuote"];
+
 export type RentalQuoteError =
   | { kind: "invalid"; status: 400 | 422 }
   | { kind: "unauthenticated"; status: 401 }
@@ -15,4 +20,5 @@ export type RentalQuoteError =
   | { kind: "other"; status: number };
 
 export type RentalQuoteResult =
-  { ok: true; value: RentalQuote } | { ok: false; error: RentalQuoteError };
+  | { ok: true; value: RentalQuote & { intervals?: RentalQuoteInterval[] } }
+  | { ok: false; error: RentalQuoteError };

@@ -8,12 +8,14 @@ node_modules/
 .next/
 **/.next/
 frontend/.next/
+frontend/.next-preview-*/
 frontend/out/
 
 # Environment files and secrets
 .env
 .env.*
 *.env
+.wrangler/
 
 # Local editor/build artifacts
 __pycache__/

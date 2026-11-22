@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +29,7 @@ import (
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
+	marketplaceoauthpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/marketplaceoauth"
 	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
@@ -41,6 +45,7 @@ import (
 	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
@@ -56,6 +61,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
+	"github.com/HernanEspinozaDev/espaciGo/internal/marketplaceoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
@@ -136,6 +142,9 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
+	if _, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv); err != nil {
+		return nil, err
+	}
 	catalog, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), key, evidence, mediaStore)
 	if err != nil {
 		return nil, errors.New("production public catalog initialization failed")
@@ -200,6 +209,146 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 		return nil, err
 	}
 	return authService, nil
+}
+
+func mountMarketplaceOAuth(mux *http.ServeMux, pool *pgxpool.Pool, auth marketplaceoauth.Authorizer, cfg config, getenv func(string) string) (*marketplaceoauth.Service, error) {
+	settings, err := marketplaceoauth.ConfigFromEnv(getenv)
+	if err != nil {
+		return nil, errors.New("Mercado Pago OAuth configuration is incomplete or invalid")
+	}
+	var service *marketplaceoauth.Service
+	if settings != nil {
+		service, err = marketplaceoauth.New(*settings, marketplaceoauthpg.New(pool), &marketplaceoauth.HTTPExchanger{ClientID: settings.ClientID, ClientSecret: settings.ClientSecret, RedirectURI: settings.RedirectURI}, time.Now)
+		if err != nil {
+			return nil, errors.New("Mercado Pago OAuth initialization failed")
+		}
+	}
+	handler := marketplaceoauth.NewHandler(auth, service, cfg.frontendPublicOrigin, cfg.allowedOrigins)
+	handler.Mount(mux)
+	return service, nil
+}
+
+func newCheckoutPreferenceService(repo *rentalflowpg.Repository, tokens *marketplaceoauth.Service, cfg config, getenv func(string) string) (*checkoutpro.Service, error) {
+	return newCheckoutPreferenceServiceWithGateway(repo, tokens, cfg, getenv, &checkoutpro.HTTPGateway{})
+}
+
+func newCheckoutPreferenceServiceWithGateway(repo *rentalflowpg.Repository, tokens *marketplaceoauth.Service, cfg config, getenv func(string) string, gateway checkoutpro.Gateway) (*checkoutpro.Service, error) {
+	if getenv == nil {
+		return nil, errors.New("checkout configuration is unavailable")
+	}
+	walletPurchaseEnabled, err := mercadoPagoWalletPurchaseEnabled(getenv)
+	if err != nil {
+		return nil, errors.New("invalid Mercado Pago wallet purchase configuration")
+	}
+	enabled := strings.TrimSpace(getenv("MERCADOPAGO_CHECKOUT_ENABLED"))
+	if enabled == "" || enabled == "0" {
+		return nil, nil
+	}
+	if enabled != "1" {
+		return nil, errors.New("MERCADOPAGO_CHECKOUT_ENABLED must be 1")
+	}
+	if repo == nil || tokens == nil {
+		return nil, errors.New("Checkout Pro requires commercial quotes and configured seller OAuth")
+	}
+	settings, err := marketplaceoauth.ConfigFromEnv(getenv)
+	if err != nil || settings == nil {
+		return nil, errors.New("Checkout Pro OAuth configuration is unavailable")
+	}
+	if walletPurchaseEnabled && !settings.TestMode {
+		return nil, errors.New("wallet purchase is only enabled in the test environment")
+	}
+	return checkoutpro.New(repo, tokens, gateway, checkoutpro.Config{
+		FrontendOrigin:        strings.TrimSpace(getenv("MERCADOPAGO_RETURN_ORIGIN")),
+		TestMode:              settings.TestMode,
+		WalletPurchaseEnabled: walletPurchaseEnabled,
+		Diagnostics: func(ctx context.Context, d checkoutpro.Diagnostic) {
+			fields := []safelog.Field{safelog.F("stage", d.Stage), safelog.F("reason", d.Reason)}
+			if d.HTTPStatus >= 400 && d.HTTPStatus <= 599 {
+				fields = append(fields, safelog.F("provider_http_status", d.HTTPStatus))
+			}
+			if d.ProviderCode != "" {
+				fields = append(fields, safelog.F("provider_code", d.ProviderCode))
+			}
+			safelog.Warn(ctx, "checkout preference start failed", fields...)
+		},
+	}, time.Now, func() string {
+		id, e := (credentials.Generator{}).ID()
+		if e != nil {
+			return ""
+		}
+		return id
+	})
+}
+
+type checkoutSellerTokenReader interface {
+	AccessToken(context.Context, string) ([]byte, error)
+}
+
+func newCheckoutWebhook(repo *rentalflowpg.Repository, pool *pgxpool.Pool, tokens checkoutSellerTokenReader, getenv func(string) string) (http.Handler, *checkoutpro.PaymentWorker, error) {
+	return newCheckoutWebhookWithProvider(repo, pool, tokens, getenv, &checkoutpro.HTTPGateway{})
+}
+
+func newCheckoutWebhookWithProvider(repo *rentalflowpg.Repository, pool *pgxpool.Pool, tokens checkoutSellerTokenReader, getenv func(string) string, provider checkoutpro.ProviderLookup) (http.Handler, *checkoutpro.PaymentWorker, error) {
+	if repo == nil || pool == nil || tokens == nil || getenv == nil {
+		return nil, nil, errors.New("Checkout Pro webhook dependencies are unavailable")
+	}
+	if provider == nil {
+		return nil, nil, errors.New("Checkout Pro payment provider is unavailable")
+	}
+	secret, err := readMercadoPagoWebhookSecret(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer clear(secret)
+	credentials, err := marketplaceoauthpg.NewSellerCredentialResolver(pool, tokens)
+	if err != nil {
+		return nil, nil, errors.New("Mercado Pago webhook seller credentials are unavailable")
+	}
+	worker, err := checkoutpro.NewPaymentWorker(repo, credentials, provider, repo, time.Now)
+	if err != nil {
+		return nil, nil, errors.New("Mercado Pago webhook worker initialization failed")
+	}
+	receiver, err := checkoutpro.NewWebhookReceiver(secret, repo, time.Now, worker.Notify)
+	if err != nil {
+		return nil, nil, errors.New("Mercado Pago webhook receiver initialization failed")
+	}
+	return receiver, worker, nil
+}
+
+func readMercadoPagoWebhookSecret(getenv func(string) string) ([]byte, error) {
+	if getenv == nil {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if secretPath := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET_FILE")); secretPath != "" {
+		absPath, err := filepath.Abs(secretPath)
+		if err != nil || filepath.Clean(absPath) != absPath {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		info, err := os.Lstat(absPath)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		contents, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+		}
+		defer clear(contents)
+		trimmed := bytes.TrimSpace(contents)
+		if len(trimmed) < 32 {
+			return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+		}
+		secret := make([]byte, len(trimmed))
+		copy(secret, trimmed)
+		return secret, nil
+	}
+	raw := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET"))
+	if raw == "" {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if len(raw) < 32 || len(raw) > 4096 {
+		return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+	}
+	return []byte(raw), nil
 }
 
 func mountProductionAuth(

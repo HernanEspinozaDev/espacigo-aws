@@ -2,6 +2,11 @@ import { clpAmount } from "@/lib/api/clp";
 import { isPublicUuid } from "./media";
 import { parseRentalReturnSelection } from "./availability-return";
 
+export interface MarketplaceBookingInterval {
+  startAt: string;
+  endAt: string;
+}
+
 export interface MarketplaceBookingSelection {
   spaceId: string;
   date: string;
@@ -10,10 +15,11 @@ export interface MarketplaceBookingSelection {
   startAt: string;
   endAt: string;
   timeZone: string;
+  intervals?: readonly MarketplaceBookingInterval[];
 }
 
 const int64Max = BigInt("9223372036854775807");
-const selectionKeys = [
+const requiredSelectionKeys = [
   "spaceId",
   "date",
   "duration",
@@ -23,6 +29,7 @@ const selectionKeys = [
   "time_zone",
   "source",
 ] as const;
+const allowedSelectionKeys = [...requiredSelectionKeys, "intervals"] as const;
 
 export function marketplaceSubtotal(
   basePrice: number | string | null,
@@ -32,7 +39,7 @@ export function marketplaceSubtotal(
     basePrice === null ||
     !Number.isSafeInteger(duration) ||
     duration < 1 ||
-    duration > 4
+    duration > 64
   )
     return null;
   try {
@@ -55,9 +62,40 @@ function validTimeZone(value: string): boolean {
 }
 
 function allowedDuration(rateUnit: string, duration: number): boolean {
-  if (rateUnit === "hora") return [1, 2, 4].includes(duration);
-  if (rateUnit === "dia") return [1, 2, 3].includes(duration);
-  return rateUnit === "mes" && duration === 1;
+  if (!Number.isSafeInteger(duration)) return false;
+  if (rateUnit === "hora") return duration >= 1 && duration <= 64;
+  if (rateUnit === "dia") return duration >= 1 && duration <= 64;
+  return rateUnit === "mes" && duration >= 1 && duration <= 12;
+}
+
+function serializeIntervals(
+  intervals?: readonly MarketplaceBookingInterval[],
+): string | null {
+  if (!intervals || intervals.length === 0) return null;
+  return intervals.map((iv) => `${iv.startAt},${iv.endAt}`).join(";");
+}
+
+function parseIntervalsParam(
+  raw: string | null,
+): MarketplaceBookingInterval[] | null {
+  if (!raw) return null;
+  const parts = raw.split(";").filter(Boolean);
+  if (parts.length === 0 || parts.length > 64) return null;
+  const parsed: MarketplaceBookingInterval[] = [];
+  for (const part of parts) {
+    const [startAt, endAt, extra] = part.split(",");
+    if (!startAt || !endAt || extra !== undefined) return null;
+    const startMs = Date.parse(startAt);
+    const endMs = Date.parse(endAt);
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs <= startMs
+    )
+      return null;
+    parsed.push({ startAt, endAt });
+  }
+  return parsed;
 }
 
 export function marketplaceBookingHref(
@@ -78,6 +116,14 @@ export function marketplaceBookingHref(
   params.set("rate_unit", selection.rateUnit);
   params.set("time_zone", selection.timeZone);
   params.set("source", "marketplace");
+  const serializedIntervals = serializeIntervals(selection.intervals);
+  if (
+    serializedIntervals &&
+    selection.intervals &&
+    selection.intervals.length > 1
+  ) {
+    params.set("intervals", serializedIntervals);
+  }
   if (!parseMarketplaceBookingSelection(params.toString())) return null;
   return `/reservas/nueva?${params.toString()}`;
 }
@@ -86,13 +132,15 @@ export function parseMarketplaceBookingSelection(
   search: string,
 ): MarketplaceBookingSelection | null {
   const raw = search.startsWith("?") ? search.slice(1) : search;
-  if (!raw || raw.length > 2048) return null;
+  if (!raw || raw.length > 4096) return null;
   const params = new URLSearchParams(raw);
   if (
-    params.size !== selectionKeys.length ||
-    selectionKeys.some((key) => params.getAll(key).length !== 1) ||
+    requiredSelectionKeys.some((key) => params.getAll(key).length !== 1) ||
     [...params.keys()].some(
-      (key) => !selectionKeys.includes(key as (typeof selectionKeys)[number]),
+      (key) =>
+        !allowedSelectionKeys.includes(
+          key as (typeof allowedSelectionKeys)[number],
+        ),
     ) ||
     params.get("source") !== "marketplace"
   )
@@ -105,12 +153,18 @@ export function parseMarketplaceBookingSelection(
   const endAt = params.get("end") ?? "";
   const rateUnit = params.get("rate_unit") ?? "";
   const timeZone = params.get("time_zone") ?? "";
+  const rawIntervals = params.get("intervals");
   if (
     !isPublicUuid(spaceId) ||
     !validTimeZone(timeZone) ||
-    !/^[1-4]$/.test(rawDuration)
+    !/^\d{1,2}$/.test(rawDuration)
   )
     return null;
+
+  const parsedIntervals = rawIntervals
+    ? parseIntervalsParam(rawIntervals)
+    : null;
+  if (rawIntervals !== null && !parsedIntervals) return null;
 
   const rental = new URLSearchParams();
   rental.set("rental_date", date);
@@ -127,5 +181,6 @@ export function parseMarketplaceBookingSelection(
     startAt: validated.startAt,
     endAt: validated.endAt,
     timeZone,
+    ...(parsedIntervals ? { intervals: parsedIntervals } : {}),
   };
 }

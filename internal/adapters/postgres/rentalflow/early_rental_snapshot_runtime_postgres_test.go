@@ -51,6 +51,7 @@ func TestPostgresEarlyRentalSnapshotRuntime(t *testing.T) {
 	if err := txDDL.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
+	applyCommercialHoldReadSchemaFixture(t, ctx, dbURL.String(), migrations)
 
 	// One isolated listing is used for the positive and negative calendar reads.
 	ids := earlyInsertIDs()

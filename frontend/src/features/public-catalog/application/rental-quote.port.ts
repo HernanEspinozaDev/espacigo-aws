@@ -1,4 +1,5 @@
 import type {
+  CreateMultiRentalQuoteRequest,
   RentalQuoteRequest,
   RentalQuoteResult,
 } from "../domain/rental-quote";
@@ -6,6 +7,10 @@ import type {
 export interface RentalQuotePort {
   createQuote(
     request: RentalQuoteRequest,
+    signal?: AbortSignal,
+  ): Promise<RentalQuoteResult>;
+  createMultiQuote?(
+    request: CreateMultiRentalQuoteRequest,
     signal?: AbortSignal,
   ): Promise<RentalQuoteResult>;
 }

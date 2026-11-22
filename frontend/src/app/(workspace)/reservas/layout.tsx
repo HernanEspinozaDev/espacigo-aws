@@ -15,5 +15,5 @@ export default function ReservasLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <AccountShell>{children}</AccountShell>;
+  return <AccountShell currentNavPath="/reservas">{children}</AccountShell>;
 }

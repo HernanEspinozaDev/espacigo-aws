@@ -82,12 +82,12 @@ test("rejects invalid, duplicate, unknown and unsafe booking parameters", () => 
     null,
   );
   assert.equal(
-    parseMarketplaceBookingSelection(query.replace("duration=2", "duration=3")),
+    parseMarketplaceBookingSelection(query.replace("duration=2", "duration=0")),
     null,
   );
   assert.equal(
     parseMarketplaceBookingSelection(
-      query.replace("rate_unit=hora", "rate_unit=mes"),
+      query.replace("rate_unit=hora", "rate_unit=semana"),
     ),
     null,
   );

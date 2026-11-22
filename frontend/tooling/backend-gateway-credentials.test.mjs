@@ -145,6 +145,43 @@ test("contract preview without a session is denied before upstream dispatch", as
   assert.equal((await response.json()).error.code, "unauthenticated");
 });
 
+test("Checkout API forwards the tokenized request and idempotency key to Go", async () => {
+  const quoteID = "11111111-1111-4111-8111-111111111111";
+  const key = "22222222-2222-4222-8222-222222222222";
+  const path = ["rental-quotes", quoteID, "checkout-api"];
+  const payload = {
+    token: "synthetic-card-token",
+    payment_method_id: "master",
+    payer: { email: "buyer@example.test" },
+  };
+  let calls = 0;
+  globalThis.fetch = async (url, options) => {
+    calls++;
+    assert.equal(new URL(url).pathname, `/api/v1/${path.join("/")}`);
+    assert.equal(
+      options.headers.get("authorization"),
+      "Bearer synthetic-opaque-token",
+    );
+    assert.equal(options.headers.get("idempotency-key"), key);
+    assert.equal(options.headers.has("cookie"), false);
+    assert.deepEqual(await new Response(options.body).json(), payload);
+    return Response.json({
+      data: { quote_id: quoteID, amount_clp: 12000, status: "pending" },
+    });
+  };
+  const response = await POST(
+    requestWithSession(`https://127.0.0.1:3000/api/backend/${path.join("/")}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify(payload),
+    }),
+    { params: Promise.resolve({ path }) },
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).data.status, "pending");
+  assert.equal(calls, 1);
+});
+
 test("all six document operations forward Bearer without browser credentials", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const fileID = "22222222-2222-4222-8222-222222222222";
@@ -404,6 +441,98 @@ test("BFF preserves upstream auth and CAS statuses without exposing text errors"
     const body = await response.text();
     assert.match(body, /"code":"upstream_error"/);
     assert.doesNotMatch(body, /private backend detail/);
+  }
+});
+
+test("BFF preserves only the allowlisted checkout 503 code for preference start", async () => {
+  const quoteID = "11111111-1111-4111-8111-111111111111";
+  const scenarios = [
+    {
+      path: ["rental-quotes", quoteID, "checkout"],
+      method: "POST",
+      code: "payment_method_unavailable",
+      want: "payment_method_unavailable",
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout"],
+      method: "POST",
+      code: "checkout_not_configured",
+      want: "checkout_not_configured",
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout"],
+      method: "POST",
+      code: "checkout_unavailable",
+      want: "upstream_error",
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout"],
+      method: "GET",
+      code: "payment_method_unavailable",
+      want: "upstream_error",
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout-api"],
+      method: "POST",
+      code: "checkout_not_configured",
+      want: "checkout_not_configured",
+      body: JSON.stringify({ token: "tok_test" }),
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout-api"],
+      method: "POST",
+      code: "payment_method_unavailable",
+      want: "payment_method_unavailable",
+      body: JSON.stringify({ token: "tok_test" }),
+    },
+    {
+      path: ["rental-quotes", quoteID, "checkout-api"],
+      method: "POST",
+      code: "checkout_unavailable",
+      want: "upstream_error",
+      body: JSON.stringify({ token: "tok_test" }),
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    globalThis.fetch = async () =>
+      Response.json(
+        {
+          error: {
+            code: scenario.code,
+            message: "private backend diagnostic must not escape",
+            details: [
+              { field: "internal-stage", code: "provider_token_fetch" },
+            ],
+          },
+        },
+        { status: 503 },
+      );
+    const handler = scenario.method === "POST" ? POST : GET;
+    const headers =
+      scenario.method === "POST"
+        ? {
+            "Idempotency-Key": "synthetic-checkout-key",
+            ...(scenario.body ? { "Content-Type": "application/json" } : {}),
+          }
+        : undefined;
+    const response = await handler(
+      requestWithSession(
+        `http://127.0.0.1:3000/api/backend/${scenario.path.join("/")}`,
+        {
+          method: scenario.method,
+          headers,
+          body: scenario.body,
+        },
+      ),
+      { params: Promise.resolve({ path: scenario.path }) },
+    );
+
+    assert.equal(response.status, 503);
+    const body = await response.text();
+    assert.match(body, new RegExp(`\\"code\\":\\"${scenario.want}\\"`));
+    assert.doesNotMatch(body, /private backend diagnostic/);
+    assert.doesNotMatch(body, /provider_token_fetch|internal-stage/);
   }
 });
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { SyntheticPayoutCard } from "@/features/account/ui/synthetic-payout-card";
+import { MercadoPagoConnectionCard } from "@/features/host-payments/ui/mercado-pago-connection-card";
 
 export const metadata: Metadata = {
   title: "Cuenta de cobro | Mi Cuenta | EspaciGo",
@@ -40,7 +40,7 @@ export default function CobrosPage() {
         </p>
       </div>
 
-      <SyntheticPayoutCard />
+      <MercadoPagoConnectionCard callback={null} />
     </div>
   );
 }

@@ -54,6 +54,7 @@ export const ALLOWED_TRANSITIONS: Readonly<
   vencida_pago: [],
   vencida_host: [],
   cancelada_arrendatario: [],
+  reconciliation_required: [],
 };
 
 export function canTransitionBooking(

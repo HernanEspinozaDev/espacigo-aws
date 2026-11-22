@@ -11,6 +11,7 @@ func mountPublicRentalAvailabilityRoute(mux *http.ServeMux, handler http.Handler
 		return errors.New("public rental availability dependencies are unavailable")
 	}
 	mux.Handle("/api/v1/spaces/{spaceID}/rental-availability", handler)
+	mux.Handle("/api/v1/spaces/{spaceID}/rental-schedule", handler)
 	return nil
 }
 
@@ -19,8 +20,11 @@ func mountCommercialRentalFlowRoutes(mux *http.ServeMux, handler http.Handler) e
 		return errors.New("commercial rental route dependencies are unavailable")
 	}
 	mux.Handle("/api/v1/spaces/{spaceID}/rental-availability", handler)
+	mux.Handle("/api/v1/spaces/{spaceID}/rental-schedule", handler)
 	mux.Handle("/api/v1/rental-quotes", handler)
 	mux.Handle("/api/v1/rental-quotes/", handler)
+	mux.Handle("/api/v1/commercial-reservations", handler)
+	mux.Handle("/api/v1/commercial-reservations/", handler)
 	return nil
 }
 

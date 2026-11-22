@@ -64,7 +64,9 @@ export function parseRentalReturnSelection(
   const end = timestampMilliseconds(endAt);
   if (
     !isCivilDate(date) ||
-    !/^[1-4]$/.test(rawDuration) ||
+    !/^\d{1,2}$/.test(rawDuration) ||
+    Number(rawDuration) < 1 ||
+    Number(rawDuration) > 64 ||
     start === null ||
     end === null ||
     end <= start

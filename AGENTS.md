@@ -4,10 +4,11 @@
 
 | Rama | Entorno | Operación |
 | --- | --- | --- |
+| `codex/marketplace/feature/pagos-1-modulo-pagos` | Entorno local | Rama de trabajo del módulo de pagos, creada desde `origin/desarrollo-local`. Se integra a `desarrollo-local`. |
 | `desarrollo-local` | AWS Emulator, PostgreSQL y Mailpit locales | Cambios de código e infraestructura, fixtures y pruebas de desarrollo. |
 | `main` | Producción en AWS real | Recibe commits probados de `desarrollo-local` mediante promoción explícita del usuario. La CI y CodePipeline publican automáticamente el SHA integrado cuando pasan las comprobaciones. |
 
-1. Trabaja y prueba en `desarrollo-local` con Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
+1. Desarrolla y prueba los cambios de cada módulo en su rama y worktree aislados. Cuando el módulo esté completo y probado, intégralo en `desarrollo-local` y ejecuta allí las comprobaciones de integración. Usa Conventional Commits. Separa en commits los cambios de aplicación compartidos, los exclusivos del entorno local y los de configuración de AWS. Promueve a `main` sólo los cambios que el usuario autorice expresamente y que hayan pasado las comprobaciones correspondientes.
 2. Ejecuta `scripts/local-dev.sh` y usa credenciales del emulador sólo para desarrollo local. Mantén `.local/`, dumps, tokens y llaves fuera de Git.
 3. GitHub Actions ejecuta la CI de `main`. Si `release-ready` aprueba el SHA vigente, el workflow avanza la referencia técnica `publicacion-aws`. Sólo el workflow debe actualizar esa rama. CodePipeline detecta el cambio mediante CodeConnections, valida el mismo SHA, publica imágenes, verifica migraciones y despliega. Mantén desactivado el job de despliegue OIDC en el proyecto administrado mientras la SCP bloquee los proveedores IAM. Para operaciones humanas, usa AWS CLI v2 con `aws login` y un perfil de producción explícito en la Región seleccionada. Mantén las sesiones, los endpoints y los secretos separados de los del emulador.
 4. Mantén Go en AWS SDK v2. Usa endpoint local y `UsePathStyle` para S3 emulado. Usa la resolución estándar de AWS para producción. Conserva la arquitectura AWS del repositorio.
@@ -15,16 +16,27 @@
 6. Mantén las funciones de ensayo y los datos sintéticos en el entorno local. La demo de arriendo usa un pago simulado. El despliegue de presentación puede habilitar el modo acotado, que exige una pareja de cuentas autenticadas y un espacio identificado en la configuración de la tarea ECS. Las credenciales, cuentas sintéticas y fixtures locales quedan fuera de Git.
 7. Sigue el [plan de despliegue y CI/CD](docs/operations/aws-production-deployment.md) para preparar el destino de AWS, activar el pipeline y recuperar un despliegue.
 
+### Flujo del módulo de pagos
+
+Crea y mantén la rama `codex/marketplace/feature/pagos-1-modulo-pagos` a partir de `origin/desarrollo-local` en un worktree aislado. Desarrolla y prueba el módulo en esa rama; intégralo en `desarrollo-local` sólo cuando esté completo y haya pasado sus comprobaciones. Usa `desarrollo-local` como destino de integración en GitHub. Una vez integrado el módulo, ejecuta las comprobaciones de integración en `desarrollo-local`. La promoción de los commits aprobados desde `desarrollo-local` a `main` requiere autorización explícita del usuario. Si abres un PR para el módulo, selecciona `desarrollo-local` como base.
+
+Consulta la [guía de Mercado Pago Chile](docs/operations/mercado-pago-chile.md) para preparar el entorno de prueba.
+
 ### Alcance de una promoción a `main`
 
-- En una entrega de aplicación, promueve el código compartido y las migraciones aprobadas. Los cambios de `scripts/local-dev.sh`, `scripts/iniciar-local.sh`, `infra/terraform/environments/local-emulator/`, la configuración del emulador, Mailpit y los datos de demostración se quedan en `desarrollo-local`.
+- En una entrega de aplicación, promueve el código compartido y las migraciones aprobadas. Los cambios de `scripts/local-dev.sh`, `scripts/local-aws-bootstrap.sh`, `scripts/iniciar-local.sh`, la configuración del emulador, Mailpit y los datos de demostración se quedan en `desarrollo-local`.
 - Crea y prueba las migraciones en `desarrollo-local`. Promueve cada SQL junto con su clasificación en `db/release-policy.json`. El despliegue en AWS ejecuta y verifica las migraciones aprobadas antes de actualizar la aplicación. La carga inicial de RDS contiene el esquema y catálogos de referencia.
 - Desde V101, crea y modifica objetos ordinarios con `espacigo_migrator_login` en sesión y `espacigo_schema_owner` como rol efectivo y propietario. Promueve el mismo archivo SQL probado localmente. Para un objeto histórico con dueño distinto, revisa y prepara una transferencia puntual que preserve sus permisos antes de cambiarlo. Conserva los dueños específicos de extensiones, objetos gestionados por PostgreSQL y funciones con autoridad propia.
-- La configuración de AWS en `main` se conserva en las entregas de aplicación. Los cambios a `infra/terraform/environments/aws-main/`, al pipeline o al script de despliegue requieren una promoción explícita de infraestructura. Incluye en esa revisión cualquier cambio a módulos compartidos de Terraform que afecte a producción. Guarda los secretos en AWS Secrets Manager o en el entorno local correspondiente, fuera de Git.
+- La configuración de AWS en `main` se conserva en las entregas de aplicación. Los cambios a `infra/cloudformation/`, al pipeline o al script de despliegue requieren una promoción explícita de infraestructura. Guarda los secretos en AWS Secrets Manager o en el entorno local correspondiente, fuera de Git.
 - Antes de publicar, parte de `origin/main` actualizado y revisa el diff completo del candidato. Usa fast-forward únicamente si todos los commits incluidos corresponden a la entrega aprobada. Si la rama mezcla cambios locales y compartidos, incorpora sólo los commits compartidos aprobados mediante `cherry-pick`. Si un commit mezcla ambos tipos de cambios, sepáralos antes de promoverlo. Valida el candidato resultante antes de publicar `main`.
 - Con el repositorio privado actual puedes publicar directamente la promoción aprobada. Un PR desde `desarrollo-local` es opcional si su diff contiene sólo cambios autorizados. Si GitHub exige PR y hay cambios locales en el diff, detén el pase hasta preparar una rama de promoción limpia compatible con las comprobaciones de GitHub. Sigue trabajando en `desarrollo-local` después de la entrega.
 
 ---
+
+### Cloudflare para pruebas locales
+
+- Usa el MCP oficial de Cloudflare API con Code Mode (`cloudflare`, `https://mcp.cloudflare.com/mcp`) como opción predeterminada para consultar y administrar Cloudflare desde Codex. Autentica por OAuth en la cuenta de `testingpage.store`.
+- El conector local `cloudflared` mantiene activo el túnel de `prueba-mercadopago.testingpage.store`. Para incidentes de conectividad, comprueba el proceso local y la ruta pública `/api/ready`. Usa Wrangler para los flujos de Workers que lo requieran.
 
 ## 1. Entorno de desarrollo con `aws-emulator`
 
@@ -102,5 +114,12 @@ El script [`scripts/local-dev.sh`](./scripts/local-dev.sh) es la herramienta cen
 # 5. Iniciar servidor Next.js
 ./scripts/local-dev.sh web
 ```
+
+### Reinicio después de cambios grandes
+
+- Después de cambios grandes en Next o Go que deban verse por el túnel público, ejecuta `scripts/reiniciar-local-fondo.sh`. El script compila Next en un directorio aislado, prueba el acceso en Chromium y recién después reinicia las instancias locales. Si el build o la prueba de navegador falla, conserva el sitio que ya estaba activo.
+- El reinicio mantiene PostgreSQL y el túnel de Cloudflare, conserva habilitado el modo local de prueba y valida Go, Next, el túnel y la página `/acceso`. Comprueba el flujo cambiado en un navegador nuevo antes de continuar.
+- El túnel público sirve la versión compilada de Next para evitar recargas repetidas del servidor de desarrollo y sus actualizaciones HMR. Usa `scripts/local-dev.sh web` para desarrollo interactivo local.
+- No consideres el sitio estable basándote solo en HTTP 200. Observa la página afectada en el navegador y verifica que no navegue o se recargue repetidamente.
 
 ---

@@ -66,7 +66,7 @@ export function PublicSpaceMarketplaceLayout({
 
   return (
     <>
-      <div className="lg:grid lg:grid-cols-12 lg:items-start lg:gap-6 xl:gap-8">
+      <div className="pb-36 lg:grid lg:grid-cols-12 lg:items-start lg:gap-6 lg:pb-0 xl:gap-8">
         <div className="min-w-0 lg:col-span-4 space-y-6">
           {summary}
           {summaryAside ?? (
@@ -83,7 +83,7 @@ export function PublicSpaceMarketplaceLayout({
         </div>
         <div className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">{gallery}</div>
       </div>
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 p-3 backdrop-blur shadow-lg lg:hidden">
+      <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--brand-border)] bg-background/95 px-3 py-2 backdrop-blur shadow-lg lg:hidden">
         <PublicSpaceBookingCta
           mobile
           selection={selection}

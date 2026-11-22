@@ -97,16 +97,22 @@ func (r *Repository) IntervalAvailable(ctx context.Context, listing rentalflow.L
     SELECT 1 FROM public.ocupacion
     WHERE espacio_id = $1 AND activo AND intervalo && tstzrange($2, $3, '[)')
 )`
+	const holds = `SELECT NOT EXISTS (SELECT 1 FROM public.checkout_preferencia_comercial c JOIN public.cotizacion_arriendo_comercial q ON q.id=c.cotizacion_id WHERE c.espacio_id=$1 AND c.estado IN ('pending','reconciliation_required') AND (c.estado='reconciliation_required' OR c.vence_en>$4) AND q.inicio<$3 AND $2<q.termino)`
 	var available bool
 	err = r.db.QueryRow(ctx, q, listing.ID, interval.StartAt, interval.EndAt).Scan(&available)
 	if err != nil {
 		return false, err
 	}
-	return available, nil
+	var holdAvailable bool
+	err = r.db.QueryRow(ctx, holds, listing.ID, interval.StartAt, interval.EndAt, r.now().UTC()).Scan(&holdAvailable)
+	if err != nil {
+		return false, err
+	}
+	return available && holdAvailable, nil
 }
 
-func (r *Repository) PublicIntervals(ctx context.Context, listing rentalflow.Listing, dateText string, duration int) ([]rentalflow.Interval, error) {
-	if r == nil || ctx == nil || strings.TrimSpace(listing.ID) == "" || !rentalflow.ValidDuration(listing.RateUnit, duration) {
+func (r *Repository) candidateIntervals(ctx context.Context, listing rentalflow.Listing, dateText string, duration int) ([]rentalflow.Interval, error) {
+	if r == nil || ctx == nil || strings.TrimSpace(listing.ID) == "" || !rentalflow.ValidFlexibleDuration(listing.RateUnit, duration) {
 		return nil, rentalflow.ErrInvalid
 	}
 	loc, err := time.LoadLocation(listing.TimeZone)
@@ -172,6 +178,14 @@ SELECT jsonb_agg(jsonb_build_object('weekday',d.weekday,'periods',COALESCE((SELE
 	} else {
 		return nil, rentalflow.ErrInvalid
 	}
+	return candidates, nil
+}
+
+func (r *Repository) PublicIntervals(ctx context.Context, listing rentalflow.Listing, dateText string, duration int) ([]rentalflow.Interval, error) {
+	candidates, err := r.candidateIntervals(ctx, listing, dateText, duration)
+	if err != nil {
+		return nil, err
+	}
 	starts := make([]time.Time, len(candidates))
 	ends := make([]time.Time, len(candidates))
 	for i, candidate := range candidates {
@@ -189,12 +203,19 @@ SELECT jsonb_agg(jsonb_build_object('weekday',d.weekday,'periods',COALESCE((SELE
         WHERE o.espacio_id=$1 AND o.activo
           AND o.intervalo && tstzrange(c.start_at, c.end_at, '[)')
     )
+      AND NOT EXISTS (
+        SELECT 1 FROM public.checkout_preferencia_comercial p
+        JOIN public.cotizacion_arriendo_comercial q ON q.id=p.cotizacion_id
+        LEFT JOIN public.cotizacion_arriendo_tramo t ON t.cotizacion_id=q.id
+        WHERE p.espacio_id=$1 AND p.estado IN ('pending','reconciliation_required') AND (p.estado='reconciliation_required' OR p.vence_en>$4)
+          AND COALESCE(t.inicio, q.inicio) < c.end_at AND c.start_at < COALESCE(t.termino, q.termino)
+      )
 )
 SELECT COALESCE(array_agg(start_at ORDER BY ordinal), ARRAY[]::timestamptz[]),
        COALESCE(array_agg(end_at ORDER BY ordinal), ARRAY[]::timestamptz[])
 FROM available`
 	var availableStarts, availableEnds []time.Time
-	if err = r.db.QueryRow(ctx, occupancySQL, listing.ID, starts, ends).Scan(&availableStarts, &availableEnds); err != nil {
+	if err = r.db.QueryRow(ctx, occupancySQL, listing.ID, starts, ends, r.now().UTC()).Scan(&availableStarts, &availableEnds); err != nil {
 		return nil, err
 	}
 	if len(availableStarts) != len(availableEnds) {
@@ -227,6 +248,88 @@ FROM available`
 		}
 	}
 	return filtered, nil
+}
+
+// PublicScheduleSlots returns all candidate intervals for the requested date with
+// their current occupancy status ("available", "held", or "booked") so calendars
+// can render occupied and in-progress slots as disabled instead of hiding them.
+func (r *Repository) PublicScheduleSlots(ctx context.Context, listing rentalflow.Listing, dateText string, duration int) ([]rentalflow.ScheduleSlot, error) {
+	candidates, err := r.candidateIntervals(ctx, listing, dateText, duration)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	starts := make([]time.Time, len(candidates))
+	ends := make([]time.Time, len(candidates))
+	first, last := candidates[0].StartAt, candidates[0].EndAt
+	for i, candidate := range candidates {
+		starts[i] = candidate.StartAt
+		ends[i] = candidate.EndAt
+		if candidate.StartAt.Before(first) {
+			first = candidate.StartAt
+		}
+		if candidate.EndAt.After(last) {
+			last = candidate.EndAt
+		}
+	}
+	policy, err := r.readCalendarRestrictions(ctx, listing, first, last)
+	if err != nil {
+		return nil, err
+	}
+	const slotsSQL = `WITH candidates AS (
+    SELECT start_at, end_at, ordinal
+    FROM unnest($2::timestamptz[], $3::timestamptz[]) WITH ORDINALITY AS c(start_at, end_at, ordinal)
+)
+SELECT c.start_at,
+       c.end_at,
+       CASE
+           WHEN EXISTS (
+               SELECT 1 FROM public.ocupacion o
+               WHERE o.espacio_id=$1 AND o.activo
+                 AND o.tipo IN ('reserva', 'reserva_comercial', 'reserva_temprana', 'bloqueo_manual')
+                 AND o.intervalo && tstzrange(c.start_at, c.end_at, '[)')
+           ) THEN 'booked'
+           WHEN EXISTS (
+               SELECT 1 FROM public.ocupacion o
+               WHERE o.espacio_id=$1 AND o.activo
+                 AND o.tipo IN ('retencion', 'retencion_comercial', 'retencion_temprana')
+                 AND o.intervalo && tstzrange(c.start_at, c.end_at, '[)')
+           ) OR EXISTS (
+               SELECT 1 FROM public.checkout_preferencia_comercial p
+               JOIN public.cotizacion_arriendo_comercial q ON q.id=p.cotizacion_id
+               LEFT JOIN public.cotizacion_arriendo_tramo t ON t.cotizacion_id=q.id
+               WHERE p.espacio_id=$1 AND p.estado IN ('pending','reconciliation_required')
+                 AND (p.estado='reconciliation_required' OR p.vence_en>$4)
+                 AND COALESCE(t.inicio, q.inicio) < c.end_at AND c.start_at < COALESCE(t.termino, q.termino)
+           ) THEN 'held'
+           ELSE 'available'
+       END AS status
+FROM candidates c
+ORDER BY c.ordinal`
+	rows, err := r.db.Query(ctx, slotsSQL, listing.ID, starts, ends, r.now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	slots := make([]rentalflow.ScheduleSlot, 0, len(candidates))
+	for rows.Next() {
+		var slot rentalflow.ScheduleSlot
+		var status string
+		if err = rows.Scan(&slot.StartAt, &slot.EndAt, &status); err != nil {
+			return nil, err
+		}
+		if !policy.allows(listing, rentalflow.Interval{StartAt: slot.StartAt, EndAt: slot.EndAt}) {
+			status = string(rentalflow.SlotBooked)
+		}
+		slot.Status = rentalflow.SlotStatus(status)
+		slots = append(slots, slot)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return slots, nil
 }
 
 func (r *Repository) CreateValidatedQuote(
@@ -342,6 +445,9 @@ func (r *Repository) CreateValidatedQuote(
 	if err != nil {
 		return rentalflow.Quote{}, err
 	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_tramo (id, cotizacion_id, inicio, termino, unidades, orden) VALUES ($1, $2, $3, $4, $5, 1)`, r.newID(), quoteID, interval.StartAt, interval.EndAt, units); err != nil {
+		return rentalflow.Quote{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return rentalflow.Quote{}, err
 	}
@@ -366,21 +472,241 @@ func (r *Repository) CreateValidatedQuote(
 	}, nil
 }
 
+func (r *Repository) CreateMultiValidatedQuote(
+	ctx context.Context,
+	renterID string,
+	listing rentalflow.Listing,
+	intervals []rentalflow.QuoteInterval,
+	totalUnits int64,
+	subtotal int64,
+	createdAt time.Time,
+) (rentalflow.MultiQuote, error) {
+	if r == nil || ctx == nil || strings.TrimSpace(renterID) == "" || strings.TrimSpace(listing.ID) == "" || createdAt.IsZero() || len(intervals) == 0 {
+		return rentalflow.MultiQuote{}, rentalflow.ErrInvalid
+	}
+	if renterID == listing.OwnerID {
+		return rentalflow.MultiQuote{}, rentalflow.ErrConflict
+	}
+	if r.beginner == nil {
+		return rentalflow.MultiQuote{}, rentalflow.ErrUnavailable
+	}
+	createdAt = createdAt.UTC()
+	if createdAt.After(r.now().UTC()) {
+		return rentalflow.MultiQuote{}, rentalflow.ErrInvalid
+	}
+	if totalUnits <= 0 || listing.UnitPriceCLP <= 0 || totalUnits > int64(^uint64(0)>>1)/listing.UnitPriceCLP || subtotal != listing.UnitPriceCLP*totalUnits {
+		return rentalflow.MultiQuote{}, rentalflow.ErrInvalid
+	}
+
+	tx, err := r.beginner.Begin(ctx)
+	if err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	txRepo := &Repository{db: tx, now: r.now, newID: r.newID}
+	if err := accountlock.LockAccountIDs(ctx, tx, renterID, listing.OwnerID); err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+	for _, participantID := range []string{renterID, listing.OwnerID} {
+		var accountState string
+		var administrativelyBlocked bool
+		err = tx.QueryRow(ctx, `SELECT u.estado, EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id)
+			FROM public.usuario u WHERE u.id=$1`, participantID).Scan(&accountState, &administrativelyBlocked)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return rentalflow.MultiQuote{}, rentalflow.ErrNotFound
+		}
+		if err != nil {
+			return rentalflow.MultiQuote{}, err
+		}
+		if accountState != "activo" || administrativelyBlocked {
+			return rentalflow.MultiQuote{}, rentalflow.ErrNotFound
+		}
+	}
+	var lockedSpaceID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE id=$1 AND estado='activa' FOR SHARE`, listing.ID).Scan(&lockedSpaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return rentalflow.MultiQuote{}, rentalflow.ErrNotFound
+	}
+	if err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+	currentListing, err := txRepo.PublicListing(ctx, listing.ID)
+	if err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+	if currentListing != listing {
+		return rentalflow.MultiQuote{}, rentalflow.ErrConflict
+	}
+	location, err := time.LoadLocation(currentListing.TimeZone)
+	if err != nil {
+		return rentalflow.MultiQuote{}, rentalflow.ErrInvalid
+	}
+	for _, iv := range intervals {
+		dateText := iv.StartAt.In(location).Format("2006-01-02")
+		available, availErr := txRepo.PublicIntervals(ctx, currentListing, dateText, int(iv.Units))
+		if availErr != nil {
+			return rentalflow.MultiQuote{}, availErr
+		}
+		found := false
+		for _, candidate := range available {
+			if candidate.StartAt.Equal(iv.StartAt) && candidate.EndAt.Equal(iv.EndAt) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return rentalflow.MultiQuote{}, rentalflow.ErrConflict
+		}
+	}
+
+	expiresAt := createdAt.Add(rentalflow.QuoteLifetime)
+	quoteID := r.newID()
+	overallStart := intervals[0].StartAt
+	overallEnd := intervals[len(intervals)-1].EndAt
+	const insertQ = `INSERT INTO public.cotizacion_arriendo_comercial (
+	    id, espacio_id, propietario_id, arrendatario_id, titulo_espacio,
+	    tarifa_version, modalidad, precio_unitario_clp, moneda,
+	    unidades, subtotal_clp, inicio, termino, zona_horaria, creada_en, vence_en
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+	_, err = tx.Exec(ctx, insertQ,
+		quoteID, listing.ID, listing.OwnerID, renterID, listing.Title,
+		listing.RateVersion, listing.RateUnit, listing.UnitPriceCLP, listing.Currency,
+		totalUnits, subtotal, overallStart, overallEnd, listing.TimeZone,
+		createdAt, expiresAt,
+	)
+	if err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+	for idx, iv := range intervals {
+		if _, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_tramo (id, cotizacion_id, inicio, termino, unidades, orden) VALUES ($1, $2, $3, $4, $5, $6)`, r.newID(), quoteID, iv.StartAt, iv.EndAt, iv.Units, idx+1); err != nil {
+			return rentalflow.MultiQuote{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
+
+	return rentalflow.MultiQuote{
+		Quote: rentalflow.Quote{
+			ID:           quoteID,
+			SpaceID:      listing.ID,
+			OwnerID:      listing.OwnerID,
+			RenterID:     renterID,
+			SpaceTitle:   listing.Title,
+			RateVersion:  listing.RateVersion,
+			RateUnit:     listing.RateUnit,
+			UnitPriceCLP: listing.UnitPriceCLP,
+			Currency:     listing.Currency,
+			Units:        totalUnits,
+			SubtotalCLP:  subtotal,
+			StartAt:      overallStart,
+			EndAt:        overallEnd,
+			TimeZone:     listing.TimeZone,
+			CreatedAt:    createdAt,
+			ExpiresAt:    expiresAt,
+		},
+		Intervals: intervals,
+	}, nil
+}
+
+func (r *Repository) GetQuoteIntervals(ctx context.Context, quoteID string) ([]rentalflow.QuoteInterval, error) {
+	if r == nil || r.db == nil || ctx == nil || !rentalflow.ValidUUID(quoteID) {
+		return nil, rentalflow.ErrInvalid
+	}
+	rows, err := r.db.Query(ctx, `SELECT inicio, termino, unidades FROM public.cotizacion_arriendo_tramo WHERE cotizacion_id=$1::uuid ORDER BY orden`, quoteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var intervals []rentalflow.QuoteInterval
+	for rows.Next() {
+		var iv rentalflow.QuoteInterval
+		if scanErr := rows.Scan(&iv.StartAt, &iv.EndAt, &iv.Units); scanErr != nil {
+			return nil, scanErr
+		}
+		iv.StartAt = iv.StartAt.UTC()
+		iv.EndAt = iv.EndAt.UTC()
+		intervals = append(intervals, iv)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return intervals, nil
+}
+
 func (r *Repository) PurgeExpiredCommercialQuotes(ctx context.Context, at time.Time, limit int) (int64, error) {
 	if r == nil || ctx == nil || at.IsZero() || limit < 1 || limit > 500 {
 		return 0, rentalflow.ErrInvalid
 	}
+	if r.beginner == nil {
+		// Read-only compositions may still purge unreferenced quotes; checkout
+		// expiry transitions and hold release run only in the transactional worker.
+		const q = `WITH due AS (
+SELECT q.id FROM public.cotizacion_arriendo_comercial q WHERE q.vence_en<=$1
+AND NOT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c WHERE c.cotizacion_id=q.id AND c.estado IN ('pending','approved','reconciliation_required'))
+AND NOT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial r WHERE r.cotizacion_id=q.id)
+ORDER BY vence_en,id LIMIT $2)
+DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
+		tag, err := r.db.Exec(ctx, q, at.UTC(), limit)
+		if err != nil {
+			return 0, err
+		}
+		return tag.RowsAffected(), nil
+	}
+	tx, err := r.beginner.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	rows, err := tx.Query(ctx, `WITH due AS (SELECT id FROM public.checkout_preferencia_comercial WHERE estado='pending' AND vence_en<=$1 ORDER BY vence_en,id LIMIT $2 FOR UPDATE SKIP LOCKED) UPDATE public.checkout_preferencia_comercial c SET estado='expired',actualizada_en=$1 FROM due WHERE c.id=due.id RETURNING c.id::text`, at.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	var expiredIDs []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		expiredIDs = append(expiredIDs, id)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+	for _, id := range expiredIDs {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='vencida_pago',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado='pendiente_de_pago'`, id, at.UTC()); err != nil {
+			return 0, err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND activo`, id, at.UTC()); err != nil {
+			return 0, err
+		}
+		if err = enqueueCheckoutPaymentNotices(ctx, tx, id, "expired", at.UTC()); err != nil {
+			return 0, err
+		}
+	}
 	const q = `WITH due AS (
-	SELECT id FROM public.cotizacion_arriendo_comercial
-	WHERE vence_en <= $1
+	SELECT q.id FROM public.cotizacion_arriendo_comercial q
+	WHERE q.vence_en <= $1
+	  AND NOT EXISTS (
+	    SELECT 1 FROM public.checkout_preferencia_comercial c
+	    WHERE c.cotizacion_id=q.id
+	      AND c.estado IN ('pending','approved','reconciliation_required')
+	  )
+	  AND NOT EXISTS (SELECT 1 FROM public.reserva_arriendo_comercial r WHERE r.cotizacion_id=q.id)
 	ORDER BY vence_en,id
 	LIMIT $2
 )
 DELETE FROM public.cotizacion_arriendo_comercial q
 USING due
 WHERE q.id=due.id`
-	tag, err := r.db.Exec(ctx, q, at.UTC(), limit)
+	tag, err := tx.Exec(ctx, q, at.UTC(), limit)
 	if err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return 0, err
 	}
 	return tag.RowsAffected(), nil

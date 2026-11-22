@@ -1,0 +1,639 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EspaciGo AWS Production - Capa de Red, Seguridad, RDS PostgreSQL 18 y Buckets S3.
+  Los recursos con estado (RDS, S3, VPC) usan DeletionPolicy Retain para adopcion
+  segura via CloudFormation Resource Import sin perdida de datos.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - staging
+    Description: Ambiente de despliegue.
+
+  RdsInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: Clase de computo para Amazon RDS PostgreSQL 18.
+
+  PublicTlsCertificateArn:
+    Type: String
+    Default: ''
+    Description: ARN del certificado ACM emitido en la region. Vacio omite la regla 443 del NLB.
+
+  EnablePersistentSecretsManagerEndpoint:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Habilita el VPC Endpoint privado de Secrets Manager para tareas ECS.
+
+Conditions:
+  HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
+  EnableSecretsManagerEndpoint: !Equals [!Ref EnablePersistentSecretsManagerEndpoint, 'true']
+
+Resources:
+  # ============================================================================
+  # 1. VPC, Subredes y Ruteo
+  # ============================================================================
+  MainVPC:
+    Type: AWS::EC2::VPC
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-vpc-${Environment}
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: ManagedBy
+          Value: cloudformation
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-igw-${Environment}
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.20.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-public-subnet-1-${Environment}
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.20.10.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-private-subnet-1-${Environment}
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.20.11.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-private-subnet-2-${Environment}
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-public-rt-${Environment}
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-private-rt-${Environment}
+
+  PrivateSubnet1RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnet2RouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ============================================================================
+  # 2. Security Groups
+  # ============================================================================
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub espacigo-nlb-sg-${Environment}
+      GroupDescription: Security group del balanceador TLS de EspaciGo
+      VpcId: !Ref MainVPC
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-nlb-sg-${Environment}
+
+  EcsTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub espacigo-ecs-task-sg-${Environment}
+      GroupDescription: Reglas de trafico para la tarea ECS Fargate (Next.js + Go API)
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - Description: Next.js solo desde el balanceador
+          IpProtocol: tcp
+          FromPort: 4000
+          ToPort: 4000
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - Description: Salida sujeta a las rutas de la subred privada
+          IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-ecs-task-sg-${Environment}
+
+  LoadBalancerTlsIngressRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasPublicTls
+    Properties:
+      GroupId: !Ref LoadBalancerSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+
+  LoadBalancerToWebEgressRule:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref LoadBalancerSecurityGroup
+      Description: Trafico y health check de Next.js
+      IpProtocol: tcp
+      FromPort: 4000
+      ToPort: 4000
+      DestinationSecurityGroupId: !Ref EcsTaskSecurityGroup
+
+  RdsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub espacigo-rds-sg-${Environment}
+      GroupDescription: Permitir PostgreSQL 5432 solo desde la tarea ECS
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - Description: PostgreSQL desde tarea ECS
+          IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-rds-sg-${Environment}
+
+  ServiceEndpointsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub espacigo-service-endpoints-sg-${Environment}
+      GroupDescription: HTTPS privado desde las tareas ECS a los endpoints de AWS
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - Description: HTTPS desde tareas ECS
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-service-endpoints-sg-${Environment}
+
+  NatSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub espacigo-nat-sg-${Environment}
+      GroupDescription: NAT instance for private ECS outbound SMTP/HTTPS
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: '-1'
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-nat-sg-${Environment}
+
+  # ============================================================================
+  # 3. Instancia NAT (t4g.micro AL2023) y VPC Endpoints
+  # ============================================================================
+  NatInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64}}'
+      InstanceType: t4g.micro
+      SourceDestCheck: false
+      MetadataOptions:
+        HttpTokens: required
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          SubnetId: !Ref PublicSubnet1
+          AssociatePublicIpAddress: true
+          GroupSet:
+            - !Ref NatSecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -euo pipefail
+          dnf install -y iptables-nft
+          sysctl -w net.ipv4.ip_forward=1
+          echo 'net.ipv4.ip_forward = 1' > /etc/sysctl.d/99-nat.conf
+          iface=$(ip route show default | awk '{print $5; exit}')
+          iptables -t nat -C POSTROUTING -o "$iface" -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -o "$iface" -j MASQUERADE
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-nat-${Environment}
+
+  PrivateNatRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId: !Ref NatInstance
+
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref ServiceEndpointsSecurityGroup
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref ServiceEndpointsSecurityGroup
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref ServiceEndpointsSecurityGroup
+
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: EnableSecretsManagerEndpoint
+    Properties:
+      VpcId: !Ref MainVPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+      SecurityGroupIds:
+        - !Ref ServiceEndpointsSecurityGroup
+
+  # ============================================================================
+  # 4. Amazon RDS PostgreSQL 18 (Single-AZ, db.t4g.micro, gp3, cifrado)
+  # ============================================================================
+  RdsSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBSubnetGroupName: !Sub espacigo-rds-subnet-group-${Environment}
+      DBSubnetGroupDescription: Subredes privadas para RDS PostgreSQL de EspaciGo
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-rds-subnet-group-${Environment}
+
+  PostgresDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DBInstanceIdentifier: !Sub espacigo-db-${Environment}
+      Engine: postgres
+      EngineVersion: '18.6'
+      DBInstanceClass: !Ref RdsInstanceClass
+      AllocatedStorage: '20'
+      MaxAllocatedStorage: 50
+      StorageType: gp3
+      MultiAZ: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+      DBSubnetGroupName: !Ref RdsSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      PubliclyAccessible: false
+      StorageEncrypted: true
+      AutoMinorVersionUpgrade: true
+      AllowMajorVersionUpgrade: false
+      BackupRetentionPeriod: 1
+      PreferredBackupWindow: '06:00-07:00'
+      PreferredMaintenanceWindow: 'Sun:07:00-Sun:08:00'
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      DBName: !Sub espacigo_${Environment}
+      MasterUsername: espacigo_admin
+      ManageMasterUserPassword: true
+      Tags:
+        - Key: Name
+          Value: !Sub espacigo-rds-${Environment}
+
+  # ============================================================================
+  # 5. Buckets S3 (5 buckets con Versioning, PublicAccessBlock y AES256)
+  # ============================================================================
+  EvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-evidence-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: evidence
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-media-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: media
+
+  KycIdentityBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-kyc-identity-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: kyc_identity
+
+  KycSpaceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-kyc-space-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: kyc_space
+
+  PrivacyReplayBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-privacy-replay-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: privacy_replay
+
+Outputs:
+  VpcId:
+    Value: !Ref MainVPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VpcId
+  PublicSubnet1Id:
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnet1Id
+  PrivateSubnet1Id:
+    Value: !Ref PrivateSubnet1
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnet1Id
+  PrivateSubnet2Id:
+    Value: !Ref PrivateSubnet2
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnet2Id
+  EcsTaskSecurityGroupId:
+    Value: !Ref EcsTaskSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-EcsTaskSecurityGroupId
+  LoadBalancerSecurityGroupId:
+    Value: !Ref LoadBalancerSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-LoadBalancerSecurityGroupId
+  SecretsManagerVpceId:
+    Condition: EnableSecretsManagerEndpoint
+    Value: !Ref SecretsManagerEndpoint
+    Export:
+      Name: !Sub ${AWS::StackName}-SecretsManagerVpceId
+  RdsEndpointAddress:
+    Value: !GetAtt PostgresDatabase.Endpoint.Address
+    Export:
+      Name: !Sub ${AWS::StackName}-RdsEndpointAddress
+  RdsEndpointPort:
+    Value: !GetAtt PostgresDatabase.Endpoint.Port
+    Export:
+      Name: !Sub ${AWS::StackName}-RdsEndpointPort
+  RdsDbName:
+    Value: !Sub espacigo_${Environment}
+    Export:
+      Name: !Sub ${AWS::StackName}-RdsDbName
+  EvidenceBucketName:
+    Value: !Ref EvidenceBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-EvidenceBucketName
+  EvidenceBucketArn:
+    Value: !GetAtt EvidenceBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-EvidenceBucketArn
+  MediaBucketName:
+    Value: !Ref MediaBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-MediaBucketName
+  MediaBucketArn:
+    Value: !GetAtt MediaBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-MediaBucketArn
+  KycIdentityBucketName:
+    Value: !Ref KycIdentityBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-KycIdentityBucketName
+  KycIdentityBucketArn:
+    Value: !GetAtt KycIdentityBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KycIdentityBucketArn
+  KycSpaceBucketName:
+    Value: !Ref KycSpaceBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-KycSpaceBucketName
+  KycSpaceBucketArn:
+    Value: !GetAtt KycSpaceBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KycSpaceBucketArn
+  PrivacyReplayBucketName:
+    Value: !Ref PrivacyReplayBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivacyReplayBucketName
+  PrivacyReplayBucketArn:
+    Value: !GetAtt PrivacyReplayBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivacyReplayBucketArn

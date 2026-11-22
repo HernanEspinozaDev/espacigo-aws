@@ -6,11 +6,12 @@ cd "$ROOT_DIR"
 SCOPE="${1:-full}"
 case "$SCOPE" in
   full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
-  aws-bootstrap) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
+  aws-bootstrap|aws-bootstrap-preview) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
+  checkout-pro) GO_TEST_PATTERN='^TestCurrentSchemaMigrationCheckoutProUpToV111$' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
   v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
   authority-window) GO_TEST_PATTERN='^Test(NativeKYCAuthorityWindow|OwnerSensitiveMigrationChoreography)Postgres$' ;;
-  *) echo 'usage: test-migration-runner-postgres.sh [full|aws-bootstrap|v19|v76|authority-window]' >&2; exit 2 ;;
+  *) echo 'usage: test-migration-runner-postgres.sh [full|checkout-pro|aws-bootstrap|aws-bootstrap-preview|v19|v76|authority-window]' >&2; exit 2 ;;
 esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 if [[ "$SCOPE" == authority-window ]]; then
@@ -27,6 +28,18 @@ cleanup() {
   status=$?
   trap - EXIT INT TERM
   if [[ -n "$OWNED_CONTAINER_ID" ]]; then
+    if [[ "$SCOPE" == aws-bootstrap-preview && "$status" -eq 0 ]]; then
+      if [[ "$(docker inspect --format '{{.State.Running}}' "$OWNED_CONTAINER_ID")" != true ]] ||
+         ! docker exec "$OWNED_CONTAINER_ID" pg_isready -U postgres -d espacigo_prod >/dev/null 2>&1; then
+        echo 'refusing to retain a stopped or unhealthy test-only preview container' >&2
+        exit 1
+      fi
+      echo "RETAINED TEST-ONLY PREVIEW: container=$OWNED_CONTAINER_ID name=$NAME socket=$SOCKET_DIR database=espacigo_prod"
+      echo "RETAINED TEST-ONLY PREVIEW DSN: postgres://espacigo_api_login@/espacigo_prod?host=$SOCKET_DIR&sslmode=disable"
+      echo "RETAINED TEST-ONLY MIGRATOR DSN: postgres://espacigo_migrator_login@/espacigo_prod?host=$SOCKET_DIR&sslmode=disable"
+      echo 'This V1..V100 fixture used test-only authority choreography; it is not an operational E1 bootstrap.'
+      exit 0
+    fi
     if [[ "$(docker inspect --format '{{.State.Running}}' "$OWNED_CONTAINER_ID")" == true ]]; then
       if ! docker exec --user 0 "$OWNED_CONTAINER_ID" chown "$OWNER_UID:$OWNER_GID" /var/run/postgresql; then
         echo 'failed to restore ownership of own socket directory' >&2
@@ -91,6 +104,7 @@ print('ISOLATED TARGET: container='+c['Name'].lstrip('/')+' image='+c['Config'][
 PY
 env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_MIGRATOR_CI_ISOLATED=1 \
+  TEST_MIGRATOR_RETAIN_AWS_PREVIEW="$([[ "$SCOPE" == aws-bootstrap-preview ]] && echo 1 || echo 0)" \
   TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR&sslmode=disable" \
   TEST_MIGRATION_AUTHORITY_REPORT_DIR="$TMP_DIR" \
   go test -race -json -count=1 -timeout=3m \
@@ -99,7 +113,7 @@ env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTION
     cat "$TMP_DIR/results.jsonl" >&2
     exit 1
   }
-if [[ "$SCOPE" == aws-bootstrap ]]; then
+if [[ "$SCOPE" == aws-bootstrap || "$SCOPE" == aws-bootstrap-preview ]]; then
   python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json, sys
 with open(sys.argv[1]) as results:
@@ -118,6 +132,32 @@ elif [[ "$SCOPE" == v76 ]]; then
   echo 'PASS: isolated disposable PostgreSQL V1-V68-to-V76 gallery capacity transition (10 to 30), concurrent 30th slot, and 31st-slot rejection.'
 elif [[ "$SCOPE" == authority-window ]]; then
   echo 'PASS: isolated PostgreSQL 18.7 V95/V96 authority-window checks plus owner-sensitive migration choreography, transactional rollback, ownership and ledger readback; no persistent database touched.'
+elif [[ "$SCOPE" == checkout-pro ]]; then
+  python3 - "$TMP_DIR/results.jsonl" <<'PY'
+import json, sys
+root = 'TestCurrentSchemaMigrationCheckoutProUpToV111'
+required = {root}
+for baseline in (0, 75):
+    prefix = f'{root}/baseline-{baseline}'
+    required.update({prefix, prefix+'/v97-upgrade', prefix+'/v98-expand',
+        prefix+'/commercial-quote-suppression', prefix+'/commercial-quote-persistence',
+        prefix+'/commercial-quote-persistence/retention-purge-publication-lock',
+        prefix+'/commercial-quote-persistence/admin-local-account-block',
+        prefix+'/commercial-quote-persistence/authentication-account-lock',
+        prefix+'/contract-identity-reader'})
+    required.update(prefix+'/commercial-quote-persistence/authentication-account-lock/'+name for name in
+        ('email','verification-id','action-token-id','session-hash'))
+actions = {}
+with open(sys.argv[1]) as source:
+    for line in source:
+        event = json.loads(line)
+        if event.get('Test') and event.get('Action') in ('pass', 'fail', 'skip'):
+            actions[event['Test']] = event['Action']
+missing = sorted(name for name in required if actions.get(name) != 'pass')
+if missing:
+    raise SystemExit('Checkout Pro canonical V111 evidence missing/failed/skipped: ' + ', '.join(missing))
+print(f'PASS: canonical V1–V111 migration sequence plus Checkout Pro quote suppression/persistence and contract identity passed for fresh and V75 upgrade fixtures.')
+PY
 else
   python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json, sys
@@ -179,6 +219,17 @@ operational_required.add('TestRunnerEarlyRentalOperationalCandidatePostgres/empt
 operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['terminal-reason-required','terminal-reasons-preserved','expiration-respects-deadline'])
 operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/catalog-refuses-missing-trigger' for baseline in (0,75))
 required.update(operational_required)
+checkout_root = 'TestCurrentSchemaMigrationCheckoutProUpToV111'
+for baseline in (0, 75):
+    root = f'{checkout_root}/baseline-{baseline}'
+    required.update({root, root+'/v97-upgrade', root+'/v98-expand',
+        root+'/commercial-quote-suppression', root+'/commercial-quote-persistence',
+        root+'/commercial-quote-persistence/retention-purge-publication-lock',
+        root+'/commercial-quote-persistence/admin-local-account-block',
+        root+'/commercial-quote-persistence/authentication-account-lock',
+        root+'/contract-identity-reader'})
+    required.update(root+'/commercial-quote-persistence/authentication-account-lock/'+name for name in
+        ('email','verification-id','action-token-id','session-hash'))
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:

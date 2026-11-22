@@ -54,6 +54,9 @@ func TestRunnerAWSBootstrapReferenceCatalogPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() {
+			if os.Getenv("TEST_MIGRATOR_RETAIN_AWS_PREVIEW") == "1" {
+				return
+			}
 			if _, err := control.Exec(context.Background(), "DROP DATABASE espacigo_prod"); err != nil {
 				t.Error(err)
 			}

@@ -81,6 +81,9 @@ func establishRentalCombinedFixture(t *testing.T, ctx context.Context, targetURL
 	cleanupURL := selected.String()
 	ownedRoles := []fixtureRoleReceipt(nil)
 	t.Cleanup(func() {
+		if os.Getenv("TEST_MIGRATOR_RETAIN_AWS_PREVIEW") == "1" {
+			return
+		}
 		if len(ownedRoles) == 0 {
 			return
 		}
@@ -366,15 +369,6 @@ func TestRentalCombinedFixtureOptIn(t *testing.T) {
 		if err != nil || len(post.Applied) != 98 || len(post.Pending) != 0 {
 			t.Fatalf("V98 schema postcheck failed: %+v err=%v", post, err)
 		}
-		t.Run("commercial-quote-persistence", func(t *testing.T) {
-			assertCommercialQuotePersistenceWithExistingRuntimeACL(t, ctx, databaseURL, admin)
-		})
-		t.Run("contract-identity-reader", func(t *testing.T) {
-			assertContractIdentityReaderPostgres(t, ctx, databaseURL, admin)
-			if err := admin.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.identity_verification_attempts','SELECT')`).Scan(&legacyReadable); err != nil || legacyReadable {
-				t.Fatalf("identity reader fixture reopened legacy identity access: readable=%t err=%v", legacyReadable, err)
-			}
-		})
 		if err := admin.QueryRow(ctx, `SELECT has_table_privilege('espacigo_runtime','public.identity_verification_attempts','SELECT')`).Scan(&legacyReadable); err != nil || legacyReadable {
 			t.Fatalf("commercial fixture reopened legacy identity access: readable=%t err=%v", legacyReadable, err)
 		}

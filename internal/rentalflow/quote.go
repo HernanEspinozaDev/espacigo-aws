@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
@@ -16,6 +17,33 @@ type QuoteRequest struct {
 	SpaceID string `json:"space_id"`
 	StartAt string `json:"start_at"`
 	EndAt   string `json:"end_at"`
+}
+
+type MultiQuoteIntervalInput struct {
+	StartAt string `json:"start_at"`
+	EndAt   string `json:"end_at"`
+}
+
+type MultiQuoteRequest struct {
+	SpaceID   string                    `json:"space_id"`
+	Intervals []MultiQuoteIntervalInput `json:"intervals"`
+}
+
+type QuoteInterval struct {
+	ID          string    `json:"id,omitempty"`
+	StartAt     time.Time `json:"start_at"`
+	EndAt       time.Time `json:"end_at"`
+	Units       int64     `json:"units"`
+	UsageStatus string    `json:"usage_status,omitempty"`
+	CheckInAt   string    `json:"check_in_at,omitempty"`
+	CheckOutAt  string    `json:"check_out_at,omitempty"`
+	PassCode    string    `json:"pass_code,omitempty"`
+	QRPayload   string    `json:"qr_payload,omitempty"`
+}
+
+type MultiQuote struct {
+	Quote
+	Intervals []QuoteInterval `json:"intervals"`
 }
 
 type Quote struct {
@@ -43,6 +71,10 @@ type Quote struct {
 type QuoteRepository interface {
 	CreateValidatedQuote(context.Context, string, Listing, Interval, int64, int64, time.Time) (Quote, error)
 	GetForParticipant(context.Context, string, string) (Quote, error)
+}
+
+type MultiQuoteRepository interface {
+	CreateMultiValidatedQuote(context.Context, string, Listing, []QuoteInterval, int64, int64, time.Time) (MultiQuote, error)
 }
 
 type QuoteService struct {
@@ -104,7 +136,7 @@ func (s *QuoteService) Create(ctx context.Context, renterID string, in QuoteRequ
 		return Quote{}, err
 	}
 	units, err := pricing.BilledUnits(listing.RateUnit, start.UTC(), end.UTC(), listing.TimeZone)
-	if err != nil || units < 1 || units > math.MaxInt64/listing.UnitPriceCLP || !validDuration(listing.RateUnit, int(units)) {
+	if err != nil || units < 1 || units > math.MaxInt64/listing.UnitPriceCLP || !ValidFlexibleDuration(listing.RateUnit, int(units)) {
 		return Quote{}, ErrInvalid
 	}
 	interval := Interval{StartAt: start.UTC(), EndAt: end.UTC()}
@@ -140,6 +172,112 @@ func (s *QuoteService) Create(ctx context.Context, renterID string, in QuoteRequ
 	if !validQuote(quote, renterID, listing, interval, units, subtotal, now) {
 		return Quote{}, ErrUnavailable
 	}
+	return quote, nil
+}
+
+// CreateMulti validates and persists a quote spanning multiple non-contiguous
+// or multi-day intervals for the same active space.
+func (s *QuoteService) CreateMulti(ctx context.Context, renterID string, in MultiQuoteRequest) (MultiQuote, error) {
+	if s == nil || ctx == nil || !validUUID(renterID) || !validUUID(in.SpaceID) || len(in.Intervals) == 0 || len(in.Intervals) > 64 {
+		return MultiQuote{}, ErrInvalid
+	}
+	renterID = canonicalUUID(renterID)
+	in.SpaceID = canonicalUUID(in.SpaceID)
+	if ctx.Err() != nil {
+		return MultiQuote{}, ErrUnavailable
+	}
+	now := s.now()
+	if now.IsZero() {
+		return MultiQuote{}, ErrInvalid
+	}
+	now = now.UTC()
+
+	listing, err := s.listings.PublicListing(ctx, in.SpaceID)
+	if ctx.Err() != nil {
+		return MultiQuote{}, ErrUnavailable
+	}
+	listing.ID = canonicalUUID(listing.ID)
+	listing.OwnerID = canonicalUUID(listing.OwnerID)
+	if errors.Is(err, ErrNotFound) {
+		return MultiQuote{}, ErrNotFound
+	}
+	if err != nil {
+		return MultiQuote{}, ErrUnavailable
+	}
+	if listing.ID != in.SpaceID || listing.OwnerID == renterID || listing.State != "activa" {
+		return MultiQuote{}, ErrNotFound
+	}
+	loc, err := validateListing(listing)
+	if err != nil {
+		return MultiQuote{}, err
+	}
+
+	parsed := make([]QuoteInterval, 0, len(in.Intervals))
+	var totalUnits int64
+	for _, raw := range in.Intervals {
+		start, okStart := parseRFC3339Timestamp(raw.StartAt)
+		end, okEnd := parseRFC3339Timestamp(raw.EndAt)
+		if !okStart || !okEnd || !end.After(start) || !start.After(now) {
+			return MultiQuote{}, ErrInvalid
+		}
+		startUTC, endUTC := start.UTC(), end.UTC()
+		units, unitErr := pricing.BilledUnits(listing.RateUnit, startUTC, endUTC, listing.TimeZone)
+		if unitErr != nil || units < 1 || !ValidFlexibleDuration(listing.RateUnit, int(units)) {
+			return MultiQuote{}, ErrInvalid
+		}
+		dateText := startUTC.In(loc).Format("2006-01-02")
+		iv := Interval{StartAt: startUTC, EndAt: endUTC}
+		if !dateWithinHorizon(dateText, now, loc) || !intervalMatchesRequest(iv, listing.RateUnit, dateText, int(units), listing.TimeZone, now) {
+			return MultiQuote{}, ErrInvalid
+		}
+		if totalUnits > math.MaxInt64-units {
+			return MultiQuote{}, ErrInvalid
+		}
+		totalUnits += units
+		parsed = append(parsed, QuoteInterval{StartAt: startUTC, EndAt: endUTC, Units: units})
+	}
+	if totalUnits < 1 || totalUnits > math.MaxInt64/listing.UnitPriceCLP {
+		return MultiQuote{}, ErrInvalid
+	}
+
+	sort.Slice(parsed, func(i, j int) bool {
+		return parsed[i].StartAt.Before(parsed[j].StartAt)
+	})
+	for i := 1; i < len(parsed); i++ {
+		if parsed[i].StartAt.Before(parsed[i-1].EndAt) {
+			return MultiQuote{}, ErrInvalid
+		}
+	}
+
+	for _, item := range parsed {
+		available, availErr := s.calendar.IntervalAvailable(ctx, listing, Interval{StartAt: item.StartAt, EndAt: item.EndAt})
+		if availErr != nil || ctx.Err() != nil {
+			return MultiQuote{}, ErrUnavailable
+		}
+		if !available {
+			return MultiQuote{}, ErrConflict
+		}
+	}
+
+	multiRepo, ok := s.quotes.(MultiQuoteRepository)
+	if !ok {
+		return MultiQuote{}, ErrUnavailable
+	}
+	subtotal := totalUnits * listing.UnitPriceCLP
+	quote, err := multiRepo.CreateMultiValidatedQuote(ctx, renterID, listing, parsed, totalUnits, subtotal, now)
+	if err != nil {
+		if ctx.Err() != nil {
+			return MultiQuote{}, ErrUnavailable
+		}
+		if errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) {
+			return MultiQuote{}, err
+		}
+		return MultiQuote{}, ErrUnavailable
+	}
+	quote.ID = canonicalUUID(quote.ID)
+	quote.SpaceID = canonicalUUID(quote.SpaceID)
+	quote.OwnerID = canonicalUUID(quote.OwnerID)
+	quote.RenterID = canonicalUUID(quote.RenterID)
 	return quote, nil
 }
 
