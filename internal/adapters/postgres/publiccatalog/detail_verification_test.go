@@ -144,6 +144,19 @@ func scanDetailVerificationFixture(row []any, dest ...any) error {
 				return fmt.Errorf("column %d expected nullable string, got %T", i, value)
 			}
 			*out = sql.NullString{String: v, Valid: true}
+		case *sql.NullInt16:
+			if value == nil {
+				*out = sql.NullInt16{}
+				continue
+			}
+			switch v := value.(type) {
+			case int16:
+				*out = sql.NullInt16{Int16: v, Valid: true}
+			case int:
+				*out = sql.NullInt16{Int16: int16(v), Valid: true}
+			default:
+				return fmt.Errorf("column %d expected nullable int16, got %T", i, value)
+			}
 		case *time.Time:
 			v, ok := value.(time.Time)
 			if !ok {
@@ -275,5 +288,6 @@ func detailVerificationRow(spaceID string) []any {
 	return []any{
 		spaceID, "oficina", "Oficina", "Sala sintética", "Descripción sintética", float64(20), 8, "dia", int64(5000), "CLP", 1, "sala",
 		"Reglas sintéticas", "13", "Metropolitana", "13101", "Santiago", true, false, nil, nil, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC), int64(3),
+		nil, nil,
 	}
 }
