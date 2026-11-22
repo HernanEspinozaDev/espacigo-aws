@@ -194,15 +194,51 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	mux.Handle("/api/v1/profile/photo", m02Handler)
 	mux.Handle("/api/v1/profile/photo/", m02Handler)
 	mux.Handle("/api/v1/payout-account", m02Handler)
-	availabilityRepo, err := rentalflowpg.NewRepository(pool, nil, time.Now)
+	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	availability, err := rentalflow.NewAvailabilityService(availabilityRepo, availabilityRepo, time.Now)
+	declarationKeys, err := loadRentalContractDeclarationKeyring(os.Getenv)
+	if err != nil {
+		return nil, errors.New("commercial rental identity initialization failed")
+	}
+	commercialQuoteRepo, err := rentalflowpg.NewRepositoryWithDeclarationKeyring(pool, pool, time.Now, declarationKeys)
 	if err != nil {
 		return nil, err
 	}
-	if err := mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins)); err != nil {
+	availability, err := rentalflow.NewAvailabilityService(commercialQuoteRepo, commercialQuoteRepo, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	quoteService, err := rentalflow.NewQuoteService(commercialQuoteRepo, commercialQuoteRepo, commercialQuoteRepo, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+	if err != nil {
+		return nil, err
+	}
+	previewService, err := rentalflow.NewContractPreviewService(commercialQuoteRepo, commercialQuoteRepo, commercialQuoteRepo, identityVerifier, commercialQuoteRepo, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	checkoutService, err := newCheckoutPreferenceService(commercialQuoteRepo, marketplaceTokens, cfg, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	if checkoutService != nil {
+		webhookHandler, _, webhookErr := newCheckoutWebhook(commercialQuoteRepo, pool, marketplaceTokens, os.Getenv)
+		if webhookErr != nil {
+			return nil, webhookErr
+		}
+		mux.Handle("/api/v1/webhooks/mercadopago", webhookHandler)
+	}
+	commercialReservationService, err := rentalflow.NewCommercialReservationService(commercialQuoteRepo)
+	if err != nil {
+		return nil, err
+	}
+	rentalHandler := rentalflowhttp.New(authService, availability, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService)
+	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 		return nil, err
 	}
 	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
