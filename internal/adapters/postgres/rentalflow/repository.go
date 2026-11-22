@@ -680,6 +680,7 @@ DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
 		if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='vencida_pago',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado='pendiente_de_pago'`, id, at.UTC()); err != nil {
 			return 0, err
 		}
+		_, _ = tx.Exec(ctx, `UPDATE public.reserva_cuota_mensual SET estado='vencida' WHERE reserva_arriendo_comercial_id=$1 AND estado='pendiente'`, id)
 		if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND activo`, id, at.UTC()); err != nil {
 			return 0, err
 		}

@@ -57,19 +57,23 @@ type ScheduleSlot struct {
 }
 
 type Availability struct {
-	SpaceID   string     `json:"space_id"`
-	TimeZone  string     `json:"time_zone"`
-	RateUnit  string     `json:"rate_unit"`
-	CheckedAt time.Time  `json:"checked_at"`
-	Items     []Interval `json:"items"`
+	SpaceID            string     `json:"space_id"`
+	TimeZone           string     `json:"time_zone"`
+	RateUnit           string     `json:"rate_unit"`
+	CheckedAt          time.Time  `json:"checked_at"`
+	DisponibleDesde    *string    `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses *int       `json:"estadia_minima_meses,omitempty"`
+	Items              []Interval `json:"items"`
 }
 
 type ScheduleAvailability struct {
-	SpaceID   string         `json:"space_id"`
-	TimeZone  string         `json:"time_zone"`
-	RateUnit  string         `json:"rate_unit"`
-	CheckedAt time.Time      `json:"checked_at"`
-	Slots     []ScheduleSlot `json:"slots"`
+	SpaceID            string         `json:"space_id"`
+	TimeZone           string         `json:"time_zone"`
+	RateUnit           string         `json:"rate_unit"`
+	CheckedAt          time.Time      `json:"checked_at"`
+	DisponibleDesde    *string        `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses *int           `json:"estadia_minima_meses,omitempty"`
+	Slots              []ScheduleSlot `json:"slots"`
 }
 
 type PublicListingReader interface {
@@ -157,7 +161,43 @@ func (s *AvailabilityService) ListPublic(ctx context.Context, spaceID, dateText 
 		validated = append(validated, Interval{StartAt: item.StartAt.UTC(), EndAt: item.EndAt.UTC()})
 	}
 	sort.Slice(validated, func(i, j int) bool { return validated[i].StartAt.Before(validated[j].StartAt) })
-	return Availability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Items: validated}, nil
+	disponibleDesde, estadiaMinimaMeses := s.lookupMonthlyRules(ctx, listing)
+	return Availability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, DisponibleDesde: disponibleDesde, EstadiaMinimaMeses: estadiaMinimaMeses, Items: validated}, nil
+}
+
+func (s *AvailabilityService) lookupMonthlyRules(ctx context.Context, listing Listing) (*string, *int) {
+	if listing.RateUnit != "mes" {
+		return nil, nil
+	}
+	var rule MonthlyRule
+	var found bool
+	if reader, ok := s.listings.(MonthlyRuleReader); ok {
+		if r, err := reader.PublicMonthlyRule(ctx, listing.ID); err == nil {
+			rule = r
+			found = true
+		}
+	}
+	if !found {
+		if reader, ok := s.calendar.(MonthlyRuleReader); ok {
+			if r, err := reader.PublicMonthlyRule(ctx, listing.ID); err == nil {
+				rule = r
+				found = true
+			}
+		}
+	}
+	if !found {
+		return nil, nil
+	}
+	var disponibleDesde *string
+	var estadiaMinima *int
+	if rule.DisponibleDesde != nil && *rule.DisponibleDesde != "" {
+		disponibleDesde = rule.DisponibleDesde
+	}
+	if rule.EstadiaMinimaMeses > 0 {
+		m := rule.EstadiaMinimaMeses
+		estadiaMinima = &m
+	}
+	return disponibleDesde, estadiaMinima
 }
 
 // ListPublicSchedule returns all candidate schedule slots for the requested date
@@ -210,7 +250,8 @@ func (s *AvailabilityService) ListPublicSchedule(ctx context.Context, spaceID, d
 			}
 		}
 		sort.Slice(slots, func(i, j int) bool { return slots[i].StartAt.Before(slots[j].StartAt) })
-		return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Slots: slots}, nil
+		disponibleDesde, estadiaMinimaMeses := s.lookupMonthlyRules(ctx, listing)
+		return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, DisponibleDesde: disponibleDesde, EstadiaMinimaMeses: estadiaMinimaMeses, Slots: slots}, nil
 	}
 	rawSlots, err := scheduleCal.PublicScheduleSlots(ctx, listing, dateText, duration)
 	if err != nil || ctx.Err() != nil {
@@ -238,7 +279,8 @@ func (s *AvailabilityService) ListPublicSchedule(ctx context.Context, spaceID, d
 		})
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].StartAt.Before(slots[j].StartAt) })
-	return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, Slots: slots}, nil
+	disponibleDesde, estadiaMinimaMeses := s.lookupMonthlyRules(ctx, listing)
+	return ScheduleAvailability{SpaceID: listing.ID, TimeZone: listing.TimeZone, RateUnit: listing.RateUnit, CheckedAt: now, DisponibleDesde: disponibleDesde, EstadiaMinimaMeses: estadiaMinimaMeses, Slots: slots}, nil
 }
 
 func validateListing(listing Listing) (*time.Location, error) {

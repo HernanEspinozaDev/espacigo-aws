@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/jackc/pgx/v5"
@@ -207,6 +208,9 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 		if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=true,desactivada_en=NULL,tipo='retencion_comercial',expira_en=$2 WHERE reserva_arriendo_comercial_id=$1`, existingID, q.ExpiresAt); err != nil {
 			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
 		}
+		if err = r.syncMonthlyInstallments(ctx, tx, existingID, q.ID, q, quoteIntervals, zone, now); err != nil {
+			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+		}
 		op = checkoutpro.Operation{ID: existingID, QuoteID: q.ID, Status: "pending", CheckoutMethod: checkoutMethod, ExpiresAt: q.ExpiresAt, UpdatedAt: now, Amounts: amounts, TestMode: testMode}
 		if err = tx.Commit(ctx); err != nil {
 			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
@@ -229,11 +233,64 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 			return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
 		}
 	}
+	if err = r.syncMonthlyInstallments(ctx, tx, operationID, q.ID, q, quoteIntervals, zone, now); err != nil {
+		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	}
 	op = checkoutpro.Operation{ID: operationID, QuoteID: q.ID, Status: "pending", CheckoutMethod: checkoutMethod, ExpiresAt: q.ExpiresAt, UpdatedAt: now, Amounts: amounts, TestMode: testMode}
 	if err = tx.Commit(ctx); err != nil {
 		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
 	}
 	return q, op, true, nil
+}
+
+func (r *Repository) syncMonthlyInstallments(ctx context.Context, tx pgx.Tx, reservaID, quoteID string, q checkoutpro.Quote, quoteIntervals []rentalflow.QuoteInterval, zone *time.Location, now time.Time) error {
+	if q.RateUnit != "mes" {
+		return nil
+	}
+	var billingMode string
+	err := tx.QueryRow(ctx, `SELECT modalidad_cobro FROM public.cotizacion_modalidad_cobro WHERE cotizacion_id=$1`, quoteID).Scan(&billingMode)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if billingMode != "monthly_installments" {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM public.reserva_cuota_mensual WHERE reserva_arriendo_comercial_id=$1`, reservaID); err != nil {
+		return err
+	}
+	cuotaNum := 1
+	for _, iv := range quoteIntervals {
+		ivUnits := iv.Units
+		if ivUnits < 1 {
+			ivUnits = 1
+		}
+		curStart := iv.StartAt.In(zone)
+		for m := int64(0); m < ivUnits; m++ {
+			annivStart, startOK := calendar.AddMonthsClamped(curStart, m)
+			annivEnd, endOK := calendar.AddMonthsClamped(curStart, m+1)
+			if !startOK || !endOK {
+				return checkoutpro.ErrInvalid
+			}
+			pStart, pStartOK := calendar.FirstInstantOfDate(annivStart.Year(), annivStart.Month(), annivStart.Day(), zone)
+			pEnd, pEndOK := calendar.FirstInstantOfDate(annivEnd.Year(), annivEnd.Month(), annivEnd.Day(), zone)
+			if !pStartOK || !pEndOK {
+				return checkoutpro.ErrInvalid
+			}
+			cuotaID := r.newID()
+			if _, err := tx.Exec(ctx, `INSERT INTO public.reserva_cuota_mensual(
+				id, reserva_arriendo_comercial_id, numero_cuota,
+				periodo_inicio, periodo_termino, monto_clp, estado, creado_en
+			) VALUES ($1, $2, $3, $4, $5, $6, 'pendiente', $7)`,
+				cuotaID, reservaID, cuotaNum, pStart.UTC(), pEnd.UTC(), q.UnitPriceCLP, now); err != nil {
+				return err
+			}
+			cuotaNum++
+		}
+	}
+	return nil
 }
 
 func (r *Repository) SavePreference(ctx context.Context, id, preferenceID, initPoint string, now time.Time) error {

@@ -80,6 +80,8 @@ type Space struct {
 	Features           []PublicFeature       `json:"features"`
 	Images             []PublicImageRef      `json:"images"`
 	CoverImageID       *string               `json:"cover_image_id,omitempty"`
+	DisponibleDesde    *string               `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses *int                  `json:"estadia_minima_meses,omitempty"`
 	TimeZone           string                `json:"-"`
 	WeeklySchedule     *PublicWeeklySchedule `json:"weekly_schedule,omitempty"`
 

@@ -147,6 +147,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 			if err != nil {
 				return false, err
 			}
+			_, _ = tx.Exec(ctx, `UPDATE public.reserva_cuota_mensual SET estado='pagada', pagada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND numero_cuota=1 AND estado='pendiente'`, p.OperationID, r.now().UTC())
 			tag, updateErr := tx.Exec(ctx, `UPDATE public.ocupacion SET tipo='reserva_comercial',expira_en=NULL WHERE reserva_arriendo_comercial_id=$1 AND activo AND tipo='retencion_comercial'`, p.OperationID)
 			if updateErr != nil {
 				return false, updateErr
@@ -175,6 +176,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 			if _, err = tx.Exec(ctx, `UPDATE public.reserva_arriendo_comercial SET estado='pagada',actualizada_en=$2 WHERE operacion_checkout_id=$1 AND estado IN ('pendiente_de_pago','vencida_pago','reconciliation_required')`, p.OperationID, r.now().UTC()); err != nil {
 				return false, err
 			}
+			_, _ = tx.Exec(ctx, `UPDATE public.reserva_cuota_mensual SET estado='pagada', pagada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND numero_cuota=1 AND estado='pendiente'`, p.OperationID, r.now().UTC())
 			if _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=true,desactivada_en=NULL,tipo='reserva_comercial',expira_en=NULL WHERE reserva_arriendo_comercial_id=$1::uuid`, p.OperationID); err != nil {
 				return false, err
 			}
@@ -202,6 +204,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	if err != nil {
 		return false, err
 	}
+	_, _ = tx.Exec(ctx, `UPDATE public.reserva_cuota_mensual SET estado='cancelada' WHERE reserva_arriendo_comercial_id=$1 AND estado='pendiente'`, p.OperationID)
 	_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_arriendo_comercial_id=$1 AND activo`, p.OperationID, r.now().UTC())
 	if err != nil {
 		return false, err

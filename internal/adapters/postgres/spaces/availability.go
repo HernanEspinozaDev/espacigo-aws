@@ -516,37 +516,6 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 		}
 	}
 
-	if in.DisponibleDesde != nil || in.EstadiaMinimaMeses != nil {
-		var cleanMonthStart *string
-		if in.DisponibleDesde != nil {
-			trimmed := strings.TrimSpace(*in.DisponibleDesde)
-			if trimmed != "" {
-				parsed, dateErr := time.Parse("2006-01-02", trimmed)
-				if dateErr != nil || parsed.Format("2006-01-02") != trimmed {
-					return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
-				}
-				cleanMonthStart = &trimmed
-			}
-		}
-		if in.EstadiaMinimaMeses != nil && (*in.EstadiaMinimaMeses < 1 || *in.EstadiaMinimaMeses > 24) {
-			return spaces.AvailabilityRule{}, "", spaces.ErrInvalid
-		}
-		_, err = tx.Exec(ctx, `
-			INSERT INTO public.espacio_regla_mensual (
-				espacio_id, disponible_desde, estadia_minima_meses, actualizado_en
-			) VALUES (
-				$1, $2::date, COALESCE($3, 1::smallint), now()
-			)
-			ON CONFLICT (espacio_id) DO UPDATE SET
-				disponible_desde = CASE WHEN $4 THEN $2::date ELSE espacio_regla_mensual.disponible_desde END,
-				estadia_minima_meses = CASE WHEN $3 IS NOT NULL THEN $3 ELSE espacio_regla_mensual.estadia_minima_meses END,
-				actualizado_en = now()
-		`, spaceID, cleanMonthStart, in.EstadiaMinimaMeses, in.DisponibleDesde != nil)
-		if err != nil {
-			return spaces.AvailabilityRule{}, "", err
-		}
-	}
-
 	resRule := spaces.AvailabilityRule{
 		SpaceID:       spaceID,
 		DiasOperacion: []int{1, 2, 3, 4, 5, 6, 7},
