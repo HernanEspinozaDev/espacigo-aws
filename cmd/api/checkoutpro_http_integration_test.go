@@ -270,7 +270,7 @@ VALUES($1,$2,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),$3,'{}'
 	checkoutHandler := rentalflowhttp.New(checkoutIntegrationAuthenticator{renterID: renterID}, nil, nil, nil, nil, checkoutService)
 	provider := &checkoutIntegrationProvider{result: checkoutpro.VerifiedPayment{
 		OperationID: operationID, ProviderPaymentID: paymentID, SellerID: sellerID, ExternalReference: operationID,
-		Status: "approved", TransactionAmountCLP: 10000, Currency: "CLP", PaymentType: "credit_card",
+		Status: "approved", TransactionAmountCLP: 10357, Currency: "CLP", PaymentType: "credit_card",
 		LiveMode: false, ObservedAt: now, PaymentUpdatedAt: now.Add(time.Second),
 	}}
 	secretPath := filepath.Join(t.TempDir(), "webhook-secret")
@@ -338,7 +338,7 @@ VALUES($1,$2,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),$3,'{}'
 	providerReference := preferenceGateway.request.ExternalReference
 	providerFee := preferenceGateway.request.MarketplaceFee
 	preferenceGateway.mu.Unlock()
-	if createCount != 1 || providerReference != operationID || providerFee != 357 {
+	if createCount != 1 || providerReference != operationID || providerFee != 714 {
 		t.Fatalf("preference request wasn't idempotent or quote-derived: calls=%d reference=%q fee=%v", createCount, providerReference, providerFee)
 	}
 

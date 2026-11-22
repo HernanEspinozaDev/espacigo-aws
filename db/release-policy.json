@@ -25,7 +25,9 @@
     "V000104__session_device_metadata.sql": {
       "checksum": "f23d99dea23ddeebb5491e1f569f49b2da0812f5880fef5306fd688cf69b68c3",
       "strategy": "expand",
-      "requires_schema_owner": ["public.sesion"]
+      "requires_schema_owner": [
+        "public.sesion"
+      ]
     },
     "V000105__security_alerts_and_channels.sql": {
       "checksum": "e79f3df7dfed922d6b9d7c9d7fe90f64dc133e4ec456d47d05953f50a3835b51",
@@ -45,6 +47,58 @@
     },
     "V000109__location_and_trusted_contacts.sql": {
       "checksum": "41cb024d3bb5d3190f56bea485fde490b728c0437ebec9a29bd05d0d2d2fb379",
+      "strategy": "expand"
+    },
+    "V000110__marketplace_seller_oauth.sql": {
+      "checksum": "cd76f1783645fbffe6470345ee733b7e82385e6e19c21f12381ce5ef8d52f083",
+      "strategy": "expand"
+    },
+    "V000111__commercial_checkout_preferences.sql": {
+      "checksum": "4ea5e7d0cb0df966491a2f68f7922a1a0fac9253dc60d01a2eb9346712558925",
+      "strategy": "expand"
+    },
+    "V000112__mercadopago_payment_webhook_inbox.sql": {
+      "checksum": "cf439c2cfb7e1120583637d74bfcd0940439ff5b26cb24ea17c748c187695cc2",
+      "strategy": "expand"
+    },
+    "V000113__checkout_payment_notice_outbox.sql": {
+      "checksum": "7f3ba3c503001b6b7521e261b4e995f8c132f82004f7a557d67ed683d9ea45b8",
+      "strategy": "expand"
+    },
+    "V000114__checkout_api_payment_operation.sql": {
+      "checksum": "71b1e62e61c1e6ed603bd3b98c58ab8e4fabf268677ad8aace3efa26b40ee343",
+      "strategy": "expand"
+    },
+    "V000115__marketplace_seller_public_key.sql": {
+      "checksum": "a3f90c887b9656ae3e72a5698d5e08e992a146ee07bc37247fc7b69295d25685",
+      "strategy": "expand"
+    },
+    "V000116__double_sided_marketplace_commission.sql": {
+      "checksum": "8216315859c3561766a3b842406248579f237b95fb2b53ac0849596d477c924c",
+      "strategy": "expand"
+    },
+    "V000117__commercial_quote_intervals.sql": {
+      "checksum": "8b3e621759af78a394ee2718030e6ba348b15c081a9493032a0a1c721709ea84",
+      "strategy": "expand"
+    },
+    "V000118__commercial_quote_flexible_units.sql": {
+      "checksum": "5a259fe9f2649ea111ca70bcd21e0ecad96ade8127871a9371788c2f07f84329",
+      "strategy": "expand"
+    },
+    "V000119__commercial_interval_usage.sql": {
+      "checksum": "394b03ca0bd4462b8200dc9867300835d0ac6c19c585b8c5562882e5fb47ffd4",
+      "strategy": "expand"
+    },
+    "V000120__commercial_interval_pass_codes.sql": {
+      "checksum": "af107258523aad85e7973c3ceefa8241a2db4306d3227787f5d0f2d052750b03",
+      "strategy": "expand"
+    },
+    "V000121__space_month_rules_and_installments.sql": {
+      "checksum": "a677ed8fa648dda1783b0784628c10aa5d7d7e2bf4bff41581e7dd415f5af7a8",
+      "strategy": "expand"
+    },
+    "V000122__lower_minimum_price_1000_clp.sql": {
+      "checksum": "67e10903e3661c76443c6a4f17ff458878c657083130f7f543f0bedfa3f4d3af",
       "strategy": "expand"
     }
   },
@@ -139,85 +193,49 @@
       "automatic": false,
       "reason": "Local early-rental processor receipts extend the V99 audit trail and preserve existing manual receipts."
     },
-    "V000110__marketplace_seller_oauth.sql": {
-      "checksum": "cd76f1783645fbffe6470345ee733b7e82385e6e19c21f12381ce5ef8d52f083",
-      "strategy": "security-tightening",
-      "automatic": false,
-      "reason": "Stores durable one-time seller OAuth state and encrypted Marketplace credentials; requires exact-target authority, retention and key-management review before release."
-    },
-    "V000111__commercial_checkout_preferences.sql": {
-      "checksum": "4ea5e7d0cb0df966491a2f68f7922a1a0fac9253dc60d01a2eb9346712558925",
-      "strategy": "security-tightening",
-      "automatic": false,
-      "reason": "Creates durable Mercado Pago preference operations and exclusive pending interval holds. Requires exact-target authority, idempotency/concurrency, expiry and late-payment reconciliation review before release."
-    },
-    "V000112__mercadopago_payment_webhook_inbox.sql": {
-      "checksum": "cf439c2cfb7e1120583637d74bfcd0940439ff5b26cb24ea17c748c187695cc2",
-      "strategy": "security-tightening",
-      "automatic": false,
-      "reason": "Adds durable receipts and authenticated payment reconciliation metadata; requires exact-target signature, idempotency, seller-binding and late-payment review before release."
-    },
-    "V000113__checkout_payment_notice_outbox.sql": {
-      "checksum": "7f3ba3c503001b6b7521e261b4e995f8c132f82004f7a557d67ed683d9ea45b8",
-      "strategy": "expand",
-      "automatic": false,
-      "reason": "Adds a deduplicated durable email outbox for backend-verified commercial checkout transitions. Requires migration, transaction atomicity, retry/dedupe and Mailpit delivery review before release."
-    },
-    "V000114__checkout_api_payment_operation.sql": {
-      "checksum": "71b1e62e61c1e6ed603bd3b98c58ab8e4fabf268677ad8aace3efa26b40ee343",
-      "strategy": "security-tightening",
-      "automatic": false,
-      "reason": "Adds an explicit test-only Payments API operation mode and durable one-shot payment-create claim while preserving existing Checkout Pro rows. Requires idempotency, direct-payment split-fee, hold, webhook and reconciliation review before release."
-    },
-    "V000115__marketplace_seller_public_key.sql": {
-      "checksum": "a3f90c887b9656ae3e72a5698d5e08e992a146ee07bc37247fc7b69295d25685",
-      "strategy": "expand",
-      "automatic": false,
-      "reason": "Adds the optional seller Public Key returned by OAuth without changing grants or storing private credentials. Legacy connections remain NULL and require seller reauthorization before the explicitly opted-in local sandbox tokenization mode."
-    },
-    "V000116__commercial_space_location.sql": {
+    "V000123__commercial_space_location.sql": {
       "checksum": "c95b74fc6dc5c3bb32246441aedeb3593163172bed014503f2806468a81e7f64",
       "strategy": "expand",
       "automatic": false,
       "reason": "Adds optional owner-confirmed coordinates without backfill. Review publication privacy, historical row compatibility and location revision invalidation before release."
     },
-    "V000117__commercial_space_contract_templates.sql": {
+    "V000124__commercial_space_contract_templates.sql": {
       "checksum": "8a00e4100099e853e54bad54733a2499b8c2f77d0244a631a1290a7cc191aead",
       "strategy": "expand",
       "automatic": false,
       "reason": "Adds owner-managed draft clauses and immutable template versions with limited runtime grants. Review ownership, revision concurrency and published history before release."
     },
-    "V000118__commercial_contract_proposals.sql": {
+    "V000125__commercial_contract_proposals.sql": {
       "checksum": "cd04c2c6ee9c8b65bd49adef5075178e961fa5889b447fa907c19c3868c7ef7b",
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Adds immutable commercial agreement proposals and separately encrypted party evidence. Requires contract privacy, identity, key management and retention review before release."
     },
-    "V000119__commercial_agreement_signatures.sql": {
+    "V000126__commercial_agreement_signatures.sql": {
       "checksum": "659a58d67f988dd4a4d1bf8fdf3fb00ecb54675a5136010983f14568b4d37bc8",
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Adds bilateral signature evidence, durable request notices and shared occupancy guards for commercial agreements. Requires review of actor authority, expiry and concurrent interval ownership."
     },
-    "V000120__commercial_checkout_contract_binding.sql": {
+    "V000127__commercial_checkout_contract_binding.sql": {
       "checksum": "5ddfdf3e8a9fe247183689e91782199e48f2d260372ac9a194fec3eaef49797f",
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Binds contract-mode checkout immutably to the two matching signatures and the agreed hold. Requires checkout replay, receipt verification and late-payment reconciliation review."
     },
-    "V000121__commercial_contract_document_jobs.sql": {
+    "V000128__commercial_contract_document_jobs.sql": {
       "checksum": "e9ffce63ba43154d5211cc8899acb6f9bbdfb49be9c3f89dd834b0a304556ca4",
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Adds an immutable private PDF job bound to a verified paid commercial agreement. Review access, encryption, content fidelity, retry and retention before release."
     },
-    "V000122__commercial_auto_authorization.sql": {
+    "V000129__commercial_auto_authorization.sql": {
       "checksum": "bf2abb5b0421c2cf021b39646342c2b6b5f4716b07c0c237d926c6a87db2a904",
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Records bounded, revocable host opt-in and append-only audit history. Requires ownership, template replacement and execution-mode review."
     },
-    "V000123__commercial_rental_tax_documents.sql": {
+    "V000130__commercial_rental_tax_documents.sql": {
       "checksum": "ee55697a828a1973b3756c84458925dcb655ffa13aeac467a1477fe9e269be3c",
       "strategy": "security-tightening",
       "automatic": false,

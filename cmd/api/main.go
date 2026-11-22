@@ -453,6 +453,11 @@ func run() error {
 			if serviceErr != nil {
 				return errors.New("commercial rental reservation initialization failed")
 			}
+			if checkoutService != nil {
+				commercialReservationService.SetReconciler(func(ctx context.Context, actor, quoteID string) {
+					_, _ = checkoutService.Status(ctx, actor, quoteID)
+				})
+			}
 			var checkoutAPI rentalflowhttp.CheckoutAPIService
 			if paymentsEnabled {
 				payments, paymentErr := newMercadoPagoPayments(commercialQuoteRepository, marketplaceTokens, os.Getenv)
@@ -797,6 +802,7 @@ func run() error {
 			w.Header().Set("Content-Type", "application/yaml")
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
+		mountLocalAPIDocs(mux, os.Getenv)
 	}
 
 	// Keep every mutating background loop in this registry so the explicit

@@ -30,6 +30,7 @@ export interface BookingQuote {
   readonly start_at: string;
   readonly end_at: string;
   readonly time_zone: string;
+  readonly intervals?: readonly BookingInterval[];
   readonly conditions: string;
   readonly category_code: string;
   readonly profile_version: number;
@@ -53,6 +54,21 @@ export interface BookingTransition {
   readonly at: string;
 }
 
+export type IntervalUsageStatus =
+  "pendiente" | "en_uso" | "completado" | "no_asistio";
+
+export interface BookingInterval {
+  readonly id?: string;
+  readonly start_at: string;
+  readonly end_at: string;
+  readonly units: number;
+  readonly usage_status?: IntervalUsageStatus;
+  readonly check_in_at?: string;
+  readonly check_out_at?: string;
+  readonly pass_code?: string;
+  readonly qr_payload?: string;
+}
+
 export interface BookingReservation {
   readonly id: string;
   readonly quote_id: string;
@@ -62,6 +78,16 @@ export interface BookingReservation {
   readonly renter_id: string;
   readonly participant_role?: "anfitrion" | "arrendatario";
   readonly checkout_status?: string;
+  readonly checkout_method?: "checkout_pro" | "payments_api";
+  readonly provider_payment_id?: string;
+  readonly commission_clp?: number;
+  readonly vat_clp?: number;
+  readonly marketplace_fee_clp?: number;
+  readonly net_host_amount_clp?: number;
+  readonly buyer_commission_clp?: number;
+  readonly buyer_vat_clp?: number;
+  readonly buyer_fee_clp?: number;
+  readonly total_charged_clp?: number;
   readonly is_commercial?: boolean;
   readonly state: BookingState;
   readonly rate_unit: RateUnit;
@@ -72,6 +98,7 @@ export interface BookingReservation {
   readonly start_at: string;
   readonly end_at: string;
   readonly time_zone: string;
+  readonly intervals?: readonly BookingInterval[];
   readonly conditions: string;
   readonly cancellation_policy_version: string;
   readonly guarantee_policy_version?: string | null;

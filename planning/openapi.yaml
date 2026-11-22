@@ -1067,6 +1067,43 @@ paths:
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /spaces/{spaceID}/rental-schedule:
+    get:
+      operationId: listPublicRentalSchedule
+      tags: [ Public catalog ]
+      summary: Consultar bloques horarios del día con estado de disponibilidad
+      description: >-
+        Devuelve los bloques horarios del día consultado con su estado (available, held, booked) para mostrar horarios ocupados o en proceso como deshabilitados sin revelar datos personales ni reservas.
+      security: []
+      parameters:
+        - name: spaceID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: duration
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1, maximum: 4 }
+      responses:
+        "200":
+          description: Bloques horarios del día con su estado.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RentalScheduleEnvelope" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "405": { $ref: "#/components/responses/RentalMethodNotAllowed" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /rental-quotes:
     post:
       operationId: createRentalQuote
@@ -1096,6 +1133,36 @@ paths:
         "404": { $ref: "#/components/responses/RentalNotFound" }
         "409": { $ref: "#/components/responses/RentalConflict" }
         "415": { $ref: "#/components/responses/RentalUnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /rental-quotes/multi:
+    post:
+      operationId: createMultiRentalQuote
+      tags: [ Rental ]
+      summary: Crear una cotización autenticada con múltiples tramos horarios o días
+      description: >-
+        Valida múltiples intervalos (contiguos, separados o en distintos días) para el mismo espacio y persiste la cotización oficial con el detalle por tramo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMultiRentalQuoteRequest" }
+      responses:
+        "201":
+          description: Cotización multi-tramo creada y persistida.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RentalMultiQuoteEnvelope" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "405": { $ref: "#/components/responses/RentalMethodNotAllowed" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
@@ -1275,11 +1342,13 @@ paths:
       tags: [ Payments ]
       summary: Validar y guardar una notificación de pago de Mercado Pago
       description: >-
-        Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
+        Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `data.id` en query string como valor canónico firmado junto con `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
       security: []
       parameters:
-        - { name: x-signature, in: header, required: true, schema: { type: string, maxLength: 512 } }
-        - { name: x-request-id, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 256 } }
+        - { name: data.id, in: query, required: true, description: ID numérico del pago notificado por Mercado Pago (valor canónico incluido en el manifest firmado por x-signature)., schema: { type: string, pattern: "^[0-9]{1,40}$" } }
+        - { name: type, in: query, required: false, description: Tópico de la notificación (por ejemplo payment)., schema: { type: string, maxLength: 64 } }
+        - { name: x-signature, in: header, required: true, description: Firma HMAC-SHA256 de Mercado Pago con formato ts=...,v1=..., schema: { type: string, maxLength: 512 } }
+        - { name: x-request-id, in: header, required: true, description: Identificador único de entrega del webhook emitido por Mercado Pago., schema: { type: string, minLength: 1, maxLength: 256 } }
       requestBody:
         required: true
         content:
@@ -1296,6 +1365,14 @@ paths:
                   required: [ id ]
                   properties:
                     id: { oneOf: [ { type: string }, { type: integer } ] }
+            examples:
+              paymentUpdated:
+                summary: Notificación firmada de actualización de pago
+                value:
+                  type: payment
+                  action: payment.updated
+                  data:
+                    id: "1324567890"
       responses:
         "200": { description: Notificación firmada guardada o tópico firmado ignorado. }
         "400": { description: Notificación mal formada. }
@@ -1364,8 +1441,34 @@ paths:
       operationId: getCommercialPayment
       tags: [ Rental, Payments ]
       summary: Consultar el pago de prueba de una cotización
+      description: >-
+        Devuelve el importe CLP oficial de la cotización, el estado conciliado de la operación Checkout API (`payments_api`) y, cuando `MERCADOPAGO_SELLER_PUBLIC_KEY_TOKENIZATION=1` está activo en desarrollo local, la configuración `card_tokenization` con la Public Key OAuth vigente del anfitrión.
       responses:
-        "200": { description: Importe oficial y estado persistido., content: { application/json: { schema: { $ref: "#/components/schemas/CheckoutAPIPaymentEnvelope" } } } }
+        "200":
+          description: Importe oficial y estado persistido.
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutAPIPaymentEnvelope" }
+              examples:
+                readyToPay:
+                  summary: Cotización lista para tokenizar tarjeta con Public Key del anfitrión
+                  value:
+                    data:
+                      quote_id: "38a4edef-6291-48db-b7ed-e0a24911b399"
+                      amount_clp: 24000
+                      status: not_started
+                      space_title: "Sala de reuniones Providencia"
+                      start_at: "2026-11-24T18:30:00Z"
+                      end_at: "2026-11-24T20:30:00Z"
+                      time_zone: "America/Santiago"
+                      expires_at: "2026-11-24T18:00:00Z"
+                      units: 2
+                      rate_unit: hora
+                      card_tokenization:
+                        mode: seller_public_key
+                        public_key: "TEST-00000000-1111-2222-3333-444444444444"
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
         "401": { $ref: "#/components/responses/RentalUnauthorized" }
         "403": { $ref: "#/components/responses/RentalForbidden" }
         "404": { $ref: "#/components/responses/RentalNotFound" }
@@ -1376,8 +1479,8 @@ paths:
       tags: [ Rental, Payments ]
       summary: Enviar un pago de prueba tokenizado a Mercado Pago
       description: >-
-        Solo disponible en desarrollo local. El importe y la comisión se calculan en el servidor.
-        El token de tarjeta emitido por MercadoPago.js es de un solo uso y no se almacena.
+        Solo disponible en desarrollo local. El importe y la comisión se calculan en el servidor a partir de la cotización CLP persistida.
+        El token de tarjeta emitido por MercadoPago.js es de un solo uso y no se almacena. El `operation_id` generado se usa como `X-Idempotency-Key` y `external_reference` ante `POST /v1/payments` de Mercado Pago con el access token OAuth del anfitrión.
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -1385,8 +1488,46 @@ paths:
         content:
           application/json:
             schema: { $ref: "#/components/schemas/CheckoutAPIPaymentRequest" }
+            examples:
+              chileCardPayment:
+                summary: Pago con tarjeta Visa en sandbox Chile (MLC)
+                value:
+                  token: "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+                  payment_method_id: "visa"
+                  tokenization_public_key: "TEST-00000000-1111-2222-3333-444444444444"
+                  payer:
+                    email: "comprador.prueba@example.cl"
+                    identification:
+                      type: "RUT"
+                      number: "123456785"
       responses:
-        "200": { description: Resultado del intento de pago o estado de conciliación., content: { application/json: { schema: { $ref: "#/components/schemas/CheckoutAPIPaymentEnvelope" } } } }
+        "200":
+          description: Resultado del intento de pago o estado de conciliación.
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CheckoutAPIPaymentEnvelope" }
+              examples:
+                approved:
+                  summary: Pago aprobado y reserva confirmada
+                  value:
+                    data:
+                      quote_id: "38a4edef-6291-48db-b7ed-e0a24911b399"
+                      amount_clp: 24000
+                      status: approved
+                      payment_id: "1324567890"
+                      status_detail: "accredited"
+                      provider_request_id: "req-mp-sandbox-001"
+                providerError:
+                  summary: Rechazo técnico 4xx devuelto por Mercado Pago Payments API
+                  value:
+                    data:
+                      quote_id: "38a4edef-6291-48db-b7ed-e0a24911b399"
+                      amount_clp: 24000
+                      status: provider_error
+                      provider_http_status: 400
+                      provider_code: "2067"
+                      provider_request_id: "req-mp-sandbox-002"
         "400": { $ref: "#/components/responses/RentalBadRequest" }
         "401": { $ref: "#/components/responses/RentalUnauthorized" }
         "403": { $ref: "#/components/responses/RentalForbidden" }
@@ -1505,6 +1646,76 @@ paths:
             application/pdf:
               schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/intervals/{intervalID}/usage:
+    parameters:
+      - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: intervalID, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: updateCommercialIntervalUsage
+      tags: [ Rental ]
+      summary: Actualizar estado de uso o check-in de un tramo de la reserva comercial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ status ]
+              properties:
+                status: { type: string, enum: [ pendiente, en_uso, completado, no_asistio ] }
+      responses:
+        "200":
+          description: Reserva comercial actualizada con el estado del tramo.
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content: { application/json: { schema: { $ref: "#/components/schemas/CommercialReservationEnvelope" } } }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/verify-pass:
+    post:
+      operationId: verifyCommercialPass
+      tags: [ Rental ]
+      summary: Verificar pase QR o código de 6 caracteres en recepción y confirmar check-in/check-out
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ code_or_qr, action ]
+              properties:
+                code_or_qr: { type: string, minLength: 4, maxLength: 256 }
+                space_id: { type: string, format: uuid }
+                action: { type: string, enum: [ preview, check_in, check_out ] }
+      responses:
+        "200":
+          description: Pase validado y actualizado según la acción solicitada.
+          headers: { Cache-Control: { schema: { type: string, const: no-store } } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ data ]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [ reservation, interval ]
+                    properties:
+                      reservation: { $ref: "#/components/schemas/CommercialReservation" }
+                      interval: { $ref: "#/components/schemas/RentalQuoteInterval" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
         "404": { $ref: "#/components/responses/RentalNotFound" }
         "409": { $ref: "#/components/responses/RentalConflict" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
@@ -7480,6 +7691,14 @@ components:
       properties:
         start_at: { type: string, format: date-time }
         end_at: { type: string, format: date-time }
+    RentalScheduleSlot:
+      type: object
+      additionalProperties: false
+      required: [ start_at, end_at, status ]
+      properties:
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        status: { type: string, enum: [ available, held, booked ] }
     PublicRentalAvailability:
       type: object
       additionalProperties: false
@@ -7492,6 +7711,24 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/RentalInterval" }
+    PublicRentalSchedule:
+      type: object
+      additionalProperties: false
+      required: [ space_id, time_zone, rate_unit, checked_at, slots ]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string, description: Zona IANA configurada en la publicación. }
+        rate_unit: { type: string, enum: [ hora, dia, mes ] }
+        checked_at: { type: string, format: date-time }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/RentalScheduleSlot" }
+    RentalScheduleEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/PublicRentalSchedule" }
     RentalAvailabilityEnvelope:
       type: object
       additionalProperties: false
@@ -7524,6 +7761,58 @@ components:
         time_zone: { type: string, description: Zona IANA autoritativa de la publicación. }
         created_at: { type: string, format: date-time }
         expires_at: { type: string, format: date-time, description: Vencimiento de la cotización; no retiene el intervalo. }
+    CreateMultiRentalQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [ space_id, intervals ]
+      properties:
+        space_id: { type: string, format: uuid }
+        intervals:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: { $ref: "#/components/schemas/RentalInterval" }
+    RentalQuoteInterval:
+      type: object
+      additionalProperties: false
+      required: [ start_at, end_at, units ]
+      properties:
+        id: { type: string, format: uuid }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        units: { type: integer, format: int64, minimum: 1 }
+        usage_status: { type: string, enum: [ pendiente, en_uso, completado, no_asistio ] }
+        check_in_at: { type: string, format: date-time }
+        check_out_at: { type: string, format: date-time }
+        pass_code: { type: string }
+        qr_payload: { type: string }
+    RentalMultiQuote:
+      type: object
+      additionalProperties: false
+      required: [ id, space_id, space_title, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, created_at, expires_at, intervals ]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        rate_unit: { type: string, enum: [ hora, dia, mes ] }
+        unit_price_clp: { type: integer, format: int64, minimum: 5001 }
+        currency: { type: string, const: CLP }
+        units: { type: integer, format: int64, minimum: 1 }
+        subtotal_clp: { type: integer, format: int64, minimum: 5001 }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        intervals:
+          type: array
+          items: { $ref: "#/components/schemas/RentalQuoteInterval" }
+    RentalMultiQuoteEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/RentalMultiQuote" }
     RentalQuoteEnvelope:
       type: object
       additionalProperties: false
@@ -7567,8 +7856,8 @@ components:
       additionalProperties: false
       required: [ token, payment_method_id, payer ]
       properties:
-        token: { type: string, minLength: 16, maxLength: 128 }
-        payment_method_id: { type: string, minLength: 1, maxLength: 64 }
+        token: { type: string, minLength: 16, maxLength: 128, pattern: "^[a-zA-Z0-9_-]{16,128}$" }
+        payment_method_id: { type: string, minLength: 1, maxLength: 64, pattern: "^[a-z0-9_]{1,64}$" }
         issuer_id: { type: string, pattern: "^[0-9]{1,24}$" }
         tokenization_public_key: { type: string, pattern: "^(TEST-|APP_USR-)[A-Za-z0-9_-]{16,120}$", description: Solo requerido cuando el modo local optativo de tokenización usa la Public Key OAuth vigente del anfitrión; el backend la compara y nunca la envía a Mercado Pago en el body del pago. }
         payer:
@@ -7582,8 +7871,8 @@ components:
               additionalProperties: false
               required: [ type, number ]
               properties:
-                type: { type: string, maxLength: 20 }
-                number: { type: string, maxLength: 32 }
+                type: { type: string, minLength: 1, maxLength: 64, pattern: "^[A-Za-z0-9_-]{1,64}$" }
+                number: { type: string, minLength: 1, maxLength: 40 }
     CheckoutAPIPaymentEnvelope:
       type: object
       additionalProperties: false
@@ -7596,6 +7885,10 @@ components:
           properties:
             quote_id: { type: string, format: uuid }
             amount_clp: { type: integer, minimum: 1 }
+            base_amount_clp: { type: integer, format: int64, minimum: 1 }
+            buyer_commission_clp: { type: integer, format: int64, minimum: 0 }
+            buyer_vat_clp: { type: integer, format: int64, minimum: 0 }
+            service_fee_clp: { type: integer, format: int64, minimum: 0 }
             status: { type: string, enum: [not_started, pending, approved, rejected, expired, cancelled, provider_error, reconciliation_required] }
             space_title: { type: string }
             start_at: { type: string, format: date-time }
@@ -7755,6 +8048,16 @@ components:
         participant_role: { type: string, enum: [ anfitrion, arrendatario ] }
         status: { type: string }
         checkout_status: { type: string }
+        checkout_method: { type: string, enum: [ checkout_pro, payments_api ] }
+        provider_payment_id: { type: string }
+        commission_clp: { type: integer, format: int64 }
+        vat_clp: { type: integer, format: int64 }
+        buyer_commission_clp: { type: integer, format: int64 }
+        buyer_iva_clp: { type: integer, format: int64 }
+        buyer_fee_clp: { type: integer, format: int64 }
+        total_charged_clp: { type: integer, format: int64 }
+        marketplace_fee_clp: { type: integer, format: int64 }
+        net_host_amount_clp: { type: integer, format: int64 }
         rate_unit: { type: string, enum: [ hora, dia, mes ] }
         unit_price_clp: { type: integer, format: int64 }
         units: { type: integer, format: int64 }
@@ -7766,6 +8069,9 @@ components:
         payment_expires_at: { type: string, format: date-time }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        intervals:
+          type: array
+          items: { $ref: "#/components/schemas/RentalQuoteInterval" }
     CommercialReservationEnvelope:
       type: object
       additionalProperties: false

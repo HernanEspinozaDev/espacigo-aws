@@ -14,7 +14,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { bookingsFacade } from "@/features/bookings/bookings-runtime";
 import { cn } from "@/lib/utils";
+import { calculateBuyerFeeBreakdown } from "../domain/fee-breakdown";
 import { CheckoutSummaryCard } from "./checkout-flow-chrome";
 
 const SDK_URL = "https://sdk.mercadopago.com/js/v2";
@@ -40,6 +42,10 @@ interface CheckoutSnapshot {
   quoteId: string;
   status: PaymentStatus;
   amountClp: number;
+  baseAmountClp: number | null;
+  buyerCommissionClp: number | null;
+  buyerVatClp: number | null;
+  serviceFeeClp: number | null;
   paymentId: string | null;
   statusDetail: string | null;
   spaceTitle: string | null;
@@ -77,6 +83,7 @@ type CardFormData = {
 
 type MercadoPagoCardForm = {
   getCardFormData(): CardFormData;
+  unmount?(): void;
 };
 
 declare global {
@@ -142,6 +149,17 @@ function safeHttpStatus(value: unknown): number | null {
     : null;
 }
 
+function safeNonNegativeClp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    if (Number.isSafeInteger(parsed) && parsed >= 0) return parsed;
+  }
+  return null;
+}
+
 function safeDateTime(value: unknown): string | null {
   return typeof value === "string" && Number.isFinite(Date.parse(value))
     ? value
@@ -200,6 +218,8 @@ function providerErrorMessage(providerCode: string | null): string | null {
       return "El token de tarjeta no es válido o ya no se puede usar. No lo reutilices; consulta el estado antes de iniciar otro intento.";
     case "2067":
       return "Mercado Pago no pudo validar el medio de pago o los datos del pagador. Revisa la tarjeta y el documento antes de iniciar otra cotización.";
+    case "2198":
+      return "Mercado Pago rechazó el correo del pagador de prueba (2198). En sandbox debes usar el correo exacto del usuario comprador de prueba (@testuser.com).";
     case "4033":
       return "Mercado Pago no acepta las cuotas de esta operación. Esta compra se envía en una cuota; el equipo debe revisar la configuración.";
     case "4038":
@@ -325,10 +345,31 @@ function parseSnapshot(
         data.card_tokenization.reconnect_required === true || !publicKey,
     };
   }
+  const baseAmountClp = safeNonNegativeClp(data.base_amount_clp);
+  const serviceFeeClp = safeNonNegativeClp(data.service_fee_clp);
+  let buyerCommissionClp = safeNonNegativeClp(data.buyer_commission_clp);
+  let buyerVatClp = safeNonNegativeClp(data.buyer_vat_clp);
+  if (
+    baseAmountClp !== null &&
+    serviceFeeClp !== null &&
+    serviceFeeClp > 0 &&
+    buyerCommissionClp === null &&
+    buyerVatClp === null
+  ) {
+    const derived = calculateBuyerFeeBreakdown(baseAmountClp);
+    if (derived.serviceFeeClp === serviceFeeClp) {
+      buyerCommissionClp = derived.commissionClp;
+      buyerVatClp = derived.vatClp;
+    }
+  }
   return {
     quoteId: expectedQuoteId,
     status: data.status as PaymentStatus,
     amountClp: data.amount_clp,
+    baseAmountClp,
+    buyerCommissionClp,
+    buyerVatClp,
+    serviceFeeClp,
     paymentId: safeIdentifier(data.payment_id),
     statusDetail: safeIdentifier(data.status_detail),
     spaceTitle:
@@ -484,6 +525,7 @@ function CheckoutResultCard({
   providerRequestId,
   isRefreshing,
   onRefresh,
+  onRetryAnotherCard,
 }: {
   quoteId: string;
   status: PaymentStatus | null;
@@ -494,6 +536,7 @@ function CheckoutResultCard({
   providerRequestId: string | null;
   isRefreshing: boolean;
   onRefresh: () => void;
+  onRetryAnotherCard?: () => void;
 }) {
   if (status === "approved") {
     return (
@@ -629,6 +672,18 @@ function CheckoutResultCard({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3 pt-1">
+        {(status === "rejected" ||
+          status === "provider_error" ||
+          status === null) &&
+        onRetryAnotherCard ? (
+          <Button
+            type="button"
+            onClick={onRetryAnotherCard}
+            className="min-h-11 rounded-xl bg-[#a44731] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b]"
+          >
+            Probar con otra tarjeta
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="outline"
@@ -678,6 +733,7 @@ export function CheckoutApiCardForm({
   const [sdkLoadError, setSdkLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [paymentAttempted, setPaymentAttempted] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const [secureFieldsReady, setSecureFieldsReady] = useState(false);
   const [email, setEmail] = useState("");
   const [identificationNumber, setIdentificationNumber] = useState("");
@@ -937,6 +993,9 @@ export function CheckoutApiCardForm({
           return;
         }
         setResult(parsed);
+        if (parsed.status === "approved") {
+          void bookingsFacade.loadReservations().catch(() => {});
+        }
         if (
           parsed.status === "pending" ||
           parsed.status === "in_process" ||
@@ -997,6 +1056,7 @@ export function CheckoutApiCardForm({
       sellerKeyReconnectRequired ||
       !sdkLoaded ||
       checkoutStatus !== "not_started" ||
+      paymentAttempted ||
       checkoutAmountClp === null ||
       !window.MercadoPago ||
       mountedRef.current
@@ -1014,7 +1074,7 @@ export function CheckoutApiCardForm({
         sellerKeyMode,
       });
       cardForm = mp.cardForm({
-        amount: checkoutAmountClp.toFixed(2),
+        amount: String(checkoutAmountClp),
         iframe: true,
         form: {
           id: "form-checkout-api",
@@ -1067,6 +1127,26 @@ export function CheckoutApiCardForm({
               }
             });
           },
+          onValidityChange: (validityError: unknown, field: unknown) => {
+            const safeField = safeIdentifier(field);
+            if (validityError) {
+              logCheckoutStage("card_form_field_invalid", {
+                quoteId: safeIdentifier(quoteId),
+                field: safeField,
+              });
+            }
+          },
+          onError: (sdkErrors: unknown) => {
+            const errorCount = Array.isArray(sdkErrors) ? sdkErrors.length : 1;
+            logCheckoutStage("card_form_sdk_error", {
+              quoteId: safeIdentifier(quoteId),
+              errorCount,
+            });
+            setSubmitting(false);
+            setFormError(
+              "Mercado Pago rechazó o no pudo tokenizar los datos de la tarjeta. Revisa el número de tarjeta, vencimiento, CVV, RUT y correo del comprador de prueba.",
+            );
+          },
           onSubmit: (event: Event) => {
             void submitPaymentRef.current(event);
           },
@@ -1097,6 +1177,11 @@ export function CheckoutApiCardForm({
     }, 8000);
     return () => {
       window.clearTimeout(timer);
+      try {
+        cardFormRef.current?.unmount?.();
+      } catch {
+        // Ignore SDK unmount errors when container is already replaced.
+      }
       cardFormRef.current = null;
       mountedRef.current = false;
       setSecureFieldsReady(false);
@@ -1111,6 +1196,8 @@ export function CheckoutApiCardForm({
     sdkLoaded,
     quoteId,
     sellerKeyMode,
+    paymentAttempted,
+    retryCount,
   ]);
 
   const isLoading = loading && enabled && auth.status === "authenticated";
@@ -1297,7 +1384,11 @@ export function CheckoutApiCardForm({
                 );
               }}
             />
-            <form id="form-checkout-api" className="space-y-4">
+            <form
+              key={`card-form-attempt-${retryCount}`}
+              id="form-checkout-api"
+              className="space-y-4"
+            >
               {!secureFieldsReady && !sdkLoadError ? (
                 <p
                   role="status"
@@ -1517,9 +1608,9 @@ export function CheckoutApiCardForm({
 
               <p className="flex items-center justify-center gap-1.5 text-center text-xs text-[#66574e]">
                 <Lock className="size-3.5 shrink-0" aria-hidden="true" />
-                EspaciGo no agrega comisión en esta prueba. El anfitrión recibe
-                el importe del arriendo, sujeto a cargos que aplique Mercado
-                Pago.
+                {checkout.serviceFeeClp && checkout.serviceFeeClp > 0
+                  ? "El total incluye la comisión de servicio EspaciGo (3% + IVA). Pago procesado de forma segura por Mercado Pago."
+                  : "Pago procesado de forma segura por Mercado Pago."}
               </p>
             </form>
           </>
@@ -1536,6 +1627,23 @@ export function CheckoutApiCardForm({
             providerRequestId={result?.providerRequestId ?? null}
             isRefreshing={isLoading}
             onRefresh={() => void loadCheckout()}
+            onRetryAnotherCard={() => {
+              idempotencyKey.current = crypto.randomUUID();
+              setResult(null);
+              setFormError(null);
+              setPaymentAttempted(false);
+              setRetryCount((prev) => prev + 1);
+              setCheckout((current) =>
+                current
+                  ? {
+                      ...current,
+                      status: "not_started",
+                      paymentId: null,
+                      statusDetail: null,
+                    }
+                  : current,
+              );
+            }}
           />
         ) : (
           <div className="border-t border-[#ded5cc] pt-3">
@@ -1561,9 +1669,17 @@ export function CheckoutApiCardForm({
           rateUnit={checkout?.rateUnit}
           quoteId={quoteId}
           statusLabel={summaryStatus}
+          baseClp={checkout?.baseAmountClp ?? null}
+          commissionClp={checkout?.buyerCommissionClp ?? null}
+          vatClp={checkout?.buyerVatClp ?? null}
+          serviceFeeClp={checkout?.serviceFeeClp ?? null}
           totalClp={checkout?.amountClp ?? null}
           expiresAt={checkout?.expiresAt}
-          contextNote="EspaciGo no agrega comisión en esta prueba. El anfitrión recibe el importe del arriendo, sujeto a cargos que aplique Mercado Pago."
+          contextNote={
+            checkout?.serviceFeeClp && checkout.serviceFeeClp > 0
+              ? "El total incluye la comisión de servicio EspaciGo (3% + IVA). Mercado Pago procesa el cobro de forma segura."
+              : "Mercado Pago procesa el cobro de forma segura."
+          }
           className="lg:sticky lg:top-6"
         />
       )}

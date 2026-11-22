@@ -1,0 +1,1196 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  EspaciGo AWS Production - SSM Parameters, Observability, IAM, NLB TLS,
+  ECS Fargate (App + DB Migrator), CodeBuild Migrate y AWS Budgets.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - staging
+
+  NetworkStackName:
+    Type: String
+    Default: espacigo-network-prod
+    Description: Nombre del stack network-and-data del cual importar VPC, Subredes, SGs, RDS y S3.
+
+  MonthlyBudgetLimitUsd:
+    Type: String
+    Default: '28.0'
+
+  BudgetAlertEmail:
+    Type: String
+    Default: contacto@hotusoft.com
+
+  CorsAllowedOrigins:
+    Type: String
+    Default: https://espacigo.testingpage.store,https://espacigo-demo.testingpage.store
+
+  FrontendPublicOrigin:
+    Type: String
+    Default: https://espacigo.testingpage.store
+
+  PublicTlsCertificateArn:
+    Type: String
+    Default: ''
+
+  MigratorSeedImage:
+    Type: String
+    Default: ''
+    Description: Digest ECR de espacigo-dbmigrate (@sha256:...). Vacio omite recursos de migracion.
+
+  ApiSeedImage:
+    Type: String
+    Default: ''
+    Description: Digest ECR de espacigo-api (@sha256:...). Vacio omite la tarea ECS de la app.
+
+  WebSeedImage:
+    Type: String
+    Default: ''
+    Description: Digest ECR de espacigo-web (@sha256:...). Vacio omite la tarea ECS de la app.
+
+  DatabaseApiSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN completo del secreto espacigo/<env>/database/api en Secrets Manager.
+
+  DatabaseMigratorSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN completo del secreto espacigo/<env>/database/migrator en Secrets Manager.
+
+  AuthSmtpSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN completo del secreto espacigo/<env>/auth/smtp en Secrets Manager.
+
+  MercadoPagoSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN completo del secreto espacigo/<env>/payments/mercadopago en Secrets Manager.
+
+  MercadoPagoTestMode:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+  DeployAlertEmail:
+    Type: String
+    Default: ''
+    Description: Email para notificaciones inmediatas de despliegue (CodePipeline/CodeBuild/ECS). Vacio omite la suscripcion.
+
+  CodePipelineName:
+    Type: String
+    Default: espacigo-main-pilot
+
+  GitHubRepository:
+    Type: String
+    Default: ''
+    Description: owner/repo para reportar Commit Status desde AWS a GitHub (ej. org/espacigo-aws).
+
+  GitHubStatusSsmParameterName:
+    Type: String
+    Default: ''
+    Description: Nombre del parametro SecureString en SSM Parameter Store con el token de GitHub (ej. /espacigo/prod/github/commit_status_token). Vacio omite la Lambda.
+
+Conditions:
+  HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
+  ProvisionMigrator: !Not [!Equals [!Ref MigratorSeedImage, '']]
+  ProvisionApp: !And
+    - !Not [!Equals [!Ref ApiSeedImage, '']]
+    - !Not [!Equals [!Ref WebSeedImage, '']]
+  ProvisionAppService: !And
+    - !Condition ProvisionApp
+    - !Condition HasPublicTls
+  EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
+  HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
+  EnableGitHubCommitStatus: !And
+    - !Not [!Equals [!Ref GitHubStatusSsmParameterName, '']]
+    - !Not [!Equals [!Ref GitHubRepository, '']]
+
+Resources:
+  # ============================================================================
+  # 1. SSM Parameter Store (/espacigo/<env>/*)
+  # ============================================================================
+  SsmAppProfile:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/app_profile
+      Type: String
+      Value: !Ref Environment
+
+  SsmCorsAllowedOrigins:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/cors_allowed_origins
+      Type: String
+      Value: !Ref CorsAllowedOrigins
+
+  SsmFrontendPublicOrigin:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/frontend_public_origin
+      Type: String
+      Value: !Ref FrontendPublicOrigin
+
+  SsmDatabaseHost:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/database/host
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+
+  SsmDatabasePort:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/database/port
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointPort
+
+  SsmDatabaseName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/database/name
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-RdsDbName
+
+  SsmDatabaseUser:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/database/user
+      Type: String
+      Value: espacigo_api_login
+
+  SsmDatabaseSetRole:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/database/set_role
+      Type: String
+      Value: espacigo_runtime
+
+  SsmEvidenceBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/evidence_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketName
+
+  SsmMediaBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/media_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketName
+
+  SsmKycIdentityBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/kyc_identity_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-KycIdentityBucketName
+
+  SsmKycSpaceBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/kyc_space_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketName
+
+  SsmPrivacyReplayBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/privacy_replay_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-PrivacyReplayBucketName
+
+  # ============================================================================
+  # 2. Observabilidad (CloudWatch Log Groups) y Secretos gestionados
+  # ============================================================================
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/ecs/espacigo-api
+      RetentionInDays: 14
+
+  WebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/ecs/espacigo-web
+      RetentionInDays: 14
+
+  PrivacyWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/ecs/espacigo-privacy-worker
+      RetentionInDays: 14
+
+  DbMigrateLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/ecs/espacigo-dbmigrate
+      RetentionInDays: 14
+
+  TotpKeyringSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: ProvisionApp
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: !Sub espacigo/${Environment}/auth/totp-keyring
+      Description: TOTP encryption keyring for the EspaciGo production API
+
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: ProvisionApp
+    Properties:
+      LogGroupName: !Sub /aws/ecs/espacigo-app-${Environment}
+      RetentionInDays: 365
+
+  MigratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: ProvisionMigrator
+    Properties:
+      LogGroupName: !Sub /aws/ecs/espacigo-db-migrate-${Environment}
+      RetentionInDays: 14
+
+  MigrateBuildLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: ProvisionMigrator
+    Properties:
+      LogGroupName: /aws/codebuild/espacigo-main-migrate
+      RetentionInDays: 14
+
+  # ============================================================================
+  # 3. Roles IAM base y de Aplicacion
+  # ============================================================================
+  BaseEcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub espacigo-ecs-task-execution-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: espacigo-ecs-task-execution-logs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/ecs/espacigo-*:*'
+        - PolicyName: espacigo-ecs-pull-images
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-api'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-web'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-dbmigrate'
+
+  BaseApiTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub espacigo-api-task-role-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: espacigo-api-s3-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketArn
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-KycIdentityBucketArn
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketArn
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-PrivacyReplayBucketArn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-KycIdentityBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-PrivacyReplayBucketArn
+        - PolicyName: espacigo-api-ssm-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/*'
+
+  AppExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: ProvisionApp
+    Properties:
+      RoleName: !Sub espacigo-app-${Environment}-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*'
+      Policies:
+        - PolicyName: private-app-execution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource:
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-api'
+                  - !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-web'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AppLogGroup}:log-stream:application/*'
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/api-*'
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/auth/smtp-*'
+                  - !Ref TotpKeyringSecret
+                  - !If
+                    - EnableMercadoPago
+                    - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
+                    - !Ref AWS::NoValue
+
+  AppRuntimeRole:
+    Type: AWS::IAM::Role
+    Condition: ProvisionApp
+    Properties:
+      RoleName: !Sub espacigo-app-${Environment}-runtime
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*'
+      Policies:
+        - PolicyName: read-public-catalog-assets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
+
+  # ============================================================================
+  # 4. NLB + TLS 443
+  # ============================================================================
+  PublicLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Condition: HasPublicTls
+    Properties:
+      Name: !Sub espacigo-${Environment}
+      Type: network
+      Subnets:
+        - Fn::ImportValue: !Sub ${NetworkStackName}-PublicSubnet1Id
+      SecurityGroups:
+        - Fn::ImportValue: !Sub ${NetworkStackName}-LoadBalancerSecurityGroupId
+
+  WebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Condition: HasPublicTls
+    Properties:
+      Name: !Sub espacigo-web-${Environment}
+      Port: 4000
+      Protocol: TCP
+      TargetType: ip
+      VpcId:
+        Fn::ImportValue: !Sub ${NetworkStackName}-VpcId
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /api/ready
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      Matcher:
+        HttpCode: '200'
+
+  WebTlsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasPublicTls
+    Properties:
+      LoadBalancerArn: !Ref PublicLoadBalancer
+      Port: 443
+      Protocol: TLS
+      Certificates:
+        - CertificateArn: !Ref PublicTlsCertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTargetGroup
+
+  # ============================================================================
+  # 5. ECS Task Definition & Service (Next.js + Go API)
+  # ============================================================================
+  AppTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Condition: ProvisionApp
+    Properties:
+      Family: !Sub espacigo-app-${Environment}
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt AppExecutionRole.Arn
+      TaskRoleArn: !GetAtt AppRuntimeRole.Arn
+      Cpu: '512'
+      Memory: '1024'
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: api
+          Image: !Ref ApiSeedImage
+          Essential: true
+          ReadonlyRootFilesystem: true
+          Environment:
+            - Name: APP_PROFILE
+              Value: production
+            - Name: HTTP_ADDR
+              Value: 127.0.0.1:8080
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: DATABASE_HOST
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+            - Name: DATABASE_PORT
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointPort
+            - Name: DATABASE_NAME
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-RdsDbName
+            - Name: DATABASE_USER
+              Value: espacigo_api_login
+            - Name: DATABASE_SET_ROLE
+              Value: espacigo_runtime
+            - Name: DATABASE_SSLMODE
+              Value: verify-full
+            - Name: DATABASE_SSLROOTCERT
+              Value: /etc/ssl/rds-ca.pem
+            - Name: FRONTEND_PUBLIC_ORIGIN
+              Value: !Ref FrontendPublicOrigin
+            - Name: CORS_ALLOWED_ORIGINS
+              Value: !Ref CorsAllowedOrigins
+            - Name: BLOB_STORE_BACKEND
+              Value: s3
+            - Name: S3_STORAGE_BUCKET
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketName
+            - Name: S3_MEDIA_BUCKET
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketName
+            - Name: AUTH_SMTP_HOST
+              Value: smtp.zoho.com
+            - Name: AUTH_SMTP_PORT
+              Value: '587'
+            - Name: AUTH_SMTP_SECURITY
+              Value: starttls
+            - Name: AUTH_SMTP_USERNAME
+              Value: contacto@hotusoft.com
+            - Name: AUTH_SMTP_FROM
+              Value: contacto@hotusoft.com
+            - Name: MERCADOPAGO_CHECKOUT_ENABLED
+              Value: !If [EnableMercadoPago, '1', '0']
+            - Name: MERCADOPAGO_TEST_MODE
+              Value: !Ref MercadoPagoTestMode
+            - Name: MERCADOPAGO_OAUTH_REDIRECT_URI
+              Value: !Sub ${FrontendPublicOrigin}/api/backend/host/mercadopago/oauth/callback
+            - Name: MERCADOPAGO_RETURN_ORIGIN
+              Value: !Ref FrontendPublicOrigin
+          Secrets:
+            - Name: DATABASE_ECS_PASSWORD
+              ValueFrom: !Sub '${DatabaseApiSecretArn}:password::'
+            - Name: PUBLIC_CATALOG_ECS_CURSOR_KEY
+              ValueFrom: !Sub '${DatabaseApiSecretArn}:cursor_key::'
+            - Name: AUTH_SMTP_ECS_PASSWORD
+              ValueFrom: !Sub '${AuthSmtpSecretArn}:password::'
+            - Name: TOTP_KEYRING_JSON
+              ValueFrom: !Ref TotpKeyringSecret
+            - !If
+              - EnableMercadoPago
+              - Name: MERCADOPAGO_CLIENT_ID
+                ValueFrom: !Sub '${MercadoPagoSecretArn}:client_id::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableMercadoPago
+              - Name: MERCADOPAGO_CLIENT_SECRET
+                ValueFrom: !Sub '${MercadoPagoSecretArn}:client_secret::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableMercadoPago
+              - Name: MERCADOPAGO_TOKEN_ENCRYPTION_KEY
+                ValueFrom: !Sub '${MercadoPagoSecretArn}:token_encryption_key::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableMercadoPago
+              - Name: MERCADOPAGO_WEBHOOK_SECRET
+                ValueFrom: !Sub '${MercadoPagoSecretArn}:webhook_secret::'
+              - !Ref AWS::NoValue
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: application
+        - Name: web
+          Image: !Ref WebSeedImage
+          Essential: true
+          DependsOn:
+            - ContainerName: api
+              Condition: START
+          Environment:
+            - Name: API_BACKEND_BASE_URL
+              Value: http://127.0.0.1:8080/api/v1
+            - Name: FRONTEND_PUBLIC_ORIGIN
+              Value: !Ref FrontendPublicOrigin
+            - Name: HOSTNAME
+              Value: 0.0.0.0
+          PortMappings:
+            - ContainerPort: 4000
+              HostPort: 4000
+              Protocol: tcp
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget -q -O /dev/null http://127.0.0.1:4000/api/ready
+            Interval: 10
+            Timeout: 5
+            Retries: 2
+            StartPeriod: 20
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref AppLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: application
+
+  AppService:
+    Type: AWS::ECS::Service
+    Condition: ProvisionAppService
+    DependsOn: WebTlsListener
+    Properties:
+      ServiceName: !Sub espacigo-app-${Environment}
+      Cluster: espacigo-production
+      TaskDefinition: !Ref AppTaskDefinition
+      PlatformVersion: 1.4.0
+      DesiredCount: 1
+      HealthCheckGracePeriodSeconds: 30
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - Fn::ImportValue: !Sub ${NetworkStackName}-PrivateSubnet1Id
+          SecurityGroups:
+            - Fn::ImportValue: !Sub ${NetworkStackName}-EcsTaskSecurityGroupId
+      LoadBalancers:
+        - TargetGroupArn: !Ref WebTargetGroup
+          ContainerName: web
+          ContainerPort: 4000
+
+  # ============================================================================
+  # 6. Migrador RDS y CodeBuild Migrate
+  # ============================================================================
+  MigratorExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: ProvisionMigrator
+    Properties:
+      RoleName: !Sub espacigo-db-migrate-${Environment}-execution
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*'
+      Policies:
+        - PolicyName: db-migration-execution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !Sub 'arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/espacigo-dbmigrate'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${MigratorLogGroup}:log-stream:migration/dbmigrate/*'
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/migrator-*'
+
+  MigratorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Condition: ProvisionMigrator
+    Properties:
+      Family: !Sub espacigo-db-migrate-${Environment}
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt MigratorExecutionRole.Arn
+      Cpu: '256'
+      Memory: '512'
+      RuntimePlatform:
+        CpuArchitecture: X86_64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: dbmigrate
+          Image: !Ref MigratorSeedImage
+          Essential: true
+          ReadonlyRootFilesystem: true
+          Command:
+            - -aws-release
+          Environment:
+            - Name: AWS_RDS_HOST
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+            - Name: DATABASE_SET_ROLE
+              Value: espacigo_schema_owner
+            - Name: DATABASE_URL
+              Value: !Sub
+                - postgres://espacigo_migrator_login@${Host}:${Port}/espacigo_${Environment}?sslmode=verify-full&sslrootcert=/etc/ssl/rds-ca.pem
+                - Host:
+                    Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+                  Port:
+                    Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointPort
+          Secrets:
+            - Name: DATABASE_ECS_PASSWORD
+              ValueFrom: !Sub '${DatabaseMigratorSecretArn}:password::'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref MigratorLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: migration
+
+  MigrateBuildRole:
+    Type: AWS::IAM::Role
+    Condition: ProvisionMigrator
+    Properties:
+      RoleName: espacigo-main-migrate-service
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+                aws:SourceArn: !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:project/espacigo-main-migrate'
+      Policies:
+        - PolicyName: run-private-migration
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketVersioning
+                Resource: !Sub 'arn:aws:s3:::espacigo-pilot-artifacts-${AWS::AccountId}-${AWS::Region}'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub 'arn:aws:s3:::espacigo-pilot-artifacts-${AWS::AccountId}-${AWS::Region}/espacigo-main-pilot/*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${MigrateBuildLogGroup}:log-stream:*'
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeTaskDefinition
+                  - ecs:RegisterTaskDefinition
+                Resource: '*'
+              - Effect: Allow
+                Action: ecs:RunTask
+                Resource: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task-definition/espacigo-db-migrate-${Environment}:*'
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/espacigo-production'
+              - Effect: Allow
+                Action: ecs:DescribeTasks
+                Resource: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/espacigo-production/*'
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt MigratorExecutionRole.Arn
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+
+  MigrateCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Condition: ProvisionMigrator
+    Properties:
+      Name: espacigo-main-migrate
+      ServiceRole: !GetAtt MigrateBuildRole.Arn
+      TimeoutInMinutes: 20
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: infra/codepipeline/migrate-buildspec.yml
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: EXPECTED_AWS_ACCOUNT_ID
+            Value: !Ref AWS::AccountId
+          - Name: EXPECTED_AWS_REGION
+            Value: !Ref AWS::Region
+          - Name: ECS_CLUSTER
+            Value: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/espacigo-production'
+          - Name: ECS_MIGRATOR_TASK
+            Value: !Ref MigratorTaskDefinition
+          - Name: ECS_MIGRATOR_NETWORK
+            Value: !Sub
+              - '{"awsvpcConfiguration":{"subnets":["${Subnet}"],"securityGroups":["${SG}"],"assignPublicIp":"DISABLED"}}'
+              - Subnet:
+                  Fn::ImportValue: !Sub ${NetworkStackName}-PrivateSubnet1Id
+                SG:
+                  Fn::ImportValue: !Sub ${NetworkStackName}-EcsTaskSecurityGroupId
+      LogsConfig:
+        CloudWatchLogs:
+          Status: ENABLED
+          GroupName: !Ref MigrateBuildLogGroup
+
+  # ============================================================================
+  # 7. AWS Budgets ($28 USD/mes)
+  # ============================================================================
+  MonthlyCostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub espacigo-monthly-budget-${Environment}
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetLimitUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetAlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetAlertEmail
+
+  # ============================================================================
+  # 8. Notificaciones inmediatas de despliegue (SNS + EventBridge)
+  # ============================================================================
+  DeployNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub espacigo-deploy-notifications-${Environment}
+      DisplayName: !Sub EspaciGo Deploy (${Environment})
+
+  DeployNotificationsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasDeployAlertEmail
+    Properties:
+      TopicArn: !Ref DeployNotificationsTopic
+      Protocol: email
+      Endpoint: !Ref DeployAlertEmail
+
+  DeployNotificationsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref DeployNotificationsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgePublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref DeployNotificationsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  CodePipelineStateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-codepipeline-alerts-${Environment}
+      Description: Notifica cambios de estado en CodePipeline (FAILED, SUCCEEDED, CANCELED).
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Pipeline Execution State Change
+        detail:
+          pipeline:
+            - !Ref CodePipelineName
+          state:
+            - FAILED
+            - SUCCEEDED
+            - CANCELED
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  CodeBuildFailedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-codebuild-failed-${Environment}
+      Description: Notifica fallos de ejecucion en proyectos CodeBuild de EspaciGo.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codebuild
+        detail-type:
+          - CodeBuild Build State Change
+        detail:
+          build-status:
+            - FAILED
+          project-name:
+            - espacigo-main-pilot
+            - espacigo-main-publish
+            - espacigo-main-migrate
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  EcsDeploymentAlertRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-ecs-deployment-alerts-${Environment}
+      Description: Notifica errores y advertencias de despliegues en ECS.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ecs
+        detail-type:
+          - ECS Deployment State Change
+        detail:
+          clusterArn:
+            - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/espacigo-production
+          eventType:
+            - ERROR
+            - WARN
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  # ============================================================================
+  # 9. Commit Status hacia GitHub desde CodePipeline (Lambda condicional)
+  # ============================================================================
+  GitHubStatusLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      RoleName: !Sub espacigo-github-status-lambda-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: espacigo-github-commit-status
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GitHubStatusSsmParameterName}
+              - Effect: Allow
+                Action: codepipeline:GetPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineName}
+
+  GitHubStatusLambda:
+    Type: AWS::Lambda::Function
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      FunctionName: !Sub espacigo-github-status-${Environment}
+      Description: Reporta el estado de ejecucion de CodePipeline como Commit Status en GitHub.
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 15
+      Role: !GetAtt GitHubStatusLambdaRole.Arn
+      Environment:
+        Variables:
+          GITHUB_REPOSITORY: !Ref GitHubRepository
+          GITHUB_SSM_PARAM: !Ref GitHubStatusSsmParameterName
+          CODEPIPELINE_NAME: !Ref CodePipelineName
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          import boto3
+
+          ssm_client = boto3.client("ssm")
+          cp_client = boto3.client("codepipeline")
+
+          STATE_MAP = {
+              "STARTED": ("pending", "CodePipeline execution started"),
+              "RESUMED": ("pending", "CodePipeline execution resumed"),
+              "SUCCEEDED": ("success", "CodePipeline execution succeeded"),
+              "FAILED": ("failure", "CodePipeline execution failed"),
+              "CANCELED": ("failure", "CodePipeline execution canceled"),
+              "STOPPED": ("failure", "CodePipeline execution stopped"),
+          }
+
+
+          def _get_github_token(param_name):
+              resp = ssm_client.get_parameter(Name=param_name, WithDecryption=True)
+              raw = (resp.get("Parameter", {}).get("Value") or "").strip()
+              if not raw:
+                  raise RuntimeError("SSM parameter is empty")
+              if raw.startswith("{"):
+                  parsed = json.loads(raw)
+                  token = (parsed.get("token") or parsed.get("github_token") or "").strip()
+                  if not token:
+                      raise RuntimeError("JSON secret does not contain token")
+                  return token
+              return raw
+
+
+          def _get_commit_sha(pipeline, execution_id):
+              for attempt in range(2):
+                  resp = cp_client.get_pipeline_execution(
+                      pipelineName=pipeline,
+                      pipelineExecutionId=execution_id,
+                  )
+                  revisions = resp.get("pipelineExecution", {}).get("artifactRevisions") or []
+                  if revisions and revisions[0].get("revisionId"):
+                      return revisions[0]["revisionId"]
+                  if attempt == 0:
+                      time.sleep(2)
+              return None
+
+
+          def handler(event, _context):
+              detail = event.get("detail") or {}
+              pipeline = detail.get("pipeline") or os.environ.get("CODEPIPELINE_NAME", "")
+              execution_id = detail.get("execution-id")
+              cp_state = (detail.get("state") or "").upper()
+
+              mapped = STATE_MAP.get(cp_state)
+              if not mapped:
+                  return {"ignored": True, "state": cp_state}
+              if not pipeline or not execution_id:
+                  raise ValueError(f"Missing pipeline or execution-id in event: {json.dumps(event)}")
+
+              sha = _get_commit_sha(pipeline, execution_id)
+              if not sha:
+                  print(f"Skipping commit status: no artifact revisionId for {pipeline}/{execution_id}")
+                  return {"skipped": True, "pipeline": pipeline, "executionId": execution_id}
+
+              gh_state, description = mapped
+              repo = os.environ["GITHUB_REPOSITORY"].strip()
+              region = os.environ.get("AWS_REGION", "us-east-1")
+              token = _get_github_token(os.environ["GITHUB_SSM_PARAM"])
+              target_url = (
+                  f"https://{region}.console.aws.amazon.com/codesuite/codepipeline/"
+                  f"pipelines/{pipeline}/executions/{execution_id}/timeline?region={region}"
+              )
+              payload = json.dumps({
+                  "state": gh_state,
+                  "target_url": target_url,
+                  "description": description[:140],
+                  "context": "aws/codepipeline",
+              }).encode("utf-8")
+
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/statuses/{sha}",
+                  data=payload,
+                  method="POST",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "espacigo-aws-codepipeline-status",
+                      "Content-Type": "application/json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as res:
+                      return {
+                          "ok": True,
+                          "repository": repo,
+                          "sha": sha,
+                          "state": gh_state,
+                          "status": res.status,
+                      }
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  print(f"GitHub API error {exc.code}: {body}")
+                  raise
+
+  GitHubStatusEventRule:
+    Type: AWS::Events::Rule
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      Name: !Sub espacigo-github-commit-status-${Environment}
+      Description: Publica Commit Status en GitHub cuando cambia el estado de CodePipeline.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Pipeline Execution State Change
+        detail:
+          pipeline:
+            - !Ref CodePipelineName
+          state:
+            - STARTED
+            - SUCCEEDED
+            - FAILED
+            - CANCELED
+      Targets:
+        - Arn: !GetAtt GitHubStatusLambda.Arn
+          Id: GitHubStatusLambda
+
+  GitHubStatusLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      FunctionName: !Ref GitHubStatusLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt GitHubStatusEventRule.Arn
+
+Outputs:
+  DeployNotificationsTopicArn:
+    Value: !Ref DeployNotificationsTopic
+  AppTaskDefinitionArn:
+    Condition: ProvisionApp
+    Value: !Ref AppTaskDefinition
+  TotpKeyringSecretArn:
+    Condition: ProvisionApp
+    Value: !Ref TotpKeyringSecret
+  MigratorTaskDefinitionArn:
+    Condition: ProvisionMigrator
+    Value: !Ref MigratorTaskDefinition
+  MigrateCodeBuildProjectArn:
+    Condition: ProvisionMigrator
+    Value: !GetAtt MigrateCodeBuildProject.Arn

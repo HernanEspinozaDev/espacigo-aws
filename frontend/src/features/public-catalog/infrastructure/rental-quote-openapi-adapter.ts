@@ -4,6 +4,7 @@ import createClient from "openapi-fetch";
 import type { paths } from "@/lib/api/generated/openapi";
 import type { RentalQuotePort } from "../application/rental-quote.port";
 import type {
+  CreateMultiRentalQuoteRequest,
   RentalQuoteRequest,
   RentalQuoteResult,
 } from "../domain/rental-quote";
@@ -51,10 +52,10 @@ function isRentalQuote(
     (value.rate_unit !== "hora" &&
       value.rate_unit !== "dia" &&
       value.rate_unit !== "mes") ||
-    !int64(value.unit_price_clp, "5001") ||
+    !int64(value.unit_price_clp, "1000") ||
     value.currency !== "CLP" ||
     !int64(value.units, "1") ||
-    !int64(value.subtotal_clp, "5001") ||
+    !int64(value.subtotal_clp, "1000") ||
     !dateTime(value.start_at) ||
     !dateTime(value.end_at) ||
     Date.parse(value.end_at) <= Date.parse(value.start_at) ||
@@ -120,6 +121,27 @@ export function createRentalQuoteAdapter(
         data.data.space_id !== request.space_id ||
         data.data.start_at !== request.start_at ||
         data.data.end_at !== request.end_at
+      )
+        return failure(502);
+      return { ok: true, value: data.data };
+    },
+    async createMultiQuote(
+      request: CreateMultiRentalQuoteRequest,
+      signal?: AbortSignal,
+    ) {
+      const { data, response } = await client.POST("/rental-quotes/multi", {
+        body: {
+          space_id: request.space_id,
+          intervals: request.intervals,
+        },
+        signal,
+      });
+      if (!response.ok) return failure(response.status);
+      if (
+        response.status !== 201 ||
+        !data ||
+        !isRentalQuote(data.data) ||
+        data.data.space_id !== request.space_id
       )
         return failure(502);
       return { ok: true, value: data.data };

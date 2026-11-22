@@ -1,10 +1,24 @@
-"use client";
-
 import Link from "next/link";
 import { HostAgreementRequests } from "@/features/host-agreements/ui/host-agreement-requests";
 import { ReservationsList } from "@/features/bookings/ui/reservations-list";
 
-export default function HostReservasPage() {
+export default async function HostReservasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    space_id?: string | string[];
+    tab?: string | string[];
+  }>;
+}) {
+  const { space_id, tab } = await searchParams;
+  const initialSpaceId = typeof space_id === "string" ? space_id : undefined;
+  const initialTab =
+    tab === "general" || tab === "finanzas" || tab === "lista"
+      ? tab
+      : initialSpaceId
+        ? "lista"
+        : undefined;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-end">
@@ -18,8 +32,10 @@ export default function HostReservasPage() {
       <HostAgreementRequests />
       <ReservationsList
         mode="host"
-        title="Gestión de Reservas de Anfitrión"
-        description="Supervisa solicitudes, aprueba arriendos y administra las operaciones de entrega y recepción."
+        initialSpaceId={initialSpaceId}
+        initialSection={initialTab}
+        title="Reservas, Finanzas y Horarios"
+        description="Supervisa KPIs de reservas, finanzas netas con Mercado Pago, agenda horaria y comprobantes de cada espacio."
       />
     </div>
   );

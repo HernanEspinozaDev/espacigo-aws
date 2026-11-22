@@ -97,12 +97,26 @@ function parse(value: unknown, requestedMonth: string): PublicMonth | null {
       ...(occupancy && { occupancy }),
     });
   }
+  const disponibleDesde =
+    typeof value.disponible_desde === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(value.disponible_desde)
+      ? value.disponible_desde
+      : value.disponible_desde === null
+        ? null
+        : undefined;
+  const estadiaMinimaMeses = integer(value.estadia_minima_meses);
   return {
     month: requestedMonth,
     timeZone: value.time_zone,
     rateUnit: value.rate_unit as PublicMonth["rateUnit"],
     basePrice,
     days,
+    ...(disponibleDesde !== undefined
+      ? { disponible_desde: disponibleDesde }
+      : {}),
+    ...(estadiaMinimaMeses !== null
+      ? { estadia_minima_meses: estadiaMinimaMeses }
+      : {}),
   };
 }
 

@@ -3,6 +3,8 @@ package checkoutapi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -22,9 +24,13 @@ func (r *paymentRepoStub) ByQuote(_ context.Context, _, _ string) (checkoutpro.Q
 }
 
 func (r *paymentRepoStub) BeginPayment(_ context.Context, _, _, _, id string, _ []byte, _ time.Time) (checkoutpro.Quote, checkoutpro.Operation, bool, error) {
+	amounts, err := checkoutpro.CalculateAmounts(r.quote.SubtotalCLP)
+	if err != nil {
+		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
+	}
 	r.op = &checkoutpro.Operation{
 		ID: id, QuoteID: r.quote.ID, Status: "pending", CheckoutMethod: method,
-		ExpiresAt: r.quote.ExpiresAt, TestMode: true, Amounts: checkoutpro.Amounts{BaseCLP: r.quote.SubtotalCLP},
+		ExpiresAt: r.quote.ExpiresAt, TestMode: true, Amounts: amounts,
 	}
 	return r.quote, *r.op, true, nil
 }
@@ -88,8 +94,11 @@ func TestUncertainPaymentUsesOfficialPriceAndCannotBeSentTwice(t *testing.T) {
 	if err != nil || result.Status != "reconciliation_required" {
 		t.Fatalf("unexpected uncertain result: %+v, %v", result, err)
 	}
-	if gateway.request.TransactionAmountCLP != 12000 || gateway.request.ApplicationFeeCLP != 0 || gateway.request.ExternalReference != opID {
-		t.Fatal("test payment should charge the trusted quote total without an EspaciGo application fee")
+	if gateway.request.TransactionAmountCLP != 12428 || gateway.request.ApplicationFeeCLP != 0 || gateway.request.ExternalReference != opID {
+		t.Fatalf("payment request did not charge double-sided total without application_fee: %+v", gateway.request)
+	}
+	if result.AmountCLP != 12428 || result.BaseAmountCLP != 12000 || result.BuyerCommissionCLP != 360 || result.BuyerVATCLP != 68 || result.ServiceFeeCLP != 428 {
+		t.Fatalf("unexpected breakdown in uncertain result: %+v", result)
 	}
 	input.Token = "another-fake-token-1234"
 	replayed, err := service.Pay(context.Background(), renterID, quoteID, key, input)
@@ -109,6 +118,9 @@ func TestPaymentStatusExposesOnlyActiveSellerPublicKeyWhenOptedIn(t *testing.T) 
 	result, err := service.PaymentStatus(context.Background(), quote.RenterID, quote.ID)
 	if err != nil || result.CardTokenization == nil || result.CardTokenization.Mode != "seller_public_key" || result.CardTokenization.PublicKey != key || result.CardTokenization.ReconnectRequired {
 		t.Fatalf("seller key mode was not returned: %+v err=%v", result.CardTokenization, err)
+	}
+	if result.AmountCLP != 12428 || result.BaseAmountCLP != 12000 || result.BuyerCommissionCLP != 360 || result.BuyerVATCLP != 68 || result.ServiceFeeCLP != 428 {
+		t.Fatalf("unexpected status breakdown: %+v", result)
 	}
 
 	service, err = NewWithOptions(&paymentRepoStub{quote: quote}, testOAuthSellerKey{}, &uncertainGateway{}, func() time.Time { return now }, func() (string, error) { return "44444444-4444-4444-8444-444444444444", nil }, nil, Options{SellerPublicKeyTokenization: true})
@@ -167,11 +179,15 @@ func (r *idempotentRepoStub) BeginPayment(_ context.Context, _, _, key, id strin
 		}
 		return r.quote, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 	}
+	amounts, err := checkoutpro.CalculateAmounts(r.quote.SubtotalCLP)
+	if err != nil {
+		return r.quote, checkoutpro.Operation{}, false, err
+	}
 	r.key = key
 	r.fingerprint = append([]byte(nil), fingerprint...)
 	r.op = &checkoutpro.Operation{
 		ID: id, QuoteID: r.quote.ID, Status: "pending", CheckoutMethod: method,
-		ExpiresAt: r.quote.ExpiresAt, TestMode: true, Amounts: checkoutpro.Amounts{BaseCLP: r.quote.SubtotalCLP},
+		ExpiresAt: r.quote.ExpiresAt, TestMode: true, Amounts: amounts,
 	}
 	return r.quote, *r.op, true, nil
 }
@@ -244,7 +260,7 @@ func TestPayUnclaimedOperationEnforcesIdempotencyAndRetriesClaim(t *testing.T) {
 		payment: Payment{
 			Verified: checkoutpro.VerifiedPayment{
 				OperationID: opID, ProviderPaymentID: "987654321", SellerID: "3727396802",
-				ExternalReference: opID, Status: "approved", TransactionAmountCLP: 12000, Currency: "CLP",
+				ExternalReference: opID, Status: "approved", TransactionAmountCLP: 12428, Currency: "CLP",
 				PaymentType: "credit_card", LiveMode: false, PaymentUpdatedAt: now,
 			},
 			StatusDetail:      "accredited",
@@ -279,11 +295,11 @@ func TestPayUnclaimedOperationEnforcesIdempotencyAndRetriesClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected retry error: %v", err)
 	}
-	if res.Status != "approved" || res.PaymentID != "987654321" || res.StatusDetail != "accredited" || res.ProviderRequestID != "req-ok-1" {
+	if res.Status != "approved" || res.PaymentID != "987654321" || res.StatusDetail != "accredited" || res.ProviderRequestID != "req-ok-1" || res.AmountCLP != 12428 || res.BaseAmountCLP != 12000 || res.ServiceFeeCLP != 428 {
 		t.Fatalf("unexpected approved result: %+v", res)
 	}
-	if gateway.calls != 1 || gateway.request.Metadata["operation_id"] != opID || repo.appliedCount != 1 {
-		t.Fatalf("unexpected gateway/repo state: calls=%d metadata=%+v applied=%d", gateway.calls, gateway.request.Metadata, repo.appliedCount)
+	if gateway.calls != 1 || gateway.request.TransactionAmountCLP != 12428 || gateway.request.ApplicationFeeCLP != 0 || gateway.request.Metadata["operation_id"] != opID || repo.appliedCount != 1 {
+		t.Fatalf("unexpected gateway/repo state: calls=%d request=%+v applied=%d", gateway.calls, gateway.request, repo.appliedCount)
 	}
 }
 
@@ -358,5 +374,98 @@ func TestPayProviderErrorAndReconciliationStates(t *testing.T) {
 				t.Fatalf("got status=%q code=%q, want status=%q code=%q (%+v)", res.Status, res.ProviderCode, tc.wantStatus, tc.wantCode, res)
 			}
 		})
+	}
+}
+
+func TestPaymentStatusAllowsRetryAfterUnpaidRejectionOrMethodSwitch(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	quoteID := "11111111-1111-4111-8111-111111111111"
+	renterID := "22222222-2222-4222-8222-222222222222"
+	opID := "44444444-4444-4444-8444-444444444444"
+	quote := checkoutpro.Quote{
+		ID: quoteID, RenterID: renterID, Currency: "CLP", SubtotalCLP: 24000, ExpiresAt: now.Add(10 * time.Minute),
+	}
+
+	// Case 1: previous card attempt failed without binding a provider_payment_id (status="rejected", ProviderPaymentID="").
+	repoRejected := &paymentRepoStub{
+		quote: quote,
+		op: &checkoutpro.Operation{
+			ID: opID, QuoteID: quoteID, Status: "rejected", CheckoutMethod: method,
+			ProviderPaymentID: "", ExpiresAt: quote.ExpiresAt, TestMode: true,
+		},
+	}
+	svc := testServiceFixture(now, repoRejected, &stubGateway{})
+	st, err := svc.PaymentStatus(context.Background(), renterID, quoteID)
+	if err != nil || st.Status != "not_started" {
+		t.Fatalf("expected not_started so user can retry with another card, got status=%q err=%v", st.Status, err)
+	}
+
+	// Case 2: user opened Checkout Pro (checkout_method="checkout_pro", status="pending", ProviderPaymentID="") and then switched to direct card form.
+	repoCheckoutPro := &paymentRepoStub{
+		quote: quote,
+		op: &checkoutpro.Operation{
+			ID: opID, QuoteID: quoteID, Status: "pending", CheckoutMethod: "checkout_pro",
+			ProviderPaymentID: "", ExpiresAt: quote.ExpiresAt, TestMode: true,
+		},
+	}
+	svcSwitch := testServiceFixture(now, repoCheckoutPro, &stubGateway{})
+	stSwitch, err := svcSwitch.PaymentStatus(context.Background(), renterID, quoteID)
+	if err != nil || stSwitch.Status != "not_started" {
+		t.Fatalf("expected not_started when switching from unpaid checkout_pro to payments_api, got status=%q err=%v", stSwitch.Status, err)
+	}
+	if stSwitch.AmountCLP != 24857 || stSwitch.BaseAmountCLP != 24000 || stSwitch.BuyerCommissionCLP != 720 || stSwitch.BuyerVATCLP != 137 || stSwitch.ServiceFeeCLP != 857 {
+		t.Fatalf("expected double-sided quote breakdown when switching methods, got %+v", stSwitch)
+	}
+}
+
+func TestPayPreservesHistoricalOperationSnapshotOnIdempotentRetry(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	quoteID := "11111111-1111-4111-8111-111111111111"
+	renterID := "22222222-2222-4222-8222-222222222222"
+	key := "33333333-3333-4333-8333-333333333333"
+	opID := "44444444-4444-4444-8444-444444444444"
+
+	historicalOp := &checkoutpro.Operation{
+		ID: opID, QuoteID: quoteID, Status: "pending", CheckoutMethod: method,
+		ExpiresAt: now.Add(time.Minute), TestMode: true,
+		Amounts: checkoutpro.Amounts{
+			BaseCLP: 12000, CommissionCLP: 360, VATCLP: 68,
+			TotalChargedCLP: 12000, MarketplaceFeeCLP: 428,
+		},
+	}
+	input := Input{Token: "fake-card-token-1234", PaymentMethodID: "master", Payer: Payer{Email: "buyer@example.test"}}
+	wire, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := sha256.Sum256(append([]byte(method+"\n"+quoteID+"\n"), wire...))
+	repo := &idempotentRepoStub{
+		quote: checkoutpro.Quote{
+			ID: quoteID, RenterID: renterID, Currency: "CLP", SubtotalCLP: 12000, ExpiresAt: now.Add(time.Minute),
+		},
+		op:          historicalOp,
+		key:         key,
+		fingerprint: fp[:],
+	}
+	gateway := &stubGateway{
+		payment: Payment{
+			Verified: checkoutpro.VerifiedPayment{
+				OperationID: opID, ProviderPaymentID: "987654321", SellerID: "3727396802",
+				ExternalReference: opID, Status: "approved", TransactionAmountCLP: 12000, Currency: "CLP",
+				PaymentType: "credit_card", LiveMode: false, PaymentUpdatedAt: now,
+			},
+			StatusDetail:    "accredited",
+			RequestID:       "req-hist-1",
+			LiveModePresent: true,
+		},
+	}
+	svc := testServiceFixture(now, repo, gateway)
+	st, err := svc.PaymentStatus(context.Background(), renterID, quoteID)
+	if err != nil || st.AmountCLP != 12000 || st.BaseAmountCLP != 12000 || st.ServiceFeeCLP != 0 {
+		t.Fatalf("expected historical PaymentStatus to preserve 12000 total with 0 buyer fee, got %+v err=%v", st, err)
+	}
+	res, err := svc.Pay(context.Background(), renterID, quoteID, key, input)
+	if err != nil || res.Status != "approved" || res.AmountCLP != 12000 || gateway.request.TransactionAmountCLP != 12000 {
+		t.Fatalf("expected historical Pay retry to preserve 12000 charge, got res=%+v req=%+v err=%v", res, gateway.request, err)
 	}
 }

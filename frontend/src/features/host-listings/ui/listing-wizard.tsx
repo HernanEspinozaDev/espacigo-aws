@@ -262,9 +262,9 @@ export function ListingWizard() {
           });
       }
     } else if (step === 3) {
-      if (basePriceCLP <= 5000 || !Number.isSafeInteger(basePriceCLP))
+      if (basePriceCLP < 1000 || !Number.isSafeInteger(basePriceCLP))
         errors.price =
-          "El precio base debe ser un monto entero mayor a 5000 CLP.";
+          "El precio base debe ser un monto entero de al menos 1.000 CLP.";
       if (
         Array.from(
           `Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`,
@@ -1320,7 +1320,7 @@ export function ListingWizard() {
                   <Input
                     id="wizard-price"
                     type="number"
-                    min={5001}
+                    min={1000}
                     step={1}
                     value={basePriceCLP}
                     onChange={(e) => {
@@ -1564,6 +1564,22 @@ export function ListingWizard() {
                   disabled={isSubmitting}
                 />
               </div>
+              {rateUnit === "mes" && (
+                <div
+                  role="note"
+                  className="rounded-xl border border-sky-200 bg-sky-50/80 p-4 text-xs text-sky-950 space-y-1"
+                >
+                  <p className="font-semibold text-sm text-sky-900">
+                    Disponibilidad para arriendo mensual
+                  </p>
+                  <p>
+                    Para publicaciones por mes, la fecha de inicio disponible
+                    (&quot;Disponible desde&quot;) y la estancia mínima opcional
+                    en meses se configuran en el editor de disponibilidad de tu
+                    espacio una vez creado el borrador.
+                  </p>
+                </div>
+              )}
               {rateUnit !== "hora" && (
                 <p className="text-sm text-muted-foreground" role="note">
                   Horario semanal no aplicable a tarifas por día o mes; se
@@ -1645,11 +1661,13 @@ export function ListingWizard() {
                       Disponibilidad:
                     </span>
                     <p className="text-foreground mt-0.5">
-                      {rateUnit !== "hora"
-                        ? "Horario semanal no aplicable a tarifas por día o mes"
-                        : scheduleEnabled
-                          ? `${slots.length} tramos semanales`
-                          : "Sin horario activo"}{" "}
+                      {rateUnit === "mes"
+                        ? "Modalidad mensual: disponible desde y estancia mínima se configuran en el editor tras el alta"
+                        : rateUnit === "dia"
+                          ? "Modalidad diaria: jornada completa sin horarios"
+                          : scheduleEnabled
+                            ? `${slots.length} tramos semanales`
+                            : "Sin horario activo"}{" "}
                       ({timeZone})
                     </p>
                   </div>

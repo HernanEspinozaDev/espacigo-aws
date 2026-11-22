@@ -202,7 +202,7 @@ GRANT SELECT, INSERT ON TABLE public.ocupacion TO espacigo_runtime`)
 // shape without pretending the fixture is a full migration-chain test.
 func applyCommercialHoldReadSchemaFixture(t *testing.T, ctx context.Context, databaseURL string, migrations []migrator.Migration) {
 	t.Helper()
-	for _, version := range []int64{97, 111} {
+	for _, version := range []int64{97, 111, 116, 117} {
 		var migration *migrator.Migration
 		for i := range migrations {
 			if migrations[i].Version == version {

@@ -4,8 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
+import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
 import { formatBookingClp } from "./format";
 import { getBookingStateConfig } from "./reservations-list";
+import { ReservationInvoiceModal } from "./reservation-invoice-modal";
+import { ReservationPassesModal } from "./reservation-passes-modal";
+import { HostReceptionModal } from "./host-reception-modal";
+import { ReservationScheduleBreakdown } from "./reservation-schedule-breakdown";
+import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 import { Button } from "@/components/workspace/ui/button";
 import {
   CreditCard,
@@ -15,6 +21,7 @@ import {
   Download,
   KeyRound,
   LogOut,
+  QrCode,
   ShieldAlert,
   Clock,
   DollarSign,
@@ -34,6 +41,7 @@ interface ReservationLifecyclePanelProps {
 
 export function ReservationLifecyclePanel({
   reservationId,
+  role,
 }: ReservationLifecyclePanelProps) {
   const { snapshot: authSnapshot } = useAuth();
   const isAuthenticated = authSnapshot.status === "authenticated";
@@ -87,6 +95,9 @@ export function ReservationLifecyclePanel({
     "sin_evidencia" | "synthetic-png-v1" | "synthetic-damage-png-v1"
   >("sin_evidencia");
   const [localFeedback, setLocalFeedback] = useState<string | null>(null);
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [passesOpen, setPassesOpen] = useState(false);
+  const [receptionOpen, setReceptionOpen] = useState(false);
 
   const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
   const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
@@ -143,6 +154,10 @@ export function ReservationLifecyclePanel({
 
   const stateConfig = getBookingStateConfig(currentReservation.state);
   const StateIcon = stateConfig.icon;
+  const effectiveRole =
+    currentReservation.participant_role ?? role ?? "arrendatario";
+  const isHost = effectiveRole === "anfitrion";
+  const financial = getReservationFinancialBreakdown(currentReservation);
   const checkoutApiTestEnabled =
     process.env.NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED === "1" &&
     Boolean(process.env.NEXT_PUBLIC_MP_PUBLIC_KEY?.startsWith("TEST-"));
@@ -225,10 +240,17 @@ export function ReservationLifecyclePanel({
 
           <div className="text-left sm:text-right">
             <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-              Total Arriendo
+              {isHost
+                ? "Tarifa Base Espacio"
+                : currentReservation.is_commercial
+                  ? "Total Pagado"
+                  : "Total Arriendo"}
             </p>
             <p className="text-2xl font-bold text-foreground">
-              {formatBookingClp(currentReservation.subtotal_clp)} CLP
+              {formatBookingClp(
+                isHost ? financial.baseClp : financial.totalChargedClp,
+              )}{" "}
+              CLP
             </p>
             <p className="text-xs text-muted-foreground">
               {currentReservation.units} {currentReservation.rate_unit}
@@ -237,6 +259,41 @@ export function ReservationLifecyclePanel({
             </p>
           </div>
         </div>
+
+        {currentReservation.intervals &&
+          currentReservation.intervals.length > 0 && (
+            <div className="mt-5 space-y-3">
+              <ReservationScheduleBreakdown
+                reservation={currentReservation}
+                allowHostControls
+              />
+              {currentReservation.state === "pagada" && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!isHost ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setPassesOpen(true)}
+                      className="gap-1.5 bg-[#D46236] text-white hover:bg-[#B94628]"
+                    >
+                      <QrCode className="h-4 w-4" />
+                      Ver Pases / QR de Ingreso
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => setReceptionOpen(true)}
+                      className="gap-1.5 bg-[#D46236] text-white hover:bg-[#B94628]"
+                    >
+                      <QrCode className="h-4 w-4" />
+                      Validar Ingreso (Recepción)
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
         <div className="mt-6 grid grid-cols-1 gap-4 border-t border-border pt-4 sm:grid-cols-3 text-xs">
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -314,36 +371,138 @@ export function ReservationLifecyclePanel({
           </div>
           <span className="rounded-full bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:text-sky-300">
             {currentReservation.is_commercial
-              ? "Checkout Pro Comercial"
+              ? currentReservation.checkout_method === "payments_api"
+                ? "Checkout API Comercial"
+                : "Checkout Pro Comercial"
               : "Ensayo Sandboxed"}
           </span>
         </div>
 
         {currentReservation.is_commercial ? (
           <div className="mt-4 space-y-4">
-            <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-4 text-xs text-sky-900 dark:text-sky-200">
-              <p className="font-semibold">
-                Reserva Comercial con Mercado Pago Checkout Pro
-              </p>
-              <p className="mt-1">
-                Estado de la preferencia de pago:{" "}
-                <strong className="capitalize">
-                  {currentReservation.checkout_status ||
-                    currentReservation.state}
-                </strong>
-              </p>
-              {currentReservation.pay_expires_at && (
-                <p className="mt-1 text-muted-foreground">
-                  Vence en:{" "}
-                  {new Date(currentReservation.pay_expires_at).toLocaleString(
-                    "es-CL",
-                  )}
+            <div className="rounded-xl border border-sky-500/20 bg-sky-500/10 p-4 text-xs text-sky-900 dark:text-sky-200 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-semibold text-sm">
+                  {currentReservation.checkout_method === "payments_api"
+                    ? "Reserva Comercial · Mercado Pago Checkout API (Tarjeta)"
+                    : "Reserva Comercial · Mercado Pago Checkout Pro"}
                 </p>
+                {currentReservation.provider_payment_id && (
+                  <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/30 bg-background/80 px-2.5 py-0.5 font-mono text-xs font-semibold text-foreground">
+                    <Receipt className="h-3.5 w-3.5 text-sky-600" />
+                    Operación MP #{currentReservation.provider_payment_id}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 pt-1">
+                <div>
+                  <span className="text-muted-foreground">
+                    Estado del pago:{" "}
+                  </span>
+                  <strong className="capitalize">
+                    {currentReservation.checkout_status ||
+                      currentReservation.state}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">
+                    Rol en la operación:{" "}
+                  </span>
+                  <strong className="capitalize">
+                    {currentReservation.participant_role || "arrendatario"}
+                  </strong>
+                </div>
+                {currentReservation.pay_expires_at && (
+                  <div>
+                    <span className="text-muted-foreground">
+                      Ventana de pago:{" "}
+                    </span>
+                    <span>
+                      {new Date(
+                        currentReservation.pay_expires_at,
+                      ).toLocaleString("es-CL")}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {isHost ? (
+                <div className="mt-3 space-y-3 rounded-lg border border-sky-500/20 bg-background/70 p-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                        Tarifa Base del Espacio
+                      </p>
+                      <p className="text-sm font-bold text-foreground">
+                        {formatBookingClp(financial.baseClp)} CLP
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                        Comisión Anfitrión (3% + IVA)
+                      </p>
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                        -{formatBookingClp(financial.hostFeeClp)} CLP
+                        <span className="block text-[10px] font-normal text-muted-foreground">
+                          (Comisión{" "}
+                          {formatBookingClp(financial.hostCommissionClp)} + IVA{" "}
+                          {formatBookingClp(financial.hostVatClp)})
+                        </span>
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                        Ingreso Neto Anfitrión
+                      </p>
+                      <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                        {formatBookingClp(financial.netHostClp)} CLP
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-sky-500/20 bg-background/70 p-3 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Precio original del espacio
+                    </p>
+                    <p className="text-sm font-bold text-foreground">
+                      {formatBookingClp(financial.baseClp)} CLP
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Comisión de servicio (3% + IVA)
+                    </p>
+                    <p className="text-sm font-semibold text-foreground">
+                      +{formatBookingClp(financial.buyerFeeClp)} CLP
+                      <span className="block text-[10px] font-normal text-muted-foreground">
+                        (Comisión{" "}
+                        {formatBookingClp(financial.buyerCommissionClp)} + IVA{" "}
+                        {formatBookingClp(financial.buyerVatClp)})
+                      </span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      Total Pagado
+                    </p>
+                    <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                      {formatBookingClp(financial.totalChargedClp)} CLP
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
-            {currentReservation.state === "pendiente_de_pago" &&
-              currentReservation.quote_id && (
-                <div className="flex flex-wrap gap-3">
+            {currentReservation.state === "pendiente_de_pago" && (
+              <div className="flex flex-wrap items-center gap-3">
+                {currentReservation.pay_expires_at && (
+                  <ReservationCountdown
+                    expiresAt={currentReservation.pay_expires_at}
+                  />
+                )}
+                {!isHost && currentReservation.quote_id && (
                   <Button
                     asChild
                     className="bg-sky-600 text-white hover:bg-sky-700"
@@ -359,21 +518,70 @@ export function ReservationLifecyclePanel({
                       Ir al Checkout de Mercado Pago
                     </Link>
                   </Button>
-                </div>
-              )}
-            {currentReservation.state === "pagada" && (
-              <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
-                <CheckCircle className="h-5 w-5" />
-                <span className="font-medium">
-                  Pago aprobado y confirmado en Mercado Pago.
-                </span>
+                )}
               </div>
+            )}
+            {(currentReservation.state === "pagada" ||
+              currentReservation.checkout_status === "approved") && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-800 dark:text-emerald-300">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <span className="font-medium">
+                    Pago aprobado y confirmado en Mercado Pago. El horario del
+                    espacio quedó reservado y bloqueado en agenda.
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setInvoiceOpen(true)}
+                  >
+                    <FileText className="mr-1.5 h-4 w-4" />
+                    {isHost
+                      ? "Ver Invoice Anfitrión"
+                      : "Ver Comprobante de Pago"}
+                  </Button>
+                  {isHost ? (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/anfitrion/reservas?space_id=${encodeURIComponent(currentReservation.space_id)}`}
+                      >
+                        Ver agenda y pagos de este espacio
+                      </Link>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/reservas">Volver a Mis Reservas</Link>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+            {invoiceOpen && (
+              <ReservationInvoiceModal
+                reservation={{
+                  ...currentReservation,
+                  participant_role: effectiveRole,
+                }}
+                onClose={() => setInvoiceOpen(false)}
+              />
             )}
             {currentReservation.state === "vencida_pago" && (
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <XCircle className="h-5 w-5" />
                 <span className="font-medium">
-                  El plazo de pago de esta reserva ha expirado.
+                  El plazo de pago de esta reserva expiró y el horario fue
+                  liberado.
+                </span>
+              </div>
+            )}
+            {currentReservation.state === "cancelada_por_pago" && (
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <XCircle className="h-5 w-5" />
+                <span className="font-medium">
+                  El intento de pago fue rechazado o cancelado y el horario fue
+                  liberado.
                 </span>
               </div>
             )}
@@ -1220,6 +1428,20 @@ export function ReservationLifecyclePanel({
           </section>
         </>
       )}
+      <ReservationPassesModal
+        reservation={passesOpen ? currentReservation : null}
+        onClose={() => setPassesOpen(false)}
+      />
+      <HostReceptionModal
+        open={receptionOpen}
+        spaceId={currentReservation.space_id}
+        onClose={() => setReceptionOpen(false)}
+        onUpdated={() => {
+          if (reservationId) {
+            void loadReservationDetail(reservationId);
+          }
+        }}
+      />
     </div>
   );
 }

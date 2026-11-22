@@ -385,11 +385,33 @@ function adaptPublicSpaceDetail(
   const schedule = publicWeeklySchedule(space.weekly_schedule);
   if (schedule) details.weekly_schedule = schedule;
   else delete details.weekly_schedule;
+  const rawSpace = space as unknown as Record<string, unknown>;
+  const disponibleDesde =
+    typeof rawSpace.disponible_desde === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(rawSpace.disponible_desde)
+      ? rawSpace.disponible_desde
+      : rawSpace.disponible_desde === null
+        ? null
+        : undefined;
+  const estadiaMinimaMeses =
+    typeof rawSpace.estadia_minima_meses === "number" &&
+    Number.isSafeInteger(rawSpace.estadia_minima_meses) &&
+    rawSpace.estadia_minima_meses >= 1
+      ? rawSpace.estadia_minima_meses
+      : rawSpace.estadia_minima_meses === null
+        ? null
+        : undefined;
   return {
     ...details,
     features: publicFeatures(space.features),
     images: publicImages(space.images),
     verification: publicVerification(space.verification),
+    ...(disponibleDesde !== undefined
+      ? { disponible_desde: disponibleDesde }
+      : {}),
+    ...(estadiaMinimaMeses !== undefined
+      ? { estadia_minima_meses: estadiaMinimaMeses }
+      : {}),
   } as PublicSpaceDetail;
 }
 

@@ -572,16 +572,18 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 				return
 			}
 			var in struct {
-				TimeZone      *string                        `json:"time_zone"`
-				DiasOperacion []int                          `json:"dias_operacion"`
-				HoraApertura  *string                        `json:"hora_apertura"`
-				HoraCierre    *string                        `json:"hora_cierre"`
-				CheckInHora   *string                        `json:"check_in_hora"`
-				CheckOutHora  *string                        `json:"check_out_hora"`
-				TarifaBaseDia *int                           `json:"tarifa_base_dia"`
-				EstadiaMinima *int                           `json:"estadia_minima"`
-				EstadiaMaxima *int                           `json:"estadia_maxima"`
-				Overrides     []spaces.CalendarOverrideInput `json:"overrides"`
+				TimeZone           *string                        `json:"time_zone"`
+				DiasOperacion      []int                          `json:"dias_operacion"`
+				HoraApertura       *string                        `json:"hora_apertura"`
+				HoraCierre         *string                        `json:"hora_cierre"`
+				CheckInHora        *string                        `json:"check_in_hora"`
+				CheckOutHora       *string                        `json:"check_out_hora"`
+				TarifaBaseDia      *int                           `json:"tarifa_base_dia"`
+				EstadiaMinima      *int                           `json:"estadia_minima"`
+				EstadiaMaxima      *int                           `json:"estadia_maxima"`
+				DisponibleDesde    *string                        `json:"disponible_desde"`
+				EstadiaMinimaMeses *int                           `json:"estadia_minima_meses"`
+				Overrides          []spaces.CalendarOverrideInput `json:"overrides"`
 			}
 			if !decode(w, r, &in) {
 				return
@@ -589,21 +591,24 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 
 			hasInventory := len(in.DiasOperacion) > 0 || in.HoraApertura != nil || in.HoraCierre != nil ||
 				in.CheckInHora != nil || in.CheckOutHora != nil || in.TarifaBaseDia != nil ||
-				in.EstadiaMinima != nil || in.EstadiaMaxima != nil || in.Overrides != nil
+				in.EstadiaMinima != nil || in.EstadiaMaxima != nil ||
+				in.DisponibleDesde != nil || in.EstadiaMinimaMeses != nil || in.Overrides != nil
 
 			if hasInventory {
 				updateIn := spaces.AvailabilityUpdateInput{
-					ExpectedUpdatedAt: expected,
-					TimeZone:          in.TimeZone,
-					DiasOperacion:     in.DiasOperacion,
-					HoraApertura:      in.HoraApertura,
-					HoraCierre:        in.HoraCierre,
-					CheckInHora:       in.CheckInHora,
-					CheckOutHora:      in.CheckOutHora,
-					TarifaBaseDia:     in.TarifaBaseDia,
-					EstadiaMinima:     in.EstadiaMinima,
-					EstadiaMaxima:     in.EstadiaMaxima,
-					Overrides:         in.Overrides,
+					ExpectedUpdatedAt:  expected,
+					TimeZone:           in.TimeZone,
+					DiasOperacion:      in.DiasOperacion,
+					HoraApertura:       in.HoraApertura,
+					HoraCierre:         in.HoraCierre,
+					CheckInHora:        in.CheckInHora,
+					CheckOutHora:       in.CheckOutHora,
+					TarifaBaseDia:      in.TarifaBaseDia,
+					EstadiaMinima:      in.EstadiaMinima,
+					EstadiaMaxima:      in.EstadiaMaxima,
+					DisponibleDesde:    in.DisponibleDesde,
+					EstadiaMinimaMeses: in.EstadiaMinimaMeses,
+					Overrides:          in.Overrides,
 				}
 				rule, zone, err := h.service.UpdateAvailability(r.Context(), owner, spaceID, updateIn)
 				if err != nil {
@@ -628,6 +633,12 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 					resp["tarifa_base_dia"] = rule.TarifaBaseDia
 					resp["estadia_minima"] = rule.EstadiaMinima
 					resp["estadia_maxima"] = rule.EstadiaMaxima
+				}
+				if rule.DisponibleDesde != nil {
+					resp["disponible_desde"] = *rule.DisponibleDesde
+				}
+				if rule.EstadiaMinimaMeses > 0 {
+					resp["estadia_minima_meses"] = rule.EstadiaMinimaMeses
 				}
 				if in.Overrides != nil {
 					resp["overrides"] = in.Overrides

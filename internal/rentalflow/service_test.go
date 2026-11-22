@@ -241,7 +241,7 @@ func TestPublicAvailabilityFailsClosedOnMalformedListingSnapshot(t *testing.T) {
 		{name: "trimmed title", mutate: func(v *Listing) { v.Title = " Sala " }},
 		{name: "oversized title", mutate: func(v *Listing) { v.Title = strings.Repeat("ñ", 71) }},
 		{name: "unsupported rate unit", mutate: func(v *Listing) { v.RateUnit = "semana" }},
-		{name: "price at minimum", mutate: func(v *Listing) { v.UnitPriceCLP = 5000 }},
+		{name: "price below minimum", mutate: func(v *Listing) { v.UnitPriceCLP = 999 }},
 		{name: "non-CLP currency", mutate: func(v *Listing) { v.Currency = "USD" }},
 		{name: "missing rate version", mutate: func(v *Listing) { v.RateVersion = 0 }},
 		{name: "missing timezone", mutate: func(v *Listing) { v.TimeZone = "" }},

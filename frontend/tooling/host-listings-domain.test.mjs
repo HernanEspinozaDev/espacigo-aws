@@ -144,8 +144,8 @@ test("host-listings common fields match Go rune, trim, and numeric constraints",
     validateListingDraftInput,
   } = await import(pathToFileURL(validationPath).href);
 
-  assert.equal(isValidPriceCLP(5000), false);
-  assert.equal(isValidPriceCLP(5001), true);
+  assert.equal(isValidPriceCLP(999), false);
+  assert.equal(isValidPriceCLP(1000), true);
   assert.equal(isValidAreaM2(0.01), true);
   assert.equal(isValidAreaM2(0.001), false);
   assert.equal(isValidAreaM2(1.234), false);

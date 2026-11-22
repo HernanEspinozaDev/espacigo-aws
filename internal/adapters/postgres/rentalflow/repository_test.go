@@ -221,7 +221,7 @@ func TestPublicIntervalsRejectsOutOfContractDurationsBeforeDatabase(t *testing.T
 	}{
 		{name: "hour overflow", unit: "hora", duration: maxInt},
 		{name: "day overflow", unit: "dia", duration: maxInt},
-		{name: "unsupported multi-month duration", unit: "mes", duration: 2},
+		{name: "over-limit multi-month duration", unit: "mes", duration: 13},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

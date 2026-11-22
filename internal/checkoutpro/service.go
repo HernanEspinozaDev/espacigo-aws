@@ -44,10 +44,14 @@ type Operation struct {
 }
 
 type Amounts struct {
-	BaseCLP           int64 `json:"base_clp"`
-	CommissionCLP     int64 `json:"commission_clp"`
-	VATCLP            int64 `json:"vat_clp"`
-	MarketplaceFeeCLP int64 `json:"marketplace_fee_clp"`
+	BaseCLP            int64 `json:"base_clp"`
+	CommissionCLP      int64 `json:"commission_clp"`
+	VATCLP             int64 `json:"vat_clp"`
+	BuyerCommissionCLP int64 `json:"buyer_commission_clp"`
+	BuyerVATCLP        int64 `json:"buyer_vat_clp"`
+	BuyerFeeCLP        int64 `json:"buyer_fee_clp"`
+	TotalChargedCLP    int64 `json:"total_charged_clp"`
+	MarketplaceFeeCLP  int64 `json:"marketplace_fee_clp"`
 }
 
 // Repository must atomically acquire an exclusive time-range hold for the
@@ -62,6 +66,9 @@ type Repository interface {
 
 type SellerTokens interface {
 	AccessToken(context.Context, string) ([]byte, error)
+}
+type paymentSearcher interface {
+	FindPaymentByExternalReference(context.Context, []byte, string) (VerifiedPayment, error)
 }
 type Gateway interface {
 	PaymentTypes(context.Context, []byte) ([]string, error)
@@ -128,6 +135,7 @@ type StatusResult struct {
 	ReservationID *string    `json:"reservation_id,omitempty"`
 	Status        string     `json:"status"`
 	InitPoint     string     `json:"init_point,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 	UpdatedAt     *time.Time `json:"updated_at,omitempty"`
 }
 
@@ -135,10 +143,26 @@ func CalculateAmounts(base int64) (Amounts, error) {
 	if base <= 0 || base > math.MaxInt64/357 {
 		return Amounts{}, ErrInvalid
 	}
-	// Round half up independently: 3% commission, then 19% IVA on commission.
+	// Round half up independently: 3% commission, then 19% IVA on commission,
+	// applied symmetrically to host and buyer sides.
 	commission := (base*3 + 50) / 100
 	vat := (commission*19 + 50) / 100
-	return Amounts{BaseCLP: base, CommissionCLP: commission, VATCLP: vat, MarketplaceFeeCLP: commission + vat}, nil
+	hostFee := commission + vat
+
+	buyerCommission := (base*3 + 50) / 100
+	buyerVAT := (buyerCommission*19 + 50) / 100
+	buyerFee := buyerCommission + buyerVAT
+
+	return Amounts{
+		BaseCLP:            base,
+		CommissionCLP:      commission,
+		VATCLP:             vat,
+		BuyerCommissionCLP: buyerCommission,
+		BuyerVATCLP:        buyerVAT,
+		BuyerFeeCLP:        buyerFee,
+		TotalChargedCLP:    base + buyerFee,
+		MarketplaceFeeCLP:  hostFee + buyerFee,
+	}, nil
 }
 
 // AllowedPaymentType constrains payment methods by the operation's persisted
@@ -223,36 +247,40 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 	}
 	excluded := make([]ExcludedPaymentType, 0, len(paymentTypes))
 	seenTypes := map[string]bool{}
-	foundAccountMoney := false
+	foundProdMethod := false
 	foundTestCard := false
 	for _, paymentType := range paymentTypes {
 		paymentType = strings.TrimSpace(paymentType)
-		if paymentType == "account_money" {
-			foundAccountMoney = true
-			continue
-		}
-		if s.config.TestMode && isTestCardType(paymentType) {
-			foundTestCard = true
-			continue
-		}
 		if paymentType == "" || len(paymentType) > 64 {
 			s.diagnose(ctx, "payment_methods", "invalid_response", nil)
 			return StartResult{}, ErrProvider
 		}
-		if !seenTypes[paymentType] {
-			excluded = append(excluded, ExcludedPaymentType{ID: paymentType})
-			seenTypes[paymentType] = true
+		if s.config.TestMode {
+			if paymentType == "account_money" {
+				continue
+			}
+			if isTestCardType(paymentType) {
+				foundTestCard = true
+				continue
+			}
+			if !seenTypes[paymentType] {
+				excluded = append(excluded, ExcludedPaymentType{ID: paymentType})
+				seenTypes[paymentType] = true
+			}
+			continue
 		}
+		foundProdMethod = true
 	}
 	if s.config.TestMode && !foundTestCard {
 		s.diagnose(ctx, "payment_methods", "test_card_unavailable", nil)
 		return StartResult{}, ErrPaymentMethodUnavailable
 	}
-	if !s.config.TestMode && !foundAccountMoney {
-		s.diagnose(ctx, "payment_methods", "account_money_unavailable", nil)
+	if !s.config.TestMode && !foundProdMethod {
+		s.diagnose(ctx, "payment_methods", "payment_methods_unavailable", nil)
 		return StartResult{}, ErrPaymentMethodUnavailable
 	}
 	returnURL := s.config.FrontendOrigin + "/reservas/checkout/" + quote.ID
+	notificationURL := s.config.FrontendOrigin + "/api/v1/webhooks/mercadopago"
 	request := PreferenceRequest{
 		Purpose: func() string {
 			if walletPurchase {
@@ -261,10 +289,12 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 			return ""
 		}(),
 		ExternalReference: op.ID, MarketplaceFee: float64(amounts.MarketplaceFeeCLP),
-		Items:    []PreferenceItem{{Title: cleanTitle(quote.Title), Quantity: 1, UnitPrice: float64(quote.SubtotalCLP), CurrencyID: "CLP"}},
-		Metadata: map[string]any{"quote_id": quote.ID, "operation_id": op.ID, "space_id": quote.SpaceID, "host_id": quote.HostID, "renter_id": quote.RenterID, "commission_base_clp": amounts.BaseCLP, "commission_clp": amounts.CommissionCLP, "vat_clp": amounts.VATCLP, "marketplace_fee_clp": amounts.MarketplaceFeeCLP},
-		BackURLs: BackURLs{Success: returnURL, Failure: returnURL, Pending: returnURL},
-		Expires:  true, ExpirationDateFrom: now.Format(time.RFC3339), ExpirationDateTo: quote.ExpiresAt.UTC().Format(time.RFC3339),
+		Items:           []PreferenceItem{{Title: cleanTitle(quote.Title), Quantity: 1, UnitPrice: float64(amounts.TotalChargedCLP), CurrencyID: "CLP"}},
+		Metadata:        map[string]any{"quote_id": quote.ID, "operation_id": op.ID, "space_id": quote.SpaceID, "host_id": quote.HostID, "renter_id": quote.RenterID, "commission_base_clp": amounts.BaseCLP, "commission_clp": amounts.CommissionCLP, "vat_clp": amounts.VATCLP, "host_fee_clp": amounts.CommissionCLP + amounts.VATCLP, "buyer_fee_clp": amounts.BuyerFeeCLP, "total_charged_clp": amounts.TotalChargedCLP, "marketplace_fee_clp": amounts.MarketplaceFeeCLP},
+		BackURLs:        BackURLs{Success: returnURL, Failure: returnURL, Pending: returnURL},
+		AutoReturn:      "approved",
+		NotificationURL: notificationURL,
+		Expires:         true, ExpirationDateFrom: now.Format(time.RFC3339), ExpirationDateTo: quote.ExpiresAt.UTC().Format(time.RFC3339),
 		PaymentMethods: PaymentMethods{ExcludedPaymentTypes: excluded, Installments: 1},
 	}
 	claimed, claimErr := s.repo.ClaimPreference(ctx, op.ID, now, 2*time.Minute)
@@ -338,13 +368,36 @@ func (s *Service) Status(ctx context.Context, renter, quoteID string) (StatusRes
 	if op == nil {
 		return StatusResult{QuoteID: quote.ID, Status: "not_started"}, nil
 	}
+	if op.CheckoutMethod != "payments_api" && (op.Status == "pending" || (op.Status == "expired" && op.ProviderPaymentID == "") || op.Status == "reconciliation_required") {
+		if searcher, hasSearcher := s.gateway.(paymentSearcher); hasSearcher {
+			if sink, hasSink := s.repo.(PaymentOutcomeSink); hasSink {
+				if token, tokenErr := s.tokens.AccessToken(ctx, quote.HostID); tokenErr == nil && len(token) > 0 {
+					verified, searchErr := searcher.FindPaymentByExternalReference(ctx, token, op.ID)
+					clear(token)
+					if searchErr == nil {
+						if verified.OperationID == "" {
+							verified.OperationID = op.ID
+						}
+						if _, applyErr := sink.ApplyVerifiedPayment(ctx, verified); applyErr == nil {
+							if refreshedQuote, refreshedOp, reloadErr := s.repo.ByQuote(ctx, renter, quoteID); reloadErr == nil && refreshedOp != nil {
+								quote, op = refreshedQuote, refreshedOp
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 	if op.Status == "pending" && !op.ExpiresAt.After(s.now().UTC()) {
 		return StatusResult{QuoteID: quote.ID, OperationID: &op.ID, ReservationID: &op.ID, Status: "expired", UpdatedAt: &op.UpdatedAt}, nil
 	}
-	id, updated := op.ID, op.UpdatedAt
+	id, updated, expiresAt := op.ID, op.UpdatedAt, op.ExpiresAt
 	result := StatusResult{QuoteID: quote.ID, OperationID: &id, ReservationID: &id, Status: op.Status, UpdatedAt: &updated}
-	if op.Status == "pending" && validInitPoint(op.InitPoint, s.config.TestMode) {
-		result.InitPoint = op.InitPoint
+	if op.Status == "pending" {
+		result.ExpiresAt = &expiresAt
+		if validInitPoint(op.InitPoint, s.config.TestMode) {
+			result.InitPoint = op.InitPoint
+		}
 	}
 	return result, nil
 }

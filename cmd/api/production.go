@@ -142,7 +142,8 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
-	if _, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv); err != nil {
+	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv)
+	if err != nil {
 		return nil, err
 	}
 	catalog, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), key, evidence, mediaStore)
@@ -195,21 +196,74 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	mux.Handle("/api/v1/profile/photo", m02Handler)
 	mux.Handle("/api/v1/profile/photo/", m02Handler)
 	mux.Handle("/api/v1/payout-account", m02Handler)
-	availabilityRepo, err := rentalflowpg.NewRepository(pool, nil, time.Now)
+	declarationKeys, err := loadRentalContractDeclarationKeyring(os.Getenv)
+	if err != nil {
+		return nil, errors.New("commercial rental identity initialization failed")
+	}
+	commercialQuoteRepo, err := rentalflowpg.NewRepositoryWithDeclarationKeyring(pool, pool, time.Now, declarationKeys)
 	if err != nil {
 		return nil, err
 	}
-	availability, err := rentalflow.NewAvailabilityService(availabilityRepo, availabilityRepo, time.Now)
+	availability, err := rentalflow.NewAvailabilityService(commercialQuoteRepo, commercialQuoteRepo, time.Now)
 	if err != nil {
 		return nil, err
 	}
-	if err := mountPublicRentalAvailabilityRoute(mux, rentalflowhttp.New(nil, availability, nil, nil, cfg.allowedOrigins)); err != nil {
+	quoteService, err := rentalflow.NewQuoteService(commercialQuoteRepo, commercialQuoteRepo, commercialQuoteRepo, time.Now)
+	if err != nil {
 		return nil, err
 	}
+	identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+	if err != nil {
+		return nil, err
+	}
+	previewService, err := rentalflow.NewContractPreviewService(commercialQuoteRepo, commercialQuoteRepo, commercialQuoteRepo, identityVerifier, commercialQuoteRepo, time.Now)
+	if err != nil {
+		return nil, err
+	}
+	checkoutService, err := newCheckoutPreferenceService(commercialQuoteRepo, marketplaceTokens, cfg, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	if checkoutService != nil {
+		webhookHandler, _, webhookErr := newCheckoutWebhook(commercialQuoteRepo, pool, marketplaceTokens, os.Getenv)
+		if webhookErr != nil {
+			return nil, webhookErr
+		}
+		mux.Handle("/api/v1/webhooks/mercadopago", webhookHandler)
+	}
+	commercialReservationService, err := rentalflow.NewCommercialReservationService(commercialQuoteRepo)
+	if err != nil {
+		return nil, err
+	}
+	rentalHandler := rentalflowhttp.New(authService, availability, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService)
+	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
+		return nil, err
+	}
+	startCommercialExpirySweeper(ctx, commercialQuoteRepo)
 	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
 		return nil, err
 	}
 	return authService, nil
+}
+
+func startCommercialExpirySweeper(ctx context.Context, repo *rentalflowpg.Repository) {
+	if repo == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_, _ = repo.PurgeExpiredCommercialQuotes(sweepCtx, time.Now(), 100)
+				cancel()
+			}
+		}
+	}()
 }
 
 func mountMarketplaceOAuth(mux *http.ServeMux, pool *pgxpool.Pool, auth marketplaceoauth.Authorizer, cfg config, getenv func(string) string) (*marketplaceoauth.Service, error) {
@@ -296,28 +350,11 @@ func newCheckoutWebhookWithProvider(repo *rentalflowpg.Repository, pool *pgxpool
 	if provider == nil {
 		return nil, nil, errors.New("Checkout Pro payment provider is unavailable")
 	}
-	secretPath := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET_FILE"))
-	if secretPath == "" {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is unavailable")
-	}
-	secretPath, err := filepath.Abs(secretPath)
-	if err != nil || filepath.Clean(secretPath) != secretPath {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is invalid")
-	}
-	info, err := os.Lstat(secretPath)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret file is invalid")
-	}
-	contents, err := os.ReadFile(secretPath)
+	secret, err := readMercadoPagoWebhookSecret(getenv)
 	if err != nil {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+		return nil, nil, err
 	}
-	defer clear(contents)
-	secret := bytes.TrimSpace(contents)
 	defer clear(secret)
-	if len(secret) < 32 {
-		return nil, nil, errors.New("Mercado Pago webhook signature secret is invalid")
-	}
 	credentials, err := marketplaceoauthpg.NewSellerCredentialResolver(pool, tokens)
 	if err != nil {
 		return nil, nil, errors.New("Mercado Pago webhook seller credentials are unavailable")
@@ -331,6 +368,42 @@ func newCheckoutWebhookWithProvider(repo *rentalflowpg.Repository, pool *pgxpool
 		return nil, nil, errors.New("Mercado Pago webhook receiver initialization failed")
 	}
 	return receiver, worker, nil
+}
+
+func readMercadoPagoWebhookSecret(getenv func(string) string) ([]byte, error) {
+	if getenv == nil {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if secretPath := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET_FILE")); secretPath != "" {
+		absPath, err := filepath.Abs(secretPath)
+		if err != nil || filepath.Clean(absPath) != absPath {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		info, err := os.Lstat(absPath)
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > 4096 {
+			return nil, errors.New("Mercado Pago webhook signature secret file is invalid")
+		}
+		contents, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+		}
+		defer clear(contents)
+		trimmed := bytes.TrimSpace(contents)
+		if len(trimmed) < 32 {
+			return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+		}
+		secret := make([]byte, len(trimmed))
+		copy(secret, trimmed)
+		return secret, nil
+	}
+	raw := strings.TrimSpace(getenv("MERCADOPAGO_WEBHOOK_SECRET"))
+	if raw == "" {
+		return nil, errors.New("Mercado Pago webhook signature secret is unavailable")
+	}
+	if len(raw) < 32 || len(raw) > 4096 {
+		return nil, errors.New("Mercado Pago webhook signature secret is invalid")
+	}
+	return []byte(raw), nil
 }
 
 func mountProductionAuth(

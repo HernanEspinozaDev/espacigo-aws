@@ -51,6 +51,30 @@ func TestWebhookOnlyFlagDoesNotEnableCheckoutProPreferences(t *testing.T) {
 	}
 }
 
+func TestReadMercadoPagoWebhookSecretSupportsEnvAndFile(t *testing.T) {
+	valid := "0123456789abcdef0123456789abcdef"
+	got, err := readMercadoPagoWebhookSecret(func(key string) string {
+		if key == "MERCADOPAGO_WEBHOOK_SECRET" {
+			return "  " + valid + "\n"
+		}
+		return ""
+	})
+	if err != nil || string(got) != valid {
+		t.Fatalf("expected env webhook secret to succeed: got=%q err=%v", string(got), err)
+	}
+	if _, err := readMercadoPagoWebhookSecret(func(key string) string {
+		if key == "MERCADOPAGO_WEBHOOK_SECRET" {
+			return "too-short"
+		}
+		return ""
+	}); err == nil {
+		t.Fatal("expected short env webhook secret to fail")
+	}
+	if _, err := readMercadoPagoWebhookSecret(func(string) string { return "" }); err == nil {
+		t.Fatal("expected missing webhook secret to fail")
+	}
+}
+
 func withWebhookMode(values map[string]string, mode string) map[string]string {
 	copy := make(map[string]string, len(values))
 	for key, value := range values {

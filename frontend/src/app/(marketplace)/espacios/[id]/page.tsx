@@ -192,6 +192,8 @@ export default async function PublicSpacePage({
             basePriceCLP={space.base_price_clp}
             today={rentalToday}
             initialSelection={rentalSelection}
+            disponibleDesde={space.disponible_desde}
+            estadiaMinimaMeses={space.estadia_minima_meses}
           />
         }
         gallery={

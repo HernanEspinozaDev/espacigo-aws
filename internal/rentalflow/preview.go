@@ -146,24 +146,51 @@ func (s *ContractPreviewService) Preview(ctx context.Context, actorID, quoteID s
 		return ContractPreview{}, ErrConflict
 	}
 	interval := Interval{StartAt: quote.StartAt.UTC(), EndAt: quote.EndAt.UTC()}
-	units, unitsErr := pricing.BilledUnits(listing.RateUnit, interval.StartAt, interval.EndAt, listing.TimeZone)
-	dateText := interval.StartAt.In(loc).Format("2006-01-02")
-	if unitsErr != nil || units < 1 || units > 4 || units > math.MaxInt64/listing.UnitPriceCLP ||
-		!validDuration(listing.RateUnit, int(units)) || !dateWithinHorizon(dateText, now, loc) ||
-		!intervalMatchesRequest(interval, listing.RateUnit, dateText, int(units), listing.TimeZone, now) ||
-		units*listing.UnitPriceCLP != quote.SubtotalCLP ||
-		!validQuote(quote, quote.RenterID, listing, interval, units, quote.SubtotalCLP, now) {
+	var intervalsToCheck []Interval
+	var totalUnits int64
+	if ivReader, ok := s.quotes.(interface {
+		GetQuoteIntervals(context.Context, string) ([]QuoteInterval, error)
+	}); ok {
+		tramos, ivErr := ivReader.GetQuoteIntervals(ctx, quote.ID)
+		if ivErr != nil {
+			return ContractPreview{}, ErrUnavailable
+		}
+		for _, tramo := range tramos {
+			u, uErr := pricing.BilledUnits(listing.RateUnit, tramo.StartAt.UTC(), tramo.EndAt.UTC(), listing.TimeZone)
+			dText := tramo.StartAt.UTC().In(loc).Format("2006-01-02")
+			iv := Interval{StartAt: tramo.StartAt.UTC(), EndAt: tramo.EndAt.UTC()}
+			if uErr != nil || u < 1 || !ValidFlexibleDuration(listing.RateUnit, int(u)) ||
+				!dateWithinHorizon(dText, now, loc) || !intervalMatchesRequest(iv, listing.RateUnit, dText, int(u), listing.TimeZone, now) {
+				return ContractPreview{}, ErrConflict
+			}
+			totalUnits += u
+			intervalsToCheck = append(intervalsToCheck, iv)
+		}
+	}
+	if len(intervalsToCheck) == 0 {
+		units, unitsErr := pricing.BilledUnits(listing.RateUnit, interval.StartAt, interval.EndAt, listing.TimeZone)
+		dateText := interval.StartAt.In(loc).Format("2006-01-02")
+		if unitsErr != nil || units < 1 || units > math.MaxInt64/listing.UnitPriceCLP ||
+			!ValidFlexibleDuration(listing.RateUnit, int(units)) || !dateWithinHorizon(dateText, now, loc) ||
+			!intervalMatchesRequest(interval, listing.RateUnit, dateText, int(units), listing.TimeZone, now) {
+			return ContractPreview{}, ErrConflict
+		}
+		totalUnits = units
+		intervalsToCheck = []Interval{interval}
+	}
+	if totalUnits < 1 || totalUnits > math.MaxInt64/listing.UnitPriceCLP ||
+		totalUnits*listing.UnitPriceCLP != quote.SubtotalCLP ||
+		!validQuote(quote, quote.RenterID, listing, interval, totalUnits, quote.SubtotalCLP, now) {
 		return ContractPreview{}, ErrConflict
 	}
-	available, err := s.calendar.IntervalAvailable(ctx, listing, interval)
-	if err != nil {
-		return ContractPreview{}, ErrUnavailable
-	}
-	if ctx.Err() != nil {
-		return ContractPreview{}, ErrUnavailable
-	}
-	if !available {
-		return ContractPreview{}, ErrConflict
+	for _, iv := range intervalsToCheck {
+		available, availErr := s.calendar.IntervalAvailable(ctx, listing, iv)
+		if availErr != nil || ctx.Err() != nil {
+			return ContractPreview{}, ErrUnavailable
+		}
+		if !available {
+			return ContractPreview{}, ErrConflict
+		}
 	}
 	err = s.identity.RequireForBooking(ctx, quote.OwnerID, quote.RenterID, now)
 	if ctx.Err() != nil {

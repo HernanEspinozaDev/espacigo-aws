@@ -632,18 +632,18 @@ export function ListingEditor({
     setFeedbackSuccess(null);
 
     if (
-      basePrice <= 5000 ||
+      basePrice < 1000 ||
       !Number.isSafeInteger(basePrice) ||
       !["hora", "dia", "mes"].includes(rateUnit)
     ) {
       setFieldErrors((errors) => ({
         ...errors,
         base_price:
-          "El precio debe ser un entero mayor a $5.000 CLP por hora, día o mes.",
+          "El precio debe ser un entero de al menos $1.000 CLP por hora, día o mes.",
       }));
       priceRef.current?.focus();
       setFeedbackError(
-        "El precio base debe ser un entero mayor a $5.000 CLP y la unidad de cobro debe ser válida.",
+        "El precio base debe ser un entero de al menos $1.000 CLP y la unidad de cobro debe ser válida.",
       );
       return;
     }
@@ -1859,7 +1859,7 @@ export function ListingEditor({
                         id="editor-price"
                         ref={priceRef}
                         type="number"
-                        min={5001}
+                        min={1000}
                         step={1}
                         aria-invalid={Boolean(fieldErrors.base_price)}
                         aria-describedby={

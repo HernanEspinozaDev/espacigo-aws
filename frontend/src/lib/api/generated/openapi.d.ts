@@ -378,6 +378,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/spaces/{spaceID}/rental-schedule": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar bloques horarios del día con estado de disponibilidad
+     * @description Devuelve los bloques horarios del día consultado con su estado (available, held, booked) para mostrar horarios ocupados o en proceso como deshabilitados sin revelar datos personales ni reservas.
+     */
+    get: operations["listPublicRentalSchedule"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/rental-quotes": {
     parameters: {
       query?: never;
@@ -392,6 +412,26 @@ export interface paths {
      * @description Deriva al arrendatario de la sesión. Go revalida publicación activa, intervalo, ocupación, tarifa y zona horaria. La cotización es una instantánea de precio; no crea reserva, ocupación, bloqueo, firma ni pago. No acepta return_url ni datos de identidad en el cuerpo.
      */
     post: operations["createRentalQuote"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/multi": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Crear una cotización autenticada con múltiples tramos horarios o días
+     * @description Valida múltiples intervalos (contiguos, separados o en distintos días) para el mismo espacio y persiste la cotización oficial con el detalle por tramo.
+     */
+    post: operations["createMultiRentalQuote"];
     delete?: never;
     options?: never;
     head?: never;
@@ -549,7 +589,7 @@ export interface paths {
     put?: never;
     /**
      * Validar y guardar una notificación de pago de Mercado Pago
-     * @description Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
+     * @description Ruta pública montada solo cuando Checkout Pro está habilitado. Exige `data.id` en query string como valor canónico firmado junto con `x-signature` y `x-request-id`; verifica HMAC antes de persistir una recepción durable. Devuelve 2xx tras guardar el recibo; un worker consulta el pago autenticado con el token OAuth del vendedor y concilia la reserva. Los valores del body y el user_id nunca confirman el pago.
      */
     post: operations["receiveMercadoPagoPaymentWebhook"];
     delete?: never;
@@ -615,12 +655,15 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** Consultar el pago de prueba de una cotización */
+    /**
+     * Consultar el pago de prueba de una cotización
+     * @description Devuelve el importe CLP oficial de la cotización, el estado conciliado de la operación Checkout API (`payments_api`) y, cuando `MERCADOPAGO_SELLER_PUBLIC_KEY_TOKENIZATION=1` está activo en desarrollo local, la configuración `card_tokenization` con la Public Key OAuth vigente del anfitrión.
+     */
     get: operations["getCommercialPayment"];
     put?: never;
     /**
      * Enviar un pago de prueba tokenizado a Mercado Pago
-     * @description Solo disponible en desarrollo local. El importe y la comisión se calculan en el servidor. El token de tarjeta emitido por MercadoPago.js es de un solo uso y no se almacena.
+     * @description Solo disponible en desarrollo local. El importe y la comisión se calculan en el servidor a partir de la cotización CLP persistida. El token de tarjeta emitido por MercadoPago.js es de un solo uso y no se almacena. El `operation_id` generado se usa como `X-Idempotency-Key` y `external_reference` ante `POST /v1/payments` de Mercado Pago con el access token OAuth del anfitrión.
      */
     post: operations["createCommercialPayment"];
     delete?: never;
@@ -713,6 +756,43 @@ export interface paths {
     /** Adjuntar un PDF tributario externo a una reserva propia pagada */
     put: operations["attachCommercialReservationTaxPDF"];
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/intervals/{intervalID}/usage": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+        intervalID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Actualizar estado de uso o check-in de un tramo de la reserva comercial */
+    post: operations["updateCommercialIntervalUsage"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/verify-pass": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Verificar pase QR o código de 6 caracteres en recepción y confirmar check-in/check-out */
+    post: operations["verifyCommercialPass"];
     delete?: never;
     options?: never;
     head?: never;
@@ -4976,6 +5056,14 @@ export interface components {
       /** Format: date-time */
       end_at: string;
     };
+    RentalScheduleSlot: {
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** @enum {string} */
+      status: "available" | "held" | "booked";
+    };
     PublicRentalAvailability: {
       /** Format: uuid */
       space_id: string;
@@ -4986,6 +5074,20 @@ export interface components {
       /** Format: date-time */
       checked_at: string;
       items: components["schemas"]["RentalInterval"][];
+    };
+    PublicRentalSchedule: {
+      /** Format: uuid */
+      space_id: string;
+      /** @description Zona IANA configurada en la publicación. */
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: date-time */
+      checked_at: string;
+      slots: components["schemas"]["RentalScheduleSlot"][];
+    };
+    RentalScheduleEnvelope: {
+      data: components["schemas"]["PublicRentalSchedule"];
     };
     RentalAvailabilityEnvelope: {
       data: components["schemas"]["PublicRentalAvailability"];
@@ -5033,6 +5135,59 @@ export interface components {
        * @description Vencimiento de la cotización; no retiene el intervalo.
        */
       expires_at: string;
+    };
+    CreateMultiRentalQuoteRequest: {
+      /** Format: uuid */
+      space_id: string;
+      intervals: components["schemas"]["RentalInterval"][];
+    };
+    RentalQuoteInterval: {
+      /** Format: uuid */
+      id?: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** Format: int64 */
+      units: number | string;
+      /** @enum {string} */
+      usage_status?: "pendiente" | "en_uso" | "completado" | "no_asistio";
+      /** Format: date-time */
+      check_in_at?: string;
+      /** Format: date-time */
+      check_out_at?: string;
+      pass_code?: string;
+      qr_payload?: string;
+    };
+    RentalMultiQuote: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      expires_at: string;
+      intervals: components["schemas"]["RentalQuoteInterval"][];
+    };
+    RentalMultiQuoteEnvelope: {
+      data: components["schemas"]["RentalMultiQuote"];
     };
     RentalQuoteEnvelope: {
       data: components["schemas"]["RentalQuote"];
@@ -5104,6 +5259,14 @@ export interface components {
         /** Format: uuid */
         quote_id: string;
         amount_clp: number;
+        /** Format: int64 */
+        base_amount_clp?: number | string;
+        /** Format: int64 */
+        buyer_commission_clp?: number | string;
+        /** Format: int64 */
+        buyer_vat_clp?: number | string;
+        /** Format: int64 */
+        service_fee_clp?: number | string;
         /** @enum {string} */
         status:
           | "not_started"
@@ -5265,6 +5428,25 @@ export interface components {
       status: string;
       checkout_status: string;
       /** @enum {string} */
+      checkout_method?: "checkout_pro" | "payments_api";
+      provider_payment_id?: string;
+      /** Format: int64 */
+      commission_clp?: number | string;
+      /** Format: int64 */
+      vat_clp?: number | string;
+      /** Format: int64 */
+      buyer_commission_clp?: number | string;
+      /** Format: int64 */
+      buyer_iva_clp?: number | string;
+      /** Format: int64 */
+      buyer_fee_clp?: number | string;
+      /** Format: int64 */
+      total_charged_clp?: number | string;
+      /** Format: int64 */
+      marketplace_fee_clp?: number | string;
+      /** Format: int64 */
+      net_host_amount_clp?: number | string;
+      /** @enum {string} */
       rate_unit: "hora" | "dia" | "mes";
       /** Format: int64 */
       unit_price_clp: number | string;
@@ -5285,6 +5467,7 @@ export interface components {
       created_at: string;
       /** Format: date-time */
       updated_at: string;
+      intervals?: components["schemas"]["RentalQuoteInterval"][];
     };
     CommercialReservationEnvelope: {
       data: components["schemas"]["CommercialReservation"];
@@ -10150,6 +10333,39 @@ export interface operations {
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
+  listPublicRentalSchedule: {
+    parameters: {
+      query: {
+        date: string;
+        duration: number;
+      };
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Bloques horarios del día con su estado. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RentalScheduleEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      405: components["responses"]["RentalMethodNotAllowed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
   createRentalQuote: {
     parameters: {
       query?: never;
@@ -10181,6 +10397,40 @@ export interface operations {
       405: components["responses"]["RentalMethodNotAllowed"];
       409: components["responses"]["RentalConflict"];
       415: components["responses"]["RentalUnsupportedMediaType"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  createMultiRentalQuote: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateMultiRentalQuoteRequest"];
+      };
+    };
+    responses: {
+      /** @description Cotización multi-tramo creada y persistida. */
+      201: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RentalMultiQuoteEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      405: components["responses"]["RentalMethodNotAllowed"];
+      409: components["responses"]["RentalConflict"];
       422: components["responses"]["RentalUnprocessableEntity"];
       500: components["responses"]["RentalInternalServerError"];
       503: components["responses"]["RentalServiceUnavailable"];
@@ -10402,9 +10652,16 @@ export interface operations {
   };
   receiveMercadoPagoPaymentWebhook: {
     parameters: {
-      query?: never;
+      query: {
+        /** @description ID numérico del pago notificado por Mercado Pago (valor canónico incluido en el manifest firmado por x-signature). */
+        "data.id": string;
+        /** @description Tópico de la notificación (por ejemplo payment). */
+        type?: string;
+      };
       header: {
+        /** @description Firma HMAC-SHA256 de Mercado Pago con formato ts=... */
         "x-signature": string;
+        /** @description Identificador único de entrega del webhook emitido por Mercado Pago. */
         "x-request-id": string;
       };
       path?: never;
@@ -10574,12 +10831,14 @@ export interface operations {
       /** @description Importe oficial y estado persistido. */
       200: {
         headers: {
+          "Cache-Control"?: "no-store";
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["CheckoutAPIPaymentEnvelope"];
         };
       };
+      400: components["responses"]["RentalBadRequest"];
       401: components["responses"]["RentalUnauthorized"];
       403: components["responses"]["RentalForbidden"];
       404: components["responses"]["RentalNotFound"];
@@ -10613,6 +10872,7 @@ export interface operations {
       /** @description Resultado del intento de pago o estado de conciliación. */
       200: {
         headers: {
+          "Cache-Control"?: "no-store";
           [name: string]: unknown;
         };
         content: {
@@ -10814,6 +11074,85 @@ export interface operations {
         content?: never;
       };
       422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  updateCommercialIntervalUsage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+        intervalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          status: "pendiente" | "en_uso" | "completado" | "no_asistio";
+        };
+      };
+    };
+    responses: {
+      /** @description Reserva comercial actualizada con el estado del tramo. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialReservationEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  verifyCommercialPass: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          code_or_qr: string;
+          /** Format: uuid */
+          space_id?: string;
+          /** @enum {string} */
+          action: "preview" | "check_in" | "check_out";
+        };
+      };
+    };
+    responses: {
+      /** @description Pase validado y actualizado según la acción solicitada. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              reservation: components["schemas"]["CommercialReservation"];
+              interval: components["schemas"]["RentalQuoteInterval"];
+            };
+          };
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };

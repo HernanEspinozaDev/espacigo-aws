@@ -175,6 +175,12 @@ function HostAvailabilityCalendarEditor({
   const [maximumStay, setMaximumStay] = useState(
     String(configuration?.rule.estadia_maxima ?? 30),
   );
+  const [availableFromDate, setAvailableFromDate] = useState(
+    configuration?.rule.disponible_desde ?? "",
+  );
+  const [minMonths, setMinMonths] = useState(
+    String(configuration?.rule.estadia_minima_meses ?? 1),
+  );
   const [validationMessage, setValidationMessage] = useState<string | null>(
     null,
   );
@@ -333,6 +339,18 @@ function HostAvailabilityCalendarEditor({
         ...(previous?.motivo ? { motivo: previous.motivo } : {}),
       });
     }
+    const parsedMinMonths = Number(minMonths || "1");
+    if (
+      rateUnit === "mes" &&
+      (!Number.isInteger(parsedMinMonths) ||
+        parsedMinMonths < 1 ||
+        parsedMinMonths > 24)
+    ) {
+      setValidationMessage(
+        "La estancia mínima en meses debe estar entre 1 y 24.",
+      );
+      return;
+    }
     const rule = configuration.rule;
     const payload: CalendarInventoryUpdate = {
       time_zone: configuration.time_zone,
@@ -344,6 +362,12 @@ function HostAvailabilityCalendarEditor({
       tarifa_base_dia: price,
       estadia_minima: minStay,
       estadia_maxima: maxStay,
+      ...(rateUnit === "mes"
+        ? {
+            disponible_desde: availableFromDate.trim(),
+            estadia_minima_meses: parsedMinMonths,
+          }
+        : {}),
       overrides: [...overrides.values()],
     };
     await controller.save(payload);
@@ -422,41 +446,86 @@ function HostAvailabilityCalendarEditor({
           </div>
         </div>
 
-        {/* Opening / Closing times */}
-        <div className="grid grid-cols-2 gap-3 max-w-sm">
-          <div>
-            <label
-              htmlFor={`${headingId}-open`}
-              className="text-xs font-medium text-neutral-600 block mb-1"
-            >
-              {rateUnit === "dia" ? "Check-in" : "Hora apertura"}
-            </label>
-            <input
-              type="time"
-              id={`${headingId}-open`}
-              value={openTime}
-              disabled={disabled}
-              onChange={(e) => setOpenTime(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
-            />
+        {/* Unit-specific schedule / monthly rules */}
+        {rateUnit === "hora" ? (
+          <div className="grid grid-cols-2 gap-3 max-w-sm">
+            <div>
+              <label
+                htmlFor={`${headingId}-open`}
+                className="text-xs font-medium text-neutral-600 block mb-1"
+              >
+                Hora apertura
+              </label>
+              <input
+                type="time"
+                id={`${headingId}-open`}
+                value={openTime}
+                disabled={disabled}
+                onChange={(e) => setOpenTime(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor={`${headingId}-close`}
+                className="text-xs font-medium text-neutral-600 block mb-1"
+              >
+                Hora cierre
+              </label>
+              <input
+                type="time"
+                id={`${headingId}-close`}
+                value={closeTime}
+                disabled={disabled}
+                onChange={(e) => setCloseTime(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
+              />
+            </div>
           </div>
-          <div>
-            <label
-              htmlFor={`${headingId}-close`}
-              className="text-xs font-medium text-neutral-600 block mb-1"
-            >
-              {rateUnit === "dia" ? "Check-out" : "Hora cierre"}
-            </label>
-            <input
-              type="time"
-              id={`${headingId}-close`}
-              value={closeTime}
-              disabled={disabled}
-              onChange={(e) => setCloseTime(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
-            />
+        ) : rateUnit === "dia" ? (
+          <p className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
+            Publicación por día: los arrendatarios seleccionan días completos
+            directamente en el calendario (sueltos o continuos), sin horarios.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 max-w-md">
+            <div>
+              <label
+                htmlFor={`${headingId}-avail-from`}
+                className="text-xs font-medium text-neutral-600 block mb-1"
+              >
+                Disponible desde (opcional)
+              </label>
+              <input
+                type="date"
+                id={`${headingId}-avail-from`}
+                value={availableFromDate}
+                disabled={disabled}
+                onChange={(e) => setAvailableFromDate(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor={`${headingId}-min-months`}
+                className="text-xs font-medium text-neutral-600 block mb-1"
+              >
+                Estancia mínima en meses (1 = libre)
+              </label>
+              <input
+                type="number"
+                id={`${headingId}-min-months`}
+                min={1}
+                max={24}
+                step={1}
+                value={minMonths}
+                disabled={disabled}
+                onChange={(e) => setMinMonths(e.target.value)}
+                className="w-full rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-xs text-neutral-800 shadow-xs focus:border-[#A83820] focus:ring-1 focus:ring-[#A83820]"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="grid min-w-0 gap-3 sm:grid-cols-3">
           <label
@@ -678,12 +747,6 @@ function HostAvailabilityCalendarEditor({
                                 null,
                             )}
                     </span>
-                    {isSelected && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-[#A83820]"
-                      />
-                    )}
                   </button>
                 );
               })}

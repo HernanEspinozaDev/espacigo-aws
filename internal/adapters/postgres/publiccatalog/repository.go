@@ -11,6 +11,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -433,7 +434,7 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
 const confirmedLocationSQL = `CASE WHEN e.ubicacion_confirmada_en IS NOT NULL THEN jsonb_build_object('address',e.direccion,'latitude',e.ubicacion_latitud,'longitude',e.ubicacion_longitud) END`
 
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
@@ -443,7 +444,9 @@ func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space
 	var hostName sql.NullString
 	var hostJoinedAt time.Time
 	var hostSpacesCount int64
-	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount, &locationJSON)
+	var dispDesde sql.NullString
+	var estMinMeses sql.NullInt16
+	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount, &locationJSON, &dispDesde, &estMinMeses)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return publiccatalog.Space{}, publiccatalog.ErrNotFound
@@ -453,6 +456,32 @@ func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space
 	if locationJSON != nil {
 		if err := json.Unmarshal(locationJSON, &v.Location); err != nil {
 			return publiccatalog.Space{}, err
+		}
+	}
+	if dispDesde.Valid {
+		v.DisponibleDesde = &dispDesde.String
+	}
+	if estMinMeses.Valid && estMinMeses.Int16 > 0 {
+		m := int(estMinMeses.Int16)
+		v.EstadiaMinimaMeses = &m
+	}
+	if v.RateUnit == "mes" && !dispDesde.Valid && !estMinMeses.Valid {
+		var mDispDesde sql.NullString
+		var mEstMinMeses sql.NullInt16
+		monthErr := r.pool.QueryRow(ctx, `SELECT disponible_desde::text, estadia_minima_meses FROM public.espacio_regla_mensual WHERE espacio_id=$1`, v.SpaceID).Scan(&mDispDesde, &mEstMinMeses)
+		if monthErr == nil {
+			if mDispDesde.Valid {
+				v.DisponibleDesde = &mDispDesde.String
+			}
+			if mEstMinMeses.Valid && mEstMinMeses.Int16 > 0 {
+				m := int(mEstMinMeses.Int16)
+				v.EstadiaMinimaMeses = &m
+			}
+		} else if !errors.Is(monthErr, pgx.ErrNoRows) {
+			var pgErr *pgconn.PgError
+			if !errors.As(monthErr, &pgErr) || pgErr.Code != "42P01" {
+				return v, monthErr
+			}
 		}
 	}
 	var hostPublicName *string
