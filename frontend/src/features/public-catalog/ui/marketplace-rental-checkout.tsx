@@ -364,6 +364,7 @@ export function MarketplaceRentalCheckout({
               </h4>
               <ReservationCountdown
                 expiresAt={quote.expires_at}
+                size="lg"
                 onExpire={() => setExpiredQuoteId(quote.id)}
               />
             </div>
