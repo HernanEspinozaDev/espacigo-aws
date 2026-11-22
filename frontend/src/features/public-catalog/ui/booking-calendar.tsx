@@ -302,13 +302,7 @@ export function PublicBookingCalendar({
           : {}),
       });
     },
-    [
-      spaceId,
-      rateUnit,
-      effectiveDuration,
-      notifySelection,
-      estadiaMinimaMeses,
-    ],
+    [spaceId, rateUnit, effectiveDuration, notifySelection, estadiaMinimaMeses],
   );
 
   // Load the authoritative typed month snapshot.

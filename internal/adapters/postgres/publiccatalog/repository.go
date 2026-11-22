@@ -10,6 +10,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -381,7 +382,7 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
  ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`
 
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),(SELECT disponible_desde::text FROM public.espacio_regla_mensual WHERE espacio_id=e.id),(SELECT estadia_minima_meses FROM public.espacio_regla_mensual WHERE espacio_id=e.id)` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),NULL::text,NULL::smallint` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
@@ -405,6 +406,25 @@ func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space
 	if estMinMeses.Valid && estMinMeses.Int16 > 0 {
 		m := int(estMinMeses.Int16)
 		v.EstadiaMinimaMeses = &m
+	}
+	if v.RateUnit == "mes" && !dispDesde.Valid && !estMinMeses.Valid {
+		var mDispDesde sql.NullString
+		var mEstMinMeses sql.NullInt16
+		monthErr := r.pool.QueryRow(ctx, `SELECT disponible_desde::text, estadia_minima_meses FROM public.espacio_regla_mensual WHERE espacio_id=$1`, v.SpaceID).Scan(&mDispDesde, &mEstMinMeses)
+		if monthErr == nil {
+			if mDispDesde.Valid {
+				v.DisponibleDesde = &mDispDesde.String
+			}
+			if mEstMinMeses.Valid && mEstMinMeses.Int16 > 0 {
+				m := int(mEstMinMeses.Int16)
+				v.EstadiaMinimaMeses = &m
+			}
+		} else if !errors.Is(monthErr, pgx.ErrNoRows) {
+			var pgErr *pgconn.PgError
+			if !errors.As(monthErr, &pgErr) || pgErr.Code != "42P01" {
+				return v, monthErr
+			}
+		}
 	}
 	var hostPublicName *string
 	if hostName.Valid {

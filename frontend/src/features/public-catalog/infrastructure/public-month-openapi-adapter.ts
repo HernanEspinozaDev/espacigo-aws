@@ -111,8 +111,12 @@ function parse(value: unknown, requestedMonth: string): PublicMonth | null {
     rateUnit: value.rate_unit as PublicMonth["rateUnit"],
     basePrice,
     days,
-    ...(disponibleDesde !== undefined ? { disponible_desde: disponibleDesde } : {}),
-    ...(estadiaMinimaMeses !== null ? { estadia_minima_meses: estadiaMinimaMeses } : {}),
+    ...(disponibleDesde !== undefined
+      ? { disponible_desde: disponibleDesde }
+      : {}),
+    ...(estadiaMinimaMeses !== null
+      ? { estadia_minima_meses: estadiaMinimaMeses }
+      : {}),
   };
 }
 
