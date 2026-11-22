@@ -142,7 +142,8 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
-	if _, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv); err != nil {
+	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv)
+	if err != nil {
 		return nil, err
 	}
 	catalog, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), key, evidence, mediaStore)
@@ -194,10 +195,6 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	mux.Handle("/api/v1/profile/photo", m02Handler)
 	mux.Handle("/api/v1/profile/photo/", m02Handler)
 	mux.Handle("/api/v1/payout-account", m02Handler)
-	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, os.Getenv)
-	if err != nil {
-		return nil, err
-	}
 	declarationKeys, err := loadRentalContractDeclarationKeyring(os.Getenv)
 	if err != nil {
 		return nil, errors.New("commercial rental identity initialization failed")
