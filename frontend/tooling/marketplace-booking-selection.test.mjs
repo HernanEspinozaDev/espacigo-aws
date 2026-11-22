@@ -106,3 +106,94 @@ test("rejects invalid, duplicate, unknown and unsafe booking parameters", () => 
     null,
   );
 });
+
+test("dia multi-interval selection round-trips correctly and calculates subtotal", () => {
+  const diaSelection = {
+    spaceId: "123e4567-e89b-42d3-a456-426614174000",
+    date: "2026-12-05",
+    duration: 3,
+    rateUnit: "dia",
+    startAt: "2026-12-05T00:00:00-03:00",
+    endAt: "2026-12-08T00:00:00-03:00",
+    timeZone: "America/Santiago",
+    intervals: [
+      {
+        startAt: "2026-12-05T00:00:00-03:00",
+        endAt: "2026-12-06T00:00:00-03:00",
+      },
+      {
+        startAt: "2026-12-07T00:00:00-03:00",
+        endAt: "2026-12-08T00:00:00-03:00",
+      },
+    ],
+  };
+  const href = marketplaceBookingHref(diaSelection);
+  assert.ok(href && href.startsWith("/reservas/nueva?"));
+  assert.match(href, /rate_unit=dia/);
+  assert.match(href, /duration=3/);
+  assert.match(href, /intervals=/);
+
+  const parsed = parseMarketplaceBookingSelection(
+    href.slice(href.indexOf("?") + 1),
+  );
+  assert.deepEqual(parsed, diaSelection);
+
+  assert.equal(marketplaceSubtotal(25000, 3), "75000");
+});
+
+test("mes duration, min-months, and billing_mode round-trip and validation rules", () => {
+  const mesSelection = {
+    spaceId: "123e4567-e89b-42d3-a456-426614174000",
+    date: "2026-12-01",
+    duration: 4,
+    rateUnit: "mes",
+    startAt: "2026-12-01T00:00:00-03:00",
+    endAt: "2027-04-01T00:00:00-03:00",
+    timeZone: "America/Santiago",
+    billingMode: "monthly_installments",
+    minMonths: 3,
+  };
+  const href = marketplaceBookingHref(mesSelection);
+  assert.ok(href && href.startsWith("/reservas/nueva?"));
+  assert.match(href, /rate_unit=mes/);
+  assert.match(href, /duration=4/);
+  assert.match(href, /billing_mode=monthly_installments/);
+  assert.match(href, /min_months=3/);
+
+  const parsed = parseMarketplaceBookingSelection(
+    href.slice(href.indexOf("?") + 1),
+  );
+  assert.deepEqual(parsed, mesSelection);
+
+  // Full billing mode
+  const fullHref = marketplaceBookingHref({
+    ...mesSelection,
+    billingMode: "full",
+  });
+  assert.match(fullHref, /billing_mode=full/);
+  const parsedFull = parseMarketplaceBookingSelection(
+    fullHref.slice(fullHref.indexOf("?") + 1),
+  );
+  assert.equal(parsedFull?.billingMode, "full");
+
+  // Rejects duration less than min_months
+  const invalidDurationQuery = href
+    .slice(href.indexOf("?") + 1)
+    .replace("duration=4", "duration=2");
+  assert.equal(parseMarketplaceBookingSelection(invalidDurationQuery), null);
+
+  // Rejects invalid billing_mode
+  const invalidModeQuery = href
+    .slice(href.indexOf("?") + 1)
+    .replace("billing_mode=monthly_installments", "billing_mode=quarterly");
+  assert.equal(parseMarketplaceBookingSelection(invalidModeQuery), null);
+
+  // Rejects billing_mode or min_months on hora/dia
+  const modeOnHora = query + "&billing_mode=full";
+  assert.equal(parseMarketplaceBookingSelection(modeOnHora), null);
+  const minOnHora = query + "&min_months=2";
+  assert.equal(parseMarketplaceBookingSelection(minOnHora), null);
+
+  // Subtotal for mes
+  assert.equal(marketplaceSubtotal(120000, 4), "480000");
+});

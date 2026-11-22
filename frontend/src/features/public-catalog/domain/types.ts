@@ -11,6 +11,8 @@ export type PublicSpaceDetail = Omit<
   "verification"
 > & {
   verification: import("./verification").PublicVerification;
+  disponible_desde?: string | null;
+  estadia_minima_meses?: number | null;
 };
 export type PublicSpaceImageRef = components["schemas"]["PublicSpaceImageRef"];
 export type PublicSpaceCategory = components["schemas"]["PublicSpaceCategory"];

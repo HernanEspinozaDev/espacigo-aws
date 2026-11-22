@@ -77,4 +77,14 @@ test("return target preserves only a validated canonical marketplace handoff", a
     "/",
   );
   assert.equal(resolveReturnTarget("/reservas/nueva"), "/reservas/nueva");
+
+  // Preserves dia with multi-intervals handoff
+  const diaQuery = `spaceId=${id}&date=2026-12-05&duration=2&start=2026-12-05T00%3A00%3A00-03%3A00&end=2026-12-07T00%3A00%3A00-03%3A00&rate_unit=dia&time_zone=America%2FSantiago&source=marketplace&intervals=2026-12-05T00%3A00%3A00-03%3A00%2C2026-12-06T00%3A00%3A00-03%3A00%3B2026-12-06T00%3A00%3A00-03%3A00%2C2026-12-07T00%3A00%3A00-03%3A00`;
+  const canonicalDia = `/reservas/nueva?${diaQuery}`;
+  assert.equal(resolveReturnTarget(canonicalDia), canonicalDia);
+
+  // Preserves mes with min_months and billing_mode handoff across login
+  const mesQuery = `spaceId=${id}&date=2026-12-01&duration=3&start=2026-12-01T00%3A00%3A00-03%3A00&end=2027-03-01T00%3A00%3A00-03%3A00&rate_unit=mes&time_zone=America%2FSantiago&source=marketplace&billing_mode=monthly_installments&min_months=2`;
+  const canonicalMes = `/reservas/nueva?${mesQuery}`;
+  assert.equal(resolveReturnTarget(canonicalMes), canonicalMes);
 });

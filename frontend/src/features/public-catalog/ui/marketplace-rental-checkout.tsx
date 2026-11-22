@@ -21,6 +21,7 @@ export interface MarketplaceCheckoutSelection {
   duration?: number;
   rateUnit?: "hora" | "dia" | "mes";
   intervals?: readonly MarketplaceBookingInterval[];
+  billingMode?: "full" | "monthly_installments";
 }
 
 function quoteError(status: number): string {
@@ -74,7 +75,7 @@ export function MarketplaceRentalCheckout({
   } | null>(null);
   const [billingMode, setBillingMode] = useState<
     "full" | "monthly_installments"
-  >("full");
+  >(selection.billingMode ?? "full");
   const requestGeneration = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const loadingRef = useRef(false);

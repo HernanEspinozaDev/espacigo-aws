@@ -13,6 +13,8 @@ interface PublicSpaceRentalAvailabilityProps {
   today: string;
   initialSelection?: RentalReturnSelection;
   onSelectionChange?: (selection: MarketplaceBookingSelection | null) => void;
+  disponibleDesde?: string | null;
+  estadiaMinimaMeses?: number | null;
 }
 
 export function PublicSpaceRentalAvailability({
@@ -22,6 +24,8 @@ export function PublicSpaceRentalAvailability({
   today,
   initialSelection,
   onSelectionChange,
+  disponibleDesde,
+  estadiaMinimaMeses,
 }: PublicSpaceRentalAvailabilityProps) {
   const headingId = useId();
 
@@ -49,6 +53,8 @@ export function PublicSpaceRentalAvailability({
           today={today}
           initialSelection={initialSelection}
           onSelectionChange={onSelectionChange}
+          disponibleDesde={disponibleDesde}
+          estadiaMinimaMeses={estadiaMinimaMeses}
         />
       </div>
     </section>
