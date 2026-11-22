@@ -105,7 +105,7 @@ test("la ficha del espacio conserva su mapa y dirección confirmada", async ({
 }) => {
   await page.goto("/espacios/00000000-0000-4000-8000-000000000007");
   await expect(
-    page.getByRole("heading", { name: "Ubicación confirmada", exact: true }),
+    page.getByRole("heading", { name: "Ubicación", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Calle Sintética 123")).toBeVisible();
 });

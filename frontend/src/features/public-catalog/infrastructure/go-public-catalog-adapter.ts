@@ -127,6 +127,12 @@ function publicImages(value: unknown): PublicSpace["images"] {
   });
 }
 
+function publicCancellationPolicy(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text.length > 0 ? text : null;
+}
+
 function isPublicTimeZone(value: unknown): value is string {
   if (
     typeof value !== "string" ||
@@ -379,7 +385,9 @@ function adaptPublicSpaceDetail(
   locationProjection(details);
   details.host = publicSpaceHost(space.host);
   details.attributes = publicSpaceAttributes(space.attributes);
-  details.cancellation_policy = null;
+  details.cancellation_policy = publicCancellationPolicy(
+    space.cancellation_policy,
+  );
   details.guarantee = null;
 
   const schedule = publicWeeklySchedule(space.weekly_schedule);

@@ -199,6 +199,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
   await page
     .locator("#wizard-address")
     .fill("Dirección sintética 100, Santiago");
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-area").fill("40");
   await page.locator("#wizard-capacity").fill("2");
   for (const attribute of profile.attributes.filter((item) => item.required)) {
@@ -213,7 +214,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.locator("#wizard-timezone")).toBeVisible();
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Paso 6:/ })).toBeVisible();
   await page
     .getByRole("button", { name: "Crear espacio y continuar a edición" })
     .click();
@@ -475,6 +476,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await page.locator("#wizard-region").selectOption("13");
   await page.locator("#wizard-comuna").selectOption("13101");
   await page.locator("#wizard-address").fill("Av. de prueba 100, Santiago");
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-area").fill("40");
   await page.locator("#wizard-capacity").fill("2");
 
@@ -489,7 +491,9 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
       .getByRole("alert"),
   ).toContainText(required[0]!.label);
-  await expect(page.getByRole("heading", { name: /Paso 2:/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Paso 3: Atributos/ }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Crear espacio y continuar a edición" }),
   ).toHaveCount(0);
@@ -508,7 +512,9 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await expect(
     page.locator(`#wizard-attribute-${requiredEnum.code}-error`),
   ).toContainText(requiredEnum.label);
-  await expect(page.getByRole("heading", { name: /Paso 2:/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Paso 3: Atributos/ }),
+  ).toBeVisible();
   expect(createBody).toBeNull();
   await enumControl.selectOption(requiredEnum.options![0]!);
   await expect(enumControl).not.toHaveAttribute("aria-invalid", "true");
@@ -530,7 +536,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: /Paso 3: Tarifas iniciales y condiciones/,
+      name: /Paso 4: Tarifas iniciales y condiciones/,
     }),
   ).toBeVisible();
 
@@ -540,7 +546,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
     page.getByRole("heading", {
-      name: /Paso 5: Resumen y confirmación de alta/,
+      name: /Paso 6: Resumen y confirmación de alta/,
     }),
   ).toBeVisible();
 
@@ -555,7 +561,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await page.keyboard.press("Tab");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await stepper.getByRole("button", { name: /Confirmación/ }).click();
-  await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Paso 6:/ })).toBeVisible();
   await expect(page.locator("main")).toContainText(
     "Título actualizado por teclado",
   );
@@ -608,7 +614,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   await expect(
     page.getByRole("tablist", { name: "Secciones de edición del espacio" }),
   ).toBeVisible();
-  await page.getByRole("tab", { name: "Información y atributos" }).click();
+  await page.getByRole("tab", { name: "Detalles" }).click();
   await expect(
     page.getByRole("textbox", { name: "Título del anuncio *" }),
   ).toHaveValue(updatedTitle);

@@ -662,7 +662,7 @@ func TestDraft422ReturnsSafeFieldCodesWithoutSubmittedValues(t *testing.T) {
 	if envelope.Error.Code != "validation_error" {
 		t.Fatalf("error code=%q", envelope.Error.Code)
 	}
-	want := map[string]string{"description": "min_length", "area_m2": "step"}
+	want := map[string]string{"area_m2": "step"}
 	for _, field := range envelope.Error.Details {
 		if want[field.Field] != field.Code {
 			t.Errorf("unexpected field error %+v", field)

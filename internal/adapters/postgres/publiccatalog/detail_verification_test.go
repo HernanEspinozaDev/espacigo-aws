@@ -287,6 +287,6 @@ func TestDetailMissingRowMapsToPublicNotFound(t *testing.T) {
 func detailVerificationRow(spaceID string) []any {
 	return []any{
 		spaceID, "oficina", "Oficina", "Sala sintética", "Descripción sintética", float64(20), 8, "dia", int64(5000), "CLP", 1, "sala",
-		"Reglas sintéticas", "13", "Metropolitana", "13101", "Santiago", true, false, nil, nil, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC), int64(3), nil, nil, nil,
+		"Reglas sintéticas", "13", "Metropolitana", "13101", "Santiago", true, false, nil, nil, time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC), int64(3), nil, nil, nil, nil,
 	}
 }

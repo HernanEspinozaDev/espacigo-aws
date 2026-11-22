@@ -50,7 +50,7 @@ func TestConfirmedLocationProjectionAndGeoFilteringPrecedeLimit(t *testing.T) {
 
 func TestDetailProjectsOnlyConfirmedAddressAndPin(t *testing.T) {
 	row := detailVerificationRow("11111111-1111-4111-8111-111111111111")
-	row[len(row)-1] = []byte(`{"address":"Calle 123","latitude":-33.45,"longitude":-70.66}`)
+	row[23] = []byte(`{"address":"Calle 123","latitude":-33.45,"longitude":-70.66}`)
 	item, err := (&Repository{pool: &detailVerificationPool{detailRow: row}}).Detail(context.Background(), row[0].(string))
 	if err != nil || item.Location == nil || item.Location.Longitude != -70.66 {
 		t.Fatalf("item=%+v err=%v", item, err)

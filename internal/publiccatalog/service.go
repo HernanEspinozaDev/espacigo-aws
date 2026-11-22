@@ -20,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"golang.org/x/text/unicode/norm"
 )
@@ -416,6 +417,14 @@ func (s *Service) Detail(ctx context.Context, spaceID string) (Space, error) {
 		return Space{}, ErrNotFound
 	}
 	item, err := s.repo.Detail(ctx, strings.ToLower(spaceID))
+	if err != nil {
+		return Space{}, err
+	}
+	item.CancellationPolicy = nil
+	if policy, ok := commercialpolicy.ByVersion(item.CancellationPolicyVersion); ok {
+		text := policy.Text
+		item.CancellationPolicy = &text
+	}
 	return publicProjection(item), err
 }
 

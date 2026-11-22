@@ -47,6 +47,9 @@ export function ProductCard({
   const title = safePublicText(space.title);
   const price = formatPublicClp(space.base_price_clp);
   const estimate = formatPublicClp(space.estimated_total_clp);
+  const highlights = (space.features ?? [])
+    .filter((feature) => feature.value && feature.label.trim())
+    .slice(0, 2);
 
   return (
     <Link
@@ -100,9 +103,23 @@ export function ProductCard({
         <PublicVerificationBadges verification={space.verification} />
         <h2 className="text-base font-medium text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">
-          {[space.comuna_name, space.region_name].filter(Boolean).join(", ")}
-          {space.area_m2 > 0 ? ` · ${space.area_m2} m²` : ""}
+          {space.comuna_name?.trim() || "Comuna no informada"}
         </p>
+        {highlights.length ? (
+          <ul
+            aria-label="Características destacadas"
+            className="flex flex-wrap gap-2 pt-1"
+          >
+            {highlights.map((feature) => (
+              <li
+                key={feature.code}
+                className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                {safePublicText(feature.label)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <p className="pt-1 text-base font-semibold text-foreground">
           {price ?? "Tarifa no disponible"}
           {price ? (

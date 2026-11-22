@@ -29,11 +29,12 @@ export function PublicSpaceLocation({ space }: { space: PublicSpaceDetail }) {
   if (!location) return null;
   return (
     <section
+      id="ubicacion"
       aria-labelledby="public-space-location-heading"
-      className="space-y-4"
+      className="scroll-mt-24 space-y-4"
     >
       <h2 id="public-space-location-heading" className="text-xl font-semibold">
-        Ubicación confirmada
+        Ubicación
       </h2>
       <p>{location.address}</p>
       <LocationMap center={center} markers={markers} />

@@ -1,3 +1,5 @@
+import type { CancellationPolicyVersion } from "./cancellation-policy";
+
 import type { components } from "@/lib/api/generated/openapi";
 
 export type RateUnit = "hora" | "dia" | "mes";
@@ -57,6 +59,7 @@ export interface ListingDetail {
   readonly area_m2: number;
   readonly capacity: number;
   readonly usage_rules: string;
+  readonly cancellation_policy_version?: CancellationPolicyVersion;
   readonly rate_unit: RateUnit;
   readonly base_price_clp: number;
   readonly address: string;
@@ -77,6 +80,7 @@ export interface ListingDraftInput {
   area_m2: number;
   capacity: number;
   usage_rules: string;
+  cancellation_policy_version?: CancellationPolicyVersion;
   rate_unit: RateUnit;
   base_price_clp: number;
   address: string;
@@ -91,6 +95,7 @@ export interface ContentUpdateInput {
   description?: string;
   capacity?: number;
   usage_rules?: string;
+  cancellation_policy_version?: CancellationPolicyVersion;
   base_price_clp?: number | string;
   region_code?: string;
   comuna_code?: string;

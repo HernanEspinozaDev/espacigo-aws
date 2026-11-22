@@ -115,7 +115,7 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
       disponible: false,
       minimo: 0,
     }),
-    "flexible",
+    "flexible_v1",
     "",
   );
   assert.deepEqual(payload.attributes, {
@@ -124,10 +124,8 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     minimo: 0,
   });
   assert.equal(payload.attribute_schema_version, 7);
-  assert.equal(
-    payload.usage_rules,
-    "Política de cancelación: flexible. Normas",
-  );
+  assert.equal(payload.usage_rules, "Normas");
+  assert.equal(payload.cancellation_policy_version, "flexible_v1");
 });
 
 test("submission is blocked if the current category schema has not loaded", () => {

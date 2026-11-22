@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 )
 
 var (
@@ -45,53 +47,56 @@ func NewValidationError(details []FieldError) error {
 }
 
 type Draft struct {
-	ID                     string         `json:"id"`
-	CategoryCode           string         `json:"category_code"`
-	CategoryName           string         `json:"category_name"`
-	Title                  string         `json:"title"`
-	Description            string         `json:"description"`
-	AreaM2                 float64        `json:"area_m2"`
-	Capacity               int32          `json:"capacity"`
-	UsageRules             string         `json:"usage_rules"`
-	RateUnit               string         `json:"rate_unit"`
-	BasePriceCLP           int64          `json:"base_price_clp"`
-	Address                string         `json:"address"`
-	State                  string         `json:"state"`
-	TimeZone               *string        `json:"time_zone,omitempty"`
-	RegionCode             *string        `json:"region_code,omitempty"`
-	CommuneCode            *string        `json:"comuna_code,omitempty"`
-	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
-	AttributeSchemaVersion int            `json:"attribute_schema_version"`
-	Attributes             map[string]any `json:"attributes"`
-	UpdatedAt              time.Time      `json:"-"`
+	ID                        string         `json:"id"`
+	CategoryCode              string         `json:"category_code"`
+	CategoryName              string         `json:"category_name"`
+	Title                     string         `json:"title"`
+	Description               string         `json:"description"`
+	AreaM2                    float64        `json:"area_m2"`
+	Capacity                  int32          `json:"capacity"`
+	UsageRules                string         `json:"usage_rules"`
+	CancellationPolicyVersion *string        `json:"cancellation_policy_version,omitempty"`
+	RateUnit                  string         `json:"rate_unit"`
+	BasePriceCLP              int64          `json:"base_price_clp"`
+	Address                   string         `json:"address"`
+	State                     string         `json:"state"`
+	TimeZone                  *string        `json:"time_zone,omitempty"`
+	RegionCode                *string        `json:"region_code,omitempty"`
+	CommuneCode               *string        `json:"comuna_code,omitempty"`
+	CoverPhotoID              *string        `json:"cover_photo_id,omitempty"`
+	AttributeSchemaVersion    int            `json:"attribute_schema_version"`
+	Attributes                map[string]any `json:"attributes"`
+	UpdatedAt                 time.Time      `json:"-"`
 }
 
 type Input struct {
-	CategoryCode           string         `json:"category_code"`
-	Title                  string         `json:"title"`
-	Description            string         `json:"description"`
-	AreaM2                 float64        `json:"area_m2"`
-	Capacity               int32          `json:"capacity"`
-	UsageRules             string         `json:"usage_rules"`
-	RateUnit               string         `json:"rate_unit"`
-	BasePriceCLP           int64          `json:"base_price_clp"`
-	Address                string         `json:"address"`
-	RegionCode             string         `json:"region_code,omitempty"`
-	CommuneCode            string         `json:"comuna_code,omitempty"`
-	AttributeSchemaVersion int            `json:"attribute_schema_version,omitempty"`
-	Attributes             map[string]any `json:"attributes,omitempty"`
+	CategoryCode              string         `json:"category_code"`
+	Title                     string         `json:"title"`
+	Description               string         `json:"description"`
+	AreaM2                    float64        `json:"area_m2"`
+	Capacity                  int32          `json:"capacity"`
+	UsageRules                string         `json:"usage_rules"`
+	CancellationPolicyVersion *string        `json:"cancellation_policy_version,omitempty"`
+	RateUnit                  string         `json:"rate_unit"`
+	BasePriceCLP              int64          `json:"base_price_clp"`
+	Address                   string         `json:"address"`
+	RegionCode                string         `json:"region_code,omitempty"`
+	CommuneCode               string         `json:"comuna_code,omitempty"`
+	AttributeSchemaVersion    int            `json:"attribute_schema_version,omitempty"`
+	Attributes                map[string]any `json:"attributes,omitempty"`
 }
 
 // PublishedContentInput limits edits of an existing local publication to
 // supported listing details. Nil means that field is unchanged.
 type PublishedContentInput struct {
-	Title        *string `json:"title,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Capacity     *int32  `json:"capacity,omitempty"`
-	UsageRules   *string `json:"usage_rules,omitempty"`
-	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
-	RegionCode   *string `json:"region_code,omitempty"`
-	CommuneCode  *string `json:"comuna_code,omitempty"`
+	Title                     *string `json:"title,omitempty"`
+	Description               *string `json:"description,omitempty"`
+	Capacity                  *int32  `json:"capacity,omitempty"`
+	UsageRules                *string `json:"usage_rules,omitempty"`
+	CancellationPolicyVersion *string `json:"cancellation_policy_version,omitempty"`
+	BasePriceCLP              *int64  `json:"base_price_clp,omitempty"`
+	RegionCode                *string `json:"region_code,omitempty"`
+	CommuneCode               *string `json:"comuna_code,omitempty"`
 }
 
 const PublicLocationCatalogVersion = "SUBDERE_DPA_2018"
@@ -117,7 +122,7 @@ func (i PublishedContentInput) Validate() error {
 
 func (i PublishedContentInput) FieldErrors() []FieldError {
 	var fields []FieldError
-	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
+	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.CancellationPolicyVersion == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
 		return []FieldError{{Field: "title", Code: "required"}}
 	}
 	if i.Title != nil {
@@ -127,9 +132,6 @@ func (i PublishedContentInput) FieldErrors() []FieldError {
 			fields = append(fields, FieldError{Field: "title", Code: "max_length"})
 		}
 	}
-	if i.Description != nil && len([]rune(strings.TrimSpace(*i.Description))) < 100 {
-		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
-	}
 	if i.Capacity != nil && *i.Capacity <= 0 {
 		fields = append(fields, FieldError{Field: "capacity", Code: "minimum"})
 	}
@@ -138,6 +140,11 @@ func (i PublishedContentInput) FieldErrors() []FieldError {
 			fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
 		} else if len([]rune(*i.UsageRules)) > 250 {
 			fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+		}
+	}
+	if i.CancellationPolicyVersion != nil {
+		if _, ok := commercialpolicy.ByVersion(*i.CancellationPolicyVersion); !ok {
+			fields = append(fields, FieldError{Field: "cancellation_policy_version", Code: "invalid_value"})
 		}
 	}
 	if i.BasePriceCLP != nil && *i.BasePriceCLP < 1000 {
@@ -174,9 +181,6 @@ func (i Input) FieldErrors() []FieldError {
 	} else if len([]rune(i.Title)) > 70 {
 		fields = append(fields, FieldError{Field: "title", Code: "max_length"})
 	}
-	if len([]rune(strings.TrimSpace(i.Description))) < 100 {
-		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
-	}
 	areaCents := i.AreaM2 * 100
 	if math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) {
 		fields = append(fields, FieldError{Field: "area_m2", Code: "invalid_value"})
@@ -194,6 +198,11 @@ func (i Input) FieldErrors() []FieldError {
 		fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
 	} else if len([]rune(i.UsageRules)) > 250 {
 		fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+	}
+	if i.CancellationPolicyVersion != nil {
+		if _, ok := commercialpolicy.ByVersion(*i.CancellationPolicyVersion); !ok {
+			fields = append(fields, FieldError{Field: "cancellation_policy_version", Code: "invalid_value"})
+		}
 	}
 	if i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes" {
 		fields = append(fields, FieldError{Field: "rate_unit", Code: "invalid_value"})

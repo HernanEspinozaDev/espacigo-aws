@@ -240,6 +240,20 @@
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Stores immutable metadata for privately inspected host tax attachments bound to verified payment. Requires review of participant access, storage isolation and retention."
+    },
+    "V000131__space_description_optional.sql": {
+      "checksum": "ed77ec587ee09c44f4a4a93c7a10c5b52d5d88e105daf2ba326d29e3d7378ce1",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Allows empty and short listing descriptions. Review stored and public representations, and remove application validation in the same delivery."
+    },
+    "V000132__commercial_cancellation_policy_snapshots.sql": {
+      "checksum": "5554c3e2c4cc27897fbed3be81be0b20c5c982c9bf0cbc21f050b2002ae21aa3",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio", "public.cotizacion_arriendo_comercial"],
+      "reason": "Adds cancellation policy selection and immutable quote snapshots. Review legacy fallback, historical terms and contract binding before release."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

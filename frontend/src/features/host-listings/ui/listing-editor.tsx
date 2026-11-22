@@ -1,6 +1,11 @@
 "use client";
 
 import {
+  cancellationPolicies,
+  cancellationPolicyVersion,
+  type CancellationPolicyVersion,
+} from "../domain/cancellation-policy";
+import {
   useCallback,
   useRef,
   useEffect,
@@ -80,7 +85,8 @@ interface ListingEditorProps {
   readonly startWithPhotos?: boolean;
 }
 
-type TabKey = "info" | "pricing" | "schedule" | "photos";
+type TabKey =
+  "info" | "location" | "pricing" | "schedule" | "photos" | "contract";
 const weeklyScheduleUnavailableMessage =
   "No se pudo cargar el horario semanal. Recarga la página antes de editarlo.";
 
@@ -149,7 +155,6 @@ function mapDraftServerFieldErrors(
     if (messages[target]) continue;
     const acceptedCodes: Record<string, readonly string[]> = {
       title: ["required", "max_length"],
-      description: ["min_length"],
       area_m2: ["invalid_value", "minimum", "maximum", "step"],
       capacity: ["minimum"],
       usage_rules: ["required", "max_length"],
@@ -162,9 +167,6 @@ function mapDraftServerFieldErrors(
       continue;
     const pairs: Record<string, Record<string, string>> = {
       title: { max_length: "El título no puede superar 70 caracteres." },
-      description: {
-        min_length: "La descripción debe tener al menos 100 caracteres.",
-      },
       usage_rules: {
         max_length: "Las reglas no pueden superar 250 caracteres.",
       },
@@ -237,6 +239,15 @@ export function ListingEditor({
   const [activeTab, setActiveTab] = useState<TabKey>(
     startWithPhotos ? "photos" : "info",
   );
+  const [openedTabs, setOpenedTabs] = useState<ReadonlySet<TabKey>>(
+    () => new Set([startWithPhotos ? "photos" : "info"]),
+  );
+  function openTab(tab: TabKey) {
+    setActiveTab(tab);
+    setOpenedTabs((opened) =>
+      opened.has(tab) ? opened : new Set([...opened, tab]),
+    );
+  }
   const [galleryBusy, setGalleryBusy] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
@@ -269,7 +280,7 @@ export function ListingEditor({
     returnsSnapshot.uncertain || returnsSnapshot.pendingReservationId !== null;
   const currentListing = snapshot.selectedListing;
 
-  // Pestaña 1: Información
+  // Pestaña Detalles
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [capacity, setCapacity] = useState(1);
@@ -278,6 +289,8 @@ export function ListingEditor({
   const [comunaCode, setComunaCode] = useState("");
   const [regionCode, setRegionCode] = useState("13");
   const [usageRules, setUsageRules] = useState("");
+  const [policyVersion, setPolicyVersion] =
+    useState<CancellationPolicyVersion>();
   const [attributes, setAttributes] = useState<Record<string, unknown>>({});
 
   // Pestaña 2: Tarifas
@@ -412,6 +425,7 @@ export function ListingEditor({
           setComunaCode(detail.comuna_code ?? "");
           setRegionCode(detail.region_code ?? "13");
           setUsageRules(detail.usage_rules);
+          setPolicyVersion(detail.cancellation_policy_version);
           setRateUnit(detail.rate_unit);
           setBasePrice(detail.base_price_clp);
           setTimeZone(detail.time_zone ?? "America/Santiago");
@@ -501,7 +515,7 @@ export function ListingEditor({
       description: description.trim(),
       area_m2: Number(areaM2),
       capacity: Number(capacity),
-      usage_rules: usageRules,
+      usage_rules: currentListing.usage_rules,
       base_price_clp: Number(basePrice),
       rate_unit: rateUnit,
       address: address,
@@ -564,7 +578,7 @@ export function ListingEditor({
               description: description.trim(),
               area_m2: Number(areaM2),
               capacity: Number(capacity),
-              usage_rules: usageRules.trim(),
+              usage_rules: currentListing.usage_rules,
               rate_unit: rateUnit,
               base_price_clp: Number(basePrice),
               address: address.trim(),
@@ -589,7 +603,7 @@ export function ListingEditor({
               title: title.trim(),
               description: description.trim(),
               capacity: Number(capacity),
-              usage_rules: usageRules.trim(),
+              usage_rules: currentListing.usage_rules,
               base_price_clp: Number(basePrice),
               region_code: regionCode || undefined,
               comuna_code: comunaCode.trim() || undefined,
@@ -672,6 +686,83 @@ export function ListingEditor({
           markCalendarRevisionStale();
         }
         setFeedbackError(listingErrorMessage(err));
+      }
+    });
+  };
+
+  const handleSaveRules = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (
+      !accessToken ||
+      !currentListing ||
+      returnsBusy ||
+      galleryBusy ||
+      isPending
+    )
+      return;
+    setFeedbackSuccess(null);
+    setFeedbackError(null);
+    const rules = (
+      policyVersion
+        ? usageRules.replace(
+            /^Política de cancelación: (flexible|moderada|estricta)\.\s*/,
+            "",
+          )
+        : usageRules
+    ).trim();
+    if (!rules || Array.from(rules).length > 250) {
+      setFieldErrors((errors) => ({
+        ...errors,
+        usage_rules: "Escribe una regla de uso de hasta 250 caracteres.",
+      }));
+      rulesRef.current?.focus();
+      return;
+    }
+    startTransition(async () => {
+      try {
+        if (!currentListing.etag) {
+          throw new Error(
+            "Recarga la publicación antes de guardar las reglas.",
+          );
+        }
+        const policyAndRules = {
+          usage_rules: rules,
+          cancellation_policy_version: policyVersion,
+        };
+        if (currentListing.state === "borrador") {
+          await updateDraft(
+            accessToken,
+            listingId,
+            {
+              category_code: currentListing.category_code,
+              title: currentListing.title,
+              description: currentListing.description,
+              area_m2: currentListing.area_m2,
+              capacity: currentListing.capacity,
+              rate_unit: currentListing.rate_unit,
+              base_price_clp: currentListing.base_price_clp,
+              address: currentListing.address,
+              region_code: currentListing.region_code,
+              comuna_code: currentListing.comuna_code,
+              attribute_schema_version: currentListing.attribute_schema_version,
+              attributes: { ...currentListing.attributes },
+              ...policyAndRules,
+            },
+            currentListing.etag,
+          );
+        } else {
+          await updateContent(
+            accessToken,
+            listingId,
+            policyAndRules,
+            currentListing.etag,
+          );
+        }
+        setUsageRules(rules);
+        setFieldErrors((errors) => ({ ...errors, usage_rules: "" }));
+        setFeedbackSuccess("Reglas y política actualizadas.");
+      } catch (error) {
+        setFeedbackError(listingErrorMessage(error));
       }
     });
   };
@@ -1156,6 +1247,29 @@ export function ListingEditor({
         role="tablist"
         aria-label="Secciones de edición del espacio"
         className="flex items-center gap-2 border-b border-border overflow-x-auto pb-px"
+        onKeyDown={(event) => {
+          if (!["ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key))
+            return;
+          const tabs = Array.from(
+            event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              '[role="tab"]:not(:disabled)',
+            ),
+          );
+          const current = tabs.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? tabs.length - 1
+                : (current +
+                    (event.key === "ArrowRight" ? 1 : tabs.length - 1)) %
+                  tabs.length;
+          event.preventDefault();
+          tabs[next]?.focus();
+          tabs[next]?.click();
+        }}
       >
         <button
           type="button"
@@ -1163,8 +1277,9 @@ export function ListingEditor({
           id="tab-info"
           aria-controls="panel-info"
           aria-selected={activeTab === "info"}
+          tabIndex={activeTab === "info" ? 0 : -1}
           disabled={galleryBusy || returnsUncertainBusy}
-          onClick={() => setActiveTab("info")}
+          onClick={() => openTab("info")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "info"
               ? "border-primary text-primary font-semibold"
@@ -1172,7 +1287,21 @@ export function ListingEditor({
           }`}
         >
           <FileText className="size-4" aria-hidden="true" />
-          Información y atributos
+          Detalles
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          id="tab-location"
+          aria-controls="panel-location"
+          aria-selected={activeTab === "location"}
+          tabIndex={activeTab === "location" ? 0 : -1}
+          disabled={galleryBusy || returnsUncertainBusy}
+          onClick={() => openTab("location")}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "location" ? "border-primary text-primary font-semibold" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          Ubicación
         </button>
 
         <button
@@ -1181,8 +1310,9 @@ export function ListingEditor({
           id="tab-pricing"
           aria-controls="panel-pricing"
           aria-selected={activeTab === "pricing"}
+          tabIndex={activeTab === "pricing" ? 0 : -1}
           disabled={galleryBusy || returnsUncertainBusy}
-          onClick={() => setActiveTab("pricing")}
+          onClick={() => openTab("pricing")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "pricing"
               ? "border-primary text-primary font-semibold"
@@ -1190,7 +1320,7 @@ export function ListingEditor({
           }`}
         >
           <DollarSign className="size-4" aria-hidden="true" />
-          Tarifas e historial
+          Tarifas y reglas
         </button>
 
         <button
@@ -1199,9 +1329,10 @@ export function ListingEditor({
           id="tab-schedule"
           aria-controls="panel-schedule"
           aria-selected={activeTab === "schedule"}
+          tabIndex={activeTab === "schedule" ? 0 : -1}
           disabled={galleryBusy || returnsUncertainBusy}
           onClick={() => {
-            setActiveTab("schedule");
+            openTab("schedule");
             if (
               currentListing?.time_zone &&
               isValidIanaTimeZone(currentListing.time_zone)
@@ -1225,8 +1356,9 @@ export function ListingEditor({
           id="tab-photos"
           aria-controls="panel-photos"
           aria-selected={activeTab === "photos"}
+          tabIndex={activeTab === "photos" ? 0 : -1}
           disabled={returnsUncertainBusy}
-          onClick={() => setActiveTab("photos")}
+          onClick={() => openTab("photos")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "photos"
               ? "border-primary text-primary font-semibold"
@@ -1236,273 +1368,600 @@ export function ListingEditor({
           <ImageIcon className="size-4" aria-hidden="true" />
           Fotografías ({snapshot.photos.length})
         </button>
+        <button
+          type="button"
+          role="tab"
+          id="tab-contract"
+          aria-controls="panel-contract"
+          aria-selected={activeTab === "contract"}
+          tabIndex={activeTab === "contract" ? 0 : -1}
+          disabled={galleryBusy || returnsUncertainBusy}
+          onClick={() => openTab("contract")}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${activeTab === "contract" ? "border-primary text-primary font-semibold" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+        >
+          <FileText className="size-4" aria-hidden="true" /> Contrato
+        </button>
       </div>
 
-      {/* PESTAÑA 1: Información y atributos */}
+      {/* Detalles y atributos */}
       <div
         role="tabpanel"
         id="panel-info"
         aria-labelledby="tab-info"
         hidden={activeTab !== "info"}
       >
-        {activeTab === "info" && (
-          <form onSubmit={handleSaveContent}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
-                  Detalles de la propiedad
-                </CardTitle>
-                <CardDescription>
-                  Edita el título, descripción general y características del
-                  espacio.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="editor-title">Título del anuncio *</Label>
-                  <Input
-                    id="editor-title"
-                    ref={titleRef}
-                    aria-invalid={Boolean(fieldErrors.title)}
-                    aria-describedby={
-                      fieldErrors.title
-                        ? "editor-title-error"
-                        : "editor-title-count"
-                    }
-                    value={title}
-                    onChange={(e) => {
-                      setTitle(e.target.value);
-                      setFieldErrors((errors) => ({ ...errors, title: "" }));
-                    }}
-                    required
-                  />
+        <form onSubmit={handleSaveContent}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                Detalles de la propiedad
+              </CardTitle>
+              <CardDescription>
+                Edita el título, descripción general y características del
+                espacio.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="editor-title">Título del anuncio *</Label>
+                <Input
+                  id="editor-title"
+                  ref={titleRef}
+                  aria-invalid={Boolean(fieldErrors.title)}
+                  aria-describedby={
+                    fieldErrors.title
+                      ? "editor-title-error"
+                      : "editor-title-count"
+                  }
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    setFieldErrors((errors) => ({ ...errors, title: "" }));
+                  }}
+                  required
+                />
+                <p
+                  id="editor-title-count"
+                  className="text-xs text-muted-foreground"
+                >
+                  {Array.from(title).length}/70 caracteres
+                </p>
+                {fieldErrors.title && (
                   <p
-                    id="editor-title-count"
-                    className="text-xs text-muted-foreground"
+                    id="editor-title-error"
+                    className="text-sm text-destructive"
                   >
-                    {Array.from(title).length}/70 caracteres
+                    {fieldErrors.title}
                   </p>
-                  {fieldErrors.title && (
-                    <p
-                      id="editor-title-error"
-                      className="text-sm text-destructive"
-                    >
-                      {fieldErrors.title}
-                    </p>
-                  )}
-                </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="editor-desc">Descripción (opcional)</Label>
+                <textarea
+                  id="editor-desc"
+                  ref={descriptionRef}
+                  aria-invalid={Boolean(fieldErrors.description)}
+                  aria-describedby={
+                    fieldErrors.description
+                      ? "editor-desc-error"
+                      : "editor-desc-count"
+                  }
+                  rows={4}
+                  value={description}
+                  onChange={(e) => {
+                    setDescription(e.target.value);
+                    setFieldErrors((errors) => ({
+                      ...errors,
+                      description: "",
+                    }));
+                  }}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                />
+                <p
+                  id="editor-desc-count"
+                  className="text-xs text-muted-foreground"
+                >
+                  Puedes dejar este campo vacío.
+                </p>
+                {fieldErrors.description && (
+                  <p
+                    id="editor-desc-error"
+                    className="text-sm text-destructive"
+                  >
+                    {fieldErrors.description}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <p className="text-sm text-muted-foreground sm:col-span-2">
+                  La dirección, región, comuna y mapa se administran en la
+                  pestaña Ubicación.
+                </p>
 
                 <div className="space-y-2">
-                  <Label htmlFor="editor-desc">Descripción detallada *</Label>
-                  <textarea
-                    id="editor-desc"
-                    ref={descriptionRef}
-                    aria-invalid={Boolean(fieldErrors.description)}
+                  <Label htmlFor="editor-capacity">
+                    Capacidad máxima (personas) *
+                  </Label>
+                  <Input
+                    id="editor-capacity"
+                    ref={capacityRef}
+                    aria-invalid={Boolean(fieldErrors.capacity)}
                     aria-describedby={
-                      fieldErrors.description
-                        ? "editor-desc-error"
-                        : "editor-desc-count"
+                      fieldErrors.capacity ? "editor-capacity-error" : undefined
                     }
-                    rows={4}
-                    value={description}
+                    type="number"
+                    step="1"
+                    value={capacity}
                     onChange={(e) => {
-                      setDescription(e.target.value);
+                      setCapacity(Number(e.target.value));
                       setFieldErrors((errors) => ({
                         ...errors,
-                        description: "",
+                        capacity: "",
                       }));
                     }}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     required
                   />
-                  <p
-                    id="editor-desc-count"
-                    className="text-xs text-muted-foreground"
-                  >
-                    {Array.from(description).length}/100 caracteres mínimos
-                  </p>
-                  {fieldErrors.description && (
+                  {fieldErrors.capacity && (
                     <p
-                      id="editor-desc-error"
+                      id="editor-capacity-error"
                       className="text-sm text-destructive"
                     >
-                      {fieldErrors.description}
+                      {fieldErrors.capacity}
                     </p>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="editor-address">Dirección *</Label>
-                    <Input
-                      id="editor-address"
-                      ref={addressRef}
-                      aria-invalid={Boolean(fieldErrors.address)}
-                      aria-describedby={
-                        fieldErrors.address
-                          ? "editor-address-error"
-                          : "editor-address-count"
-                      }
-                      value={address}
-                      onChange={(e) => {
-                        setAddress(e.target.value);
-                        setFieldErrors((errors) => ({
-                          ...errors,
-                          address: "",
-                        }));
-                      }}
-                      required
-                    />
+                <div className="space-y-2">
+                  <Label htmlFor="editor-area">Superficie (m²) *</Label>
+                  <Input
+                    id="editor-area"
+                    ref={areaRef}
+                    aria-invalid={Boolean(fieldErrors.area_m2)}
+                    aria-describedby={
+                      fieldErrors.area_m2 ? "editor-area-error" : undefined
+                    }
+                    type="number"
+                    step="any"
+                    value={areaM2}
+                    onChange={(e) => {
+                      setAreaM2(Number(e.target.value));
+                      setFieldErrors((errors) => ({
+                        ...errors,
+                        area_m2: "",
+                      }));
+                    }}
+                    required
+                  />
+                  {fieldErrors.area_m2 && (
                     <p
-                      id="editor-address-count"
-                      className="text-xs text-muted-foreground"
+                      id="editor-area-error"
+                      className="text-sm text-destructive"
                     >
-                      {Array.from(address).length}/500 caracteres
+                      {fieldErrors.area_m2}
                     </p>
-                    {fieldErrors.address && (
-                      <p
-                        id="editor-address-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.address}
-                      </p>
-                    )}
+                  )}
+                </div>
+              </div>
+
+              {/* Atributos dinámicos de categoría */}
+              {currentSchema && currentSchema.attributes.length > 0 && (
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold text-foreground">
+                      Atributos específicos (
+                      {currentListing.category_name ||
+                        currentListing.category_code}
+                      )
+                    </h2>
+                    <Badge variant="outline" className="text-xs font-mono">
+                      versión {currentListing.attribute_schema_version}
+                    </Badge>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="editor-comuna">Comuna</Label>
-                    <Input
-                      id="editor-comuna"
-                      aria-invalid={Boolean(fieldErrors.comuna_code)}
-                      aria-describedby={
-                        fieldErrors.comuna_code
-                          ? "editor-comuna-error"
-                          : undefined
-                      }
-                      value={comunaCode}
-                      onChange={(e) => {
-                        setComunaCode(e.target.value);
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-lg border">
+                    {currentSchema.attributes.map((def) => {
+                      const label = formatAttributeLabel(
+                        def.code,
+                        currentSchema,
+                      );
+                      const val = attributes[def.code];
+                      const inputId = `attr-editor-${encodeURIComponent(def.code)}`;
+                      const attributeError =
+                        fieldErrors[`attributes.${def.code}`] ?? "";
+                      const attributeErrorId = `${inputId}-error`;
+                      const clearAttributeError = () =>
                         setFieldErrors((errors) => ({
                           ...errors,
-                          comuna_code: "",
+                          [`attributes.${def.code}`]: "",
                         }));
-                      }}
-                      placeholder="Ej: Santiago o 13101"
-                    />
-                    {fieldErrors.comuna_code && (
-                      <p
-                        id="editor-comuna-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.comuna_code}
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="editor-region">Región</Label>
-                    <select
-                      id="editor-region"
-                      aria-invalid={Boolean(fieldErrors.region_code)}
-                      aria-describedby={
-                        fieldErrors.region_code
-                          ? "editor-region-error"
-                          : undefined
+                      if (def.type === "boolean") {
+                        return (
+                          <div key={def.code} className="space-y-1">
+                            <div className="flex items-center justify-between p-2.5 rounded bg-background border">
+                              <Label
+                                htmlFor={inputId}
+                                className="text-xs cursor-pointer"
+                              >
+                                {label}
+                              </Label>
+                              <input
+                                id={inputId}
+                                type="checkbox"
+                                aria-invalid={Boolean(attributeError)}
+                                aria-describedby={
+                                  attributeError ? attributeErrorId : undefined
+                                }
+                                checked={Boolean(val)}
+                                onChange={(e) => {
+                                  setAttributes((prev) => ({
+                                    ...prev,
+                                    [def.code]: e.target.checked,
+                                  }));
+                                  clearAttributeError();
+                                }}
+                                className="size-4 rounded text-primary focus:ring-primary"
+                              />
+                            </div>
+                            {attributeError && (
+                              <p
+                                id={attributeErrorId}
+                                className="text-sm text-destructive"
+                              >
+                                {attributeError}
+                              </p>
+                            )}
+                          </div>
+                        );
                       }
-                      value={regionCode}
-                      onChange={(e) => {
-                        setRegionCode(e.target.value);
-                        setFieldErrors((errors) => ({
-                          ...errors,
-                          region_code: "",
-                        }));
-                      }}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    >
-                      <option value="13">Región Metropolitana (13)</option>
-                      <option value="05">Valparaíso (05)</option>
-                      <option value="08">Biobío (08)</option>
-                      <option value="04">Coquimbo (04)</option>
-                      <option value="09">La Araucanía (09)</option>
-                      <option value="10">Los Lagos (10)</option>
-                    </select>
-                    {fieldErrors.region_code && (
-                      <p
-                        id="editor-region-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.region_code}
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="editor-capacity">
-                      Capacidad máxima (personas) *
-                    </Label>
-                    <Input
-                      id="editor-capacity"
-                      ref={capacityRef}
-                      aria-invalid={Boolean(fieldErrors.capacity)}
-                      aria-describedby={
-                        fieldErrors.capacity
-                          ? "editor-capacity-error"
-                          : undefined
+                      if (def.type === "integer" || def.type === "number") {
+                        return (
+                          <div key={def.code} className="space-y-1">
+                            <Label
+                              htmlFor={inputId}
+                              className="text-xs font-semibold"
+                            >
+                              {label} {def.unit ? `(${def.unit})` : ""}
+                            </Label>
+                            <Input
+                              id={inputId}
+                              aria-invalid={Boolean(attributeError)}
+                              aria-describedby={
+                                attributeError ? attributeErrorId : undefined
+                              }
+                              type="number"
+                              min={def.minimum}
+                              max={def.maximum}
+                              step={def.step ?? 1}
+                              value={val !== undefined ? String(val) : ""}
+                              onChange={(e) => {
+                                setAttributes((prev) => ({
+                                  ...prev,
+                                  [def.code]:
+                                    e.target.value === ""
+                                      ? undefined
+                                      : Number(e.target.value),
+                                }));
+                                clearAttributeError();
+                              }}
+                            />
+                            {attributeError && (
+                              <p
+                                id={attributeErrorId}
+                                className="text-sm text-destructive"
+                              >
+                                {attributeError}
+                              </p>
+                            )}
+                          </div>
+                        );
                       }
-                      type="number"
-                      step="1"
-                      value={capacity}
-                      onChange={(e) => {
-                        setCapacity(Number(e.target.value));
-                        setFieldErrors((errors) => ({
-                          ...errors,
-                          capacity: "",
-                        }));
-                      }}
-                      required
-                    />
-                    {fieldErrors.capacity && (
-                      <p
-                        id="editor-capacity-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.capacity}
-                      </p>
-                    )}
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="editor-area">Superficie (m²) *</Label>
-                    <Input
-                      id="editor-area"
-                      ref={areaRef}
-                      aria-invalid={Boolean(fieldErrors.area_m2)}
-                      aria-describedby={
-                        fieldErrors.area_m2 ? "editor-area-error" : undefined
+                      if (def.type === "enum_list" && def.options) {
+                        const options = def.options;
+                        const selected = Array.isArray(val)
+                          ? options.filter(
+                              (option) =>
+                                typeof option === "string" &&
+                                val.includes(option),
+                            )
+                          : [];
+                        const fieldsetId = `attr-editor-${encodeURIComponent(def.code)}`;
+                        return (
+                          <fieldset key={def.code} className="space-y-2">
+                            <legend className="text-xs font-semibold">
+                              {label}
+                            </legend>
+                            <div className="space-y-2">
+                              {def.options.map((option, index) => {
+                                const optionId = `${fieldsetId}-option-${index}`;
+                                return (
+                                  <div
+                                    key={`${index}-${option}`}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <input
+                                      id={optionId}
+                                      type="checkbox"
+                                      aria-invalid={Boolean(attributeError)}
+                                      aria-describedby={
+                                        attributeError
+                                          ? attributeErrorId
+                                          : undefined
+                                      }
+                                      checked={selected.includes(option)}
+                                      onChange={(event) => {
+                                        setAttributes((previous) => {
+                                          const currentValue =
+                                            previous[def.code];
+                                          const current: string[] =
+                                            Array.isArray(currentValue)
+                                              ? (
+                                                  currentValue as unknown[]
+                                                ).filter(
+                                                  (item): item is string =>
+                                                    typeof item === "string" &&
+                                                    options.includes(item),
+                                                )
+                                              : [];
+                                          const next = event.target.checked
+                                            ? [...current, option]
+                                            : current.filter(
+                                                (item) => item !== option,
+                                              );
+                                          return {
+                                            ...previous,
+                                            [def.code]: def.options!.filter(
+                                              (item) => next.includes(item),
+                                            ),
+                                          };
+                                        });
+                                        clearAttributeError();
+                                      }}
+                                      className="size-4 rounded text-primary focus:ring-primary"
+                                    />
+                                    <Label
+                                      htmlFor={optionId}
+                                      className="text-xs cursor-pointer"
+                                    >
+                                      {formatAttributeValue(option)}
+                                    </Label>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {attributeError && (
+                              <p
+                                id={attributeErrorId}
+                                className="text-sm text-destructive"
+                              >
+                                {attributeError}
+                              </p>
+                            )}
+                          </fieldset>
+                        );
                       }
-                      type="number"
-                      step="any"
-                      value={areaM2}
-                      onChange={(e) => {
-                        setAreaM2(Number(e.target.value));
-                        setFieldErrors((errors) => ({
-                          ...errors,
-                          area_m2: "",
-                        }));
-                      }}
-                      required
-                    />
-                    {fieldErrors.area_m2 && (
-                      <p
-                        id="editor-area-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.area_m2}
-                      </p>
-                    )}
+
+                      if (def.type === "enum" && def.options) {
+                        return (
+                          <div key={def.code} className="space-y-1">
+                            <Label
+                              htmlFor={inputId}
+                              className="text-xs font-semibold"
+                            >
+                              {label}
+                            </Label>
+                            <select
+                              id={inputId}
+                              aria-required={def.required || undefined}
+                              aria-invalid={Boolean(attributeError)}
+                              aria-describedby={
+                                attributeError ? attributeErrorId : undefined
+                              }
+                              value={typeof val === "string" ? val : ""}
+                              onChange={(e) => {
+                                setAttributes((prev) => ({
+                                  ...prev,
+                                  [def.code]: e.target.value,
+                                }));
+                                clearAttributeError();
+                              }}
+                              className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                            >
+                              <option value="">-- Selecciona --</option>
+                              {def.options.map((opt) => (
+                                <option key={opt} value={opt}>
+                                  {formatAttributeValue(opt)}
+                                </option>
+                              ))}
+                            </select>
+                            {attributeError && (
+                              <p
+                                id={attributeErrorId}
+                                className="text-sm text-destructive"
+                              >
+                                {attributeError}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })}
                   </div>
                 </div>
+              )}
+            </CardContent>
+            <CardFooter className="border-t pt-4 flex justify-end">
+              <Button type="submit" disabled={isPending} className="gap-2">
+                {isPending ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="size-4" aria-hidden="true" />
+                )}
+                Guardar contenido
+              </Button>
+            </CardFooter>
+          </Card>
+        </form>
+      </div>
 
+      <div
+        role="tabpanel"
+        id="panel-location"
+        aria-labelledby="tab-location"
+        hidden={activeTab !== "location"}
+      >
+        {openedTabs.has("location") && (
+          <CommercialLocationEditor
+            key={`${authSnapshot.accountId}:${listingId}`}
+            spaceId={listingId}
+            onSaved={() => {
+              if (accessToken)
+                void selectListing(accessToken, listingId)
+                  .then((detail) => {
+                    if (detail) {
+                      setAddress(detail.address);
+                      setRegionCode(detail.region_code ?? "");
+                      setComunaCode(detail.comuna_code ?? "");
+                    }
+                  })
+                  .catch(() =>
+                    setFeedbackError(
+                      "La ubicación se guardó; recarga el editor antes de continuar.",
+                    ),
+                  );
+            }}
+          />
+        )}
+      </div>
+
+      {/* PESTAÑA 2: Tarifas e Historial */}
+      <div
+        role="tabpanel"
+        id="panel-pricing"
+        aria-labelledby="tab-pricing"
+        hidden={activeTab !== "pricing"}
+      >
+        <div className="space-y-6">
+          <form onSubmit={handleSavePricing} noValidate>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Tarifas del espacio</CardTitle>
+                <CardDescription>
+                  Actualiza el precio base por hora, día o mes. Cada
+                  actualización generará una nueva versión auditada.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="editor-rate-unit">Unidad de cobro *</Label>
+                    <select
+                      id="editor-rate-unit"
+                      value={rateUnit}
+                      onChange={(e) => setRateUnit(e.target.value as RateUnit)}
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <option value="hora">Por Hora</option>
+                      <option value="dia">Por Día</option>
+                      <option value="mes">Por Mes</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="editor-price">Precio base (CLP) *</Label>
+                    <Input
+                      id="editor-price"
+                      ref={priceRef}
+                      type="number"
+                      min={1000}
+                      step={1}
+                      aria-invalid={Boolean(fieldErrors.base_price)}
+                      aria-describedby={
+                        fieldErrors.base_price
+                          ? "editor-price-error"
+                          : undefined
+                      }
+                      value={basePrice}
+                      onChange={(e) => {
+                        setBasePrice(Number(e.target.value));
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          base_price: "",
+                        }));
+                      }}
+                      required
+                    />
+                    {fieldErrors.base_price && (
+                      <p
+                        id="editor-price-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.base_price}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Precio actual configurado: $
+                      {new Intl.NumberFormat("es-CL").format(basePrice)} CLP /
+                      {rateUnit}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter className="border-t pt-4 flex justify-end">
+                <Button type="submit" disabled={isPending} className="gap-2">
+                  {isPending ? (
+                    <Loader2
+                      className="size-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Save className="size-4" aria-hidden="true" />
+                  )}
+                  Actualizar tarifa
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+          <form onSubmit={handleSaveRules} noValidate>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Reglas y cancelación</CardTitle>
+                <CardDescription>
+                  La política que elijas se mostrará en la ficha y en las nuevas
+                  cotizaciones.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="editor-cancellation-policy">
+                    Política de cancelación
+                  </Label>
+                  <select
+                    id="editor-cancellation-policy"
+                    value={policyVersion ?? ""}
+                    onChange={(event) =>
+                      setPolicyVersion(
+                        cancellationPolicyVersion(event.target.value),
+                      )
+                    }
+                    className="w-full min-h-11 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    {!currentListing.cancellation_policy_version && (
+                      <option value="">Selecciona una política</option>
+                    )}
+                    {cancellationPolicies.map((policy) => (
+                      <option key={policy.version} value={policy.version}>
+                        {policy.label} — {policy.summary}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="editor-rules">
                     Reglas de uso y convivencia
@@ -1542,451 +2001,92 @@ export function ListingEditor({
                     </p>
                   )}
                 </div>
-
-                {/* Atributos dinámicos de categoría */}
-                {currentSchema && currentSchema.attributes.length > 0 && (
-                  <div className="border-t pt-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Atributos específicos (
-                        {currentListing.category_name ||
-                          currentListing.category_code}
-                        )
-                      </h2>
-                      <Badge variant="outline" className="text-xs font-mono">
-                        versión {currentListing.attribute_schema_version}
-                      </Badge>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-lg border">
-                      {currentSchema.attributes.map((def) => {
-                        const label = formatAttributeLabel(
-                          def.code,
-                          currentSchema,
-                        );
-                        const val = attributes[def.code];
-                        const inputId = `attr-editor-${encodeURIComponent(def.code)}`;
-                        const attributeError =
-                          fieldErrors[`attributes.${def.code}`] ?? "";
-                        const attributeErrorId = `${inputId}-error`;
-                        const clearAttributeError = () =>
-                          setFieldErrors((errors) => ({
-                            ...errors,
-                            [`attributes.${def.code}`]: "",
-                          }));
-
-                        if (def.type === "boolean") {
-                          return (
-                            <div key={def.code} className="space-y-1">
-                              <div className="flex items-center justify-between p-2.5 rounded bg-background border">
-                                <Label
-                                  htmlFor={inputId}
-                                  className="text-xs cursor-pointer"
-                                >
-                                  {label}
-                                </Label>
-                                <input
-                                  id={inputId}
-                                  type="checkbox"
-                                  aria-invalid={Boolean(attributeError)}
-                                  aria-describedby={
-                                    attributeError
-                                      ? attributeErrorId
-                                      : undefined
-                                  }
-                                  checked={Boolean(val)}
-                                  onChange={(e) => {
-                                    setAttributes((prev) => ({
-                                      ...prev,
-                                      [def.code]: e.target.checked,
-                                    }));
-                                    clearAttributeError();
-                                  }}
-                                  className="size-4 rounded text-primary focus:ring-primary"
-                                />
-                              </div>
-                              {attributeError && (
-                                <p
-                                  id={attributeErrorId}
-                                  className="text-sm text-destructive"
-                                >
-                                  {attributeError}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        if (def.type === "integer" || def.type === "number") {
-                          return (
-                            <div key={def.code} className="space-y-1">
-                              <Label
-                                htmlFor={inputId}
-                                className="text-xs font-semibold"
-                              >
-                                {label} {def.unit ? `(${def.unit})` : ""}
-                              </Label>
-                              <Input
-                                id={inputId}
-                                aria-invalid={Boolean(attributeError)}
-                                aria-describedby={
-                                  attributeError ? attributeErrorId : undefined
-                                }
-                                type="number"
-                                min={def.minimum}
-                                max={def.maximum}
-                                step={def.step ?? 1}
-                                value={val !== undefined ? String(val) : ""}
-                                onChange={(e) => {
-                                  setAttributes((prev) => ({
-                                    ...prev,
-                                    [def.code]:
-                                      e.target.value === ""
-                                        ? undefined
-                                        : Number(e.target.value),
-                                  }));
-                                  clearAttributeError();
-                                }}
-                              />
-                              {attributeError && (
-                                <p
-                                  id={attributeErrorId}
-                                  className="text-sm text-destructive"
-                                >
-                                  {attributeError}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        if (def.type === "enum_list" && def.options) {
-                          const options = def.options;
-                          const selected = Array.isArray(val)
-                            ? options.filter(
-                                (option) =>
-                                  typeof option === "string" &&
-                                  val.includes(option),
-                              )
-                            : [];
-                          const fieldsetId = `attr-editor-${encodeURIComponent(def.code)}`;
-                          return (
-                            <fieldset key={def.code} className="space-y-2">
-                              <legend className="text-xs font-semibold">
-                                {label}
-                              </legend>
-                              <div className="space-y-2">
-                                {def.options.map((option, index) => {
-                                  const optionId = `${fieldsetId}-option-${index}`;
-                                  return (
-                                    <div
-                                      key={`${index}-${option}`}
-                                      className="flex items-center gap-2"
-                                    >
-                                      <input
-                                        id={optionId}
-                                        type="checkbox"
-                                        aria-invalid={Boolean(attributeError)}
-                                        aria-describedby={
-                                          attributeError
-                                            ? attributeErrorId
-                                            : undefined
-                                        }
-                                        checked={selected.includes(option)}
-                                        onChange={(event) => {
-                                          setAttributes((previous) => {
-                                            const currentValue =
-                                              previous[def.code];
-                                            const current: string[] =
-                                              Array.isArray(currentValue)
-                                                ? (
-                                                    currentValue as unknown[]
-                                                  ).filter(
-                                                    (item): item is string =>
-                                                      typeof item ===
-                                                        "string" &&
-                                                      options.includes(item),
-                                                  )
-                                                : [];
-                                            const next = event.target.checked
-                                              ? [...current, option]
-                                              : current.filter(
-                                                  (item) => item !== option,
-                                                );
-                                            return {
-                                              ...previous,
-                                              [def.code]: def.options!.filter(
-                                                (item) => next.includes(item),
-                                              ),
-                                            };
-                                          });
-                                          clearAttributeError();
-                                        }}
-                                        className="size-4 rounded text-primary focus:ring-primary"
-                                      />
-                                      <Label
-                                        htmlFor={optionId}
-                                        className="text-xs cursor-pointer"
-                                      >
-                                        {formatAttributeValue(option)}
-                                      </Label>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              {attributeError && (
-                                <p
-                                  id={attributeErrorId}
-                                  className="text-sm text-destructive"
-                                >
-                                  {attributeError}
-                                </p>
-                              )}
-                            </fieldset>
-                          );
-                        }
-
-                        if (def.type === "enum" && def.options) {
-                          return (
-                            <div key={def.code} className="space-y-1">
-                              <Label
-                                htmlFor={inputId}
-                                className="text-xs font-semibold"
-                              >
-                                {label}
-                              </Label>
-                              <select
-                                id={inputId}
-                                aria-required={def.required || undefined}
-                                aria-invalid={Boolean(attributeError)}
-                                aria-describedby={
-                                  attributeError ? attributeErrorId : undefined
-                                }
-                                value={typeof val === "string" ? val : ""}
-                                onChange={(e) => {
-                                  setAttributes((prev) => ({
-                                    ...prev,
-                                    [def.code]: e.target.value,
-                                  }));
-                                  clearAttributeError();
-                                }}
-                                className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                              >
-                                <option value="">-- Selecciona --</option>
-                                {def.options.map((opt) => (
-                                  <option key={opt} value={opt}>
-                                    {formatAttributeValue(opt)}
-                                  </option>
-                                ))}
-                              </select>
-                              {attributeError && (
-                                <p
-                                  id={attributeErrorId}
-                                  className="text-sm text-destructive"
-                                >
-                                  {attributeError}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        return null;
-                      })}
-                    </div>
-                  </div>
-                )}
               </CardContent>
-              <CardFooter className="border-t pt-4 flex justify-end">
-                <Button type="submit" disabled={isPending} className="gap-2">
-                  {isPending ? (
-                    <Loader2
-                      className="size-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Save className="size-4" aria-hidden="true" />
-                  )}
-                  Guardar contenido
+              <CardFooter className="justify-end">
+                <Button
+                  type="submit"
+                  disabled={isPending || galleryBusy || returnsBusy}
+                >
+                  Guardar reglas y política
                 </Button>
               </CardFooter>
             </Card>
           </form>
-        )}
-      </div>
 
-      {/* PESTAÑA 2: Tarifas e Historial */}
-      <div
-        role="tabpanel"
-        id="panel-pricing"
-        aria-labelledby="tab-pricing"
-        hidden={activeTab !== "pricing"}
-      >
-        {activeTab === "pricing" && (
-          <div className="space-y-6">
-            <form onSubmit={handleSavePricing} noValidate>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Tarifas del espacio</CardTitle>
+          {/* Historial de tarifas */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <History
+                  className="size-5 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <div>
+                  <CardTitle className="text-lg">
+                    Historial de cambios de tarifa
+                  </CardTitle>
                   <CardDescription>
-                    Actualiza el precio base por hora, día o mes. Cada
-                    actualización generará una nueva versión auditada.
+                    Registro inmutable de versiones de precios y fechas de
+                    vigencia.
                   </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="editor-rate-unit">
-                        Unidad de cobro *
-                      </Label>
-                      <select
-                        id="editor-rate-unit"
-                        value={rateUnit}
-                        onChange={(e) =>
-                          setRateUnit(e.target.value as RateUnit)
-                        }
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                      >
-                        <option value="hora">Por Hora</option>
-                        <option value="dia">Por Día</option>
-                        <option value="mes">Por Mes</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="editor-price">Precio base (CLP) *</Label>
-                      <Input
-                        id="editor-price"
-                        ref={priceRef}
-                        type="number"
-                        min={1000}
-                        step={1}
-                        aria-invalid={Boolean(fieldErrors.base_price)}
-                        aria-describedby={
-                          fieldErrors.base_price
-                            ? "editor-price-error"
-                            : undefined
-                        }
-                        value={basePrice}
-                        onChange={(e) => {
-                          setBasePrice(Number(e.target.value));
-                          setFieldErrors((errors) => ({
-                            ...errors,
-                            base_price: "",
-                          }));
-                        }}
-                        required
-                      />
-                      {fieldErrors.base_price && (
-                        <p
-                          id="editor-price-error"
-                          className="text-sm text-destructive"
-                        >
-                          {fieldErrors.base_price}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        Precio actual configurado: $
-                        {new Intl.NumberFormat("es-CL").format(basePrice)} CLP /
-                        {rateUnit}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter className="border-t pt-4 flex justify-end">
-                  <Button type="submit" disabled={isPending} className="gap-2">
-                    {isPending ? (
-                      <Loader2
-                        className="size-4 animate-spin"
-                        aria-hidden="true"
-                      />
-                    ) : (
-                      <Save className="size-4" aria-hidden="true" />
-                    )}
-                    Actualizar tarifa
-                  </Button>
-                </CardFooter>
-              </Card>
-            </form>
-
-            {/* Historial de tarifas */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <History
-                    className="size-5 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <CardTitle className="text-lg">
-                      Historial de cambios de tarifa
-                    </CardTitle>
-                    <CardDescription>
-                      Registro inmutable de versiones de precios y fechas de
-                      vigencia.
-                    </CardDescription>
-                  </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                {snapshot.tariffHistory.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic py-3">
-                    No hay registros históricos previos para este espacio.
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b text-muted-foreground font-semibold">
-                          <th className="py-2 pr-4">Versión</th>
-                          <th className="py-2 px-4">Precio Base</th>
-                          <th className="py-2 px-4">Unidad</th>
-                          <th className="py-2 pl-4">Fecha Registro</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {snapshot.tariffHistory.map(
-                          (item: PricingHistoryItem) => (
-                            <tr
-                              key={item.version}
-                              className="hover:bg-muted/30"
-                            >
-                              <td className="py-2.5 pr-4 font-mono font-medium">
-                                v{item.version}
-                              </td>
-                              <td className="py-2.5 px-4 font-bold text-foreground">
-                                $
-                                {new Intl.NumberFormat("es-CL").format(
-                                  item.base_price,
-                                )}{" "}
-                                {item.currency}
-                              </td>
-                              <td className="py-2.5 px-4 capitalize">
-                                por {item.rate_unit}
-                              </td>
-                              <td className="py-2.5 pl-4 text-muted-foreground">
-                                {new Date(item.created_at).toLocaleDateString(
-                                  "es-CL",
-                                  {
-                                    year: "numeric",
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  },
-                                )}
-                              </td>
-                            </tr>
-                          ),
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {snapshot.tariffHistory.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic py-3">
+                  No hay registros históricos previos para este espacio.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b text-muted-foreground font-semibold">
+                        <th className="py-2 pr-4">Versión</th>
+                        <th className="py-2 px-4">Precio Base</th>
+                        <th className="py-2 px-4">Unidad</th>
+                        <th className="py-2 pl-4">Fecha Registro</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {snapshot.tariffHistory.map(
+                        (item: PricingHistoryItem) => (
+                          <tr key={item.version} className="hover:bg-muted/30">
+                            <td className="py-2.5 pr-4 font-mono font-medium">
+                              v{item.version}
+                            </td>
+                            <td className="py-2.5 px-4 font-bold text-foreground">
+                              $
+                              {new Intl.NumberFormat("es-CL").format(
+                                item.base_price,
+                              )}{" "}
+                              {item.currency}
+                            </td>
+                            <td className="py-2.5 px-4 capitalize">
+                              por {item.rate_unit}
+                            </td>
+                            <td className="py-2.5 pl-4 text-muted-foreground">
+                              {new Date(item.created_at).toLocaleDateString(
+                                "es-CL",
+                                {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
+                            </td>
+                          </tr>
+                        ),
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* PESTAÑA 3: Calendario y Horarios */}
@@ -1997,69 +2097,43 @@ export function ListingEditor({
         hidden={activeTab !== "schedule"}
         className="space-y-6"
       >
-        {activeTab === "schedule" && (
-          <form onSubmit={handleSaveSchedule}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
-                  Disponibilidad semanal
-                </CardTitle>
-                <CardDescription>
-                  Define el horario semanal habitual del espacio.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {currentListing?.rate_unit === "hora" && (
-                  <>
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
-                      <div>
-                        <Label
-                          htmlFor="editor-sched-enable"
-                          className="text-sm font-semibold text-foreground cursor-pointer"
-                        >
-                          Habilitar horario semanal
-                        </Label>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          Define los tramos habituales; no bloquea fechas ni
-                          confirma disponibilidad.
-                        </p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        id="editor-sched-enable"
-                        aria-label="Habilitar horario semanal"
-                        checked={scheduleEnabled}
-                        onChange={(e) => setScheduleEnabled(e.target.checked)}
-                        disabled={isPending || weeklyScheduleUnavailable}
-                        className="size-5 rounded text-primary focus:ring-primary"
-                      />
+        <form onSubmit={handleSaveSchedule}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Disponibilidad semanal</CardTitle>
+              <CardDescription>
+                Define el horario semanal habitual del espacio.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {currentListing?.rate_unit === "hora" && (
+                <>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
+                    <div>
+                      <Label
+                        htmlFor="editor-sched-enable"
+                        className="text-sm font-semibold text-foreground cursor-pointer"
+                      >
+                        Habilitar horario semanal
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Define los tramos habituales; no bloquea fechas ni
+                        confirma disponibilidad.
+                      </p>
                     </div>
-                    <WeeklyScheduleSlots
-                      slots={scheduleSlots}
-                      onChange={setScheduleSlots}
-                      disabled={
-                        isPending ||
-                        returnsBusy ||
-                        returnsUncertainBusy ||
-                        galleryBusy ||
-                        weeklyScheduleUnavailable ||
-                        !accessToken ||
-                        !currentListing
-                      }
-                      timeZone={timeZone}
+                    <input
+                      type="checkbox"
+                      id="editor-sched-enable"
+                      aria-label="Habilitar horario semanal"
+                      checked={scheduleEnabled}
+                      onChange={(e) => setScheduleEnabled(e.target.checked)}
+                      disabled={isPending || weeklyScheduleUnavailable}
+                      className="size-5 rounded text-primary focus:ring-primary"
                     />
-                  </>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="editor-timezone">
-                    Zona horaria de Chile *
-                  </Label>
-                  <select
-                    id="editor-timezone"
-                    value={timeZone}
-                    onChange={(e) => setTimeZone(e.target.value)}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                    required
+                  </div>
+                  <WeeklyScheduleSlots
+                    slots={scheduleSlots}
+                    onChange={setScheduleSlots}
                     disabled={
                       isPending ||
                       returnsBusy ||
@@ -2069,49 +2143,65 @@ export function ListingEditor({
                       !accessToken ||
                       !currentListing
                     }
-                  >
-                    {timeZoneOptionsForCurrentValue(timeZone).map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Se conserva la zona horaria ya guardada hasta que elijas
-                    otra opción.
-                  </p>
-                </div>
-                {currentListing?.rate_unit !== "hora" && (
-                  <p className="text-sm text-muted-foreground" role="note">
-                    El horario semanal solo aplica a tarifas por hora. Puedes
-                    guardar la zona horaria sin modificar los horarios
-                    existentes.
-                  </p>
-                )}
-              </CardContent>
-              <CardFooter className="border-t pt-4 flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={isPending || weeklyScheduleUnavailable}
-                  className="gap-2"
+                    timeZone={timeZone}
+                  />
+                </>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="editor-timezone">Zona horaria de Chile *</Label>
+                <select
+                  id="editor-timezone"
+                  value={timeZone}
+                  onChange={(e) => setTimeZone(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  required
+                  disabled={
+                    isPending ||
+                    returnsBusy ||
+                    returnsUncertainBusy ||
+                    galleryBusy ||
+                    weeklyScheduleUnavailable ||
+                    !accessToken ||
+                    !currentListing
+                  }
                 >
-                  {isPending ? (
-                    <Loader2
-                      className="size-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Save className="size-4" aria-hidden="true" />
-                  )}
-                  {currentListing?.rate_unit === "hora"
-                    ? "Guardar horarios"
-                    : "Guardar zona horaria"}
-                </Button>
-              </CardFooter>
-            </Card>
-          </form>
-        )}
-        {activeTab === "schedule" && accessToken && currentListing && (
+                  {timeZoneOptionsForCurrentValue(timeZone).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Se conserva la zona horaria ya guardada hasta que elijas otra
+                  opción.
+                </p>
+              </div>
+              {currentListing?.rate_unit !== "hora" && (
+                <p className="text-sm text-muted-foreground" role="note">
+                  El horario semanal solo aplica a tarifas por hora. Puedes
+                  guardar la zona horaria sin modificar los horarios existentes.
+                </p>
+              )}
+            </CardContent>
+            <CardFooter className="border-t pt-4 flex justify-end">
+              <Button
+                type="submit"
+                disabled={isPending || weeklyScheduleUnavailable}
+                className="gap-2"
+              >
+                {isPending ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Save className="size-4" aria-hidden="true" />
+                )}
+                {currentListing?.rate_unit === "hora"
+                  ? "Guardar horarios"
+                  : "Guardar zona horaria"}
+              </Button>
+            </CardFooter>
+          </Card>
+        </form>
+        {accessToken && currentListing && (
           <section aria-label="Disponibilidad por fecha" className="space-y-6">
             <Card>
               <CardHeader>
@@ -2367,7 +2457,7 @@ export function ListingEditor({
         aria-labelledby="tab-photos"
         hidden={activeTab !== "photos"}
       >
-        {activeTab === "photos" && (
+        {openedTabs.has("photos") && (
           <ListingGallery
             needsRefresh={snapshot.galleryNeedsRefresh}
             key={`${authSnapshot.accountId}:${listingId}`}
@@ -2389,28 +2479,22 @@ export function ListingEditor({
           />
         )}
       </div>
-      <CommercialLocationEditor
-        key={`${authSnapshot.accountId}:${listingId}:${currentListing.etag}`}
-        spaceId={listingId}
-        onSaved={() => {
-          if (accessToken)
-            void selectListing(accessToken, listingId)
-              .then((detail) => {
-                if (detail) {
-                  setAddress(detail.address);
-                  setRegionCode(detail.region_code ?? "");
-                  setComunaCode(detail.comuna_code ?? "");
-                }
-              })
-              .catch(() =>
-                setFeedbackError(
-                  "La ubicación se guardó; recarga el editor antes de continuar.",
-                ),
-              );
-        }}
-      />
-      <ContractTemplateEditor spaceId={listingId} sessionScope={sessionScope} />
-      <CommercialAuthorizationPanel spaceId={listingId} />
+      <div
+        role="tabpanel"
+        id="panel-contract"
+        aria-labelledby="tab-contract"
+        hidden={activeTab !== "contract"}
+      >
+        {openedTabs.has("contract") && (
+          <section className="space-y-6">
+            <ContractTemplateEditor
+              spaceId={listingId}
+              sessionScope={sessionScope}
+            />
+            <CommercialAuthorizationPanel spaceId={listingId} />
+          </section>
+        )}
+      </div>
     </div>
   );
 }

@@ -149,7 +149,8 @@ test("detalles públicos presentan valores tipados, anfitrión verificado y priv
     }),
   );
   for (const text of [
-    "Especificaciones y reglas",
+    "Detalles y atributos",
+    "Reglas y cancelación",
     "24 m²",
     "8<span",
     "personas</span>",

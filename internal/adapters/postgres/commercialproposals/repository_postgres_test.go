@@ -53,7 +53,7 @@ SET SESSION AUTHORIZATION espacigo_migrator_login; SET ROLE espacigo_schema_owne
 CREATE TABLE public.usuario(id uuid PRIMARY KEY);
 CREATE TABLE public.espacio(id uuid PRIMARY KEY,propietario_id uuid NOT NULL REFERENCES public.usuario(id),estado text NOT NULL,zona_horaria text,direccion text,ubicacion_latitud double precision,ubicacion_longitud double precision,ubicacion_confirmada_en timestamptz,ubicacion_revision bigint DEFAULT 1,region_codigo text,comuna_codigo text);
 CREATE TABLE public.tarifa_espacio(espacio_id uuid,version integer,modalidad text,precio_base_clp bigint,moneda text);
-CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY,espacio_id uuid,propietario_id uuid,arrendatario_id uuid,titulo_espacio text,tarifa_version integer,modalidad text,precio_unitario_clp bigint,unidades bigint,subtotal_clp bigint,moneda text,inicio timestamptz,termino timestamptz,zona_horaria text,vence_en timestamptz);
+CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY,espacio_id uuid,propietario_id uuid,arrendatario_id uuid,titulo_espacio text,tarifa_version integer,modalidad text,precio_unitario_clp bigint,unidades bigint,subtotal_clp bigint,moneda text,inicio timestamptz,termino timestamptz,zona_horaria text,vence_en timestamptz,politica_cancelacion_version text,politica_cancelacion_texto text);
 GRANT SELECT,UPDATE ON public.espacio TO espacigo_runtime;
 GRANT SELECT,DELETE ON public.cotizacion_arriendo_comercial TO espacigo_runtime;
 GRANT SELECT ON public.tarifa_espacio TO espacigo_runtime;`
@@ -80,7 +80,7 @@ GRANT SELECT ON public.tarifa_espacio TO espacigo_runtime;`
 		t.Fatal(err)
 	}
 	start := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
-	if _, err = setup.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_comercial VALUES($1,$2,$3,$4,'Sala sintética',1,'hora',10000,1,10000,'CLP',$5,$6,'America/Santiago',now()+interval '15 minutes')`, quoteID, space, owner, renter, start, start.Add(time.Hour)); err != nil {
+	if _, err = setup.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_comercial(id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,unidades,subtotal_clp,moneda,inicio,termino,zona_horaria,vence_en,politica_cancelacion_version,politica_cancelacion_texto) VALUES($1,$2,$3,$4,'Sala sintética',1,'hora',10000,1,10000,'CLP',$5,$6,'America/Santiago',now()+interval '15 minutes','flexible_v1','Términos congelados en la cotización.')`, quoteID, space, owner, renter, start, start.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	config, err := pgxpool.ParseConfig(u.String())
@@ -111,6 +111,9 @@ GRANT SELECT ON public.tarifa_espacio TO espacigo_runtime;`
 	if err != nil {
 		t.Fatal(err)
 	}
+	if terms.CancellationPolicy.Version != "flexible_v1" || terms.CancellationPolicy.Text != "Términos congelados en la cotización." {
+		t.Fatalf("current terms ignored quote cancellation snapshot: %+v", terms.CancellationPolicy)
+	}
 	record := commercialproposal.Record{ID: uuid.NewString(), OwnerID: owner, RenterID: renter, Terms: terms, SHA256: strings.Repeat("a", 64), KeyVersion: "synthetic-v1", Ciphertext: []byte(strings.Repeat("x", 40))}
 	stored, err := r.Create(ctx, renter, quote, record, func() error { return nil })
 	if err != nil || stored.Version != 1 {
@@ -120,6 +123,14 @@ GRANT SELECT ON public.tarifa_espacio TO espacigo_runtime;`
 	replayed, err := r.Create(ctx, renter, quote, record, func() error { return nil })
 	if err != nil || replayed.ID != stored.ID {
 		t.Fatalf("replay %+v: %v", replayed, err)
+	}
+	if _, err = setup.Exec(ctx, `UPDATE public.cotizacion_arriendo_comercial SET politica_cancelacion_version='estricta_v1',politica_cancelacion_texto='Términos posteriores.' WHERE id=$1`, quoteID); err != nil {
+		t.Fatal(err)
+	}
+	record.ID = uuid.NewString()
+	record.SHA256 = strings.Repeat("c", 64)
+	if _, err = r.Create(ctx, renter, quote, record, func() error { return nil }); !errors.Is(err, commercialproposal.ErrConflict) {
+		t.Fatalf("changed quote cancellation snapshot accepted: %v", err)
 	}
 	if _, err = r.Get(ctx, uuid.NewString(), stored.ID); !errors.Is(err, commercialproposal.ErrNotFound) {
 		t.Fatalf("third party read: %v", err)

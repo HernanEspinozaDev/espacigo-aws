@@ -22,7 +22,7 @@ type queryer interface {
 }
 
 func currentTerms(ctx context.Context, db queryer, actor string, quote rentalflow.Quote, policy commercialproposal.CancellationPolicy) (commercialproposal.Terms, error) {
-	const query = `SELECT q.id::text,q.espacio_id::text,q.titulo_espacio,q.tarifa_version,q.modalidad,q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.moneda,q.inicio,q.termino,q.zona_horaria,
+	const query = `SELECT q.id::text,q.espacio_id::text,q.titulo_espacio,q.tarifa_version,q.modalidad,q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.moneda,q.inicio,q.termino,q.zona_horaria,q.politica_cancelacion_version,q.politica_cancelacion_texto,
 e.direccion,e.ubicacion_latitud,e.ubicacion_longitud,e.ubicacion_confirmada_en IS NOT NULL,e.ubicacion_revision,COALESCE(e.region_codigo,''),COALESCE(e.comuna_codigo,''),v.id::text,v.version,v.secciones
 FROM public.cotizacion_arriendo_comercial q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.propietario_id
 JOIN LATERAL (SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1) rate ON true
@@ -37,7 +37,8 @@ AND rate.version=q.tarifa_version AND rate.modalidad=q.modalidad AND rate.precio
 	var templateID *string
 	var templateVersion *int64
 	var sections []byte
-	err := db.QueryRow(ctx, query, quote.ID, actor, quote.OwnerID, quote.RenterID).Scan(&terms.QuoteID, &terms.SpaceID, &terms.SpaceTitle, &terms.RateVersion, &terms.RateUnit, &terms.UnitPriceCLP, &terms.Units, &terms.SubtotalCLP, &terms.Currency, &terms.StartAt, &terms.EndAt, &terms.TimeZone, &terms.Location.Address, &lat, &lon, &confirmed, &terms.Location.Revision, &terms.Location.RegionCode, &terms.Location.CommuneCode, &templateID, &templateVersion, &sections)
+	var policyVersion, policyText *string
+	err := db.QueryRow(ctx, query, quote.ID, actor, quote.OwnerID, quote.RenterID).Scan(&terms.QuoteID, &terms.SpaceID, &terms.SpaceTitle, &terms.RateVersion, &terms.RateUnit, &terms.UnitPriceCLP, &terms.Units, &terms.SubtotalCLP, &terms.Currency, &terms.StartAt, &terms.EndAt, &terms.TimeZone, &policyVersion, &policyText, &terms.Location.Address, &lat, &lon, &confirmed, &terms.Location.Revision, &terms.Location.RegionCode, &terms.Location.CommuneCode, &templateID, &templateVersion, &sections)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return terms, commercialproposal.ErrConflict
 	}
@@ -62,7 +63,14 @@ AND rate.version=q.tarifa_version AND rate.modalidad=q.modalidad AND rate.precio
 	}
 	terms.StartAt = terms.StartAt.UTC()
 	terms.EndAt = terms.EndAt.UTC()
-	terms.CancellationPolicy = policy
+	if (policyVersion == nil) != (policyText == nil) {
+		return terms, commercialproposal.ErrConflict
+	}
+	if policyVersion != nil {
+		terms.CancellationPolicy = commercialproposal.CancellationPolicy{Version: *policyVersion, Text: *policyText}
+	} else {
+		terms.CancellationPolicy = policy
+	}
 	return terms, nil
 }
 func (r *Repository) CurrentTerms(ctx context.Context, actor string, quote rentalflow.Quote, policy commercialproposal.CancellationPolicy) (commercialproposal.Terms, error) {

@@ -315,7 +315,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if attrs == nil {
 			attrs = []publiccatalog.PublicAttribute{}
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules, CapacityMax: v.CapacityMax, Host: v.Host, CancellationPolicy: nil, Guarantee: nil, Attributes: attrs}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules, CapacityMax: v.CapacityMax, Host: v.Host, CancellationPolicy: v.CancellationPolicy, Guarantee: nil, Attributes: attrs}})
 	default:
 		publicError(w, 404)
 	}

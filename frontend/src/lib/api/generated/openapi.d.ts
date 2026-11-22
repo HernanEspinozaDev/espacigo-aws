@@ -5106,7 +5106,15 @@ export interface components {
        */
       end_at: string;
     };
+    /** @enum {string} */
+    CommercialCancellationPolicyVersion:
+      "flexible_v1" | "moderada_v1" | "estricta_v1";
+    CommercialCancellationPolicy: {
+      version: components["schemas"]["CommercialCancellationPolicyVersion"];
+      text: string;
+    };
     RentalQuote: {
+      cancellation_policy?: components["schemas"]["CommercialCancellationPolicy"];
       /** Format: uuid */
       id: string;
       /** Format: uuid */
@@ -5160,6 +5168,7 @@ export interface components {
       qr_payload?: string;
     };
     RentalMultiQuote: {
+      cancellation_policy?: components["schemas"]["CommercialCancellationPolicy"];
       /** Format: uuid */
       id: string;
       /** Format: uuid */
@@ -6162,8 +6171,8 @@ export interface components {
       host: components["schemas"]["PublicSpaceHost"] | null;
       /** @description Contiene todas las clases de atributos permitidas por el perfil y la política pública vigente; no expone el perfil ni valores crudos. */
       attributes: components["schemas"]["PublicSpaceAttribute"][];
-      /** @description No informada porque no existe configuración pública. */
-      cancellation_policy: null;
+      /** @description Texto público de la política seleccionada por el anfitrión. */
+      cancellation_policy: string | null;
       /** @description No informada porque no existe configuración pública. */
       guarantee: null;
       /** @enum {string} */
@@ -7455,9 +7464,12 @@ export interface components {
       items: components["schemas"]["SpaceCategory"][];
     };
     SpaceDraftInput: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       category_code: string;
       title: string;
-      description: string;
+      description?: string;
       area_m2: number;
       capacity: number;
       usage_rules: string;
@@ -7476,6 +7488,9 @@ export interface components {
       attributes?: Record<string, never>;
     };
     SpaceDraft: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       /** Format: uuid */
       id: string;
       category_code: string;
@@ -7595,6 +7610,9 @@ export interface components {
       state: "activa" | "oculta";
     };
     PublishedSpaceContentInput: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       title?: string;
       description?: string;
       /** Format: int32 */

@@ -142,9 +142,6 @@ func (s *Service) Create(ctx context.Context, actor, quoteID string) (View, erro
 	if _, err := s.preview.Preview(ctx, actor, quoteID); err != nil {
 		return View{}, err
 	}
-	if !s.policy.Valid() {
-		return View{}, ErrTermsUnavailable
-	}
 	if s.cipher == nil {
 		return View{}, ErrEvidenceUnavailable
 	}
@@ -152,7 +149,14 @@ func (s *Service) Create(ctx context.Context, actor, quoteID string) (View, erro
 	if err != nil {
 		return View{}, err
 	}
-	terms, err := s.repo.CurrentTerms(ctx, actor, quote, s.policy)
+	policy := s.policy
+	if quote.CancellationPolicy != nil {
+		policy = CancellationPolicy{Version: quote.CancellationPolicy.Version, Text: quote.CancellationPolicy.Text}
+	}
+	if !policy.Valid() {
+		return View{}, ErrTermsUnavailable
+	}
+	terms, err := s.repo.CurrentTerms(ctx, actor, quote, policy)
 	if err != nil {
 		return View{}, err
 	}

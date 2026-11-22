@@ -8,7 +8,7 @@ const views = [
   { name: "mobile", width: 390, height: 844 },
 ];
 for (const viewport of views) {
-  test(`three-column marketplace, complete public data and no overflow — ${viewport.name}`, async ({
+  test(`public space page, complete data and no overflow — ${viewport.name}`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize(viewport);
@@ -59,10 +59,7 @@ for (const viewport of views) {
     await expect(
       page.getByRole("button", { name: "Hoy", exact: true }),
     ).toBeVisible();
-    const specifications = page.getByRole("region", {
-      name: "Especificaciones y reglas",
-      exact: true,
-    });
+    const specifications = page.locator("#reglas-cancelacion");
     await expect(
       specifications.getByText(/Política de cancelación no informada/i),
     ).toBeVisible();
@@ -83,9 +80,9 @@ for (const viewport of views) {
         .getByRole("region", { name: "Galería de imágenes", exact: true })
         .boundingBox();
       expect(summary && calendar && gallery).toBeTruthy();
+      expect(gallery!.y + gallery!.height).toBeLessThan(summary!.y);
       expect(summary!.x).toBeLessThan(calendar!.x);
-      expect(calendar!.x).toBeLessThan(gallery!.x);
-      expect(Math.abs(calendar!.width - gallery!.width)).toBeLessThan(2);
+      expect(summary!.y).toBeLessThan(calendar!.y + calendar!.height);
     }
     expect(
       await page.evaluate(

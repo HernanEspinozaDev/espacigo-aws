@@ -419,6 +419,16 @@ export function MarketplaceRentalCheckout({
                   </ul>
                 </div>
               ) : null}
+              {quote.cancellation_policy && (
+                <div className="rounded-lg border border-[#e8c5b5] bg-white/70 p-3 text-sm">
+                  <p className="font-semibold text-[#332720]">
+                    Política de cancelación
+                  </p>
+                  <p className="mt-1 text-[#66574e]">
+                    {quote.cancellation_policy.text}
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5 border-t border-[#e8c5b5] pt-3">
                 <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
                   <span>Precio original del espacio</span>

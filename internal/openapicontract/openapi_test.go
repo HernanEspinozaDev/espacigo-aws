@@ -260,7 +260,7 @@ func TestPublishedRentalContractsSeparatePublicAvailabilityFromAuthenticatedDraf
 	assertSchemaPropertyKeys(t, schemas, "PublicRentalAvailability", "space_id", "time_zone", "rate_unit", "checked_at", "items")
 	assertSchemaPropertyKeys(t, schemas, "RentalAvailabilityEnvelope", "data")
 	assertSchemaPropertyKeys(t, schemas, "CreateRentalQuoteRequest", "space_id", "start_at", "end_at")
-	assertSchemaPropertyKeys(t, schemas, "RentalQuote", "id", "space_id", "space_title", "rate_unit", "unit_price_clp", "currency", "units", "subtotal_clp", "start_at", "end_at", "time_zone", "created_at", "expires_at")
+	assertSchemaPropertyKeys(t, schemas, "RentalQuote", "cancellation_policy", "id", "space_id", "space_title", "rate_unit", "unit_price_clp", "currency", "units", "subtotal_clp", "start_at", "end_at", "time_zone", "created_at", "expires_at")
 	assertSchemaPropertyKeys(t, schemas, "RentalQuoteEnvelope", "data")
 	assertSchemaPropertyKeys(t, schemas, "RentalContractPartyPreview", "role", "self", "legal_name", "rut")
 	assertSchemaPropertyKeys(t, schemas, "RentalContractPreview", "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "contact_notice", "generated_at")

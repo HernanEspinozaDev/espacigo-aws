@@ -28,6 +28,13 @@ func (m *mockRow) Scan(dest ...any) error {
 			switch target := d.(type) {
 			case *string:
 				*target = m.vals[i].(string)
+			case **string:
+				if m.vals[i] == nil {
+					*target = nil
+				} else {
+					value := m.vals[i].(string)
+					*target = &value
+				}
 			case *int64:
 				*target = m.vals[i].(int64)
 			case *int:
@@ -121,7 +128,7 @@ func TestPublicListingSuccessAndNotFound(t *testing.T) {
 		row: mockRow{
 			vals: []any{
 				"space-1", "owner-1", "activa", "Bodega Central",
-				"mes", int64(150000), "CLP", int64(1), "America/Santiago",
+				"mes", int64(150000), "CLP", int64(1), "America/Santiago", "moderada_v1",
 			},
 		},
 	}
@@ -132,7 +139,7 @@ func TestPublicListingSuccessAndNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	if l.ID != "space-1" || l.Title != "Bodega Central" || l.UnitPriceCLP != 150000 || l.RateUnit != "mes" {
+	if l.ID != "space-1" || l.Title != "Bodega Central" || l.UnitPriceCLP != 150000 || l.RateUnit != "mes" || l.CancellationPolicyVersion != "moderada_v1" {
 		t.Fatalf("unexpected listing scanned: %+v", l)
 	}
 
@@ -420,6 +427,7 @@ func TestGetForParticipantScansQuote(t *testing.T) {
 				int64(2), "mes", int64(200000), "CLP", int64(1), int64(200000),
 				fixedNow.Add(24 * time.Hour), fixedNow.Add(31 * 24 * time.Hour),
 				"America/Santiago", fixedNow, fixedNow.Add(15 * time.Minute),
+				"estricta_v1", "Estricta: sin reembolso después de confirmar la reserva.",
 			},
 		},
 	}
@@ -432,6 +440,9 @@ func TestGetForParticipantScansQuote(t *testing.T) {
 	}
 	if q.ID != "q-1" || q.OwnerID != "host-1" || q.SpaceTitle != "Oficina Privada" {
 		t.Fatalf("unexpected quote: %+v", q)
+	}
+	if q.CancellationPolicy == nil || q.CancellationPolicy.Version != "estricta_v1" || q.CancellationPolicy.Text == "" {
+		t.Fatalf("cancellation policy snapshot not scanned: %+v", q.CancellationPolicy)
 	}
 	if !strings.Contains(m.lastSQL, "public.cotizacion_arriendo_comercial") || !strings.Contains(m.lastSQL, "q.titulo_espacio") || strings.Contains(m.lastSQL, "JOIN public.espacio") {
 		t.Fatalf("quote read does not use the persisted title snapshot: %s", m.lastSQL)

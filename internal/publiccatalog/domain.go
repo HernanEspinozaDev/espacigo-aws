@@ -66,35 +66,36 @@ type Bounds struct{ West, South, East, North float64 }
 type Proximity struct{ Latitude, Longitude, RadiusKM float64 }
 
 type Space struct {
-	DistanceKM         *float64              `json:"distance_km,omitempty"`
-	Location           *ConfirmedLocation    `json:"location,omitempty"`
-	SpaceID            string                `json:"space_id"`
-	Verification       VerificationSummary   `json:"verification"`
-	CategoryCode       string                `json:"category_code"`
-	CategoryName       string                `json:"category_name"`
-	Title              string                `json:"title"`
-	Description        string                `json:"description"`
-	AreaM2             float64               `json:"area_m2"`
-	CapacityMax        int                   `json:"capacity_max,omitempty"`
-	Host               *PublicHost           `json:"host,omitempty"`
-	CancellationPolicy *string               `json:"cancellation_policy,omitempty"`
-	Guarantee          *string               `json:"guarantee,omitempty"`
-	RateUnit           string                `json:"rate_unit"`
-	BasePriceCLP       int64                 `json:"base_price_clp"`
-	Currency           string                `json:"currency"`
-	RegionCode         *string               `json:"region_code,omitempty"`
-	RegionName         *string               `json:"region_name,omitempty"`
-	CommuneCode        *string               `json:"comuna_code,omitempty"`
-	CommuneName        *string               `json:"comuna_name,omitempty"`
-	EstimatedTotalCLP  *int64                `json:"estimated_total_clp"`
-	UsageRules         string                `json:"usage_rules,omitempty"`
-	Features           []PublicFeature       `json:"features"`
-	Images             []PublicImageRef      `json:"images"`
-	CoverImageID       *string               `json:"cover_image_id,omitempty"`
-	DisponibleDesde    *string               `json:"disponible_desde,omitempty"`
-	EstadiaMinimaMeses *int                  `json:"estadia_minima_meses,omitempty"`
-	TimeZone           string                `json:"-"`
-	WeeklySchedule     *PublicWeeklySchedule `json:"weekly_schedule,omitempty"`
+	DistanceKM                *float64              `json:"distance_km,omitempty"`
+	Location                  *ConfirmedLocation    `json:"location,omitempty"`
+	SpaceID                   string                `json:"space_id"`
+	Verification              VerificationSummary   `json:"verification"`
+	CategoryCode              string                `json:"category_code"`
+	CategoryName              string                `json:"category_name"`
+	Title                     string                `json:"title"`
+	Description               string                `json:"description"`
+	AreaM2                    float64               `json:"area_m2"`
+	CapacityMax               int                   `json:"capacity_max,omitempty"`
+	Host                      *PublicHost           `json:"host,omitempty"`
+	CancellationPolicy        *string               `json:"cancellation_policy,omitempty"`
+	CancellationPolicyVersion string                `json:"-"`
+	Guarantee                 *string               `json:"guarantee,omitempty"`
+	RateUnit                  string                `json:"rate_unit"`
+	BasePriceCLP              int64                 `json:"base_price_clp"`
+	Currency                  string                `json:"currency"`
+	RegionCode                *string               `json:"region_code,omitempty"`
+	RegionName                *string               `json:"region_name,omitempty"`
+	CommuneCode               *string               `json:"comuna_code,omitempty"`
+	CommuneName               *string               `json:"comuna_name,omitempty"`
+	EstimatedTotalCLP         *int64                `json:"estimated_total_clp"`
+	UsageRules                string                `json:"usage_rules,omitempty"`
+	Features                  []PublicFeature       `json:"features"`
+	Images                    []PublicImageRef      `json:"images"`
+	CoverImageID              *string               `json:"cover_image_id,omitempty"`
+	DisponibleDesde           *string               `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses        *int                  `json:"estadia_minima_meses,omitempty"`
+	TimeZone                  string                `json:"-"`
+	WeeklySchedule            *PublicWeeklySchedule `json:"weekly_schedule,omitempty"`
 
 	CategoryOrder int     `json:"-"`
 	TitleKey      string  `json:"-"`

@@ -86,6 +86,7 @@ function mapSpaceDraftToDetail(
     area_m2: draft.area_m2,
     capacity: draft.capacity,
     usage_rules: draft.usage_rules,
+    cancellation_policy_version: draft.cancellation_policy_version,
     rate_unit: draft.rate_unit,
     base_price_clp: draft.base_price_clp,
     address: draft.address,
@@ -429,6 +430,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         area_m2: input.area_m2,
         capacity: input.capacity,
         usage_rules: input.usage_rules,
+        ...(input.cancellation_policy_version === undefined
+          ? {}
+          : { cancellation_policy_version: input.cancellation_policy_version }),
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
         address: input.address,
@@ -474,6 +478,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         area_m2: input.area_m2,
         capacity: input.capacity,
         usage_rules: input.usage_rules,
+        ...(input.cancellation_policy_version === undefined
+          ? {}
+          : { cancellation_policy_version: input.cancellation_policy_version }),
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
         address: input.address,
@@ -540,13 +547,28 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
           header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         },
         body: {
-          title: input.title,
-          description: input.description,
-          capacity: input.capacity,
-          usage_rules: input.usage_rules,
-          base_price_clp: input.base_price_clp,
-          region_code: input.region_code,
-          comuna_code: input.comuna_code,
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.description === undefined
+            ? {}
+            : { description: input.description }),
+          ...(input.capacity === undefined ? {} : { capacity: input.capacity }),
+          ...(input.usage_rules === undefined
+            ? {}
+            : { usage_rules: input.usage_rules }),
+          ...(input.cancellation_policy_version === undefined
+            ? {}
+            : {
+                cancellation_policy_version: input.cancellation_policy_version,
+              }),
+          ...(input.base_price_clp === undefined
+            ? {}
+            : { base_price_clp: input.base_price_clp }),
+          ...(input.region_code === undefined
+            ? {}
+            : { region_code: input.region_code }),
+          ...(input.comuna_code === undefined
+            ? {}
+            : { comuna_code: input.comuna_code }),
         },
         bodySerializer: serializeExactJson,
         signal,

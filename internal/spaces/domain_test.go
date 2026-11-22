@@ -32,7 +32,6 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 		mutate func(*Input)
 	}{
 		{"title", func(i *Input) { i.Title = strings.Repeat("a", 71) }},
-		{"description", func(i *Input) { i.Description = "breve" }},
 		{"area", func(i *Input) { i.AreaM2 = 0 }},
 		{"category", func(i *Input) { i.CategoryCode = "" }},
 		{"capacity", func(i *Input) { i.Capacity = 0 }},
@@ -52,6 +51,16 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 	}
 }
 
+func TestDraftDescriptionCanBeEmptyOrShort(t *testing.T) {
+	for _, description := range []string{"", "Oficina."} {
+		in := validInput()
+		in.Description = description
+		if err := in.Validate(); err != nil {
+			t.Errorf("description %q rejected: %v", description, err)
+		}
+	}
+}
+
 func TestDraftFieldErrorsIdentifyOnlyAllowlistedFieldsAndCodes(t *testing.T) {
 	in := validInput()
 	in.Title = strings.Repeat("x", 71)
@@ -61,7 +70,7 @@ func TestDraftFieldErrorsIdentifyOnlyAllowlistedFieldsAndCodes(t *testing.T) {
 	in.RegionCode = "13"
 	fields := in.FieldErrors()
 	want := map[string]string{
-		"title": "max_length", "description": "min_length", "area_m2": "step",
+		"title": "max_length", "area_m2": "step",
 		"usage_rules": "required", "region_code": "location_pair", "comuna_code": "location_pair",
 	}
 	if len(fields) != len(want) {
@@ -81,14 +90,16 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 	usageRules := "Respetar el horario y no fumar"
 	price := int64(1000)
 	for name, input := range map[string]PublishedContentInput{
-		"title only":       {Title: &title},
-		"description only": {Description: &description},
-		"capacity only":    {Capacity: &capacity},
-		"rules only":       {UsageRules: &usageRules},
-		"price only":       {BasePriceCLP: &price},
-		"both":             {Title: &title, BasePriceCLP: &price},
-		"public location":  {RegionCode: ptrString("13"), CommuneCode: ptrString("13123")},
-		"clear location":   {RegionCode: ptrString(""), CommuneCode: ptrString("")},
+		"title only":        {Title: &title},
+		"description only":  {Description: &description},
+		"short description": {Description: ptrString("Descripción breve")},
+		"clear description": {Description: ptrString("")},
+		"capacity only":     {Capacity: &capacity},
+		"rules only":        {UsageRules: &usageRules},
+		"price only":        {BasePriceCLP: &price},
+		"both":              {Title: &title, BasePriceCLP: &price},
+		"public location":   {RegionCode: ptrString("13"), CommuneCode: ptrString("13123")},
+		"clear location":    {RegionCode: ptrString(""), CommuneCode: ptrString("")},
 	} {
 		if err := input.Validate(); err != nil {
 			t.Errorf("%s rejected: %v", name, err)
@@ -98,7 +109,6 @@ func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 		"empty":                     {},
 		"blank":                     {Title: ptrString("  ")},
 		"too long":                  {Title: ptrString(strings.Repeat("x", 71))},
-		"short description":         {Description: ptrString("Descripción breve")},
 		"zero capacity":             {Capacity: ptrInt32(0)},
 		"blank rules":               {UsageRules: ptrString(" ")},
 		"long rules":                {UsageRules: ptrString(strings.Repeat("x", 251))},

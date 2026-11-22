@@ -7,6 +7,10 @@ const agreementId = "10000000-0000-4000-8000-000000000004";
 const accountId = "10000000-0000-4000-8000-000000000005";
 const reservationId = "10000000-0000-4000-8000-000000000007";
 const snapshot = "a".repeat(64);
+const cancellationPolicy = {
+  version: "flexible_v1",
+  text: "Flexible: reembolso total hasta 24 horas antes del inicio del arriendo.",
+};
 const future = () => new Date(Date.now() + 3600000).toISOString();
 const rentalDate = () =>
   new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
@@ -43,10 +47,7 @@ const proposal = () => ({
   start_at: `${rentalDate()}T18:30:00Z`,
   end_at: `${rentalDate()}T19:30:00Z`,
   time_zone: "America/Santiago",
-  cancellation_policy: {
-    version: "synthetic-v1",
-    text: "Condiciones de cancelación sintéticas.",
-  },
+  cancellation_policy: cancellationPolicy,
   parties: [
     { role: "arrendador", self: false },
     {
@@ -200,6 +201,7 @@ async function fixture(
         data: {
           ...proposal(),
           id: quoteId,
+          cancellation_policy: cancellationPolicy,
           created_at: new Date().toISOString(),
           expires_at: future(),
         },
@@ -294,6 +296,9 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
 }) => {
   const f = await fixture(page);
   await page.goto(`/reservas/nueva?${selection()}`);
+  await expect(
+    page.getByText(cancellationPolicy.text, { exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Revisar contrato", exact: true })
     .click();
@@ -301,6 +306,9 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
     page.getByText("Dirección sintética 123", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Uso permitido", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(cancellationPolicy.text, { exact: true }),
+  ).toHaveCount(2);
   const send = page.getByRole("button", { name: "Firmar y enviar solicitud" });
   await expect(send).toBeDisabled();
   await page.getByRole("checkbox").check();

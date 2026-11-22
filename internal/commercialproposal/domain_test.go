@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contracttemplate"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification/declarationcrypto"
@@ -24,10 +25,14 @@ type repoStub struct {
 	err    error
 	writes int
 	reads  int
+	policy CancellationPolicy
 }
 
-func (r *repoStub) CurrentTerms(context.Context, string, rentalflow.Quote, CancellationPolicy) (Terms, error) {
-	return r.terms, r.err
+func (r *repoStub) CurrentTerms(_ context.Context, _ string, _ rentalflow.Quote, policy CancellationPolicy) (Terms, error) {
+	r.policy = policy
+	terms := r.terms
+	terms.CancellationPolicy = policy
+	return terms, r.err
 }
 func (r *repoStub) Create(_ context.Context, _ string, _ rentalflow.Quote, record Record, gate func() error) (Record, error) {
 	if err := gate(); err != nil {
@@ -47,13 +52,16 @@ func (r *repoStub) Get(_ context.Context, actor, _ string) (Record, error) {
 	return r.record, r.err
 }
 
-type quoteStub struct{}
+type quoteStub struct{ quote rentalflow.Quote }
 
 func (quoteStub) CreateValidatedQuote(context.Context, string, rentalflow.Listing, rentalflow.Interval, int64, int64, time.Time) (rentalflow.Quote, error) {
 	panic("not used")
 }
-func (quoteStub) GetForParticipant(context.Context, string, string) (rentalflow.Quote, error) {
-	return rentalflow.Quote{ID: quoteID, OwnerID: ownerID, RenterID: renterID}, nil
+func (q quoteStub) GetForParticipant(context.Context, string, string) (rentalflow.Quote, error) {
+	if q.quote.ID == "" {
+		return rentalflow.Quote{ID: quoteID, OwnerID: ownerID, RenterID: renterID}, nil
+	}
+	return q.quote, nil
 }
 
 type previewStub struct {
@@ -143,6 +151,23 @@ func TestCommercialProposalEncryptsEvidenceAndRedactsBothDirections(t *testing.T
 	check(other, ownerID)
 	if _, err = s.Get(context.Background(), outsiderID, v.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("outsider access: %v", err)
+	}
+}
+
+func TestCommercialProposalPrefersQuoteCancellationSnapshot(t *testing.T) {
+	s, repo, _, _, _ := fixture(t)
+	snapshot, ok := commercialpolicy.ByVersion("moderada_v1")
+	if !ok {
+		t.Fatal("moderada_v1 policy missing")
+	}
+	s.quotes = quoteStub{quote: rentalflow.Quote{
+		ID: quoteID, OwnerID: ownerID, RenterID: renterID, CancellationPolicy: &snapshot,
+	}}
+	if _, err := s.Create(context.Background(), renterID, quoteID); err != nil {
+		t.Fatal(err)
+	}
+	if repo.policy.Version != snapshot.Version || repo.policy.Text != snapshot.Text {
+		t.Fatalf("proposal used fallback policy instead of quote snapshot: got %+v want %+v", repo.policy, snapshot)
 	}
 }
 func TestCommercialProposalFailsClosedOnKeysPolicyGateAndMalformedIdentity(t *testing.T) {

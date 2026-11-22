@@ -107,10 +107,6 @@ export function validateListingDraftInput(
     errors.title = "El título no puede superar los 70 caracteres.";
   }
 
-  if (!input.description || Array.from(input.description.trim()).length < 100) {
-    errors.description = "La descripción debe tener al menos 100 caracteres.";
-  }
-
   if (!input.category_code || input.category_code.trim().length === 0) {
     errors.category_code = "La categoría es obligatoria.";
   }
@@ -409,9 +405,6 @@ export function canPublishListing(listing: ListingDetail): {
 
   if (!listing.title || listing.title.trim().length === 0) {
     reasons.push("Falta el título de la publicación.");
-  }
-  if (!listing.description || listing.description.trim().length === 0) {
-    reasons.push("Falta la descripción de la publicación.");
   }
   if (!listing.address || listing.address.trim().length === 0) {
     reasons.push("Falta la dirección del espacio.");

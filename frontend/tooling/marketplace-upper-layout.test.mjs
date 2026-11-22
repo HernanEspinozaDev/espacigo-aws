@@ -10,7 +10,7 @@ const root = path.resolve(
 );
 const read = (relative) => readFile(path.join(root, relative), "utf8");
 
-test("public space upper section composes summary, rental calendar and gallery in three desktop columns", async () => {
+test("public gallery precedes the summary and rental calendar on the same page", async () => {
   const page = await read("app/(marketplace)/espacios/[id]/page.tsx");
   const layout = await read(
     "features/public-catalog/ui/public-space-marketplace-layout.tsx",
@@ -20,8 +20,11 @@ test("public space upper section composes summary, rental calendar and gallery i
   assert.match(page, /PublicSpaceMarketplaceGallery/);
   assert.match(page, /PublicSpaceRentalAvailability/);
   assert.doesNotMatch(page, /PublicWeeklySchedule/);
-  assert.match(layout, /lg:grid-cols-12/);
-  assert.equal((layout.match(/lg:col-span-4/g) ?? []).length, 3);
+  assert.ok(layout.indexOf("{gallery}") < layout.indexOf("{summary}"));
+  assert.ok(
+    layout.indexOf("{summary}") < layout.indexOf("{availabilityElement}"),
+  );
+  assert.match(layout, /id="disponibilidad"/);
 });
 
 test("summary exposes a keyboard-operable description disclosure and wrap-safe content", async () => {

@@ -159,6 +159,7 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
   await page
     .locator("#wizard-address")
     .fill("Dirección sintética 122, Santiago");
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-area").fill("40");
   await page.locator("#wizard-capacity").fill("2");
   for (const attribute of profile.attributes.filter((item) => item.required)) {
@@ -173,7 +174,7 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.locator("#wizard-timezone")).toBeVisible();
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Paso 6:/ })).toBeVisible();
   await page
     .getByRole("button", { name: "Crear espacio y continuar a edición" })
     .click();

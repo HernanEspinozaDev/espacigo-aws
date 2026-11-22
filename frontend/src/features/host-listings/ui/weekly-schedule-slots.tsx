@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import type { ScheduleSlot } from "../domain/types";
+import { validateScheduleSlots } from "../domain/validation";
 import {
   applyWeeklyPreset,
   toggleWeeklyHour,
@@ -51,6 +52,7 @@ export function WeeklyScheduleSlots({
     () => slots.filter((slot) => slot.day_of_week === day),
     [slots, day],
   );
+  const closed = daySlots.length === 0;
   const selected = (hour: number) =>
     daySlots.some((slot) => {
       const [sh, sm] = slot.start_time.split(":").map(Number);
@@ -68,7 +70,9 @@ export function WeeklyScheduleSlots({
           Horario semanal habitual
         </h3>
         <p className="text-sm text-muted-foreground">
-          Este horario es orientativo y no indica disponibilidad para fechas
+          Selecciona un día, aplica un horario rápido o pulsa los bloques para
+          activar/desactivar horas; puedes ajustar cada tramo abajo. Este
+          horario es orientativo y no indica disponibilidad para fechas
           específicas. Zona horaria: {timeZone}
         </p>
       </div>
@@ -77,18 +81,86 @@ export function WeeklyScheduleSlots({
         aria-label="Día de la semana"
         className="flex flex-wrap gap-2"
       >
-        {DAYS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={day === item.id}
-            disabled={disabled}
-            onClick={() => setDay(item.id)}
-            className="min-h-11 min-w-11 rounded-full border px-3 py-2 aria-pressed:bg-primary aria-pressed:text-primary-foreground"
-          >
-            {item.label}
-          </button>
-        ))}
+        {DAYS.map((item) => {
+          const count = slots.filter(
+            (slot) => slot.day_of_week === item.id,
+          ).length;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={day === item.id}
+              disabled={disabled}
+              onClick={() => setDay(item.id)}
+              className="min-h-11 min-w-11 rounded-full border px-3 py-2 aria-pressed:bg-primary aria-pressed:text-primary-foreground"
+            >
+              <span className="block">{item.label}</span>
+              <span className="block text-xs font-normal">
+                {count === 0
+                  ? "Cerrado"
+                  : `${count} ${count === 1 ? "tramo" : "tramos"}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 rounded-md border p-3">
+        <p className="mr-auto text-sm" aria-live="polite">
+          {DAYS.find((item) => item.id === day)?.label}:{" "}
+          {closed
+            ? "Cerrado"
+            : `${daySlots.length} ${daySlots.length === 1 ? "tramo" : "tramos"}`}
+        </p>
+        {!locked && (
+          <>
+            <button
+              type="button"
+              disabled={disabled || closed}
+              onClick={() =>
+                onChange?.(slots.filter((slot) => slot.day_of_week !== day))
+              }
+              className="min-h-11 rounded-md border px-3 py-2 text-sm"
+            >
+              Marcar cerrado
+            </button>
+            <button
+              type="button"
+              disabled={disabled || daySlots.length >= 2}
+              onClick={() => {
+                const candidates =
+                  daySlots.length === 0
+                    ? [["09:00", "18:00"]]
+                    : [
+                        ["09:00", "12:00"],
+                        ["14:00", "18:00"],
+                        ["19:00", "22:00"],
+                        ["00:00", "08:00"],
+                      ];
+                for (const [start_time, end_time] of candidates) {
+                  const next = [
+                    ...slots,
+                    { day_of_week: day, start_time, end_time },
+                  ].sort(
+                    (a, b) =>
+                      a.day_of_week - b.day_of_week ||
+                      a.start_time.localeCompare(b.start_time),
+                  );
+                  const validation = validateScheduleSlots(next);
+                  if (validation.valid) {
+                    commit({ slots: next, error: null });
+                    return;
+                  }
+                }
+                setError(
+                  "No hay un tramo sugerido que pueda agregarse sin superponerse.",
+                );
+              }}
+              className="min-h-11 rounded-md border px-3 py-2 text-sm"
+            >
+              Agregar tramo
+            </button>
+          </>
+        )}
       </div>
       {!locked && (
         <div aria-label="Presets de horario" className="flex flex-wrap gap-2">
@@ -148,7 +220,7 @@ export function WeeklyScheduleSlots({
       {daySlots.map((slot, index) => (
         <div key={index} className="grid grid-cols-2 gap-3">
           <label className="text-sm">
-            Inicio
+            Desde
             <input
               aria-label={`Tramo ${index + 1}: hora de inicio`}
               aria-invalid={invalid || undefined}
@@ -170,7 +242,7 @@ export function WeeklyScheduleSlots({
             />
           </label>
           <label className="text-sm">
-            Cierre (incluye 24:00)
+            Hasta (incluye 24:00)
             <input
               aria-label={`Tramo ${index + 1}: hora de cierre (24:00 permitido)`}
               aria-invalid={invalid || undefined}
@@ -194,6 +266,27 @@ export function WeeklyScheduleSlots({
           </label>
         </div>
       ))}
+      <div
+        className="rounded-md bg-muted/30 p-3"
+        aria-label="Resumen de horario semanal"
+      >
+        <h4 className="text-sm font-semibold">Resumen de horario semanal</h4>
+        <ul className="mt-2 grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+          {DAYS.map((item) => {
+            const ranges = slots.filter((slot) => slot.day_of_week === item.id);
+            return (
+              <li key={item.id}>
+                <span className="font-medium">{item.label}:</span>{" "}
+                {ranges.length
+                  ? ranges
+                      .map((slot) => `${slot.start_time}–${slot.end_time}`)
+                      .join(", ")
+                  : "Cerrado"}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
       <div
         role="alert"
         aria-live="polite"
