@@ -335,7 +335,7 @@ func assertCommercialQuoteSuppression(t *testing.T, ctx context.Context, adminUR
 		id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,moneda,
 		unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en)
 		VALUES($1,$2,$3,$4,'Owner suppression fixture',1,'hora',8000,'CLP',1,8000,$5,$6,'UTC',$7,$8)`,
-		ownerActorQuoteID, ownerActorSpaceID, ownerActorID, ownerActorRenterID, ownerActorCreatedAt.Add(time.Hour), ownerActorCreatedAt.Add(2*time.Hour), ownerActorCreatedAt, ownerActorCreatedAt.Add(15*time.Minute)); err != nil {
+		ownerActorQuoteID, ownerActorSpaceID, ownerActorID, ownerActorRenterID, ownerActorCreatedAt.Add(time.Hour), ownerActorCreatedAt.Add(2*time.Hour), ownerActorCreatedAt, ownerActorCreatedAt.Add(6*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	service, err := privacy.NewService(identitypg.NewIdentityRepository(runtime))
@@ -366,7 +366,7 @@ func assertCommercialQuoteSuppression(t *testing.T, ctx context.Context, adminUR
 		id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,moneda,
 		unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en)
 		VALUES($1,$2,$3,$4,'Commercial quote suppression fixture',1,'hora',8000,'CLP',1,8000,$5,$6,'UTC',$7,$8)`,
-		quoteID, spaceID, ownerID, renterID, createdAt.Add(time.Hour), createdAt.Add(2*time.Hour), createdAt, createdAt.Add(15*time.Minute)); err != nil {
+		quoteID, spaceID, ownerID, renterID, createdAt.Add(time.Hour), createdAt.Add(2*time.Hour), createdAt, createdAt.Add(6*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	request, err := service.RequestRight(ctx, renterID, "supresion", "web")
