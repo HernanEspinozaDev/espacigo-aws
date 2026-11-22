@@ -279,7 +279,7 @@ func ValidDuration(unit string, duration int) bool {
 }
 
 // ValidFlexibleDuration reports whether duration is supported for multi-slot
-// schedule selection, quotes, and contract previews (1..24 hours, 1..31 days, 1 month).
+// schedule selection, quotes, and contract previews (1..24 hours, 1..31 days, 1..12 months).
 func ValidFlexibleDuration(unit string, duration int) bool {
 	switch unit {
 	case "hora":
@@ -287,7 +287,7 @@ func ValidFlexibleDuration(unit string, duration int) bool {
 	case "dia":
 		return duration >= 1 && duration <= 31
 	case "mes":
-		return duration == 1
+		return duration >= 1 && duration <= 12
 	default:
 		return false
 	}
@@ -324,7 +324,7 @@ func intervalMatchesRequest(interval Interval, unit, dateText string, duration i
 		return startOK && endOK && interval.StartAt.Equal(start) && interval.EndAt.Equal(end)
 	case "mes":
 		start, startOK := calendar.FirstInstantOfDate(date.Year(), date.Month(), date.Day(), loc)
-		anniversary, anniversaryOK := calendar.AddMonthsClamped(date, 1)
+		anniversary, anniversaryOK := calendar.AddMonthsClamped(date, int64(duration))
 		end, endOK := calendar.FirstInstantOfDate(anniversary.Year(), anniversary.Month(), anniversary.Day(), loc)
 		return startOK && anniversaryOK && endOK && interval.StartAt.Equal(start) && interval.EndAt.Equal(end)
 	default:

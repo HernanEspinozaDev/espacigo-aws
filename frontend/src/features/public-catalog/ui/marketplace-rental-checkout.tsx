@@ -72,6 +72,9 @@ export function MarketplaceRentalCheckout({
     loading: boolean;
     error: string | null;
   } | null>(null);
+  const [billingMode, setBillingMode] = useState<"full" | "monthly_installments">(
+    "full",
+  );
   const requestGeneration = useRef(0);
   const requestController = useRef<AbortController | null>(null);
   const loadingRef = useRef(false);
@@ -103,6 +106,8 @@ export function MarketplaceRentalCheckout({
     setQuoteState({ authKey, quote: null });
     try {
       const hasMulti = selection.intervals && selection.intervals.length > 1;
+      const monthlyMode =
+        selection.rateUnit === "mes" ? billingMode : undefined;
       const result = hasMulti
         ? await publicRentalQuote.createMultiQuote(
             {
@@ -111,6 +116,7 @@ export function MarketplaceRentalCheckout({
                 start_at: iv.startAt,
                 end_at: iv.endAt,
               })),
+              ...(monthlyMode ? { billing_mode: monthlyMode } : {}),
             },
             controller.signal,
           )
@@ -119,6 +125,7 @@ export function MarketplaceRentalCheckout({
               space_id: selection.spaceId,
               start_at: selection.startAt,
               end_at: selection.endAt,
+              ...(monthlyMode ? { billing_mode: monthlyMode } : {}),
             },
             controller.signal,
           );
@@ -270,6 +277,52 @@ export function MarketplaceRentalCheckout({
               </p>
             ) : null}
 
+            {selection.rateUnit === "mes" && (
+              <fieldset className="space-y-2 rounded-lg border border-[#e8c5b5] bg-[#fbf7f2] p-3 text-xs">
+                <legend className="px-1 font-semibold text-[#332720]">
+                  Modalidad de pago mensual
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#e8c5b5] bg-white p-2.5">
+                    <input
+                      type="radio"
+                      name="monthly-billing-mode"
+                      value="full"
+                      checked={billingMode === "full"}
+                      onChange={() => setBillingMode("full")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong className="block text-[#332720]">
+                        Pagar todo junto
+                      </strong>
+                      <span className="text-[#66574e]">
+                        Abonas el total de los meses en un solo pago.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#e8c5b5] bg-white p-2.5">
+                    <input
+                      type="radio"
+                      name="monthly-billing-mode"
+                      value="monthly_installments"
+                      checked={billingMode === "monthly_installments"}
+                      onChange={() => setBillingMode("monthly_installments")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong className="block text-[#332720]">
+                        Pagar mes a mes
+                      </strong>
+                      <span className="text-[#66574e]">
+                        Pagas el primer mes ahora y se guardan las cuotas
+                        mensuales restantes.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            )}
             <Button
               type="button"
               className="min-h-11 w-full rounded-xl bg-[#a44731] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] disabled:border disabled:border-[#e8c5b5] disabled:bg-[#f5e3db] disabled:text-[#702a1b] disabled:opacity-100"
@@ -435,6 +488,52 @@ export function MarketplaceRentalCheckout({
               />
             )}
 
+            {selection.rateUnit === "mes" && (
+              <fieldset className="space-y-2 rounded-lg border border-[#e8c5b5] bg-[#fbf7f2] p-3 text-xs">
+                <legend className="px-1 font-semibold text-[#332720]">
+                  Modalidad de pago mensual
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#e8c5b5] bg-white p-2.5">
+                    <input
+                      type="radio"
+                      name="monthly-billing-mode"
+                      value="full"
+                      checked={billingMode === "full"}
+                      onChange={() => setBillingMode("full")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong className="block text-[#332720]">
+                        Pagar todo junto
+                      </strong>
+                      <span className="text-[#66574e]">
+                        Abonas el total de los meses en un solo pago.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[#e8c5b5] bg-white p-2.5">
+                    <input
+                      type="radio"
+                      name="monthly-billing-mode"
+                      value="monthly_installments"
+                      checked={billingMode === "monthly_installments"}
+                      onChange={() => setBillingMode("monthly_installments")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong className="block text-[#332720]">
+                        Pagar mes a mes
+                      </strong>
+                      <span className="text-[#66574e]">
+                        Pagas el primer mes ahora y se guardan las cuotas
+                        mensuales restantes.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+            )}
             <Button
               type="button"
               variant="outline"

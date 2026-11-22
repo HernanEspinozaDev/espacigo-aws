@@ -6,16 +6,18 @@ import (
 )
 
 type AvailabilityRule struct {
-	SpaceID       string    `json:"space_id"`
-	DiasOperacion []int     `json:"dias_operacion"`
-	HoraApertura  string    `json:"hora_apertura"`
-	HoraCierre    string    `json:"hora_cierre"`
-	CheckInHora   string    `json:"check_in_hora"`
-	CheckOutHora  string    `json:"check_out_hora"`
-	TarifaBaseDia int       `json:"tarifa_base_dia"`
-	EstadiaMinima int       `json:"estadia_minima"`
-	EstadiaMaxima int       `json:"estadia_maxima"`
-	ActualizadoEn time.Time `json:"actualizado_en"`
+	SpaceID            string    `json:"space_id"`
+	DiasOperacion      []int     `json:"dias_operacion"`
+	HoraApertura       string    `json:"hora_apertura"`
+	HoraCierre         string    `json:"hora_cierre"`
+	CheckInHora        string    `json:"check_in_hora"`
+	CheckOutHora       string    `json:"check_out_hora"`
+	TarifaBaseDia      int       `json:"tarifa_base_dia"`
+	EstadiaMinima      int       `json:"estadia_minima"`
+	EstadiaMaxima      int       `json:"estadia_maxima"`
+	DisponibleDesde    *string   `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses int       `json:"estadia_minima_meses,omitempty"`
+	ActualizadoEn      time.Time `json:"actualizado_en"`
 }
 
 type CalendarOverride struct {
@@ -44,9 +46,11 @@ type AvailabilityUpdateInput struct {
 	CheckInHora       *string                 `json:"check_in_hora,omitempty"`
 	CheckOutHora      *string                 `json:"check_out_hora,omitempty"`
 	TarifaBaseDia     *int                    `json:"tarifa_base_dia,omitempty"`
-	EstadiaMinima     *int                    `json:"estadia_minima,omitempty"`
-	EstadiaMaxima     *int                    `json:"estadia_maxima,omitempty"`
-	Overrides         []CalendarOverrideInput `json:"overrides,omitempty"`
+	EstadiaMinima      *int                    `json:"estadia_minima,omitempty"`
+	EstadiaMaxima      *int                    `json:"estadia_maxima,omitempty"`
+	DisponibleDesde    *string                 `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses *int                    `json:"estadia_minima_meses,omitempty"`
+	Overrides          []CalendarOverrideInput `json:"overrides,omitempty"`
 }
 
 type SlotAvailability struct {
@@ -66,11 +70,13 @@ type DayAvailability struct {
 }
 
 type MonthlyAvailability struct {
-	Month        string            `json:"month"`
-	TimeZone     string            `json:"time_zone"`
-	RateUnit     string            `json:"rate_unit"`
-	BasePriceCLP int               `json:"base_price_clp"`
-	Days         []DayAvailability `json:"days"`
+	Month              string            `json:"month"`
+	TimeZone           string            `json:"time_zone"`
+	RateUnit           string            `json:"rate_unit"`
+	BasePriceCLP       int               `json:"base_price_clp"`
+	DisponibleDesde    *string           `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses int               `json:"estadia_minima_meses,omitempty"`
+	Days               []DayAvailability `json:"days"`
 }
 
 type AvailabilityRepository interface {

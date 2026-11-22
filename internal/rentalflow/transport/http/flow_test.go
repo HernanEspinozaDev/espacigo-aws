@@ -853,7 +853,7 @@ func TestSyntheticHTTPQuoteCharacterizesCurrentDurationMatrix(t *testing.T) {
 	}{
 		{name: "hourly twenty five hours", unit: "hora", start: start, end: start.Add(25 * time.Hour)},
 		{name: "daily thirty two days", unit: "dia", start: start, end: start.AddDate(0, 0, 32)},
-		{name: "monthly two months", unit: "mes", start: start, end: start.AddDate(0, 2, 0)},
+		{name: "monthly thirteen months", unit: "mes", start: start, end: start.AddDate(0, 13, 0)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := &syntheticFlowBackend{

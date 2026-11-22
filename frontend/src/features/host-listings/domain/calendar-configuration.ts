@@ -1,10 +1,16 @@
 import type { components } from "@/lib/api/generated/openapi";
 
-export type AvailabilityRule = components["schemas"]["OwnCalendarRule"];
+export type AvailabilityRule = components["schemas"]["OwnCalendarRule"] & {
+  disponible_desde?: string | null;
+  estadia_minima_meses?: number;
+};
 export type CalendarOverrideInput =
   components["schemas"]["CalendarInventoryOverride"];
 export type CalendarInventoryUpdate =
-  components["schemas"]["CalendarInventoryUpdate"];
+  components["schemas"]["CalendarInventoryUpdate"] & {
+    disponible_desde?: string;
+    estadia_minima_meses?: number;
+  };
 export interface CalendarConfiguration {
   space_id: string;
   time_zone: string;
@@ -76,20 +82,27 @@ function validOverrides(value: unknown): value is CalendarOverrideInput[] {
   });
 }
 function validRule(value: unknown, spaceId: string): value is AvailabilityRule {
+  if (!record(value)) return false;
+  const requiredKeys = [
+    "space_id",
+    "dias_operacion",
+    "hora_apertura",
+    "hora_cierre",
+    "check_in_hora",
+    "check_out_hora",
+    "tarifa_base_dia",
+    "estadia_minima",
+    "estadia_maxima",
+    "actualizado_en",
+  ];
+  const allowedKeys = new Set([
+    ...requiredKeys,
+    "disponible_desde",
+    "estadia_minima_meses",
+  ]);
   if (
-    !record(value) ||
-    !own(value, [
-      "space_id",
-      "dias_operacion",
-      "hora_apertura",
-      "hora_cierre",
-      "check_in_hora",
-      "check_out_hora",
-      "tarifa_base_dia",
-      "estadia_minima",
-      "estadia_maxima",
-      "actualizado_en",
-    ])
+    !requiredKeys.every((key) => Object.hasOwn(value, key)) ||
+    Object.keys(value).some((key) => !allowedKeys.has(key))
   )
     return false;
   const days = value.dias_operacion;
@@ -150,6 +163,8 @@ export function validateCalendarUpdate(
           "tarifa_base_dia",
           "estadia_minima",
           "estadia_maxima",
+          "disponible_desde",
+          "estadia_minima_meses",
           "overrides",
         ].includes(key),
     )
@@ -157,6 +172,19 @@ export function validateCalendarUpdate(
     throw new TypeError("Invalid calendar update");
   if (input.time_zone !== undefined && !validZone(input.time_zone))
     throw new TypeError("Invalid calendar timezone");
+  if (
+    input.disponible_desde !== undefined &&
+    input.disponible_desde !== "" &&
+    !validDate(input.disponible_desde)
+  )
+    throw new TypeError("Invalid available-from date");
+  if (
+    input.estadia_minima_meses !== undefined &&
+    (!Number.isSafeInteger(input.estadia_minima_meses) ||
+      input.estadia_minima_meses < 1 ||
+      input.estadia_minima_meses > 24)
+  )
+    throw new TypeError("Invalid minimum months");
   if (
     input.dias_operacion !== undefined &&
     (!Array.isArray(input.dias_operacion) ||

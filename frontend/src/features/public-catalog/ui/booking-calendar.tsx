@@ -45,8 +45,20 @@ export interface PublicBookingCalendarProps {
 
 interface SelectedSlotEntry {
   date: string;
+  endDate?: string;
   startAt: string;
   endAt: string;
+  units?: number;
+}
+
+function addMonthsCivilDay(dateISO: string, months: number): string {
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + months, d));
+  const lastDay = new Date(Date.UTC(y, m + months, 0)).getUTCDate();
+  if (dt.getUTCDate() > lastDay || d > lastDay) {
+    return new Date(Date.UTC(y, m + months, 0)).toISOString().slice(0, 10);
+  }
+  return dt.toISOString().slice(0, 10);
 }
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"] as const;
@@ -150,6 +162,11 @@ export function PublicBookingCalendar({
       ? initialSelection.duration
       : 1,
   );
+  const [monthCount, setMonthCount] = useState<number>(
+    rateUnit === "mes" && initialSelection?.duration && initialSelection.duration >= 1
+      ? Math.min(12, initialSelection.duration)
+      : 1,
+  );
 
   const effectiveDuration = useMemo(() => {
     if (rateUnit === "dia") {
@@ -217,7 +234,7 @@ export function PublicBookingCalendar({
       const merged = mergeContiguousIntervals(entries);
       const first = entries[0];
       const last = entries[entries.length - 1];
-      const totalUnits = entries.length;
+      const totalUnits = entries.reduce((sum, entry) => sum + (entry.units ?? 1), 0);
       notifySelection({
         spaceId,
         date: first.date,
@@ -278,6 +295,7 @@ export function PublicBookingCalendar({
   // Fetch authoritative schedule slots (available, held, booked) when startDate changes.
   // Preserves selectedSlots across day navigation!
   useEffect(() => {
+    if (rateUnit !== "hora") return;
     const fence = intervalFence.current;
     const generation = fence.next();
     if (!startDate) return;
@@ -385,11 +403,106 @@ export function PublicBookingCalendar({
 
   const handleDayClick = (date: string) => {
     if (disabled || date < minDate || date > maxDate) return;
-    intervalFence.current.next();
-    setLoadingIntervals(false);
-    setRawSlots([]);
+    if (rateUnit === "hora") {
+      intervalFence.current.next();
+      setLoadingIntervals(false);
+      setRawSlots([]);
+      setStartDate(date);
+      setEndDate(null);
+      return;
+    }
+
+    const dayAvail = monthData.get(date);
+    const blocked =
+      !dayAvail ||
+      monthError ||
+      dayAvail.status === "unavailable" ||
+      dayAvail.status === "outside_horizon" ||
+      dayAvail.occupancy === "held" ||
+      dayAvail.occupancy === "booked";
+    if (blocked) return;
+
+    if (rateUnit === "dia") {
+      const existingKey = Array.from(selectedSlots.entries()).find(
+        ([, entry]) => entry.date === date,
+      )?.[0];
+      if (existingKey) {
+        const next = new Map(selectedSlots);
+        next.delete(existingKey);
+        setSelectedSlots(next);
+        emitFromSelectedMap(next, timeZone);
+        if (startDate === date) setStartDate(null);
+        return;
+      }
+      setStartDate(date);
+      setLoadingIntervals(true);
+      void publicRentalAvailability
+        .getSchedule(spaceId, date, 1)
+        .then((result) => {
+          if (!result.ok) return;
+          const tz = result.value.time_zone || timeZone;
+          setTimeZone(tz);
+          const availSlot = result.value.slots.find(
+            (slot) => slot.status === "available",
+          );
+          if (!availSlot) return;
+          setSelectedSlots((prev) => {
+            const next = new Map(prev);
+            next.set(availSlot.start_at, {
+              date,
+              startAt: availSlot.start_at,
+              endAt: availSlot.end_at,
+              units: 1,
+            });
+            emitFromSelectedMap(next, tz);
+            return next;
+          });
+        })
+        .finally(() => setLoadingIntervals(false));
+      return;
+    }
+
+    // rateUnit === "mes": toggle or select N-month period starting on `date`
+    const existingMonthKey = Array.from(selectedSlots.entries()).find(
+      ([, entry]) => entry.date === date,
+    )?.[0];
+    if (existingMonthKey) {
+      const next = new Map(selectedSlots);
+      next.delete(existingMonthKey);
+      setSelectedSlots(next);
+      emitFromSelectedMap(next, timeZone);
+      if (startDate === date) setStartDate(null);
+      return;
+    }
+
+    const durationMonths = Math.max(1, Math.min(12, monthCount));
     setStartDate(date);
-    setEndDate(null);
+    setLoadingIntervals(true);
+    void publicRentalAvailability
+      .getSchedule(spaceId, date, durationMonths)
+      .then((result) => {
+        if (!result.ok) return;
+        const tz = result.value.time_zone || timeZone;
+        setTimeZone(tz);
+        const availSlot = result.value.slots.find(
+          (slot) => slot.status === "available",
+        );
+        if (!availSlot) return;
+        const endPeriod = addMonthsCivilDay(date, durationMonths);
+        setSelectedSlots((prev) => {
+          const next = new Map(prev);
+          next.set(availSlot.start_at, {
+            date,
+            endDate: endPeriod,
+            startAt: availSlot.start_at,
+            endAt: availSlot.end_at,
+            units: durationMonths,
+          });
+          emitFromSelectedMap(next, tz);
+          return next;
+        });
+      })
+      .finally(() => setLoadingIntervals(false));
   };
 
   // Build grid days
@@ -508,8 +621,33 @@ export function PublicBookingCalendar({
           <p className="text-xs text-neutral-500">
             {rateUnit === "hora"
               ? "Elige uno o más días y marca los horarios que necesites (uno a uno)"
-              : "Selecciona tu fecha de check-in y check-out"}
+              : rateUnit === "dia"
+                ? "Haz clic en los días disponibles que necesites (sueltos o continuos)"
+                : "Elige la fecha de inicio disponible y la cantidad de meses"}
           </p>
+          {rateUnit === "mes" && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <label
+                htmlFor={`${headingId}-month-count`}
+                className="font-medium text-neutral-700"
+              >
+                Duración:
+              </label>
+              <select
+                id={`${headingId}-month-count`}
+                value={monthCount}
+                disabled={disabled}
+                onChange={(e) => setMonthCount(Number(e.target.value) || 1)}
+                className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-800"
+              >
+                {Array.from({ length: 12 }, (_, idx) => idx + 1).map((m) => (
+                  <option key={m} value={m}>
+                    {m} {m === 1 ? "mes" : "meses"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
@@ -595,12 +733,21 @@ export function PublicBookingCalendar({
               dayAvail?.occupancy === "booked";
 
             const daySelectedCount = selectedCountByDate.get(date) ?? 0;
-            const isStart = startDate === date;
+            const isDirectDaySelected =
+              rateUnit !== "hora" &&
+              Array.from(selectedSlots.values()).some((entry) =>
+                entry.endDate
+                  ? date >= entry.date && date < entry.endDate
+                  : entry.date === date,
+              );
+            const isStart =
+              (rateUnit === "hora" && startDate === date) || isDirectDaySelected;
             const isEnd = endDate === date;
             const isSingle = isStart && (!endDate || endDate === startDate);
             const isIntermediate =
               startDate && endDate && date > startDate && date < endDate;
-            const isSelected = isStart || isEnd || isIntermediate;
+            const isSelected =
+              isStart || isEnd || isIntermediate || isDirectDaySelected;
 
             let cellClass =
               "relative flex h-14 w-full flex-col items-center justify-center p-1 text-center transition-all ";
@@ -721,8 +868,8 @@ export function PublicBookingCalendar({
         </span>
       </div>
 
-      {/* Interactive Time Slots (24h, color-coded, persistent one-by-one toggle) */}
-      {startDate && (
+      {/* Interactive Time Slots (only for hourly listings) */}
+      {rateUnit === "hora" && startDate && (
         <div className="space-y-3 rounded-xl border border-neutral-200 bg-neutral-50/70 p-4 transition-all">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

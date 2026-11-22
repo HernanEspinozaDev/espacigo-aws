@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
@@ -13,10 +14,43 @@ import (
 // QuoteLifetime is the validity window assigned when a quote is created.
 const QuoteLifetime = 15 * time.Minute
 
+const (
+	BillingModeFull                = "full"
+	BillingModeMonthlyInstallments = "monthly_installments"
+)
+
+type MonthlyRule struct {
+	DisponibleDesde    *string
+	EstadiaMinimaMeses int
+}
+
+type MonthlyRuleReader interface {
+	PublicMonthlyRule(context.Context, string) (MonthlyRule, error)
+}
+
+type QuoteBillingModeRepository interface {
+	SaveQuoteBillingMode(context.Context, string, string) error
+}
+
+func normalizeBillingMode(rateUnit, raw string) (string, error) {
+	switch strings.TrimSpace(raw) {
+	case "", BillingModeFull:
+		return BillingModeFull, nil
+	case BillingModeMonthlyInstallments:
+		if rateUnit != "mes" {
+			return "", ErrInvalid
+		}
+		return BillingModeMonthlyInstallments, nil
+	default:
+		return "", ErrInvalid
+	}
+}
+
 type QuoteRequest struct {
-	SpaceID string `json:"space_id"`
-	StartAt string `json:"start_at"`
-	EndAt   string `json:"end_at"`
+	SpaceID     string `json:"space_id"`
+	StartAt     string `json:"start_at"`
+	EndAt       string `json:"end_at"`
+	BillingMode string `json:"billing_mode,omitempty"`
 }
 
 type MultiQuoteIntervalInput struct {
@@ -25,8 +59,9 @@ type MultiQuoteIntervalInput struct {
 }
 
 type MultiQuoteRequest struct {
-	SpaceID   string                    `json:"space_id"`
-	Intervals []MultiQuoteIntervalInput `json:"intervals"`
+	SpaceID     string                    `json:"space_id"`
+	Intervals   []MultiQuoteIntervalInput `json:"intervals"`
+	BillingMode string                    `json:"billing_mode,omitempty"`
 }
 
 type QuoteInterval struct {
@@ -63,6 +98,7 @@ type Quote struct {
 	TimeZone     string    `json:"time_zone"`
 	CreatedAt    time.Time `json:"created_at"`
 	ExpiresAt    time.Time `json:"expires_at"`
+	BillingMode  string    `json:"billing_mode,omitempty"`
 }
 
 // QuoteRepository must atomically re-read the active publication and current
@@ -135,6 +171,10 @@ func (s *QuoteService) Create(ctx context.Context, renterID string, in QuoteRequ
 	if err != nil {
 		return Quote{}, err
 	}
+	billingMode, err := normalizeBillingMode(listing.RateUnit, in.BillingMode)
+	if err != nil {
+		return Quote{}, err
+	}
 	units, err := pricing.BilledUnits(listing.RateUnit, start.UTC(), end.UTC(), listing.TimeZone)
 	if err != nil || units < 1 || units > math.MaxInt64/listing.UnitPriceCLP || !ValidFlexibleDuration(listing.RateUnit, int(units)) {
 		return Quote{}, ErrInvalid
@@ -143,6 +183,9 @@ func (s *QuoteService) Create(ctx context.Context, renterID string, in QuoteRequ
 	dateText := start.In(loc).Format("2006-01-02")
 	if !dateWithinHorizon(dateText, now, loc) || !intervalMatchesRequest(interval, listing.RateUnit, dateText, int(units), listing.TimeZone, now) {
 		return Quote{}, ErrInvalid
+	}
+	if err := s.validateMonthlyRule(ctx, listing, []string{dateText}, units); err != nil {
+		return Quote{}, err
 	}
 	available, err := s.calendar.IntervalAvailable(ctx, listing, interval)
 	if err != nil {
@@ -171,6 +214,16 @@ func (s *QuoteService) Create(ctx context.Context, renterID string, in QuoteRequ
 	quote.RenterID = canonicalUUID(quote.RenterID)
 	if !validQuote(quote, renterID, listing, interval, units, subtotal, now) {
 		return Quote{}, ErrUnavailable
+	}
+	if billingMode == BillingModeMonthlyInstallments {
+		if bmRepo, ok := s.quotes.(QuoteBillingModeRepository); ok {
+			if err := bmRepo.SaveQuoteBillingMode(ctx, quote.ID, billingMode); err != nil {
+				return Quote{}, ErrUnavailable
+			}
+		}
+	}
+	if listing.RateUnit == "mes" {
+		quote.BillingMode = billingMode
 	}
 	return quote, nil
 }
@@ -211,8 +264,13 @@ func (s *QuoteService) CreateMulti(ctx context.Context, renterID string, in Mult
 	if err != nil {
 		return MultiQuote{}, err
 	}
+	billingMode, err := normalizeBillingMode(listing.RateUnit, in.BillingMode)
+	if err != nil {
+		return MultiQuote{}, err
+	}
 
 	parsed := make([]QuoteInterval, 0, len(in.Intervals))
+	dates := make([]string, 0, len(in.Intervals))
 	var totalUnits int64
 	for _, raw := range in.Intervals {
 		start, okStart := parseRFC3339Timestamp(raw.StartAt)
@@ -234,10 +292,14 @@ func (s *QuoteService) CreateMulti(ctx context.Context, renterID string, in Mult
 			return MultiQuote{}, ErrInvalid
 		}
 		totalUnits += units
+		dates = append(dates, dateText)
 		parsed = append(parsed, QuoteInterval{StartAt: startUTC, EndAt: endUTC, Units: units})
 	}
 	if totalUnits < 1 || totalUnits > math.MaxInt64/listing.UnitPriceCLP {
 		return MultiQuote{}, ErrInvalid
+	}
+	if err := s.validateMonthlyRule(ctx, listing, dates, totalUnits); err != nil {
+		return MultiQuote{}, err
 	}
 
 	sort.Slice(parsed, func(i, j int) bool {
@@ -278,7 +340,42 @@ func (s *QuoteService) CreateMulti(ctx context.Context, renterID string, in Mult
 	quote.SpaceID = canonicalUUID(quote.SpaceID)
 	quote.OwnerID = canonicalUUID(quote.OwnerID)
 	quote.RenterID = canonicalUUID(quote.RenterID)
+	if billingMode == BillingModeMonthlyInstallments {
+		if bmRepo, ok := s.quotes.(QuoteBillingModeRepository); ok {
+			if err := bmRepo.SaveQuoteBillingMode(ctx, quote.ID, billingMode); err != nil {
+				return MultiQuote{}, ErrUnavailable
+			}
+		}
+	}
+	if listing.RateUnit == "mes" {
+		quote.BillingMode = billingMode
+	}
 	return quote, nil
+}
+
+func (s *QuoteService) validateMonthlyRule(ctx context.Context, listing Listing, startDates []string, totalUnits int64) error {
+	if listing.RateUnit != "mes" {
+		return nil
+	}
+	reader, ok := s.listings.(MonthlyRuleReader)
+	if !ok {
+		return nil
+	}
+	rule, err := reader.PublicMonthlyRule(ctx, listing.ID)
+	if err != nil {
+		return ErrUnavailable
+	}
+	if rule.EstadiaMinimaMeses > 1 && totalUnits < int64(rule.EstadiaMinimaMeses) {
+		return ErrInvalid
+	}
+	if rule.DisponibleDesde != nil && *rule.DisponibleDesde != "" {
+		for _, d := range startDates {
+			if d < *rule.DisponibleDesde {
+				return ErrConflict
+			}
+		}
+	}
+	return nil
 }
 
 func parseRFC3339Timestamp(value string) (time.Time, bool) {
