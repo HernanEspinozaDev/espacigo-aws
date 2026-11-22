@@ -246,33 +246,36 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 	}
 	excluded := make([]ExcludedPaymentType, 0, len(paymentTypes))
 	seenTypes := map[string]bool{}
-	foundAccountMoney := false
+	foundProdMethod := false
 	foundTestCard := false
 	for _, paymentType := range paymentTypes {
 		paymentType = strings.TrimSpace(paymentType)
-		if paymentType == "account_money" {
-			foundAccountMoney = true
-			continue
-		}
-		if s.config.TestMode && isTestCardType(paymentType) {
-			foundTestCard = true
-			continue
-		}
 		if paymentType == "" || len(paymentType) > 64 {
 			s.diagnose(ctx, "payment_methods", "invalid_response", nil)
 			return StartResult{}, ErrProvider
 		}
-		if !seenTypes[paymentType] {
-			excluded = append(excluded, ExcludedPaymentType{ID: paymentType})
-			seenTypes[paymentType] = true
+		if s.config.TestMode {
+			if paymentType == "account_money" {
+				continue
+			}
+			if isTestCardType(paymentType) {
+				foundTestCard = true
+				continue
+			}
+			if !seenTypes[paymentType] {
+				excluded = append(excluded, ExcludedPaymentType{ID: paymentType})
+				seenTypes[paymentType] = true
+			}
+			continue
 		}
+		foundProdMethod = true
 	}
 	if s.config.TestMode && !foundTestCard {
 		s.diagnose(ctx, "payment_methods", "test_card_unavailable", nil)
 		return StartResult{}, ErrPaymentMethodUnavailable
 	}
-	if !s.config.TestMode && !foundAccountMoney {
-		s.diagnose(ctx, "payment_methods", "account_money_unavailable", nil)
+	if !s.config.TestMode && !foundProdMethod {
+		s.diagnose(ctx, "payment_methods", "payment_methods_unavailable", nil)
 		return StartResult{}, ErrPaymentMethodUnavailable
 	}
 	returnURL := s.config.FrontendOrigin + "/reservas/checkout/" + quote.ID

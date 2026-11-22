@@ -181,7 +181,7 @@ func (g *memoryGateway) FindByExternalReference(context.Context, []byte, string)
 func TestStartReportsPaymentMethodsPreflightWithoutClaimingPreference(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	repo := &memoryRepository{quote: Quote{ID: "11111111-1111-4111-8111-111111111111", SpaceID: "22222222-2222-4222-8222-222222222222", HostID: "33333333-3333-4333-8333-333333333333", RenterID: "44444444-4444-4444-8444-444444444444", Title: "Sala", Currency: "CLP", UnitPriceCLP: 12000, Units: 1, SubtotalCLP: 12000, StartAt: now.Add(time.Hour), EndAt: now.Add(2 * time.Hour), ExpiresAt: now.Add(15 * time.Minute)}}
-	gateway := &memoryGateway{paymentTypes: []string{"credit_card", "debit_card"}}
+	gateway := &memoryGateway{paymentTypes: []string{}}
 	var diagnostics []Diagnostic
 	svc, err := New(repo, memoryTokens{}, gateway, Config{FrontendOrigin: "https://espacigo.test", TestMode: false, Diagnostics: func(_ context.Context, d Diagnostic) { diagnostics = append(diagnostics, d) }}, func() time.Time { return now }, func() string { return "55555555-5555-4555-8555-555555555555" })
 	if err != nil {
@@ -194,7 +194,7 @@ func TestStartReportsPaymentMethodsPreflightWithoutClaimingPreference(t *testing
 	if repo.claimed || gateway.calls != 0 || len(diagnostics) != 1 {
 		t.Fatalf("claimed=%v create_calls=%d diagnostics=%+v", repo.claimed, gateway.calls, diagnostics)
 	}
-	if diagnostics[0].Stage != "payment_methods" || diagnostics[0].Reason != "account_money_unavailable" || diagnostics[0].HTTPStatus != 0 || diagnostics[0].ProviderCode != "" {
+	if diagnostics[0].Stage != "payment_methods" || diagnostics[0].Reason != "payment_methods_unavailable" || diagnostics[0].HTTPStatus != 0 || diagnostics[0].ProviderCode != "" {
 		t.Fatalf("unexpected diagnostic: %+v", diagnostics[0])
 	}
 }
