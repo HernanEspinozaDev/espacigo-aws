@@ -699,10 +699,6 @@ Resources:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/migrator-*'
-                Condition:
-                  StringEquals:
-                    aws:SourceVpce:
-                      Fn::ImportValue: !Sub ${NetworkStackName}-SecretsManagerVpceId
 
   MigratorTaskDefinition:
     Type: AWS::ECS::TaskDefinition
