@@ -55,10 +55,7 @@ export interface BookingTransition {
 }
 
 export type IntervalUsageStatus =
-  | "pendiente"
-  | "en_uso"
-  | "completado"
-  | "no_asistio";
+  "pendiente" | "en_uso" | "completado" | "no_asistio";
 
 export interface BookingInterval {
   readonly id?: string;

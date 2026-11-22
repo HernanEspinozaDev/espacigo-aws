@@ -87,7 +87,11 @@ function parseIntervalsParam(
     if (!startAt || !endAt || extra !== undefined) return null;
     const startMs = Date.parse(startAt);
     const endMs = Date.parse(endAt);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs)
+    if (
+      !Number.isFinite(startMs) ||
+      !Number.isFinite(endMs) ||
+      endMs <= startMs
+    )
       return null;
     parsed.push({ startAt, endAt });
   }
@@ -113,7 +117,11 @@ export function marketplaceBookingHref(
   params.set("time_zone", selection.timeZone);
   params.set("source", "marketplace");
   const serializedIntervals = serializeIntervals(selection.intervals);
-  if (serializedIntervals && selection.intervals && selection.intervals.length > 1) {
+  if (
+    serializedIntervals &&
+    selection.intervals &&
+    selection.intervals.length > 1
+  ) {
     params.set("intervals", serializedIntervals);
   }
   if (!parseMarketplaceBookingSelection(params.toString())) return null;
@@ -153,7 +161,9 @@ export function parseMarketplaceBookingSelection(
   )
     return null;
 
-  const parsedIntervals = rawIntervals ? parseIntervalsParam(rawIntervals) : null;
+  const parsedIntervals = rawIntervals
+    ? parseIntervalsParam(rawIntervals)
+    : null;
   if (rawIntervals !== null && !parsedIntervals) return null;
 
   const rental = new URLSearchParams();

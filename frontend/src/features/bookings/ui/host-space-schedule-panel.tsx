@@ -51,7 +51,10 @@ function todayISOInChile(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function dateISOInZone(isoTimestamp: string, timeZone = "America/Santiago"): string {
+function dateISOInZone(
+  isoTimestamp: string,
+  timeZone = "America/Santiago",
+): string {
   try {
     const d = new Date(isoTimestamp);
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -338,7 +341,11 @@ export function HostSpaceSchedulePanel({
         const d = dateISOInZone(iv.start_at, tz);
         if (seenDates.has(d)) continue;
         seenDates.add(d);
-        const entry = byDate.get(d) ?? { confirmed: 0, pending: 0, cancelled: 0 };
+        const entry = byDate.get(d) ?? {
+          confirmed: 0,
+          pending: 0,
+          cancelled: 0,
+        };
         if (r.state === "pagada") entry.confirmed += 1;
         else if (r.state === "pendiente_de_pago") entry.pending += 1;
         else entry.cancelled += 1;
@@ -366,7 +373,8 @@ export function HostSpaceSchedulePanel({
               Espacios Publicados y Resumen de Pagos Confirmados
             </h2>
             <p className="text-xs text-muted-foreground">
-              Selecciona un espacio para filtrar sus pagos y revisar su agenda de horarios confirmados, pendientes, cancelados y libres.
+              Selecciona un espacio para filtrar sus pagos y revisar su agenda
+              de horarios confirmados, pendientes, cancelados y libres.
             </p>
           </div>
           {selectedSpaceId !== "all" && (
@@ -418,13 +426,25 @@ export function HostSpaceSchedulePanel({
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs">
-                      <Link href={`/espacios/${encodeURIComponent(space.spaceId)}`}>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                    >
+                      <Link
+                        href={`/espacios/${encodeURIComponent(space.spaceId)}`}
+                      >
                         <ExternalLink className="mr-1 h-3 w-3" />
                         Público
                       </Link>
                     </Button>
-                    <Button asChild variant="outline" size="sm" className="h-7 px-2 text-xs">
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                    >
                       <Link
                         href={`/anfitrion/espacios/${encodeURIComponent(space.spaceId)}/editar`}
                       >
@@ -466,7 +486,8 @@ export function HostSpaceSchedulePanel({
                     </strong>
                   </div>
                   <div className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                    Neto anfitrión: {formatBookingClp(space.confirmedNetClp)} CLP
+                    Neto anfitrión: {formatBookingClp(space.confirmedNetClp)}{" "}
+                    CLP
                   </div>
                 </div>
               </div>
@@ -485,12 +506,17 @@ export function HostSpaceSchedulePanel({
                 Agenda de Horarios · {activeSpace.spaceTitle}
               </h3>
               <p className="text-xs text-muted-foreground">
-                Revisa para cada día qué horarios están confirmados con pago aprobado, en retención temporal, cancelados o libres para nuevos arriendos.
+                Revisa para cada día qué horarios están confirmados con pago
+                aprobado, en retención temporal, cancelados o libres para nuevos
+                arriendos.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor="host-agenda-date" className="text-xs font-medium text-muted-foreground">
+              <label
+                htmlFor="host-agenda-date"
+                className="text-xs font-medium text-muted-foreground"
+              >
                 Fecha:
               </label>
               <input
@@ -554,7 +580,8 @@ export function HostSpaceSchedulePanel({
                     <span>{dateStr}</span>
                     {counts.confirmed > 0 && (
                       <span className="rounded-full bg-emerald-600 px-1.5 text-[10px] font-bold text-white">
-                        {counts.confirmed} pagada{counts.confirmed > 1 ? "s" : ""}
+                        {counts.confirmed} pagada
+                        {counts.confirmed > 1 ? "s" : ""}
                       </span>
                     )}
                     {counts.pending > 0 && (
@@ -575,13 +602,15 @@ export function HostSpaceSchedulePanel({
               <h4 className="text-xs font-semibold uppercase tracking-wider text-foreground flex items-center justify-between">
                 <span>Horarios Reservados y en Proceso ({effectiveDate})</span>
                 <span className="font-normal text-muted-foreground">
-                  {confirmedOnDate.length} confirmados · {pendingOnDate.length} pendientes
+                  {confirmedOnDate.length} confirmados · {pendingOnDate.length}{" "}
+                  pendientes
                 </span>
               </h4>
 
               {confirmedOnDate.length === 0 && pendingOnDate.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                  No hay horarios confirmados ni pagos pendientes para esta fecha.
+                  No hay horarios confirmados ni pagos pendientes para esta
+                  fecha.
                 </p>
               ) : (
                 <div className="space-y-2.5">
@@ -611,20 +640,34 @@ export function HostSpaceSchedulePanel({
                           )}
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                          Reserva ID: <span className="font-mono">{res.id.slice(0, 8)}...</span> ·{" "}
-                          Cobrado: <strong>{formatBookingClp(res.subtotal_clp)} CLP</strong> ·{" "}
-                          Neto:{" "}
+                          Reserva ID:{" "}
+                          <span className="font-mono">
+                            {res.id.slice(0, 8)}...
+                          </span>{" "}
+                          · Cobrado:{" "}
+                          <strong>
+                            {formatBookingClp(res.subtotal_clp)} CLP
+                          </strong>{" "}
+                          · Neto:{" "}
                           <strong className="text-emerald-700 dark:text-emerald-400">
                             {formatBookingClp(
                               res.net_host_amount_clp ??
-                                res.subtotal_clp - (res.marketplace_fee_clp ?? 0),
+                                res.subtotal_clp -
+                                  (res.marketplace_fee_clp ?? 0),
                             )}{" "}
                             CLP
                           </strong>
                         </p>
                       </div>
-                      <Button asChild size="sm" variant="outline" className="h-7 text-xs shrink-0">
-                        <Link href={`${detailBaseHref}/${encodeURIComponent(res.id)}`}>
+                      <Button
+                        asChild
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                      >
+                        <Link
+                          href={`${detailBaseHref}/${encodeURIComponent(res.id)}`}
+                        >
                           Ver detalle
                         </Link>
                       </Button>
@@ -651,17 +694,33 @@ export function HostSpaceSchedulePanel({
                           </span>
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                          Reserva ID: <span className="font-mono">{res.id.slice(0, 8)}...</span> ·{" "}
-                          Monto: <strong>{formatBookingClp(res.subtotal_clp)} CLP</strong> ·{" "}
-                          Vence:{" "}
-                          {new Date(res.pay_expires_at).toLocaleTimeString("es-CL", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          Reserva ID:{" "}
+                          <span className="font-mono">
+                            {res.id.slice(0, 8)}...
+                          </span>{" "}
+                          · Monto:{" "}
+                          <strong>
+                            {formatBookingClp(res.subtotal_clp)} CLP
+                          </strong>{" "}
+                          · Vence:{" "}
+                          {new Date(res.pay_expires_at).toLocaleTimeString(
+                            "es-CL",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            },
+                          )}
                         </p>
                       </div>
-                      <Button asChild size="sm" variant="outline" className="h-7 text-xs shrink-0">
-                        <Link href={`${detailBaseHref}/${encodeURIComponent(res.id)}`}>
+                      <Button
+                        asChild
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs shrink-0"
+                      >
+                        <Link
+                          href={`${detailBaseHref}/${encodeURIComponent(res.id)}`}
+                        >
                           Ver estado
                         </Link>
                       </Button>
@@ -678,7 +737,8 @@ export function HostSpaceSchedulePanel({
                     Ver {cancelledOnDate.length} intento
                     {cancelledOnDate.length > 1 ? "s" : ""} vencido
                     {cancelledOnDate.length > 1 ? "s" : ""} o cancelado
-                    {cancelledOnDate.length > 1 ? "s" : ""} en esta fecha (cupo liberado)
+                    {cancelledOnDate.length > 1 ? "s" : ""} en esta fecha (cupo
+                    liberado)
                   </summary>
                   <div className="mt-2 space-y-1.5 pl-2">
                     {cancelledOnDate.map((res) => (
@@ -693,7 +753,9 @@ export function HostSpaceSchedulePanel({
                             res.time_zone,
                           )}{" "}
                           · {res.state.replace(/_/g, " ")} ·{" "}
-                          <span className="font-mono">{res.id.slice(0, 8)}</span>
+                          <span className="font-mono">
+                            {res.id.slice(0, 8)}
+                          </span>
                         </span>
                         <Link
                           href={`${detailBaseHref}/${encodeURIComponent(res.id)}`}
@@ -733,7 +795,8 @@ export function HostSpaceSchedulePanel({
                 </p>
               ) : freeSlotsState.items.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-                  No quedan bloques libres para la fecha y duración seleccionadas (o la fecha ya pasó).
+                  No quedan bloques libres para la fecha y duración
+                  seleccionadas (o la fecha ya pasó).
                 </p>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 max-h-56 overflow-y-auto pr-1">

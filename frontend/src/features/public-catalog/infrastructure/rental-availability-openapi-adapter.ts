@@ -65,10 +65,7 @@ function errorCode(error: unknown): string | undefined {
   return typeof error.error.code === "string" ? error.error.code : undefined;
 }
 
-function failure<T = never>(
-  status: number,
-  code?: string,
-): CatalogResult<T> {
+function failure<T = never>(status: number, code?: string): CatalogResult<T> {
   if (status === 404) {
     return {
       ok: false,

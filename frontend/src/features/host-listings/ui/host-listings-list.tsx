@@ -209,7 +209,10 @@ export function HostListingsList() {
               href="/anfitrion/reservas"
               className="inline-flex items-center gap-2"
             >
-              <CalendarCheck className="size-4 text-primary" aria-hidden="true" />
+              <CalendarCheck
+                className="size-4 text-primary"
+                aria-hidden="true"
+              />
               Reservas y Finanzas
             </Link>
           </Button>
@@ -456,7 +459,10 @@ export function HostListingsList() {
                         href={`/anfitrion/reservas?space_id=${encodeURIComponent(listing.id)}`}
                         aria-label={`Ver reservas, pagos y horarios de ${listing.title}`}
                       >
-                        <CalendarCheck className="size-3.5" aria-hidden="true" />
+                        <CalendarCheck
+                          className="size-3.5"
+                          aria-hidden="true"
+                        />
                         Reservas y Horarios
                       </Link>
                     </Button>
@@ -557,7 +563,10 @@ export function HostListingsList() {
                         className="text-destructive hover:bg-destructive/10 text-xs px-2.5 gap-1"
                         aria-label={`Retirar publicación ${listing.title}`}
                       >
-                        <Archive className="size-3.5 shrink-0" aria-hidden="true" />
+                        <Archive
+                          className="size-3.5 shrink-0"
+                          aria-hidden="true"
+                        />
                         <span>Retirar publicación</span>
                       </Button>
                     )}

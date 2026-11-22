@@ -41,12 +41,7 @@ import {
 } from "lucide-react";
 
 export type ReservationFilterGroup =
-  | "todas"
-  | "solicitada"
-  | "confirmada"
-  | "activa"
-  | "completada"
-  | "cancelada";
+  "todas" | "solicitada" | "confirmada" | "activa" | "completada" | "cancelada";
 
 export type ReservationSectionTab = "general" | "finanzas" | "lista";
 
@@ -190,8 +185,7 @@ const PAID_OR_APPROVED_STATES: ReadonlySet<BookingState> = new Set([
 
 function isReservationPaid(reservation: BookingReservation): boolean {
   return (
-    reservation.state === "pagada" ||
-    reservation.checkout_status === "approved"
+    reservation.state === "pagada" || reservation.checkout_status === "approved"
   );
 }
 
@@ -273,7 +267,7 @@ export function ReservationsList({
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadReservations().catch(() => { });
+      loadReservations().catch(() => {});
     }
   }, [isAuthenticated, accountId, expiresAt, loadReservations]);
 
@@ -451,11 +445,11 @@ export function ReservationsList({
     id: ReservationFilterGroup;
     label: string;
   }> = [
-      { id: "todas", label: "Todas" },
-      { id: "solicitada", label: "Solicitadas" },
-      { id: "confirmada", label: "Confirmadas" },
-      { id: "cancelada", label: "Canceladas / Cierre" },
-    ];
+    { id: "todas", label: "Todas" },
+    { id: "solicitada", label: "Solicitadas" },
+    { id: "confirmada", label: "Confirmadas" },
+    { id: "cancelada", label: "Canceladas / Cierre" },
+  ];
 
   const hostFilterTabs: Array<{ id: ReservationFilterGroup; label: string }> = [
     { id: "todas", label: "Todas" },
@@ -520,11 +514,17 @@ export function ReservationsList({
                   {roleCounts.host === 1 ? "" : "s"} en tus espacios publicados
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Aquí estás viendo tus reservas como cliente. Para revisar KPIs, finanzas, agenda horaria e invoices de tus propiedades, abre el panel de anfitrión.
+                  Aquí estás viendo tus reservas como cliente. Para revisar
+                  KPIs, finanzas, agenda horaria e invoices de tus propiedades,
+                  abre el panel de anfitrión.
                 </p>
               </div>
             </div>
-            <Button asChild size="sm" className="shrink-0 font-semibold shadow-xs">
+            <Button
+              asChild
+              size="sm"
+              className="shrink-0 font-semibold shadow-xs"
+            >
               <Link
                 href="/anfitrion/reservas"
                 className="inline-flex items-center gap-1.5"
@@ -562,10 +562,11 @@ export function ReservationsList({
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={isSelected ? "true" : undefined}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${isSelected
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
+                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                    isSelected
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  }`}
                 >
                   {tab.label}
                 </button>
@@ -699,7 +700,8 @@ export function ReservationsList({
                         </p>
                         {financial.buyerFeeClp > 0 && (
                           <p className="text-[11px] text-muted-foreground">
-                            Incluye servicio ({formatBookingClp(financial.buyerFeeClp)} CLP)
+                            Incluye servicio (
+                            {formatBookingClp(financial.buyerFeeClp)} CLP)
                           </p>
                         )}
                       </div>
@@ -851,45 +853,48 @@ export function ReservationsList({
         className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2"
       >
         <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeSection === "general"}
-          onClick={() => handleSectionChange("general")}
-          className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeSection === "general"
-            ? "border-primary font-semibold text-primary"
-            : "border-transparent text-muted-foreground hover:text-foreground"
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === "general"}
+            onClick={() => handleSectionChange("general")}
+            className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeSection === "general"
+                ? "border-primary font-semibold text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
-        >
-          <BarChart3 className="h-4 w-4" />
-          General Reservas
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeSection === "finanzas"}
-          onClick={() => handleSectionChange("finanzas")}
-          className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeSection === "finanzas"
-            ? "border-primary font-semibold text-primary"
-            : "border-transparent text-muted-foreground hover:text-foreground"
+          >
+            <BarChart3 className="h-4 w-4" />
+            General Reservas
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === "finanzas"}
+            onClick={() => handleSectionChange("finanzas")}
+            className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeSection === "finanzas"
+                ? "border-primary font-semibold text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
-        >
-          <Wallet className="h-4 w-4" />
-          Finanzas
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeSection === "lista"}
-          onClick={() => handleSectionChange("lista")}
-          className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeSection === "lista"
-            ? "border-primary font-semibold text-primary"
-            : "border-transparent text-muted-foreground hover:text-foreground"
+          >
+            <Wallet className="h-4 w-4" />
+            Finanzas
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSection === "lista"}
+            onClick={() => handleSectionChange("lista")}
+            className={`inline-flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+              activeSection === "lista"
+                ? "border-primary font-semibold text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
-        >
-          <ListChecks className="h-4 w-4" />
-          Lista de Reservas ({filteredReservations.length})
-        </button>
+          >
+            <ListChecks className="h-4 w-4" />
+            Lista de Reservas ({filteredReservations.length})
+          </button>
         </div>
         <Button
           type="button"
@@ -983,7 +988,8 @@ export function ReservationsList({
                   Sin reservas recibidas aún
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Cuando recibas solicitudes o pagos en tus espacios publicados, verás aquí su agenda y resumen.
+                  Cuando recibas solicitudes o pagos en tus espacios publicados,
+                  verás aquí su agenda y resumen.
                 </p>
               </div>
               <Button
@@ -1025,8 +1031,8 @@ export function ReservationsList({
                 -{formatBookingClp(kpiStats.hostFeeClp)} CLP
               </p>
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-                Comisión {formatBookingClp(kpiStats.espacigoCommissionClp)} + IVA{" "}
-                {formatBookingClp(kpiStats.espacigoVatClp)}
+                Comisión {formatBookingClp(kpiStats.espacigoCommissionClp)} +
+                IVA {formatBookingClp(kpiStats.espacigoVatClp)}
               </p>
             </div>
 
@@ -1051,7 +1057,9 @@ export function ReservationsList({
                   Detalle de Transacciones Aprobadas e Invoices EspaciGo
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Cada reserva pagada genera una liquidación EspaciGo con la tarifa base de tu espacio, la comisión aplicada, el monto neto y el N° de operación.
+                  Cada reserva pagada genera una liquidación EspaciGo con la
+                  tarifa base de tu espacio, la comisión aplicada, el monto neto
+                  y el N° de operación.
                 </p>
               </div>
             </div>
@@ -1097,7 +1105,9 @@ export function ReservationsList({
                               {tx.space_title || tx.space_id.slice(0, 8)}
                             </span>
                             <span className="font-mono text-[11px] text-muted-foreground">
-                              {new Date(tx.start_at).toLocaleDateString("es-CL")}
+                              {new Date(tx.start_at).toLocaleDateString(
+                                "es-CL",
+                              )}
                             </span>
                           </td>
                           <td className="py-3 pr-3 font-mono text-muted-foreground">
@@ -1177,15 +1187,13 @@ export function ReservationsList({
                       key={sp.spaceId}
                       type="button"
                       onClick={() =>
-                        handleSpaceChange(
-                          isSelected ? "all" : sp.spaceId,
-                          true,
-                        )
+                        handleSpaceChange(isSelected ? "all" : sp.spaceId, true)
                       }
-                      className={`rounded-xl border p-3.5 text-left transition-all ${isSelected
-                        ? "border-primary bg-primary/5 shadow-xs ring-1 ring-primary"
-                        : "border-border bg-background hover:border-primary/40"
-                        }`}
+                      className={`rounded-xl border p-3.5 text-left transition-all ${
+                        isSelected
+                          ? "border-primary bg-primary/5 shadow-xs ring-1 ring-primary"
+                          : "border-border bg-background hover:border-primary/40"
+                      }`}
                     >
                       <p className="line-clamp-1 text-sm font-semibold text-foreground">
                         {sp.spaceTitle}
@@ -1225,10 +1233,11 @@ export function ReservationsList({
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
                     aria-current={isSelected ? "true" : undefined}
-                    className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${isSelected
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
+                    className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
                   >
                     {tab.label}
                   </button>
@@ -1279,8 +1288,7 @@ export function ReservationsList({
               {filteredReservations.map((reservation) => {
                 const config = getBookingStateConfig(reservation.state);
                 const Icon = config.icon;
-                const financial =
-                  getReservationFinancialBreakdown(reservation);
+                const financial = getReservationFinancialBreakdown(reservation);
                 const canViewInvoice = isReservationPaid(reservation);
 
                 return (
@@ -1408,7 +1416,7 @@ export function ReservationsList({
         </div>
       )}
 
-        <ReservationInvoiceModal
+      <ReservationInvoiceModal
         reservation={invoiceReservation}
         onClose={() => setInvoiceReservation(null)}
       />

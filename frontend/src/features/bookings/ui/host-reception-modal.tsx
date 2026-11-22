@@ -117,11 +117,11 @@ export function HostReceptionModal({
             "No encontramos un pase pagado vigente con ese código para tus espacios.",
           );
         } else if (res.status === 409) {
-          setError(
-            "Este pase ya fue marcado como utilizado anteriormente.",
-          );
+          setError("Este pase ya fue marcado como utilizado anteriormente.");
         } else {
-          setError("No se pudo validar el pase. Verifica el código e intenta otra vez.");
+          setError(
+            "No se pudo validar el pase. Verifica el código e intenta otra vez.",
+          );
         }
         if (action === "preview") setVerified(null);
         return;
@@ -132,7 +132,9 @@ export function HostReceptionModal({
         setActionMessage("Llegada confirmada: el pase pasó a estado En uso.");
         onUpdated?.();
       } else if (action === "check_out") {
-        setActionMessage("Sesión finalizada: el pase quedó marcado como Usada.");
+        setActionMessage(
+          "Sesión finalizada: el pase quedó marcado como Usada.",
+        );
         onUpdated?.();
       }
     } catch {
@@ -330,7 +332,8 @@ export function HostReceptionModal({
               <p className="font-mono text-foreground">
                 {new Intl.DateTimeFormat("es-CL", {
                   dateStyle: "medium",
-                  timeZone: verified.reservation.time_zone || "America/Santiago",
+                  timeZone:
+                    verified.reservation.time_zone || "America/Santiago",
                 }).format(new Date(verified.interval.start_at))}{" "}
                 ·{" "}
                 {formatTimeRange24h(
@@ -380,7 +383,12 @@ export function HostReceptionModal({
           )}
 
           <div className="flex justify-end border-t border-border pt-3">
-            <Button type="button" variant="outline" size="sm" onClick={handleClose}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleClose}
+            >
               Cerrar
             </Button>
           </div>

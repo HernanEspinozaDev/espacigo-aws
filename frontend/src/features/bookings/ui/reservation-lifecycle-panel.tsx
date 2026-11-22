@@ -396,24 +396,31 @@ export function ReservationLifecyclePanel({
 
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 pt-1">
                 <div>
-                  <span className="text-muted-foreground">Estado del pago: </span>
+                  <span className="text-muted-foreground">
+                    Estado del pago:{" "}
+                  </span>
                   <strong className="capitalize">
-                    {currentReservation.checkout_status || currentReservation.state}
+                    {currentReservation.checkout_status ||
+                      currentReservation.state}
                   </strong>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">Rol en la operación: </span>
+                  <span className="text-muted-foreground">
+                    Rol en la operación:{" "}
+                  </span>
                   <strong className="capitalize">
                     {currentReservation.participant_role || "arrendatario"}
                   </strong>
                 </div>
                 {currentReservation.pay_expires_at && (
                   <div>
-                    <span className="text-muted-foreground">Ventana de pago: </span>
+                    <span className="text-muted-foreground">
+                      Ventana de pago:{" "}
+                    </span>
                     <span>
-                      {new Date(currentReservation.pay_expires_at).toLocaleString(
-                        "es-CL",
-                      )}
+                      {new Date(
+                        currentReservation.pay_expires_at,
+                      ).toLocaleString("es-CL")}
                     </span>
                   </div>
                 )}
@@ -437,7 +444,8 @@ export function ReservationLifecyclePanel({
                       <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
                         -{formatBookingClp(financial.hostFeeClp)} CLP
                         <span className="block text-[10px] font-normal text-muted-foreground">
-                          (Comisión {formatBookingClp(financial.hostCommissionClp)} + IVA{" "}
+                          (Comisión{" "}
+                          {formatBookingClp(financial.hostCommissionClp)} + IVA{" "}
                           {formatBookingClp(financial.hostVatClp)})
                         </span>
                       </p>
@@ -469,7 +477,8 @@ export function ReservationLifecyclePanel({
                     <p className="text-sm font-semibold text-foreground">
                       +{formatBookingClp(financial.buyerFeeClp)} CLP
                       <span className="block text-[10px] font-normal text-muted-foreground">
-                        (Comisión {formatBookingClp(financial.buyerCommissionClp)} + IVA{" "}
+                        (Comisión{" "}
+                        {formatBookingClp(financial.buyerCommissionClp)} + IVA{" "}
                         {formatBookingClp(financial.buyerVatClp)})
                       </span>
                     </p>
@@ -512,7 +521,8 @@ export function ReservationLifecyclePanel({
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <span className="font-medium">
-                    Pago aprobado y confirmado en Mercado Pago. El horario del espacio quedó reservado y bloqueado en agenda.
+                    Pago aprobado y confirmado en Mercado Pago. El horario del
+                    espacio quedó reservado y bloqueado en agenda.
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -522,7 +532,9 @@ export function ReservationLifecyclePanel({
                     onClick={() => setInvoiceOpen(true)}
                   >
                     <FileText className="mr-1.5 h-4 w-4" />
-                    {isHost ? "Ver Invoice Anfitrión" : "Ver Comprobante de Pago"}
+                    {isHost
+                      ? "Ver Invoice Anfitrión"
+                      : "Ver Comprobante de Pago"}
                   </Button>
                   {isHost ? (
                     <Button asChild variant="outline" size="sm">
@@ -553,7 +565,8 @@ export function ReservationLifecyclePanel({
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <XCircle className="h-5 w-5" />
                 <span className="font-medium">
-                  El plazo de pago de esta reserva expiró y el horario fue liberado.
+                  El plazo de pago de esta reserva expiró y el horario fue
+                  liberado.
                 </span>
               </div>
             )}
@@ -561,7 +574,8 @@ export function ReservationLifecyclePanel({
               <div className="flex items-center gap-2 text-sm text-destructive">
                 <XCircle className="h-5 w-5" />
                 <span className="font-medium">
-                  El intento de pago fue rechazado o cancelado y el horario fue liberado.
+                  El intento de pago fue rechazado o cancelado y el horario fue
+                  liberado.
                 </span>
               </div>
             )}

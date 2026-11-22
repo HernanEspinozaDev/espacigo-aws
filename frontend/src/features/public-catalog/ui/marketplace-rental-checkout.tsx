@@ -5,10 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "@/features/auth/ui/use-auth";
-import type {
-  RentalQuote,
-  RentalQuoteInterval,
-} from "../domain/rental-quote";
+import type { RentalQuote, RentalQuoteInterval } from "../domain/rental-quote";
 import type { MarketplaceBookingInterval } from "../domain/marketplace-booking-selection";
 import { formatPublicClp, rateUnitLabel } from "../domain/presentation";
 import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
@@ -105,8 +102,7 @@ export function MarketplaceRentalCheckout({
     setOperationState({ authKey, loading: true, error: null });
     setQuoteState({ authKey, quote: null });
     try {
-      const hasMulti =
-        selection.intervals && selection.intervals.length > 1;
+      const hasMulti = selection.intervals && selection.intervals.length > 1;
       const result = hasMulti
         ? await publicRentalQuote.createMultiQuote(
             {

@@ -200,10 +200,10 @@ export function CheckoutSummaryCard({
   const formattedTotal = formatPublicClp(totalClp);
   const hasBreakdown = Boolean(
     formattedBase ||
-      formattedCommission ||
-      formattedVat ||
-      formattedFee ||
-      formattedTotal,
+    formattedCommission ||
+    formattedVat ||
+    formattedFee ||
+    formattedTotal,
   );
   const hasDetails = Boolean(
     formattedRange || timeZone || quoteId || statusLabel,

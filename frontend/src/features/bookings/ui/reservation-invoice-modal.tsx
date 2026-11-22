@@ -272,7 +272,9 @@ export function ReservationInvoiceModal({
                   <td>
                     <div class="row-title" style="text-transform: capitalize;">${escapeHtml(day.dateLabel)}</div>
                     <div class="row-sub mono">${escapeHtml(
-                      day.slots.map((s) => `${s.timeLabel} (${s.units}h)`).join(" · "),
+                      day.slots
+                        .map((s) => `${s.timeLabel} (${s.units}h)`)
+                        .join(" · "),
                     )}</div>
                   </td>
                   <td class="amount">${escapeHtml(formatBookingClp(day.subtotalClp))} CLP</td>
@@ -731,7 +733,9 @@ export function ReservationInvoiceModal({
                   </p>
                   <p className="pl-5">
                     Término:{" "}
-                    <strong className="text-foreground">{endAtFormatted}</strong>
+                    <strong className="text-foreground">
+                      {endAtFormatted}
+                    </strong>
                   </p>
                 </div>
               </div>

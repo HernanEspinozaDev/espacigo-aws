@@ -2,15 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
-import {
-  Calendar,
-  Check,
-  Copy,
-  Info,
-  QrCode,
-  Ticket,
-  X,
-} from "lucide-react";
+import { Calendar, Check, Copy, Info, QrCode, Ticket, X } from "lucide-react";
 import type { BookingReservation } from "../domain/types";
 import {
   getReservationIntervals,

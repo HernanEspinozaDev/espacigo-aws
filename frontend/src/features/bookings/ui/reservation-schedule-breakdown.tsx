@@ -163,7 +163,9 @@ export function ReservationScheduleBreakdown({
       </div>
 
       {updateError && (
-        <p className="text-[11px] font-medium text-destructive">{updateError}</p>
+        <p className="text-[11px] font-medium text-destructive">
+          {updateError}
+        </p>
       )}
 
       <div className="space-y-1.5">

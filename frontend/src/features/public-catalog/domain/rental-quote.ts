@@ -7,8 +7,7 @@ export type RentalQuote = components["schemas"]["RentalQuote"];
 
 export type CreateMultiRentalQuoteRequest =
   components["schemas"]["CreateMultiRentalQuoteRequest"];
-export type RentalQuoteInterval =
-  components["schemas"]["RentalQuoteInterval"];
+export type RentalQuoteInterval = components["schemas"]["RentalQuoteInterval"];
 export type RentalMultiQuote = components["schemas"]["RentalMultiQuote"];
 
 export type RentalQuoteError =

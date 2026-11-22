@@ -40,7 +40,9 @@ type CommercialReservationWithBuyerFees = CommercialReservationSchema & {
   total_charged_clp?: number | string;
 };
 
-function optionalNumber(value: number | string | undefined): number | undefined {
+function optionalNumber(
+  value: number | string | undefined,
+): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;

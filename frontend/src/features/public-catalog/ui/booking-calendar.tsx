@@ -374,7 +374,14 @@ export function PublicBookingCalendar({
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [spaceId, startDate, effectiveDuration, rateUnit, timeZone, emitFromSelectedMap]);
+  }, [
+    spaceId,
+    startDate,
+    effectiveDuration,
+    rateUnit,
+    timeZone,
+    emitFromSelectedMap,
+  ]);
 
   const handleDayClick = (date: string) => {
     if (disabled || date < minDate || date > maxDate) return;
@@ -609,8 +616,7 @@ export function PublicBookingCalendar({
             } else if (isConfirmed || isPartial) {
               cellClass +=
                 "bg-neutral-100 border border-neutral-300 text-neutral-900 rounded-lg hover:border-neutral-500 ";
-              if (isSelected)
-                cellClass += "ring-2 ring-inset ring-[#A83820] ";
+              if (isSelected) cellClass += "ring-2 ring-inset ring-[#A83820] ";
             } else if (isSingle) {
               cellClass +=
                 "bg-[#A83820] text-white rounded-lg shadow-sm font-semibold ";
@@ -823,9 +829,7 @@ export function PublicBookingCalendar({
                 key={entry.startAt}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[#A83820]/30 bg-white px-2.5 py-1 text-xs font-medium text-neutral-900"
               >
-                <span className="tabular-nums">
-                  {formatSummarySlot(entry)}
-                </span>
+                <span className="tabular-nums">{formatSummarySlot(entry)}</span>
                 <button
                   type="button"
                   onClick={() => handleRemoveSlot(entry.startAt)}

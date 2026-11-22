@@ -672,7 +672,9 @@ function CheckoutResultCard({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3 pt-1">
-        {(status === "rejected" || status === "provider_error" || status === null) &&
+        {(status === "rejected" ||
+          status === "provider_error" ||
+          status === null) &&
         onRetryAnotherCard ? (
           <Button
             type="button"
@@ -1382,7 +1384,11 @@ export function CheckoutApiCardForm({
                 );
               }}
             />
-            <form key={`card-form-attempt-${retryCount}`} id="form-checkout-api" className="space-y-4">
+            <form
+              key={`card-form-attempt-${retryCount}`}
+              id="form-checkout-api"
+              className="space-y-4"
+            >
               {!secureFieldsReady && !sdkLoadError ? (
                 <p
                   role="status"
