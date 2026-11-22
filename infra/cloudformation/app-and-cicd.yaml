@@ -78,6 +78,25 @@ Parameters:
       - 'true'
       - 'false'
 
+  DeployAlertEmail:
+    Type: String
+    Default: ''
+    Description: Email para notificaciones inmediatas de despliegue (CodePipeline/CodeBuild/ECS). Vacio omite la suscripcion.
+
+  CodePipelineName:
+    Type: String
+    Default: espacigo-main-pilot
+
+  GitHubRepository:
+    Type: String
+    Default: ''
+    Description: owner/repo para reportar Commit Status desde AWS a GitHub (ej. org/espacigo-aws).
+
+  GitHubStatusSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN de Secrets Manager con el token de GitHub ({"token":"..."} o string plano) para publicar Commit Status. Vacio omite la Lambda.
+
 Conditions:
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
   ProvisionMigrator: !Not [!Equals [!Ref MigratorSeedImage, '']]
@@ -88,6 +107,10 @@ Conditions:
     - !Condition ProvisionApp
     - !Condition HasPublicTls
   EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
+  HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
+  EnableGitHubCommitStatus: !And
+    - !Not [!Equals [!Ref GitHubStatusSecretArn, '']]
+    - !Not [!Equals [!Ref GitHubRepository, '']]
 
 Resources:
   # ============================================================================
@@ -465,6 +488,10 @@ Resources:
         Fn::ImportValue: !Sub ${NetworkStackName}-VpcId
       HealthCheckProtocol: HTTP
       HealthCheckPath: /api/ready
+      HealthCheckIntervalSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
       Matcher:
         HttpCode: '200'
 
@@ -615,10 +642,10 @@ Resources:
             Command:
               - CMD-SHELL
               - wget -q -O /dev/null http://127.0.0.1:4000/api/ready
-            Interval: 15
+            Interval: 10
             Timeout: 5
-            Retries: 3
-            StartPeriod: 40
+            Retries: 2
+            StartPeriod: 20
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -636,7 +663,7 @@ Resources:
       TaskDefinition: !Ref AppTaskDefinition
       PlatformVersion: 1.4.0
       DesiredCount: 1
-      HealthCheckGracePeriodSeconds: 60
+      HealthCheckGracePeriodSeconds: 30
       DeploymentConfiguration:
         MinimumHealthyPercent: 100
         MaximumPercent: 200
@@ -867,7 +894,294 @@ Resources:
             - SubscriptionType: EMAIL
               Address: !Ref BudgetAlertEmail
 
+  # ============================================================================
+  # 8. Notificaciones inmediatas de despliegue (SNS + EventBridge)
+  # ============================================================================
+  DeployNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub espacigo-deploy-notifications-${Environment}
+      DisplayName: !Sub EspaciGo Deploy (${Environment})
+
+  DeployNotificationsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasDeployAlertEmail
+    Properties:
+      TopicArn: !Ref DeployNotificationsTopic
+      Protocol: email
+      Endpoint: !Ref DeployAlertEmail
+
+  DeployNotificationsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref DeployNotificationsTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowEventBridgePublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref DeployNotificationsTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  CodePipelineStateRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-codepipeline-alerts-${Environment}
+      Description: Notifica cambios de estado en CodePipeline (FAILED, SUCCEEDED, CANCELED).
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Pipeline Execution State Change
+        detail:
+          pipeline:
+            - !Ref CodePipelineName
+          state:
+            - FAILED
+            - SUCCEEDED
+            - CANCELED
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  CodeBuildFailedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-codebuild-failed-${Environment}
+      Description: Notifica fallos de ejecucion en proyectos CodeBuild de EspaciGo.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codebuild
+        detail-type:
+          - CodeBuild Build State Change
+        detail:
+          build-status:
+            - FAILED
+          project-name:
+            - espacigo-main-pilot
+            - espacigo-main-publish
+            - espacigo-main-migrate
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  EcsDeploymentAlertRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub espacigo-ecs-deployment-alerts-${Environment}
+      Description: Notifica errores y advertencias de despliegues en ECS.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.ecs
+        detail-type:
+          - ECS Deployment State Change
+        detail:
+          clusterArn:
+            - !Sub arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/espacigo-production
+          eventType:
+            - ERROR
+            - WARN
+      Targets:
+        - Arn: !Ref DeployNotificationsTopic
+          Id: DeployNotificationsTopic
+
+  # ============================================================================
+  # 9. Commit Status hacia GitHub desde CodePipeline (Lambda condicional)
+  # ============================================================================
+  GitHubStatusLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      RoleName: !Sub espacigo-github-status-lambda-${Environment}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: espacigo-github-commit-status
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref GitHubStatusSecretArn
+              - Effect: Allow
+                Action: codepipeline:GetPipelineExecution
+                Resource: !Sub arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipelineName}
+
+  GitHubStatusLambda:
+    Type: AWS::Lambda::Function
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      FunctionName: !Sub espacigo-github-status-${Environment}
+      Description: Reporta el estado de ejecucion de CodePipeline como Commit Status en GitHub.
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 15
+      Role: !GetAtt GitHubStatusLambdaRole.Arn
+      Environment:
+        Variables:
+          GITHUB_REPOSITORY: !Ref GitHubRepository
+          GITHUB_SECRET_ARN: !Ref GitHubStatusSecretArn
+          CODEPIPELINE_NAME: !Ref CodePipelineName
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          import boto3
+
+          sm_client = boto3.client("secretsmanager")
+          cp_client = boto3.client("codepipeline")
+
+          STATE_MAP = {
+              "STARTED": ("pending", "CodePipeline execution started"),
+              "RESUMED": ("pending", "CodePipeline execution resumed"),
+              "SUCCEEDED": ("success", "CodePipeline execution succeeded"),
+              "FAILED": ("failure", "CodePipeline execution failed"),
+              "CANCELED": ("failure", "CodePipeline execution canceled"),
+              "STOPPED": ("failure", "CodePipeline execution stopped"),
+          }
+
+
+          def _get_github_token(secret_arn):
+              resp = sm_client.get_secret_value(SecretId=secret_arn)
+              raw = (resp.get("SecretString") or "").strip()
+              if not raw:
+                  raise RuntimeError("Secrets Manager secret is empty")
+              if raw.startswith("{"):
+                  parsed = json.loads(raw)
+                  token = (parsed.get("token") or parsed.get("github_token") or "").strip()
+                  if not token:
+                      raise RuntimeError("JSON secret does not contain token")
+                  return token
+              return raw
+
+
+          def _get_commit_sha(pipeline, execution_id):
+              for attempt in range(2):
+                  resp = cp_client.get_pipeline_execution(
+                      pipelineName=pipeline,
+                      pipelineExecutionId=execution_id,
+                  )
+                  revisions = resp.get("pipelineExecution", {}).get("artifactRevisions") or []
+                  if revisions and revisions[0].get("revisionId"):
+                      return revisions[0]["revisionId"]
+                  if attempt == 0:
+                      time.sleep(2)
+              return None
+
+
+          def handler(event, _context):
+              detail = event.get("detail") or {}
+              pipeline = detail.get("pipeline") or os.environ.get("CODEPIPELINE_NAME", "")
+              execution_id = detail.get("execution-id")
+              cp_state = (detail.get("state") or "").upper()
+
+              mapped = STATE_MAP.get(cp_state)
+              if not mapped:
+                  return {"ignored": True, "state": cp_state}
+              if not pipeline or not execution_id:
+                  raise ValueError(f"Missing pipeline or execution-id in event: {json.dumps(event)}")
+
+              sha = _get_commit_sha(pipeline, execution_id)
+              if not sha:
+                  print(f"Skipping commit status: no artifact revisionId for {pipeline}/{execution_id}")
+                  return {"skipped": True, "pipeline": pipeline, "executionId": execution_id}
+
+              gh_state, description = mapped
+              repo = os.environ["GITHUB_REPOSITORY"].strip()
+              region = os.environ.get("AWS_REGION", "us-east-1")
+              token = _get_github_token(os.environ["GITHUB_SECRET_ARN"])
+              target_url = (
+                  f"https://{region}.console.aws.amazon.com/codesuite/codepipeline/"
+                  f"pipelines/{pipeline}/executions/{execution_id}/timeline?region={region}"
+              )
+              payload = json.dumps({
+                  "state": gh_state,
+                  "target_url": target_url,
+                  "description": description[:140],
+                  "context": "aws/codepipeline",
+              }).encode("utf-8")
+
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/statuses/{sha}",
+                  data=payload,
+                  method="POST",
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token}",
+                      "User-Agent": "espacigo-aws-codepipeline-status",
+                      "Content-Type": "application/json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=10) as res:
+                      return {
+                          "ok": True,
+                          "repository": repo,
+                          "sha": sha,
+                          "state": gh_state,
+                          "status": res.status,
+                      }
+              except urllib.error.HTTPError as exc:
+                  body = exc.read().decode("utf-8", errors="replace")
+                  print(f"GitHub API error {exc.code}: {body}")
+                  raise
+
+  GitHubStatusEventRule:
+    Type: AWS::Events::Rule
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      Name: !Sub espacigo-github-commit-status-${Environment}
+      Description: Publica Commit Status en GitHub cuando cambia el estado de CodePipeline.
+      State: ENABLED
+      EventPattern:
+        source:
+          - aws.codepipeline
+        detail-type:
+          - CodePipeline Pipeline Execution State Change
+        detail:
+          pipeline:
+            - !Ref CodePipelineName
+          state:
+            - STARTED
+            - SUCCEEDED
+            - FAILED
+            - CANCELED
+      Targets:
+        - Arn: !GetAtt GitHubStatusLambda.Arn
+          Id: GitHubStatusLambda
+
+  GitHubStatusLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Condition: EnableGitHubCommitStatus
+    Properties:
+      FunctionName: !Ref GitHubStatusLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt GitHubStatusEventRule.Arn
+
 Outputs:
+  DeployNotificationsTopicArn:
+    Value: !Ref DeployNotificationsTopic
   AppTaskDefinitionArn:
     Condition: ProvisionApp
     Value: !Ref AppTaskDefinition
