@@ -22,13 +22,39 @@ phases:
         migrator="$registry/espacigo-dbmigrate"
 
         export DOCKER_BUILDKIT=1
-        docker build --platform linux/amd64 --target api --tag "$api:$tag" .
-        docker build --platform linux/amd64 --file frontend/Dockerfile --tag "$web:$tag" frontend
-        docker build --platform linux/amd64 --file Dockerfile.dbmigrate --tag "$migrator:$tag" .
+        aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+
+        pull_latest_cache() {
+          local repository="$1"
+          local image="$registry/$repository" latest_tag
+          latest_tag="$(aws ecr describe-images --repository-name "$repository" \
+            --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageTags[0]' \
+            --output text 2>/dev/null || true)"
+          if [[ -n "$latest_tag" && "$latest_tag" != "None" && "$latest_tag" != "null" ]]; then
+            if docker pull "$image:$latest_tag" >&2; then
+              printf '%s:%s\n' "$image" "$latest_tag"
+            fi
+          fi
+        }
+
+        build_with_cache() {
+          local repository="$1"
+          shift
+          local cache_ref
+          cache_ref="$(pull_latest_cache "$repository")"
+          local cache_args=()
+          if [[ -n "$cache_ref" ]]; then
+            cache_args=(--cache-from "$cache_ref")
+          fi
+          docker build --platform linux/amd64 --build-arg BUILDKIT_INLINE_CACHE=1 "${cache_args[@]}" "$@"
+        }
+
+        build_with_cache espacigo-api --target api --tag "$api:$tag" .
+        build_with_cache espacigo-web --file frontend/Dockerfile --tag "$web:$tag" frontend
+        build_with_cache espacigo-dbmigrate --file Dockerfile.dbmigrate --tag "$migrator:$tag" .
         docker run --rm --network none "$migrator:$tag" -inventory-only |
           jq -e '.format == "espacigo.migrations.inventory.v1" and (.migrations | length > 0)' >/dev/null
 
-        aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
         publish() {
           local repository="$1"
           local image="$registry/$repository" digest
