@@ -159,24 +159,15 @@ export function PublicBookingCalendar({
     initialSelection?.date.slice(0, 7) ?? today.slice(0, 7),
   );
 
-  const [disponibleDesde, setDisponibleDesde] = useState<string | null>(
-    propDisponibleDesde ?? null,
-  );
-  const [estadiaMinimaMeses, setEstadiaMinimaMeses] = useState<number | null>(
-    propEstadiaMinimaMeses ?? null,
-  );
+  const [loadedDisponibleDesde, setLoadedDisponibleDesde] = useState<
+    string | null
+  >(null);
+  const [loadedEstadiaMinimaMeses, setLoadedEstadiaMinimaMeses] = useState<
+    number | null
+  >(null);
 
-  useEffect(() => {
-    if (propDisponibleDesde !== undefined) {
-      setDisponibleDesde(propDisponibleDesde);
-    }
-  }, [propDisponibleDesde]);
-
-  useEffect(() => {
-    if (propEstadiaMinimaMeses !== undefined) {
-      setEstadiaMinimaMeses(propEstadiaMinimaMeses);
-    }
-  }, [propEstadiaMinimaMeses]);
+  const disponibleDesde = propDisponibleDesde ?? loadedDisponibleDesde;
+  const estadiaMinimaMeses = propEstadiaMinimaMeses ?? loadedEstadiaMinimaMeses;
 
   const effectiveMinMonths =
     estadiaMinimaMeses && estadiaMinimaMeses >= 1 ? estadiaMinimaMeses : 1;
@@ -211,12 +202,10 @@ export function PublicBookingCalendar({
         : 1;
     return Math.min(12, Math.max(effectiveMinMonths, initial));
   });
-
-  useEffect(() => {
-    if (rateUnit === "mes" && estadiaMinimaMeses && estadiaMinimaMeses > 1) {
-      setMonthCount((prev) => Math.max(prev, estadiaMinimaMeses));
-    }
-  }, [rateUnit, estadiaMinimaMeses]);
+  const effectiveMonthCount = Math.min(
+    12,
+    Math.max(monthCount, effectiveMinMonths),
+  );
 
   const effectiveDuration = useMemo(() => {
     if (rateUnit === "dia") {
@@ -332,10 +321,10 @@ export function PublicBookingCalendar({
         setMonthData(map);
         setTimeZone(result.value.timeZone);
         if (result.value.disponible_desde !== undefined) {
-          setDisponibleDesde(result.value.disponible_desde);
+          setLoadedDisponibleDesde(result.value.disponible_desde);
         }
         if (result.value.estadia_minima_meses !== undefined) {
-          setEstadiaMinimaMeses(result.value.estadia_minima_meses);
+          setLoadedEstadiaMinimaMeses(result.value.estadia_minima_meses);
         }
       } catch {
         if (active) {
@@ -733,7 +722,7 @@ export function PublicBookingCalendar({
               </label>
               <select
                 id={`${headingId}-month-count`}
-                value={monthCount}
+                value={effectiveMonthCount}
                 disabled={disabled}
                 onChange={(e) =>
                   setMonthCount(
