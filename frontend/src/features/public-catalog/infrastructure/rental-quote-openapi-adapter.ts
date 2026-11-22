@@ -52,10 +52,10 @@ function isRentalQuote(
     (value.rate_unit !== "hora" &&
       value.rate_unit !== "dia" &&
       value.rate_unit !== "mes") ||
-    !int64(value.unit_price_clp, "5001") ||
+    !int64(value.unit_price_clp, "1000") ||
     value.currency !== "CLP" ||
     !int64(value.units, "1") ||
-    !int64(value.subtotal_clp, "5001") ||
+    !int64(value.subtotal_clp, "1000") ||
     !dateTime(value.start_at) ||
     !dateTime(value.end_at) ||
     Date.parse(value.end_at) <= Date.parse(value.start_at) ||

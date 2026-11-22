@@ -97,7 +97,7 @@ test("rental quote adapter rejects malformed or mismatched success envelopes", a
     { ...quote, unit_price_clp: "9223372036854775808" },
     { ...quote, unit_price_clp: 0 },
     { ...quote, unit_price_clp: "1", subtotal_clp: "1" },
-    { ...quote, unit_price_clp: "5000", subtotal_clp: "5000" },
+    { ...quote, unit_price_clp: "999", subtotal_clp: "999" },
     { ...quote, units: 0 },
     { ...quote, units: 2, subtotal_clp: 12000 },
     { ...quote, subtotal_clp: {} },
