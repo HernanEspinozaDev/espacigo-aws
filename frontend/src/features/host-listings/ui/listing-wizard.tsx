@@ -36,6 +36,9 @@ import {
   CHILE_REGIONS,
   getComunasByRegion,
 } from "../domain/chile-dpa";
+import { validateLocation } from "../domain/commercial-location";
+import { CommercialLocationFields } from "./commercial-location-fields";
+import { commercialLocationService } from "../commercial-location-runtime";
 import { validateWizardLocation } from "../domain/wizard-location";
 import { CHILE_TIME_ZONE_OPTIONS } from "../domain/chile-time-zones";
 import {
@@ -114,6 +117,11 @@ export function ListingWizard() {
 
   // Paso 2: Ubicación, dimensiones y atributos dinámicos
   const [address, setAddress] = useState<string>("");
+  const [pin, setPin] = useState<{
+    latitude: number | null;
+    longitude: number | null;
+    public_confirmed: boolean;
+  }>({ latitude: null, longitude: null, public_confirmed: false });
   const [comunaCode, setComunaCode] = useState<string>("");
   const [regionCode, setRegionCode] = useState<string>("");
   const [areaM2, setAreaM2] = useState<number>(25);
@@ -422,6 +430,21 @@ export function ListingWizard() {
       return;
     }
 
+    try {
+      validateLocation({
+        address: draftPayload.address,
+        region_code: regionCode,
+        comuna_code: comunaCode,
+        ...pin,
+      });
+    } catch (error) {
+      setStepError(
+        error instanceof Error ? error.message : "Revisa la ubicación.",
+      );
+      setCurrentStep(2);
+      return;
+    }
+
     setIsSubmitting(true);
     setStepError(null);
 
@@ -448,11 +471,23 @@ export function ListingWizard() {
       if (!createdEtag) {
         throw new Error("No se pudo verificar la versión del borrador creado.");
       }
+      const located = await commercialLocationService.save(
+        created.id,
+        {
+          address: draftPayload.address,
+          region_code: regionCode,
+          comuna_code: comunaCode,
+          ...pin,
+        },
+        createdEtag,
+      );
+      if (currentScope !== getAccessToken())
+        throw new DOMException("La sesión cambió.", "AbortError");
       const configured = await configureTimeZone(
         currentScope,
         created.id,
         timeZone,
-        createdEtag,
+        located.etag,
       );
       if (scheduleEnabled && rateUnit === "hora" && slots.length > 0) {
         await updateWeeklySchedule(
@@ -763,6 +798,10 @@ export function ListingWizard() {
                     value={address}
                     onChange={(e) => {
                       setAddress(e.target.value);
+                      setPin((current) => ({
+                        ...current,
+                        public_confirmed: false,
+                      }));
                       clearFieldError("address");
                     }}
                     {...fieldFeedback("address")}
@@ -794,6 +833,10 @@ export function ListingWizard() {
                     value={regionCode}
                     onChange={(e) => {
                       setRegionCode(e.target.value);
+                      setPin((current) => ({
+                        ...current,
+                        public_confirmed: false,
+                      }));
                       setComunaCode("");
                       clearFieldError("region");
                       clearFieldError("comuna");
@@ -820,6 +863,10 @@ export function ListingWizard() {
                     disabled={!regionCode}
                     onChange={(e) => {
                       setComunaCode(e.target.value);
+                      setPin((current) => ({
+                        ...current,
+                        public_confirmed: false,
+                      }));
                       clearFieldError("comuna");
                     }}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
@@ -864,6 +911,14 @@ export function ListingWizard() {
                   )}
                 </div>
 
+                <div className="sm:col-span-2">
+                  <CommercialLocationFields
+                    address={address}
+                    value={pin}
+                    onChange={setPin}
+                    disabled={isSubmitting}
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="wizard-area" className="font-semibold">
                     Superficie (m²) *

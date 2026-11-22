@@ -167,6 +167,7 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	spacesHandler := spaceshttp.NewHandlerWithPricing(authService, spaceService, cfg.allowedOrigins, calendarService, pricingService)
 	mux.Handle("/api/v1/spaces", spacesHandler)
 	mux.Handle("/api/v1/spaces/", spacesHandler)
+	mountContractTemplates(mux, pool, authService, cfg.allowedOrigins)
 	registerPublicSpaceMonthRoute(mux, spacesHandler)
 	ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
 	ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(authService, ownerWeeklyHoursService, cfg.allowedOrigins)

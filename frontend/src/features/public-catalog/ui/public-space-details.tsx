@@ -11,6 +11,8 @@ import type { PublicSpaceDetail } from "../domain/types";
 import { safePublicText } from "../domain/presentation";
 import { PublicHostAvatar } from "./public-host-avatar";
 
+import { PublicSpaceLocation } from "./public-space-location";
+
 const dynamicText = "min-w-0 break-words [overflow-wrap:anywhere]";
 
 export interface PublicReviewItem {
@@ -61,6 +63,7 @@ export function PublicSpaceDetails({
 
   return (
     <div className="min-w-0 space-y-8 [overflow-wrap:anywhere]">
+      <PublicSpaceLocation space={space} />
       <section
         aria-labelledby="public-space-details-heading"
         className="min-w-0 space-y-5"

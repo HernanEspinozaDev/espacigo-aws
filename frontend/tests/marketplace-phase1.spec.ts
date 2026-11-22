@@ -49,9 +49,7 @@ for (const viewport of views) {
     ).toHaveAttribute("aria-expanded", "true");
     await page.getByRole("button", { name: "Ver menos", exact: true }).click();
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
-    await expect(
-      page.getByText("Anfitrión Público", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByText("Hernán", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Puestos de trabajo", { exact: true }),
     ).toBeVisible();

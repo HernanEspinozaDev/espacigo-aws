@@ -14,6 +14,9 @@ const BASE_OPTIONS: { value: CatalogSort; label: string }[] = [
 export function catalogSortOptions(query: CatalogQuery) {
   return [
     ...BASE_OPTIONS,
+    ...(query.latitude !== undefined
+      ? [{ value: "distance_asc", label: "Más cercanos" } as const]
+      : []),
     ...(query.rate_unit
       ? ([
           { value: "unit_price_asc", label: "Menor tarifa" },

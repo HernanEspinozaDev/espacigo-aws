@@ -174,6 +174,54 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Adds the optional seller Public Key returned by OAuth without changing grants or storing private credentials. Legacy connections remain NULL and require seller reauthorization before the explicitly opted-in local sandbox tokenization mode."
+    },
+    "V000116__commercial_space_location.sql": {
+      "checksum": "c95b74fc6dc5c3bb32246441aedeb3593163172bed014503f2806468a81e7f64",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds optional owner-confirmed coordinates without backfill. Review publication privacy, historical row compatibility and location revision invalidation before release."
+    },
+    "V000117__commercial_space_contract_templates.sql": {
+      "checksum": "8a00e4100099e853e54bad54733a2499b8c2f77d0244a631a1290a7cc191aead",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds owner-managed draft clauses and immutable template versions with limited runtime grants. Review ownership, revision concurrency and published history before release."
+    },
+    "V000118__commercial_contract_proposals.sql": {
+      "checksum": "cd04c2c6ee9c8b65bd49adef5075178e961fa5889b447fa907c19c3868c7ef7b",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds immutable commercial agreement proposals and separately encrypted party evidence. Requires contract privacy, identity, key management and retention review before release."
+    },
+    "V000119__commercial_agreement_signatures.sql": {
+      "checksum": "659a58d67f988dd4a4d1bf8fdf3fb00ecb54675a5136010983f14568b4d37bc8",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds bilateral signature evidence, durable request notices and shared occupancy guards for commercial agreements. Requires review of actor authority, expiry and concurrent interval ownership."
+    },
+    "V000120__commercial_checkout_contract_binding.sql": {
+      "checksum": "5ddfdf3e8a9fe247183689e91782199e48f2d260372ac9a194fec3eaef49797f",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Binds contract-mode checkout immutably to the two matching signatures and the agreed hold. Requires checkout replay, receipt verification and late-payment reconciliation review."
+    },
+    "V000121__commercial_contract_document_jobs.sql": {
+      "checksum": "e9ffce63ba43154d5211cc8899acb6f9bbdfb49be9c3f89dd834b0a304556ca4",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds an immutable private PDF job bound to a verified paid commercial agreement. Review access, encryption, content fidelity, retry and retention before release."
+    },
+    "V000122__commercial_auto_authorization.sql": {
+      "checksum": "bf2abb5b0421c2cf021b39646342c2b6b5f4716b07c0c237d926c6a87db2a904",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Records bounded, revocable host opt-in and append-only audit history. Requires ownership, template replacement and execution-mode review."
+    },
+    "V000123__commercial_rental_tax_documents.sql": {
+      "checksum": "ee55697a828a1973b3756c84458925dcb655ffa13aeac467a1477fe9e269be3c",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Stores immutable metadata for privately inspected host tax attachments bound to verified payment. Requires review of participant access, storage isolation and retention."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

@@ -9,6 +9,48 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /host/settlements:
+    get:
+      operationId: listHostSettlements
+      tags: [Host, Payments]
+      summary: Consultar la liquidación mensual del arrendador
+      parameters:
+        - { in: query, name: month, required: true, schema: { type: string, pattern: "^[0-9]{4}-[0-9]{2}$" } }
+        - { in: query, name: mode, schema: { type: string, enum: [live, test], default: live } }
+        - { in: query, name: cursor, schema: { type: string } }
+      responses:
+        "200":
+          description: Liquidación privada basada en el registro de pagos verificados.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/HostSettlementPage" } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /host/settlements/{reservationID}:
+    get:
+      operationId: getHostSettlement
+      tags: [Host, Payments]
+      summary: Consultar una liquidación del arrendador por reserva propia
+      parameters:
+        - { in: path, name: reservationID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Liquidación privada basada en el registro de pagos verificados.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/HostSettlementItem" } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /host/mercadopago:
     get:
       operationId: getHostMercadoPagoConnection
@@ -1088,6 +1130,145 @@ paths:
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "500": { $ref: "#/components/responses/RentalInternalServerError" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /rental-contract-capabilities:
+    get:
+      operationId: getCommercialContractCapabilities
+      security: []
+      tags: [Rental, Contracts]
+      summary: Consultar si la reserva comercial requiere contrato y firmas
+      responses:
+        "200":
+          description: Modo público de contratación, sin información de cuentas ni credenciales.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    additionalProperties: false
+                    required: [manual_contracts_enabled]
+                    properties:
+                      manual_contracts_enabled: { type: boolean }
+  /rental-quotes/{quoteID}/contract-proposal:
+    post:
+      operationId: createCommercialContractProposal
+      tags: [Rental, Contracts]
+      summary: Preparar una propuesta comercial inmutable a partir de la cotización
+      parameters:
+        - { in: path, name: quoteID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { $ref: "#/components/responses/CommercialContractProposalOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /rental-contract-proposals/{proposalID}:
+    get:
+      operationId: getCommercialContractProposal
+      tags: [Rental, Contracts]
+      summary: Consultar una propuesta comercial como participante
+      parameters:
+        - { in: path, name: proposalID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { $ref: "#/components/responses/CommercialContractProposalOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-agreements:
+    get:
+      operationId: listCommercialAgreements
+      tags: [Rental, Contracts]
+      summary: Listar las solicitudes en que participa la persona autenticada
+      parameters:
+        - { in: query, name: role, schema: { type: string, enum: [landlord, renter] } }
+      responses:
+        "200":
+          description: Solicitudes ordenadas de más reciente a más antigua.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/CommercialAgreement" } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+    post:
+      operationId: createCommercialAgreement
+      tags: [Rental, Contracts]
+      summary: Firmar la propuesta como arrendatario y enviar la solicitud
+      parameters:
+        - { in: header, name: Idempotency-Key, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAgreementCreate" }
+      responses:
+        "201": { $ref: "#/components/responses/CommercialAgreementOK" }
+        "200": { $ref: "#/components/responses/CommercialAgreementOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+  /commercial-agreements/{agreementID}:
+    get:
+      operationId: getCommercialAgreement
+      tags: [Rental, Contracts]
+      summary: Consultar una solicitud y sus firmas como participante
+      parameters:
+        - { in: path, name: agreementID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { $ref: "#/components/responses/CommercialAgreementOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+  /commercial-agreements/{agreementID}/landlord-signature:
+    put:
+      operationId: signCommercialAgreementAsLandlord
+      tags: [Rental, Contracts]
+      summary: Aceptar y firmar como arrendador con retención atómica del horario
+      parameters:
+        - { in: path, name: agreementID, required: true, schema: { type: string, format: uuid } }
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAgreementSign" }
+      responses:
+        "200": { $ref: "#/components/responses/CommercialAgreementOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /commercial-agreements/{agreementID}/decision:
+    put:
+      operationId: decideCommercialAgreement
+      tags: [Rental, Contracts]
+      summary: Rechazar como arrendador o retirar como arrendatario
+      parameters:
+        - { in: path, name: agreementID, required: true, schema: { type: string, format: uuid } }
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAgreementDecision" }
+      responses:
+        "200": { $ref: "#/components/responses/CommercialAgreementOK" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /webhooks/mercadopago:
     post:
       operationId: receiveMercadoPagoPaymentWebhook
@@ -1245,6 +1426,87 @@ paths:
         "401": { $ref: "#/components/responses/RentalUnauthorized" }
         "403": { $ref: "#/components/responses/RentalForbidden" }
         "404": { $ref: "#/components/responses/RentalNotFound" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/documents:
+    get:
+      operationId: getCommercialReservationDocuments
+      tags: [Rental, Contracts]
+      summary: Consultar documentos y contacto de una reserva pagada como participante
+      parameters:
+        - { in: path, name: reservationID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Detalle privado de documentos y comprobante interno del pago.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommercialReservationDocuments" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/contract-document:
+    get:
+      operationId: downloadCommercialReservationContract
+      tags: [Rental, Contracts]
+      summary: Descargar el PDF contractual de una reserva pagada propia
+      parameters:
+        - { in: path, name: reservationID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Documento contractual privado verificado.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/rental-tax-document:
+    parameters:
+      - { in: path, name: reservationID, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: attachCommercialReservationTaxPDF
+      tags: [Rental, Contracts]
+      summary: Adjuntar un PDF tributario externo a una reserva propia pagada
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Archivo privado adjuntado después de inspección.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommercialRentalTaxAttachment" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "413": { description: El PDF supera 10 MiB. }
+        "415": { description: Se requiere un PDF. }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+    get:
+      operationId: downloadCommercialReservationTaxPDF
+      tags: [Rental, Contracts]
+      summary: Descargar un PDF tributario adjuntado a una reserva pagada propia
+      responses:
+        "200":
+          description: Documento tributario externo adjuntado.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+            Content-Disposition: { schema: { type: string } }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /local/early-rentals/capabilities:
     get:
@@ -1940,15 +2202,49 @@ paths:
         - { in: query, name: rate_unit, schema: { type: string, enum: [ hora, dia, mes ] } }
         - { in: query, name: min_unit_price_clp, schema: { type: integer, format: int64, minimum: 0 } }
         - { in: query, name: max_unit_price_clp, schema: { type: integer, format: int64, minimum: 0 } }
-        - { in: query, name: start_at, description: RFC3339 con offset. Ambos extremos habilitan estimación con la tarifa y zona horaria vigentes., schema: { type: string, format: date-time } }
+        - { in: query, name: start_at, description: RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados, sujetos a revalidación del calendario en la cotización., schema: { type: string, format: date-time } }
         - { in: query, name: end_at, schema: { type: string, format: date-time } }
         - { in: query, name: min_total_clp, schema: { type: integer, format: int64, minimum: 0 } }
         - { in: query, name: max_total_clp, schema: { type: integer, format: int64, minimum: 0 } }
-        - { in: query, name: sort, description: "default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin.", schema: { type: string, enum: [ default, title_asc, title_desc, unit_price_asc, unit_price_desc, relevance, estimated_total_asc, estimated_total_desc ], default: default } }
+        - { in: query, name: sort, description: "default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad.", schema: { type: string, enum: [ default, title_asc, title_desc, unit_price_asc, unit_price_desc, relevance, estimated_total_asc, estimated_total_desc, distance_asc ], default: default } }
         - { in: query, name: page_size, description: "Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48.", schema: { type: integer, minimum: 1, maximum: 48, default: 20 } }
         - { in: query, name: cursor, schema: { type: string, maxLength: 4096 } }
+        - { in: query, name: bbox, description: "Área oeste,sur,este,norte. Excluyente con el filtro por proximidad.", schema: { type: string } }
+        - { in: query, name: latitude, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { in: query, name: longitude, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { in: query, name: radius_km, schema: { type: number, minimum: 1, maximum: 200 } }
       responses:
         "200": { description: Página pública minimizada, content: { application/json: { schema: { $ref: "#/components/schemas/PublicSpacePage" } } } }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /public/spaces/map:
+    get:
+      operationId: listPublicSpaceMapMarkers
+      security: []
+      tags: [ Public catalog ]
+      summary: Consultar marcadores para publicaciones con ubicación confirmada
+      parameters:
+        - { in: query, name: q, description: Texto NFC; máximo 120 caracteres. Stopwords o puntuación sin lexemas dan una página vacía., schema: { type: string, maxLength: 120 } }
+        - { in: query, name: category_code, schema: { type: string, maxLength: 80 } }
+        - { in: query, name: region_code, schema: { type: string, pattern: "^[0-9]{2}$" } }
+        - { in: query, name: comuna_code, schema: { type: string, pattern: "^[0-9]{5}$" } }
+        - { in: query, name: min_area_m2, description: Superficie positiva en m², hasta dos decimales., schema: { type: number, exclusiveMinimum: 0 } }
+        - { in: query, name: attribute, description: "Repetible hasta 32 veces y requiere category_code. Booleanos conservan `codigo:true|false`; integer/number usan `codigo:gte:valor` y/o `codigo:lte:valor`; enum usa `codigo:eq:opcion`; enum_list usa `codigo:in:opcion1,opcion2` (OR dentro del atributo). Códigos, operadores, opciones, límites y versión se validan contra la allowlist pública y el perfil; duplicados ambiguos dan 422.", style: form, explode: true, schema: { type: array, maxItems: 32, items: { type: string, maxLength: 180, pattern: '^[a-z][a-z0-9_]{0,59}:(true|false|gte:(0|[1-9][0-9]*)(\.[0-9]+)?|lte:(0|[1-9][0-9]*)(\.[0-9]+)?|eq:[a-z][a-z0-9_]{0,79}|in:[a-z][a-z0-9_]{0,79}(,[a-z][a-z0-9_]{0,79})*)$' } } }
+        - { in: query, name: rate_unit, schema: { type: string, enum: [ hora, dia, mes ] } }
+        - { in: query, name: min_unit_price_clp, schema: { type: integer, format: int64, minimum: 0 } }
+        - { in: query, name: max_unit_price_clp, schema: { type: integer, format: int64, minimum: 0 } }
+        - { in: query, name: start_at, description: RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados, sujetos a revalidación del calendario en la cotización., schema: { type: string, format: date-time } }
+        - { in: query, name: end_at, schema: { type: string, format: date-time } }
+        - { in: query, name: min_total_clp, schema: { type: integer, format: int64, minimum: 0 } }
+        - { in: query, name: max_total_clp, schema: { type: integer, format: int64, minimum: 0 } }
+        - { in: query, name: sort, description: "default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad.", schema: { type: string, enum: [ default, title_asc, title_desc, unit_price_asc, unit_price_desc, relevance, estimated_total_asc, estimated_total_desc, distance_asc ], default: default } }
+        - { in: query, name: page_size, description: "Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48.", schema: { type: integer, minimum: 1, maximum: 48, default: 20 } }
+        - { in: query, name: cursor, schema: { type: string, maxLength: 4096 } }
+        - { in: query, name: bbox, description: "Área oeste,sur,este,norte. Excluyente con el filtro por proximidad.", schema: { type: string } }
+        - { in: query, name: latitude, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { in: query, name: longitude, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { in: query, name: radius_km, schema: { type: number, minimum: 1, maximum: 200 } }
+      responses:
+        "200": { description: Página de marcadores con cursor independiente., content: { application/json: { schema: { $ref: "#/components/schemas/PublicSpaceMapPage" } } } }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /public/space-categories/{code}/filters:
     get:
@@ -4437,6 +4733,236 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /spaces/{spaceId}/commercial-authorization/current:
+    get:
+      operationId: getCommercialAuthorization
+      tags: [Host, Contracts]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Resultado privado del modo de evaluación de reservas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialAuthorizationResult" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /spaces/{spaceId}/commercial-authorization/history:
+    get:
+      operationId: listCommercialAuthorizationHistory
+      tags: [Host, Contracts]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Resultado privado del modo de evaluación de reservas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialAuthorizationHistory" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /spaces/{spaceId}/commercial-authorization/activate:
+    post:
+      operationId: activateCommercialAuthorization
+      tags: [Host, Contracts]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAuthorizationActivation" }
+      responses:
+        "200":
+          description: Resultado privado del modo de evaluación de reservas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialAuthorizationResult" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /spaces/{spaceId}/commercial-authorization/revoke:
+    post:
+      operationId: revokeCommercialAuthorization
+      tags: [Host, Contracts]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAuthorizationRevocation" }
+      responses:
+        "200":
+          description: Resultado privado del modo de evaluación de reservas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialAuthorizationResult" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /spaces/{spaceId}/commercial-authorization/evaluate:
+    post:
+      operationId: evaluateCommercialAuthorization
+      tags: [Host, Contracts]
+      parameters:
+        - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CommercialAuthorizationEvaluation" }
+      responses:
+        "200":
+          description: Resultado privado del modo de evaluación de reservas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialAuthorizationDecision" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /spaces/{spaceId}/location:
+    parameters:
+      - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSpaceLocation
+      tags: [Host]
+      summary: Consultar la ubicación de un espacio propio
+      responses:
+        "200":
+          description: Ubicación actual.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpaceLocation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: updateOwnSpaceLocation
+      tags: [Host]
+      summary: Actualizar y opcionalmente confirmar la dirección y el pin de un espacio propio
+      parameters:
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceLocationInput" }
+      responses:
+        "200":
+          description: Ubicación actualizada.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpaceLocation" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /spaces/{spaceId}/contract-template/draft:
+    parameters:
+      - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getOwnSpaceContractTemplateDraft
+      tags: [Host, Contracts]
+      summary: Consultar la plantilla en borrador de un espacio propio
+      responses:
+        "200": { $ref: "#/components/responses/SpaceContractTemplateDraftOK" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: updateOwnSpaceContractTemplateDraft
+      tags: [Host, Contracts]
+      summary: Guardar las cláusulas en borrador
+      parameters:
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceContractTemplateInput" }
+      responses:
+        "200": { $ref: "#/components/responses/SpaceContractTemplateDraftOK" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /spaces/{spaceId}/contract-template/publish:
+    parameters:
+      - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: publishOwnSpaceContractTemplate
+      tags: [Host, Contracts]
+      summary: Publicar una versión inmutable de la plantilla
+      parameters:
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Versión publicada.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/SpaceContractTemplateVersion" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+  /spaces/{spaceId}/contract-template/versions:
+    parameters:
+      - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listOwnSpaceContractTemplateVersions
+      tags: [Host, Contracts]
+      summary: Consultar las versiones publicadas de un espacio propio
+      responses:
+        "200":
+          description: Versiones publicadas.
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/SpaceContractTemplateVersions" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /spaces/{spaceId}/contract-template/copy:
+    parameters:
+      - { in: path, name: spaceId, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: copyOwnSpaceContractTemplate
+      tags: [Host, Contracts]
+      summary: Copiar una versión publicada desde otro espacio propio al borrador
+      parameters:
+        - { in: header, name: If-Match, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceContractTemplateCopyInput" }
+      responses:
+        "200": { $ref: "#/components/responses/SpaceContractTemplateDraftOK" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /spaces/{spaceId}/publication:
     parameters:
       - name: spaceId
@@ -6402,6 +6928,80 @@ components:
         type: string
         minLength: 1
   schemas:
+    SpaceLocationInput:
+      type: object
+      additionalProperties: false
+      required: [address, region_code, comuna_code, public_confirmed]
+      properties:
+        address: { type: string }
+        region_code: { type: string }
+        comuna_code: { type: string }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90 }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        public_confirmed: { type: boolean }
+    SpaceLocation:
+      type: object
+      additionalProperties: false
+      required: [space_id, address, region_code, comuna_code, latitude, longitude, public_confirmed, confirmed_at, revision, updated_at]
+      properties:
+        space_id: { type: string, format: uuid }
+        address: { type: string }
+        region_code: { type: string }
+        comuna_code: { type: string }
+        latitude: { type: [number, "null"], minimum: -90, maximum: 90 }
+        longitude: { type: [number, "null"], minimum: -180, maximum: 180 }
+        public_confirmed: { type: boolean }
+        confirmed_at: { type: [string, "null"], format: date-time }
+        revision: { type: integer, minimum: 0 }
+        updated_at: { type: string, format: date-time }
+    SpaceContractTemplateSection:
+      type: object
+      additionalProperties: false
+      required: [key, title, body]
+      properties:
+        key: { type: string, pattern: "^[a-z][a-z0-9_]{0,39}$" }
+        title: { type: string, minLength: 1, maxLength: 100 }
+        body: { type: string, minLength: 1, maxLength: 4000 }
+    SpaceContractTemplateInput:
+      type: object
+      additionalProperties: false
+      required: [sections]
+      properties:
+        sections: { type: array, minItems: 1, maxItems: 12, items: { $ref: "#/components/schemas/SpaceContractTemplateSection" } }
+    SpaceContractTemplateCopyInput:
+      type: object
+      additionalProperties: false
+      required: [source_space_id, source_version]
+      properties:
+        source_space_id: { type: string, format: uuid }
+        source_version: { type: integer, minimum: 1 }
+    SpaceContractTemplateDraft:
+      type: object
+      additionalProperties: false
+      required: [space_id, revision, sections, published_version, updated_at]
+      properties:
+        space_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 0 }
+        sections: { type: array, items: { $ref: "#/components/schemas/SpaceContractTemplateSection" } }
+        published_version: { type: integer, minimum: 0 }
+        updated_at: { type: [string, "null"], format: date-time }
+    SpaceContractTemplateVersion:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, version, sections, sha256, published_at]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        sections: { type: array, items: { $ref: "#/components/schemas/SpaceContractTemplateSection" } }
+        sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        published_at: { type: string, format: date-time }
+    SpaceContractTemplateVersions:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/SpaceContractTemplateVersion" } }
     MercadoPagoHostConnection:
       type: object
       additionalProperties: false
@@ -7017,6 +7617,114 @@ components:
                 mode: { type: string, const: seller_public_key }
                 public_key: { type: string, pattern: "^(TEST-|APP_USR-)[A-Za-z0-9_-]{16,120}$", description: Clave pública del anfitrión OAuth; solo aparece en el modo optativo local de pruebas. }
                 reconnect_required: { type: boolean, const: true, description: La conexión OAuth anterior no contiene la Public Key; volver a vincular el anfitrión. }
+    HostSettlementItem:
+      type: object
+      additionalProperties: false
+      required: [reservation_id, space_id, space_title, provider_reference, verified_at, currency, test_mode, fee_policy, commission_rate_percent, commission_vat_rate_percent, gross_clp, base_clp, commission_clp, commission_vat_clp, marketplace_fee_clp, after_marketplace_fee_clp, processor_fee_clp, adjustments_clp, reconciled_net_clp]
+      properties:
+        reservation_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string }
+        provider_reference: { type: string }
+        verified_at: { type: string, format: date-time }
+        currency: { type: string, const: CLP }
+        test_mode: { type: boolean }
+        fee_policy: { type: string, enum: [three_percent_plus_vat, recorded_fees, no_commission_applied] }
+        commission_rate_percent: { type: [integer, "null"] }
+        commission_vat_rate_percent: { type: [integer, "null"] }
+        gross_clp: { type: string, pattern: "^[0-9]+$" }
+        base_clp: { type: string, pattern: "^[0-9]+$" }
+        commission_clp: { type: string, pattern: "^[0-9]+$" }
+        commission_vat_clp: { type: string, pattern: "^[0-9]+$" }
+        marketplace_fee_clp: { type: string, pattern: "^[0-9]+$" }
+        after_marketplace_fee_clp: { type: string, pattern: "^[0-9]+$" }
+        processor_fee_clp: { type: [string, "null"] }
+        adjustments_clp: { type: [string, "null"] }
+        reconciled_net_clp: { type: [string, "null"] }
+    HostSettlementSummary:
+      type: object
+      additionalProperties: false
+      required: [month, time_zone, mode, currency, payment_count, gross_clp, base_clp, commission_clp, commission_vat_clp, marketplace_fee_clp, after_marketplace_fee_clp, processor_fee_clp, adjustments_clp, reconciled_net_clp]
+      properties:
+        month: { type: string }
+        time_zone: { type: string, const: America/Santiago }
+        mode: { type: string, enum: [live, test] }
+        currency: { type: string, const: CLP }
+        payment_count: { type: integer, minimum: 0 }
+        gross_clp: { type: string, pattern: "^[0-9]+$" }
+        base_clp: { type: string, pattern: "^[0-9]+$" }
+        commission_clp: { type: string, pattern: "^[0-9]+$" }
+        commission_vat_clp: { type: string, pattern: "^[0-9]+$" }
+        marketplace_fee_clp: { type: string, pattern: "^[0-9]+$" }
+        after_marketplace_fee_clp: { type: string, pattern: "^[0-9]+$" }
+        processor_fee_clp: { type: [string, "null"] }
+        adjustments_clp: { type: [string, "null"] }
+        reconciled_net_clp: { type: [string, "null"] }
+    HostSettlementPage:
+      type: object
+      additionalProperties: false
+      required: [summary, items, next_cursor]
+      properties:
+        summary: { $ref: "#/components/schemas/HostSettlementSummary" }
+        items: { type: array, items: { $ref: "#/components/schemas/HostSettlementItem" } }
+        next_cursor: { type: [string, "null"] }
+    CommercialRentalTaxAttachment:
+      type: object
+      additionalProperties: false
+      required: [reservation_id, state, sha256, size_bytes, uploaded_at]
+      properties:
+        reservation_id: { type: string, format: uuid }
+        state: { type: string, const: ready }
+        sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        size_bytes: { type: integer, minimum: 1, maximum: 10485760 }
+        uploaded_at: { type: string, format: date-time }
+    CommercialReservationDocuments:
+      type: object
+      additionalProperties: false
+      required: [reservation_id, participant_role, contract, receipt, counterpart_contact, rental_tax_document, access_instructions]
+      properties:
+        reservation_id: { type: string, format: uuid }
+        participant_role: { type: string }
+        contract:
+          type: object
+          additionalProperties: false
+          required: [state]
+          properties:
+            state: { type: string, enum: [pending, processing, retry, ready, terminal, unavailable] }
+            version: { type: integer, minimum: 1 }
+            sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+            size_bytes: { type: integer, minimum: 1 }
+            available_at: { type: string, format: date-time }
+            download_path: { type: string }
+        receipt:
+          type: object
+          additionalProperties: false
+          required: [kind, status, amount_clp, currency, provider, provider_reference, verified_at]
+          properties:
+            kind: { type: string, const: internal_payment_receipt }
+            status: { type: string, const: approved }
+            amount_clp: { type: integer, format: int64, minimum: 1 }
+            currency: { type: string, const: CLP }
+            provider: { type: string, const: mercadopago }
+            provider_reference: { type: string }
+            verified_at: { type: string, format: date-time }
+        counterpart_contact:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [role, display_name, email, phone]
+          properties:
+            role: { type: string }
+            display_name: { type: [string, "null"] }
+            email: { type: [string, "null"] }
+            phone: { type: [string, "null"] }
+        rental_tax_document:
+          type: object
+          additionalProperties: false
+          required: [state, notice]
+          properties:
+            state: { type: string, enum: [not_attached, ready] }
+            notice: { type: string }
+        access_instructions: { type: "null" }
     CommercialReservation:
       type: object
       additionalProperties: false
@@ -7286,19 +7994,193 @@ components:
       required: [ data ]
       properties:
         data: { $ref: "#/components/schemas/LocalEarlyRentalTransactions" }
+    CommercialAuthorizationGrant:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, owner_id, template_version, max_amount_clp, valid_from, expires_at, created_at, revoked_at, revoked_by, revocation_reason]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid }
+        template_version: { type: integer, minimum: 1 }
+        max_amount_clp: { type: integer, maximum: 100000000, minimum: 1 }
+        valid_from: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        revoked_at: { type: [string, "null"], format: date-time }
+        revoked_by: { type: string }
+        revocation_reason: { type: string }
+    CommercialAuthorizationEvent:
+      type: object
+      additionalProperties: false
+      required: [grant_id, space_id, actor_id, action, reason, occurred_at]
+      properties:
+        grant_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        actor_id: { type: string, format: uuid }
+        action: { type: string, enum: [activated, revoked] }
+        reason: { type: string }
+        occurred_at: { type: string, format: date-time }
+    CommercialAuthorizationActivation:
+      type: object
+      additionalProperties: false
+      required: [template_version, max_amount_clp, valid_from, expires_at]
+      properties:
+        template_version: { type: integer, minimum: 1 }
+        max_amount_clp: { type: integer, maximum: 100000000, minimum: 1 }
+        valid_from: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    CommercialAuthorizationRevocation:
+      type: object
+      additionalProperties: false
+      required: [authorization_id, reason]
+      properties:
+        authorization_id: { type: string, format: uuid }
+        reason: { type: string }
+    CommercialAuthorizationEvaluation:
+      type: object
+      additionalProperties: false
+      required: [proposal_id]
+      properties:
+        proposal_id: { type: string, format: uuid }
+    CommercialAuthorizationResult:
+      type: object
+      additionalProperties: false
+      required: [authorization, human_signature_recorded, commercial_activation_enabled]
+      properties:
+        authorization: { $ref: "#/components/schemas/CommercialAuthorizationGrant" }
+        human_signature_recorded: { type: boolean, const: false }
+        commercial_activation_enabled: { type: boolean, const: false }
+        notice: { type: string }
+    CommercialAuthorizationHistory:
+      type: object
+      additionalProperties: false
+      required: [items, human_signature_recorded]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/CommercialAuthorizationEvent" } }
+        human_signature_recorded: { type: boolean, const: false }
+    CommercialAuthorizationDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, manual_review_required, human_signature_recorded, commercial_activation_enabled]
+      properties:
+        decision: { type: object, additionalProperties: false, required: [eligible, reason], properties: { eligible: { type: boolean }, reason: { type: string } } }
+        manual_review_required: { type: boolean, const: true }
+        human_signature_recorded: { type: boolean, const: false }
+        commercial_activation_enabled: { type: boolean, const: false }
+    CommercialAgreement:
+      type: object
+      additionalProperties: false
+      required: [id, proposal_id, quote_id, space_id, proposal_version, snapshot_sha256, state, expires_at, payment_expires_at, revision, created_at, updated_at, signatures]
+      properties:
+        id: { type: string, format: uuid }
+        proposal_id: { type: string, format: uuid }
+        quote_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        proposal_version: { type: integer, minimum: 1 }
+        snapshot_sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        state: { type: string, enum: [pending_landlord, ready_for_payment, rejected, withdrawn, expired] }
+        expires_at: { type: string, format: date-time }
+        payment_expires_at: { type: [string, "null"], format: date-time }
+        revision: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        replayed: { type: boolean }
+        signatures:
+          type: array
+          maxItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [role, signed_at, snapshot_sha256, proposal_version, consent_version]
+            properties:
+              role: { type: string, enum: [arrendador, arrendatario] }
+              signed_at: { type: string, format: date-time }
+              snapshot_sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+              proposal_version: { type: integer, minimum: 1 }
+              consent_version: { type: string, const: commercial-agreement-v1 }
+    CommercialAgreementCreate:
+      type: object
+      additionalProperties: false
+      required: [proposal_id, snapshot_sha256, consent, consent_version]
+      properties:
+        proposal_id: { type: string, format: uuid }
+        snapshot_sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        consent: { type: boolean, const: true }
+        consent_version: { type: string, const: commercial-agreement-v1 }
+    CommercialAgreementSign:
+      type: object
+      additionalProperties: false
+      required: [snapshot_sha256, consent, consent_version]
+      properties:
+        snapshot_sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        consent: { type: boolean, const: true }
+        consent_version: { type: string, const: commercial-agreement-v1 }
+    CommercialAgreementDecision:
+      type: object
+      additionalProperties: false
+      required: [snapshot_sha256, decision]
+      properties:
+        snapshot_sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        decision: { type: string, enum: [reject, withdraw] }
+    CommercialContractProposal:
+      type: object
+      additionalProperties: false
+      required: [id, version, sha256, quote_id, space_id, space_title, template_id, template_version, location, sections, rate_unit, rate_version, unit_price_clp, units, subtotal_clp, currency, start_at, end_at, time_zone, cancellation_policy, parties, contact_notice, generated_at]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        quote_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string }
+        template_id: { type: string, format: uuid }
+        template_version: { type: integer, minimum: 1 }
+        location:
+          type: object
+          additionalProperties: false
+          required: [address, latitude, longitude, revision, region_code, commune_code]
+          properties:
+            address: { type: string }
+            latitude: { type: number, minimum: -90, maximum: 90 }
+            longitude: { type: number, minimum: -180, maximum: 180 }
+            revision: { type: integer, minimum: 1 }
+            region_code: { type: string }
+            commune_code: { type: string }
+        sections: { type: array, items: { $ref: "#/components/schemas/SpaceContractTemplateSection" } }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        rate_version: { type: integer, minimum: 1 }
+        unit_price_clp: { type: integer, format: int64, minimum: 1 }
+        units: { type: integer, format: int64, minimum: 1 }
+        subtotal_clp: { type: integer, format: int64, minimum: 1 }
+        currency: { type: string, const: CLP }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string }
+        cancellation_policy:
+          type: object
+          additionalProperties: false
+          required: [version, text]
+          properties:
+            version: { type: string }
+            text: { type: string }
+        parties: { type: array, minItems: 2, maxItems: 2, items: { $ref: "#/components/schemas/RentalContractPartyPreview" } }
+        contact_notice: { type: string }
+        generated_at: { type: string, format: date-time }
     RentalContractPartyPreview:
       type: object
       additionalProperties: false
-      required: [ role, legal_name, rut ]
+      required: [ role, self ]
       properties:
         role: { type: string, enum: [ arrendador, arrendatario ] }
+        self: { type: boolean, description: Verdadero si esta parte es quien consulta. }
         legal_name: { type: string, minLength: 1, maxLength: 200 }
-        rut: { type: string, description: RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) }
+        rut: { type: string, description: RUT propio enmascarado. Se omite para la contraparte }
     RentalContractPreview:
       type: object
       description: Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste.
       additionalProperties: false
-      required: [ state, quote_id, space_id, space_title, rate_unit, unit_price_clp, units, subtotal_clp, currency, start_at, end_at, time_zone, parties, generated_at ]
+      required: [ state, quote_id, space_id, space_title, rate_unit, unit_price_clp, units, subtotal_clp, currency, start_at, end_at, time_zone, parties, contact_notice, generated_at ]
       properties:
         state: { type: string, const: preview, description: Vista regenerable; no es aceptación, emisión final ni reserva. }
         quote_id: { type: string, format: uuid }
@@ -7317,6 +8199,7 @@ components:
           minItems: 2
           maxItems: 2
           items: { $ref: "#/components/schemas/RentalContractPartyPreview" }
+        contact_notice: { type: string }
         generated_at: { type: string, format: date-time }
     RentalContractPreviewEnvelope:
       type: object
@@ -7401,6 +8284,34 @@ components:
       properties:
         identity_verified: { type: boolean }
         space_verified: { type: boolean }
+    PublicSpaceLocation:
+      type: object
+      additionalProperties: false
+      required: [address, latitude, longitude]
+      properties:
+        address: { type: string }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+    PublicSpaceMapMarker:
+      type: object
+      additionalProperties: false
+      required: [space_id, title, base_price_clp, currency, rate_unit, location]
+      properties:
+        space_id: { type: string, format: uuid }
+        title: { type: string }
+        base_price_clp: { type: integer, format: int64 }
+        currency: { type: string, const: CLP }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        location: { $ref: "#/components/schemas/PublicSpaceLocation" }
+        distance_km: { type: number, minimum: 0 }
+        cover_image_id: { type: string, format: uuid }
+    PublicSpaceMapPage:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/PublicSpaceMapMarker" } }
+        next_cursor: { type: string }
     PublicSpace:
       type: object
       additionalProperties: false
@@ -7415,6 +8326,8 @@ components:
         rate_unit: { type: string, enum: [ hora, dia, mes ] }
         base_price_clp: { type: integer, format: int64 }
         currency: { type: string, const: CLP }
+        location: { $ref: "#/components/schemas/PublicSpaceLocation" }
+        distance_km: { type: number, minimum: 0 }
         region_code: { type: [ string, "null" ], pattern: "^[0-9]{2}$" }
         region_name: { type: [ string, "null" ] }
         comuna_code: { type: [ string, "null" ], pattern: "^[0-9]{5}$" }
@@ -7456,6 +8369,7 @@ components:
         rate_unit: { type: string, enum: [ hora, dia, mes ] }
         base_price_clp: { type: integer, format: int64 }
         currency: { type: string, const: CLP }
+        location: { $ref: "#/components/schemas/PublicSpaceLocation" }
         region_code: { type: [ string, "null" ], pattern: "^[0-9]{2}$" }
         region_name: { type: [ string, "null" ] }
         comuna_code: { type: [ string, "null" ], pattern: "^[0-9]{5}$" }
@@ -10677,6 +11591,28 @@ components:
           message: Ocurrió un error inesperado.
           request_id: 550e8400-e29b-41d4-a716-446655440000
   responses:
+    CommercialAgreementOK:
+      description: Solicitud y firmas visibles a los participantes.
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+        ETag: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/CommercialAgreement" }
+    CommercialContractProposalOK:
+      description: Propuesta privada con la identidad propia y la contraparte redactada.
+      headers:
+        Cache-Control: { schema: { type: string, const: no-store } }
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/CommercialContractProposal" } } }
+    SpaceContractTemplateDraftOK:
+      description: Borrador actual o actualizado.
+      headers:
+        ETag: { schema: { type: string } }
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: false, required: [data], properties: { data: { $ref: "#/components/schemas/SpaceContractTemplateDraft" } } }
     RentalBadRequest:
       description: Solicitud de arriendo mal formada o parámetros inválidos; no almacenar la respuesta.
       headers:

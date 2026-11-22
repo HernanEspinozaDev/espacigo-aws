@@ -27,7 +27,7 @@ func TestContractPreviewAllowsRTLLegalNameWithoutBidiOrSeparators(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	preview, err := service.Preview(context.Background(), testRenterID, testQuoteID)
+	preview, err := service.Preview(context.Background(), testOwnerID, testQuoteID)
 	if err != nil {
 		t.Fatalf("ordinary RTL legal name was rejected: %v", err)
 	}

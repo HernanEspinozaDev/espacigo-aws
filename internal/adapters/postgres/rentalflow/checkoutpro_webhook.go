@@ -115,6 +115,15 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		}
 		return true, nil
 	}
+	if r.contractsRequired {
+		valid, bindingErr := commercialContractPaymentBindingValid(ctx, tx, p.OperationID, renterID)
+		if bindingErr != nil {
+			return false, bindingErr
+		}
+		if !valid {
+			return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "contract_binding_mismatch")
+		}
+	}
 	if status == "pending" || status == "in_process" || status == "authorized" {
 		_, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET provider_payment_id=$2,provider_payment_status=$3,provider_payment_updated_at=$4,payment_verified_at=$5,actualizada_en=$5 WHERE id=$1 AND estado='pending'`, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt.UTC(), r.now().UTC())
 		if err != nil {
@@ -150,6 +159,11 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		}
 		if tag.RowsAffected() != 1 {
 			return false, checkoutpro.ErrConflict
+		}
+		if r.contractsRequired {
+			if err = enqueueCommercialContractDocument(ctx, tx, p.OperationID, r.now().UTC()); err != nil {
+				return false, err
+			}
 		}
 		if err = enqueueCheckoutPaymentNotices(ctx, tx, p.OperationID, "approved", r.now().UTC()); err != nil {
 			return false, err

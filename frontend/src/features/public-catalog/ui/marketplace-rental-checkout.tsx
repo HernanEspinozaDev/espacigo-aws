@@ -10,6 +10,7 @@ import { formatPublicClp, rateUnitLabel } from "../domain/presentation";
 import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
 import { CheckoutProButton } from "@/features/rental-checkout/ui/checkout-pro-button";
 import { CheckoutSummaryCard } from "@/features/rental-checkout/ui/checkout-flow-chrome";
+import { ContractCheckoutGate } from "@/features/commercial-contracts/ui/contract-checkout-gate";
 
 export interface MarketplaceCheckoutSelection {
   spaceId: string;
@@ -303,35 +304,41 @@ export function MarketplaceRentalCheckout({
               </div>
             </div>
 
-            <p className="text-xs leading-relaxed text-[#66574e]">
-              {checkoutApiEnabled
-                ? walletPurchaseEnabled
-                  ? "Elige pagar con tarjeta aquí o ingresar a tu cuenta de Mercado Pago."
-                  : "Completarás el pago en EspaciGo. Mercado Pago procesa la transacción."
-                : "El pago continúa en el sitio seguro de Mercado Pago y EspaciGo confirma el estado al regresar."}
-            </p>
-            {walletPurchaseEnabled || checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-options"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Ir a pagar
-              </Link>
-            ) : checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-api"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Pagar con Mercado Pago
-              </Link>
-            ) : (
-              <CheckoutProButton
-                quoteId={quote.id}
-                expiresAt={quote.expires_at}
-              />
-            )}
+            <ContractCheckoutGate
+              quoteId={quote.id}
+              checkoutApiEnabled={checkoutApiEnabled}
+              walletPurchaseEnabled={walletPurchaseEnabled}
+            >
+              <p className="text-xs leading-relaxed text-[#66574e]">
+                {checkoutApiEnabled
+                  ? walletPurchaseEnabled
+                    ? "Elige pagar con tarjeta aquí o ingresar a tu cuenta de Mercado Pago."
+                    : "Completarás el pago en EspaciGo. Mercado Pago procesa la transacción."
+                  : "El pago continúa en el sitio seguro de Mercado Pago y EspaciGo confirma el estado al regresar."}
+              </p>
+              {walletPurchaseEnabled || checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-options"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
+                >
+                  Ir a pagar
+                </Link>
+              ) : checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-api"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
+                >
+                  Pagar con Mercado Pago
+                </Link>
+              ) : (
+                <CheckoutProButton
+                  quoteId={quote.id}
+                  expiresAt={quote.expires_at}
+                />
+              )}
+            </ContractCheckoutGate>
 
             <Button
               type="button"

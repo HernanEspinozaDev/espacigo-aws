@@ -53,7 +53,7 @@ const detail = (id) => {
       },
     ],
     host: {
-      name: "Anfitrión Público",
+      name: "Hernán",
       joined_at: "2025-01-15T12:00:00Z",
       spaces_count: 2,
       identity_verified: true,

@@ -18,6 +18,8 @@ import {
 import { PublicCatalogGrid } from "@/features/public-catalog/ui/catalog-sections";
 import { PublicSearchForm } from "@/features/public-catalog/ui/public-search-form";
 
+import { ExploreMapResults } from "@/features/public-catalog/ui/explore-map-results";
+
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
@@ -85,6 +87,7 @@ export default async function ExplorePage({
     effectiveParams,
     categoryFilters,
   );
+  const mapResult = await publicCatalog.mapMarkers(query);
   const categories = categoriesResult.ok ? categoriesResult.value.items : [];
   const locations = locationsResult.ok ? locationsResult.value.items : [];
   const rawAttributes = raw.attribute;
@@ -176,48 +179,55 @@ export default async function ExplorePage({
             </p>
           ) : null}
 
-          {!result.ok ? (
-            result.error.kind === "invalid" ? (
-              <section role="alert" className="border-y border-border py-12">
-                <h2 className="text-2xl font-medium">
-                  No pudimos aplicar esos filtros
-                </h2>
-                <p className="mt-3 max-w-xl text-muted-foreground">
-                  Revisa los valores o restablece la búsqueda para continuar.
-                </p>
-                <Link
-                  href="/explorar"
-                  className="mt-6 inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
-                >
-                  Restablecer filtros
-                </Link>
-              </section>
+          <ExploreMapResults
+            query={query}
+            markers={mapResult.ok ? mapResult.value : []}
+            mapUnavailable={!mapResult.ok}
+          >
+            {!result.ok ? (
+              result.error.kind === "invalid" ? (
+                <section role="alert" className="border-y border-border py-12">
+                  <h2 className="text-2xl font-medium">
+                    No pudimos aplicar esos filtros
+                  </h2>
+                  <p className="mt-3 max-w-xl text-muted-foreground">
+                    Revisa los valores o restablece la búsqueda para continuar.
+                  </p>
+                  <Link
+                    href="/explorar"
+                    className="mt-6 inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+                  >
+                    Restablecer filtros
+                  </Link>
+                </section>
+              ) : (
+                <CatalogUnavailable title="No pudimos cargar las publicaciones" />
+              )
+            ) : result.value.items.length ? (
+              <PublicCatalogGrid
+                compact
+                spaces={result.value.items}
+                query={query}
+                nextCursor={result.value.next_cursor}
+                actionPath="/explorar"
+              />
             ) : (
-              <CatalogUnavailable title="No pudimos cargar las publicaciones" />
-            )
-          ) : result.value.items.length ? (
-            <PublicCatalogGrid
-              spaces={result.value.items}
-              query={query}
-              nextCursor={result.value.next_cursor}
-              actionPath="/explorar"
-            />
-          ) : (
-            <EmptyCatalog
-              title={
-                query.q
-                  ? `No encontramos publicaciones para “${query.q}”`
-                  : hasCatalogFilters(query)
-                    ? "No hay publicaciones que coincidan con estos filtros"
-                    : "Aún no hay publicaciones públicas en el catálogo"
-              }
-              description={
-                hasCatalogFilters(query)
-                  ? "Prueba con otra palabra, ubicación o combinación de filtros."
-                  : "Vuelve a explorar más tarde para revisar las publicaciones que Go habilite para el catálogo público."
-              }
-            />
-          )}
+              <EmptyCatalog
+                title={
+                  query.q
+                    ? `No encontramos publicaciones para “${query.q}”`
+                    : hasCatalogFilters(query)
+                      ? "No hay publicaciones que coincidan con estos filtros"
+                      : "Aún no hay publicaciones públicas en el catálogo"
+                }
+                description={
+                  hasCatalogFilters(query)
+                    ? "Prueba con otra palabra, ubicación o combinación de filtros."
+                    : "Vuelve a explorar más tarde para revisar las publicaciones que Go habilite para el catálogo público."
+                }
+              />
+            )}
+          </ExploreMapResults>
         </div>
       </div>
     </section>

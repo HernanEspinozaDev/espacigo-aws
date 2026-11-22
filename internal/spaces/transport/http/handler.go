@@ -119,9 +119,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, result)
 		return
 	}
+	locationID := locationSpaceID(path)
 	publicationID := publicationSpaceID(path)
 	publicationContentID := publicationContentSpaceID(path)
 	requiredRole := identity.Role("")
+	if locationID != "" {
+		requiredRole = identity.RoleLandlord
+	}
 	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
 		requiredRole = identity.RoleLandlord
 	}
@@ -187,6 +191,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			failure(w, 401, "unauthenticated", "Credencial ausente, incorrecta o expirada.")
 		}
+		return
+	}
+	if locationID != "" {
+		h.serveLocation(w, r, locationID, principal.AccountID)
 		return
 	}
 	const profilesPrefix = "/api/v1/spaces/categories/"
@@ -789,6 +797,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
+	case errors.Is(e, spaces.ErrLocationRequired):
+		failure(w, 409, "location_confirmation_required", "Confirma la dirección y el pin públicos antes de publicar por primera vez.")
 	case errors.Is(e, spaces.ErrInvalid):
 		var validation *spaces.ValidationError
 		if errors.As(e, &validation) {

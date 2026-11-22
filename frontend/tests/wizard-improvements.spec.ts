@@ -11,6 +11,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
   const spaceId = "00000000-0000-4000-8000-000000000121";
   const profile = categoryProfiles.profiles.inmuebles;
   let createCount = 0;
+  let locationCount = 0;
   let availabilityCount = 0;
   let weeklyHoursCount = 0;
   let spaceDetailGetCount = 0;
@@ -78,6 +79,27 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
           category_name: "Inmuebles",
           state: "borrador",
           ...createBody,
+        },
+      };
+    } else if (
+      path === `/api/backend/spaces/${spaceId}/location` &&
+      request.method() === "PUT"
+    ) {
+      locationCount += 1;
+      result = {
+        status: 200,
+        headers: { etag: '"location-v2"' },
+        body: {
+          space_id: spaceId,
+          address: "Dirección sintética 100, Santiago",
+          region_code: "13",
+          comuna_code: "13101",
+          latitude: null,
+          longitude: null,
+          public_confirmed: false,
+          confirmed_at: null,
+          revision: 1,
+          updated_at: new Date().toISOString(),
         },
       };
     } else if (
@@ -198,6 +220,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
 
   await expect.poll(() => weeklyHoursCount).toBe(1);
   expect(createCount).toBe(1);
+  expect(locationCount).toBe(1);
   expect(availabilityCount).toBe(1);
   await expect(
     page
@@ -246,6 +269,7 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
 }) => {
   const bff = createBffFixtureState();
   let createBody: Record<string, unknown> | null = null;
+  let locationBody: Record<string, unknown> | null = null;
   const profile = categoryProfiles.profiles.inmuebles;
   const required = profile.attributes.filter((attribute) => attribute.required);
   const duration = profile.attributes.find(
@@ -344,6 +368,26 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
           comuna_code: createBody?.comuna_code,
           attribute_schema_version: createBody?.attribute_schema_version,
           attributes: createBody?.attributes,
+        },
+      };
+    } else if (
+      path ===
+        "/api/backend/spaces/00000000-0000-4000-8000-000000000121/location" &&
+      request.method() === "PUT"
+    ) {
+      locationBody = JSON.parse(request.postData() ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      result = {
+        status: 200,
+        headers: { etag: '"wizard-location-v2"' },
+        body: {
+          space_id: "00000000-0000-4000-8000-000000000121",
+          ...locationBody,
+          confirmed_at: null,
+          revision: 1,
+          updated_at: new Date().toISOString(),
         },
       };
     } else if (
@@ -570,6 +614,12 @@ test("@phase7 @controlled wizard valida atributos requeridos opcionales sin seri
   ).toHaveValue(updatedTitle);
 
   expect(createBody).not.toBeNull();
+  expect(locationBody).toMatchObject({
+    address: "Av. de prueba 100, Santiago",
+    region_code: "13",
+    comuna_code: "13101",
+    public_confirmed: false,
+  });
   expect(createBody!.title).toBe(updatedTitle);
   expect(createBody).toMatchObject({
     category_code: "inmuebles",

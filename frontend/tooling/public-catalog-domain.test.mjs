@@ -253,4 +253,38 @@ test("builds only same-origin public image paths and supports zero, one, and man
   );
 });
 
+test("geographic query preserves shared filters and only enables distance ordering with proximity", () => {
+  const query = queryModule.parseCatalogQuery({
+    latitude: "-33.45",
+    longitude: "-70.66",
+    radius_km: "10",
+    sort: "distance_asc",
+    q: "Santiago",
+  });
+  assert.equal(query.sort, "distance_asc");
+  assert.equal(queryModule.serializeCatalogQuery(query).get("radius_km"), "10");
+  assert.equal(
+    queryModule.parseCatalogQuery({ sort: "distance_asc" }).sort,
+    undefined,
+  );
+  const bbox = queryModule.parseCatalogQuery({
+    bbox: "-71,-34,-70,-33",
+    category_code: "oficina",
+  });
+  assert.equal(bbox.bbox, "-71,-34,-70,-33");
+  assert.equal(queryModule.hasCatalogFilters(bbox), true);
+  assert.equal(
+    queryModule.parseCatalogQuery({ bbox: "NaN,-34,-70,-33" }).bbox,
+    undefined,
+  );
+  assert.equal(
+    queryModule.parseCatalogQuery({
+      latitude: "-33",
+      longitude: "-70",
+      radius_km: "201",
+    }).latitude,
+    undefined,
+  );
+});
+
 test.after(async () => rm(scratch, { recursive: true, force: true }));

@@ -45,7 +45,11 @@ func TestDetailHostWireUsesCurrentIdentityAndNullablePublicName(t *testing.T) {
 					t.Fatalf("missing host key %q", key)
 				}
 			}
-			expectedName, _ := json.Marshal(name)
+			expected := name
+			if name != nil {
+				expected = "Nombre"
+			}
+			expectedName, _ := json.Marshal(expected)
 			if string(host["name"]) != string(expectedName) {
 				t.Fatalf("name=%s want=%s", host["name"], expectedName)
 			}

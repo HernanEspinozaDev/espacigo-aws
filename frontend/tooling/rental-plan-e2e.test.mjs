@@ -79,15 +79,17 @@ test("End-to-end rental plan flow: Phases 1 through 5 integrated journey", async
         parties: [
           {
             role: "arrendador",
-            legal_name: "Propietario Demo",
-            rut: "11.111.111-1",
+            self: false,
           },
           {
             role: "arrendatario",
+            self: true,
             legal_name: "Arrendatario Demo",
-            rut: "22.222.222-2",
+            rut: "••••4321",
           },
         ],
+        contact_notice:
+          "Los datos personales y contactos se habilitan después de confirmar el pago.",
         generated_at: new Date().toISOString(),
       },
     };
@@ -101,10 +103,7 @@ test("End-to-end rental plan flow: Phases 1 through 5 integrated journey", async
   assert.equal(verifiedResult.status, 200);
   assert.equal(verifiedResult.preview.state, "preview");
   assert.equal(verifiedResult.preview.parties.length, 2);
-  assert.equal(
-    verifiedResult.preview.parties[0].legal_name,
-    "Propietario Demo",
-  );
+  assert.equal(verifiedResult.preview.parties[0].legal_name, undefined);
   assert.equal(
     verifiedResult.preview.parties[1].legal_name,
     "Arrendatario Demo",

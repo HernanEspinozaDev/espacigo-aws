@@ -33,6 +33,9 @@ func (r *Repository) begin(ctx context.Context, renterID, quoteID, key, operatio
 	if checkoutMethod == "payments_api" {
 		testMode = true
 	}
+	if r.contractsRequired {
+		return r.beginContractCheckout(ctx, renterID, quoteID, key, operationID, fingerprint, checkoutMethod, testMode, now)
+	}
 	tx, err := r.beginner.Begin(ctx)
 	if err != nil {
 		return checkoutpro.Quote{}, checkoutpro.Operation{}, false, err
@@ -205,10 +208,20 @@ func (r *Repository) ByQuote(ctx context.Context, renterID, quoteID string) (che
 	var op checkoutpro.Operation
 	err = r.db.QueryRow(ctx, `SELECT id::text,cotizacion_id::text,estado,COALESCE(preference_id,''),COALESCE(init_point,''),vence_en,actualizada_en,checkout_method,COALESCE(provider_payment_id,''),test_mode FROM public.checkout_preferencia_comercial WHERE cotizacion_id=$1 AND arrendatario_id=$2 ORDER BY creada_en DESC LIMIT 1`, quoteID, renterID).Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &op.CheckoutMethod, &op.ProviderPaymentID, &op.TestMode)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if r.contractsRequired {
+			q, err = r.contractQuoteForStatus(ctx, q, nil)
+			return q, nil, err
+		}
 		return q, nil, nil
 	}
 	if err != nil {
 		return checkoutpro.Quote{}, nil, err
+	}
+	if r.contractsRequired {
+		q, err = r.contractQuoteForStatus(ctx, q, &op)
+		if err != nil {
+			return q, nil, err
+		}
 	}
 	return q, &op, nil
 }

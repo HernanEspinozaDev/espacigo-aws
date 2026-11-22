@@ -70,6 +70,9 @@ import type {
 import { ListingGallery } from "./listing-gallery";
 import { ListingReturnsPanel } from "./listing-returns-panel";
 import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
+import { CommercialLocationEditor } from "./commercial-location-editor";
+import { ContractTemplateEditor } from "./contract-template-editor";
+import { CommercialAuthorizationPanel } from "./commercial-authorization-panel";
 import { HostAvailabilityCalendar } from "./host-availability-calendar";
 
 interface ListingEditorProps {
@@ -1117,7 +1120,14 @@ export function ListingEditor({
           className="rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive flex items-start gap-3"
         >
           <AlertCircle className="size-5 shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="flex-1">{feedbackError}</div>
+          <div className="flex-1">
+            {feedbackError}
+            {feedbackError.includes("Dirección y mapa") && (
+              <a href="#commercial-location" className="mt-2 block underline">
+                Confirmar ubicación
+              </a>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setFeedbackError(null)}
@@ -2379,6 +2389,28 @@ export function ListingEditor({
           />
         )}
       </div>
+      <CommercialLocationEditor
+        key={`${authSnapshot.accountId}:${listingId}:${currentListing.etag}`}
+        spaceId={listingId}
+        onSaved={() => {
+          if (accessToken)
+            void selectListing(accessToken, listingId)
+              .then((detail) => {
+                if (detail) {
+                  setAddress(detail.address);
+                  setRegionCode(detail.region_code ?? "");
+                  setComunaCode(detail.comuna_code ?? "");
+                }
+              })
+              .catch(() =>
+                setFeedbackError(
+                  "La ubicación se guardó; recarga el editor antes de continuar.",
+                ),
+              );
+        }}
+      />
+      <ContractTemplateEditor spaceId={listingId} sessionScope={sessionScope} />
+      <CommercialAuthorizationPanel spaceId={listingId} />
     </div>
   );
 }

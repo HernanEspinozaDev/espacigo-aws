@@ -16,6 +16,7 @@ var (
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
 	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
+	ErrLocationRequired    = errors.New("spaces: confirmed commercial location required before first publication")
 	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
 	ErrPreconditionFailed  = errors.New("spaces: draft revision precondition failed")
 )

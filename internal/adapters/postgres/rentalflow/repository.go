@@ -36,11 +36,12 @@ type TxBeginner interface {
 }
 
 type Repository struct {
-	db              DB
-	beginner        TxBeginner
-	now             func() time.Time
-	newID           func() string
-	declarationKeys verification.DeclarationOpener
+	contractsRequired bool
+	db                DB
+	beginner          TxBeginner
+	now               func() time.Time
+	newID             func() string
+	declarationKeys   verification.DeclarationOpener
 }
 
 func NewRepository(db DB, beginner TxBeginner, now func() time.Time) (*Repository, error) {
@@ -391,8 +392,11 @@ AND NOT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c WHERE c.cot
 AND NOT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial r WHERE r.cotizacion_id=q.id)
 ORDER BY vence_en,id LIMIT $2)
 DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
-		tag, err := r.db.Exec(ctx, q, at.UTC(), limit)
+		tag, err := r.db.Exec(ctx, r.contractQuotePurgeSQL(q), at.UTC(), limit)
 		if err != nil {
+			if r.contractsRequired && preservedCommercialQuoteRace(err) {
+				return 0, nil
+			}
 			return 0, err
 		}
 		return tag.RowsAffected(), nil
@@ -446,8 +450,11 @@ DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
 DELETE FROM public.cotizacion_arriendo_comercial q
 USING due
 WHERE q.id=due.id`
-	tag, err := tx.Exec(ctx, q, at.UTC(), limit)
+	tag, err := tx.Exec(ctx, r.contractQuotePurgeSQL(q), at.UTC(), limit)
 	if err != nil {
+		if r.contractsRequired && preservedCommercialQuoteRace(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {

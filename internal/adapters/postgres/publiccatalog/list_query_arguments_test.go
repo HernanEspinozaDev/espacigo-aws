@@ -36,7 +36,7 @@ func TestListAdapterBindsFilterCursorAndTypedAttributeArguments(t *testing.T) {
 		sql.NullString{String: "13", Valid: true}, sql.NullString{String: "Metropolitana", Valid: true},
 		sql.NullString{String: "13101", Valid: true}, sql.NullString{String: "Santiago", Valid: true},
 		sql.NullString{String: "22222222-2222-4222-8222-222222222222", Valid: true},
-		sql.NullString{String: "media", Valid: true}, sql.NullInt64{Int64: 7500, Valid: true}, float64(0.5), true, false,
+		sql.NullString{String: "media", Valid: true}, sql.NullInt64{Int64: 7500, Valid: true}, float64(0.5), true, false, []byte(nil),
 	}}
 	repo := &Repository{pool: pool}
 
@@ -114,7 +114,7 @@ func listCursorFixtureRow() []any {
 		"11111111-1111-4111-8111-111111111111", "oficina", "Oficina", "Sala", "Sala sintética", float64(20), "hora", int64(2500), "CLP", 1, "sala",
 		sql.NullString{String: "America/Santiago", Valid: true},
 		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullString{Valid: false},
-		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullInt64{Valid: false}, float64(0), true, false,
+		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullInt64{Valid: false}, float64(0), true, false, []byte(nil),
 	}
 }
 

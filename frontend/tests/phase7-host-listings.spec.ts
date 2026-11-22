@@ -431,6 +431,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
 }) => {
   let capturedIdempotencyKey: string | null = null;
   let capturedCreateBody: Record<string, unknown> | null = null;
+  let capturedLocationBody: Record<string, unknown> | null = null;
   let acceptedCreate = false;
   let createPostCount = 0;
   let configuredTimeZone = "America/Santiago";
@@ -624,6 +625,27 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     }
 
     if (
+      pathname === `/api/backend/spaces/${newSpaceId}/location` &&
+      method === "PUT"
+    ) {
+      capturedLocationBody = JSON.parse(request.postData() ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      return {
+        status: 200,
+        headers: { etag: '"rev-location-2"' },
+        body: {
+          space_id: newSpaceId,
+          ...capturedLocationBody,
+          confirmed_at: null,
+          revision: 1,
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+
+    if (
       pathname === `/api/backend/spaces/${newSpaceId}/availability` &&
       method === "PUT"
     ) {
@@ -637,6 +659,28 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
         status: 200,
         headers: { etag: '"rev-timezone-2"' },
         body: { space_id: newSpaceId, time_zone: configuredTimeZone },
+      };
+    }
+
+    if (
+      pathname === `/api/backend/spaces/${newSpaceId}/location` &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        headers: { etag: '"rev-location-2"' },
+        body: {
+          space_id: newSpaceId,
+          address: "Av. Apoquindo 3000, Las Condes",
+          region_code: "13",
+          comuna_code: "13114",
+          latitude: null,
+          longitude: null,
+          public_confirmed: false,
+          confirmed_at: null,
+          revision: 1,
+          updated_at: new Date().toISOString(),
+        },
       };
     }
 
@@ -1154,7 +1198,13 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   // POST /spaces no admite Idempotency-Key; la galería sí lo conserva.
   expect(capturedIdempotencyKey).toBeNull();
   expect(createPostCount).toBe(1);
-  expect(timezoneIfMatch).toBe('"rev-create-1"');
+  expect(capturedLocationBody).toMatchObject({
+    address: "Av. Apoquindo 3000, Las Condes",
+    region_code: "13",
+    comuna_code: "13114",
+    public_confirmed: false,
+  });
+  expect(timezoneIfMatch).toBe('"rev-location-2"');
   expect(weeklyHoursIfMatch).toBe('"rev-timezone-2"');
 
   expect(capturedCreateBody).not.toBeNull();

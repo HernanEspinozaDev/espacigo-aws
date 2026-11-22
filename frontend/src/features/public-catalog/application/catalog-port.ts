@@ -1,4 +1,5 @@
 import type {
+  PublicMapPage,
   CatalogQuery,
   CatalogResult,
   PublicCategoryFilters,
@@ -10,6 +11,7 @@ import type {
 } from "../domain/types";
 
 export interface PublicCatalogPort {
+  listMapMarkers?(query: CatalogQuery): Promise<CatalogResult<PublicMapPage>>;
   listSpaces(query: CatalogQuery): Promise<CatalogResult<PublicSpacePage>>;
   listCategories(): Promise<CatalogResult<PublicSpaceCategories>>;
   getCategoryFilters(

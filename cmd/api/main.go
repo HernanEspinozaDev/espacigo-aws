@@ -242,6 +242,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid commercial rental flow configuration")
 	}
+	commercialContractsEnabled, err := commercialContractMode(os.Getenv, commercialFlowEnabled)
+	if err != nil {
+		return err
+	}
 	webhookOnlyEnabled, err := mercadoPagoWebhookOnlyEnabled(os.Getenv, commercialFlowEnabled)
 	if err != nil {
 		return errors.New("invalid Mercado Pago webhook-only configuration")
@@ -261,7 +265,13 @@ func run() error {
 	defer closeConnector()
 	defer pool.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	trackedWorkers := newTrackedWorkerGroup(ctx)
+	defer trackedWorkers.StopAndWait()
+
 	mux := http.NewServeMux()
+	mountCommercialContractCapabilities(mux, commercialContractsEnabled)
 	var localPaymentService *booking.Service
 	var marketplaceTokens *marketplaceoauth.Service
 	var localIdentityService *identity.AuthenticationService
@@ -277,6 +287,7 @@ func run() error {
 	var localNoticeService *localnotice.Service
 	var checkoutNoticeService *checkoutnotice.Service
 	var checkoutPaymentWorker *checkoutpro.PaymentWorker
+	var commercialAgreementWorkers []namedWorker
 	var localContractRepository *contractpg.Repository
 	var publicCatalogMasterKey []byte
 	var privacyReplayRegistryPath string
@@ -390,6 +401,35 @@ func run() error {
 			previewService, serviceErr := rentalflow.NewContractPreviewService(commercialQuoteRepository, commercialQuoteRepository, commercialQuoteRepository, identityVerifier, commercialQuoteRepository, time.Now)
 			if serviceErr != nil {
 				return errors.New("commercial rental preview initialization failed")
+			}
+			commercialQuoteRepository.RequireCommercialContracts(commercialContractsEnabled)
+			if commercialContractsEnabled {
+				mountCommercialAuthorization(mux, pool, service, cfg.allowedOrigins)
+				cipher, proposalErr := mountCommercialContractProposals(mux, pool, service, commercialQuoteRepository, previewService, identityVerifier, commercialQuoteRepository, cfg.allowedOrigins, os.Getenv)
+				if proposalErr != nil {
+					return proposalErr
+				}
+				commercialAgreementWorkers, serviceErr = mountCommercialAgreementRoutes(trackedWorkers, mux, pool, service, identityVerifier, localNoticeSender, cfg.allowedOrigins)
+				if serviceErr != nil {
+					return errors.New("commercial agreement initialization failed")
+				}
+				contractStore, documentWorker, documentErr := buildCommercialDocumentRuntime(ctx, trackedWorkers, pool, cipher, os.Getenv)
+				if documentErr != nil {
+					return documentErr
+				}
+				if contractStore != nil {
+					commercialAgreementWorkers = append(commercialAgreementWorkers, documentWorker)
+				}
+				if contractStore != nil {
+					if routeErr := mountCommercialReservationDocuments(mux, pool, service, contractStore, os.Getenv("S3_STORAGE_BUCKET"), cfg.allowedOrigins); routeErr != nil {
+						return routeErr
+					}
+				} else if routeErr := mountCommercialReservationDocuments(mux, pool, service, nil, "", cfg.allowedOrigins); routeErr != nil {
+					return routeErr
+				}
+				if routeErr := mountLocalRentalTaxDocuments(ctx, mux, pool, service, cfg.allowedOrigins, os.Getenv); routeErr != nil {
+					return routeErr
+				}
 			}
 			checkoutService, serviceErr := newCheckoutPreferenceService(commercialQuoteRepository, marketplaceTokens, cfg, os.Getenv)
 			if serviceErr != nil {
@@ -604,6 +644,8 @@ func run() error {
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		mountContractTemplates(mux, pool, service, cfg.allowedOrigins)
+		mountHostSettlements(mux, pool, service, cfg.allowedOrigins)
 		registerPublicSpaceMonthRoute(mux, spacesHandler)
 		ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
 		ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(service, ownerWeeklyHoursService, cfg.allowedOrigins)
@@ -756,14 +798,11 @@ func run() error {
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	trackedWorkers := newTrackedWorkerGroup(ctx)
-	defer trackedWorkers.StopAndWait()
 
 	// Keep every mutating background loop in this registry so the explicit
 	// worker-free profile can suppress them as one enforceable startup gate.
-	workers := make([]namedWorker, 0, 14)
+	workers := make([]namedWorker, 0, 16)
+	workers = append(workers, commercialAgreementWorkers...)
 	if commercialQuoteRepository != nil {
 		workers = append(workers, namedWorker{"commercial-rental-quote-expiry", func() {
 			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(error) {

@@ -54,9 +54,20 @@ type AttributePredicate struct {
 	Values  []string `json:"values,omitempty"`
 }
 
-// Space is an intentional public projection. It contains no owner, address,
+// Space is an intentional public projection. It contains no owner, private address,
 // profile JSON, fixture state, availability, or file/blob references.
+type ConfirmedLocation struct {
+	Address   string  `json:"address"`
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+type Bounds struct{ West, South, East, North float64 }
+type Proximity struct{ Latitude, Longitude, RadiusKM float64 }
+
 type Space struct {
+	DistanceKM         *float64              `json:"distance_km,omitempty"`
+	Location           *ConfirmedLocation    `json:"location,omitempty"`
 	SpaceID            string                `json:"space_id"`
 	Verification       VerificationSummary   `json:"verification"`
 	CategoryCode       string                `json:"category_code"`
@@ -127,6 +138,9 @@ type PublicImageRef struct {
 }
 
 type Filters struct {
+	Bounds           *Bounds
+	Proximity        *Proximity
+	MapOnly          bool
 	CategoryCode     string
 	RateUnit         string
 	MinUnitPriceCLP  *int64
@@ -149,16 +163,18 @@ type Filters struct {
 }
 
 type Cursor struct {
-	Version               int     `json:"v"`
-	Fingerprint           string  `json:"f"`
-	Sort                  string  `json:"s"`
-	PageSize              int     `json:"n"`
-	LastCategoryOrder     int     `json:"c,omitempty"`
-	LastTitleKey          string  `json:"t,omitempty"`
-	LastUnitPriceCLP      int64   `json:"p,omitempty"`
-	LastEstimatedTotalCLP *int64  `json:"e,omitempty"`
-	LastRelevanceRank     float64 `json:"r,omitempty"`
-	LastSpaceID           string  `json:"i"`
+	LastDistanceKM        *float64 `json:"d,omitempty"`
+	EncryptedTitleKey     string   `json:"k,omitempty"`
+	Version               int      `json:"v"`
+	Fingerprint           string   `json:"f"`
+	Sort                  string   `json:"s"`
+	PageSize              int      `json:"n"`
+	LastCategoryOrder     int      `json:"c,omitempty"`
+	LastTitleKey          string   `json:"t,omitempty"`
+	LastUnitPriceCLP      int64    `json:"p,omitempty"`
+	LastEstimatedTotalCLP *int64   `json:"e,omitempty"`
+	LastRelevanceRank     float64  `json:"r,omitempty"`
+	LastSpaceID           string   `json:"i"`
 }
 
 type Page struct {
@@ -196,4 +212,20 @@ type PublicImage struct {
 	Size                 int64
 	ObjectKey, Bucket    string
 	Generation           int64
+}
+
+// MapMarker omits detail-only content and host/profile information.
+type MapMarker struct {
+	DistanceKM   *float64          `json:"distance_km,omitempty"`
+	SpaceID      string            `json:"space_id"`
+	Title        string            `json:"title"`
+	BasePriceCLP int64             `json:"base_price_clp"`
+	Currency     string            `json:"currency"`
+	RateUnit     string            `json:"rate_unit"`
+	Location     ConfirmedLocation `json:"location"`
+	CoverImageID *string           `json:"cover_image_id,omitempty"`
+}
+type MapPage struct {
+	Items      []MapMarker `json:"items"`
+	NextCursor string      `json:"next_cursor,omitempty"`
 }

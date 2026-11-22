@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -222,7 +223,8 @@ SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.tit
             ELSE (t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric)::bigint END AS estimated_total,
        CASE WHEN $5='' THEN 0::real ELSE ts_rank(e.busqueda_publica,plainto_tsquery('public.espacigo_es_unaccent'::regconfig,$5)) END AS relevance_rank,
        attrs.valores AS filter_values,attrs.perfil_version AS filter_profile_version,
-       verification.identity_verified,verification.space_verified
+       verification.identity_verified,verification.space_verified,
+       ` + confirmedLocationSQL + ` AS public_location,e.ubicacion_latitud AS latitude,e.ubicacion_longitud AS longitude
 ` + eligiblePublicSQL + `
 AND ($1='' OR e.categoria_codigo=$1)
   AND ($2='' OR t.modalidad=$2)
@@ -233,15 +235,23 @@ AND ($1='' OR e.categoria_codigo=$1)
   AND ($7='' OR e.comuna_codigo=$7)
   AND ($8::numeric IS NULL OR e.superficie_m2 >= $8::numeric)
   AND ($10::jsonb='{}'::jsonb OR (attrs.perfil_version=$9 AND attrs.valores @> $10::jsonb))
+  AND ($11::timestamptz IS NULL OR (
+    NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($11,$12,'[)'))
+    AND NOT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial ch JOIN public.cotizacion_arriendo_comercial cq ON cq.id=ch.cotizacion_id WHERE ch.espacio_id=e.id AND ch.estado IN ('pending','reconciliation_required') AND (ch.estado='reconciliation_required' OR ch.vence_en>now()) AND cq.inicio<$12 AND $11<cq.termino)
+  ))
 )
 SELECT space_id, categoria_codigo, category_name,titulo,descripcion,area_m2,modalidad,precio_base_clp,moneda,
        category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,cover_source,estimated_total,relevance_rank,
-       identity_verified,space_verified
+       identity_verified,space_verified,public_location
 FROM candidates
 WHERE ($13::bigint IS NULL OR estimated_total >= $13)
   AND ($14::bigint IS NULL OR estimated_total <= $14)`
 	if after != nil {
 		switch f.Sort {
+		case "distance_asc":
+			if after.LastDistanceKM == nil {
+				return nil, publiccatalog.ErrInvalid
+			}
 		case "unit_price_asc":
 			query += ` AND (precio_base_clp,space_id::uuid) > ($15::bigint,$16::uuid)`
 			args = append(args, after.LastUnitPriceCLP, after.LastSpaceID)
@@ -310,7 +320,33 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		query += condition
 	}
+	// Geographic predicates run before ORDER BY/LIMIT for both grid and map.
+	if f.MapOnly || f.Bounds != nil || f.Proximity != nil {
+		query += " AND public_location IS NOT NULL"
+	}
+	if b := f.Bounds; b != nil {
+		args = append(args, b.West, b.South, b.East, b.North)
+		n := len(args) - 3
+		query += " AND longitude >= $" + itoa(n) + "::double precision AND latitude >= $" + itoa(n+1) + "::double precision AND longitude <= $" + itoa(n+2) + "::double precision AND latitude <= $" + itoa(n+3) + "::double precision"
+	}
+	var distanceSQL string
+	if p := f.Proximity; p != nil {
+		args = append(args, p.Latitude, p.Longitude, p.RadiusKM)
+		n := len(args) - 2
+		distanceSQL = "6371.0088 * 2 * asin(sqrt(LEAST(1.0,GREATEST(0.0,power(sin(radians(latitude-$" + itoa(n) + "::double precision)/2),2)+cos(radians(latitude))*cos(radians($" + itoa(n) + "::double precision))*power(sin(radians(longitude-$" + itoa(n+1) + "::double precision)/2),2)))))"
+		candidateDistance := strings.NewReplacer("latitude", "e.ubicacion_latitud", "longitude", "e.ubicacion_longitud").Replace(distanceSQL)
+		query = strings.Replace(query, " AS longitude\n", " AS longitude,"+candidateDistance+" AS distance_km\n", 1)
+		query = strings.Replace(query, "identity_verified,space_verified,public_location\nFROM", "identity_verified,space_verified,public_location,distance_km\nFROM", 1)
+		query += " AND distance_km <= $" + itoa(n+2) + "::double precision"
+		if f.Sort == "distance_asc" && after != nil {
+			args = append(args, *after.LastDistanceKM, after.LastSpaceID)
+			query += " AND (distance_km,space_id::uuid) > ($" + itoa(len(args)-1) + "::double precision,$" + itoa(len(args)) + "::uuid)"
+		}
+	}
+
 	switch f.Sort {
+	case "distance_asc":
+		query += ` ORDER BY distance_km,space_id::uuid`
 	case "unit_price_asc":
 		query += ` ORDER BY precio_base_clp,space_id::uuid`
 	case "unit_price_desc":
@@ -342,8 +378,22 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		v.Images = []publiccatalog.PublicImageRef{}
 		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID, coverSource sql.NullString
 		var estimatedTotal sql.NullInt64
-		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &coverSource, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified); err != nil {
+		var locationJSON []byte
+		dest := []any{&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &coverSource, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &locationJSON}
+		var distance float64
+		if distanceSQL != "" {
+			dest = append(dest, &distance)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
+		}
+		if distanceSQL != "" {
+			v.DistanceKM = &distance
+		}
+		if locationJSON != nil {
+			if err := json.Unmarshal(locationJSON, &v.Location); err != nil {
+				return nil, err
+			}
 		}
 		if timeZone.Valid {
 			v.TimeZone = timeZone.String
@@ -380,22 +430,30 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
   ),'[]'::jsonb)) ORDER BY d.weekday) FROM generate_series(1,7) d(weekday)
  ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`
 
+const confirmedLocationSQL = `CASE WHEN e.ubicacion_confirmada_en IS NOT NULL THEN jsonb_build_object('address',e.direccion,'latitude',e.ubicacion_latitud,'longitude',e.ubicacion_longitud) END`
+
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id)` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
 	var scheduleJSON []byte
+	var locationJSON []byte
 	var hostName sql.NullString
 	var hostJoinedAt time.Time
 	var hostSpacesCount int64
-	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount)
+	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount, &locationJSON)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return publiccatalog.Space{}, publiccatalog.ErrNotFound
 		}
 		return v, err
+	}
+	if locationJSON != nil {
+		if err := json.Unmarshal(locationJSON, &v.Location); err != nil {
+			return publiccatalog.Space{}, err
+		}
 	}
 	var hostPublicName *string
 	if hostName.Valid {

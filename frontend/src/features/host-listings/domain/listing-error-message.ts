@@ -6,6 +6,9 @@ const GENERIC_ERROR =
 export function listingErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return GENERIC_ERROR;
 
+  if (error.code === "location_confirmation_required")
+    return "Confirma la dirección y el pin en Dirección y mapa del espacio. Después vuelve a Publicar sin salir del editor.";
+
   switch (error.status) {
     case 401:
       return "Tu sesión venció. Inicia sesión nuevamente para continuar.";

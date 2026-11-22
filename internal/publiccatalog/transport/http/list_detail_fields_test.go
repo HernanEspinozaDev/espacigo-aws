@@ -65,7 +65,7 @@ func TestPublicSpaceDetailPreservesHostCapacityAndNullTerms(t *testing.T) {
 	if err := json.Unmarshal(body["data"], &data); err != nil {
 		t.Fatal(err)
 	}
-	if string(data["capacity_max"]) != "12" || !strings.Contains(string(data["host"]), "Host público") {
+	if string(data["capacity_max"]) != "12" || !strings.Contains(string(data["host"]), `"name":"Host"`) || strings.Contains(string(data["host"]), "público") {
 		t.Fatalf("detail fields capacity=%s host=%s", data["capacity_max"], data["host"])
 	}
 	for _, field := range []string{"cancellation_policy", "guarantee"} {

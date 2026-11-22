@@ -10,6 +10,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
   }) => {
     const bff = createBffFixtureState();
     let createBody: Record<string, unknown> | null = null;
+    let locationBody: Record<string, unknown> | null = null;
     let availabilityBody: Record<string, unknown> | null = null;
     const weeklyRequests: string[] = [];
     const profile = categoryProfiles.profiles.inmuebles;
@@ -78,6 +79,23 @@ for (const rateUnit of ["dia", "mes"] as const) {
             category_name: "Inmuebles",
             state: "borrador",
             ...createBody,
+          },
+        };
+      } else if (
+        path ===
+          "/api/backend/spaces/00000000-0000-4000-8000-000000000121/location" &&
+        request.method() === "PUT"
+      ) {
+        locationBody = JSON.parse(request.postData() ?? "{}") as Record<
+          string,
+          unknown
+        >;
+        result = {
+          status: 200,
+          headers: { etag: '"wizard-location-v2"' },
+          body: {
+            space_id: "00000000-0000-4000-8000-000000000121",
+            ...locationBody,
           },
         };
       } else if (
@@ -203,6 +221,12 @@ for (const rateUnit of ["dia", "mes"] as const) {
       rate_unit: rateUnit,
       base_price_clp: 5001,
       comuna_code: "13101",
+    });
+    expect(locationBody).toMatchObject({
+      address: "Av. de prueba 100, Santiago",
+      region_code: "13",
+      comuna_code: "13101",
+      public_confirmed: false,
     });
     expect(availabilityBody).toMatchObject({ time_zone: "America/Santiago" });
     expect(JSON.stringify(createBody)).not.toContain("undefined");

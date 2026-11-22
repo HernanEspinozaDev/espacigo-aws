@@ -1,5 +1,6 @@
 import { parseCatalogQuery } from "../domain/query-state";
 import type {
+  PublicMapMarker,
   CatalogQuery,
   CatalogResult,
   PublicCategoryFilter,
@@ -15,6 +16,33 @@ import type { PublicCatalogPort } from "./catalog-port";
 
 export function createPublicCatalogService(port: PublicCatalogPort) {
   return {
+    async mapMarkers(
+      query: CatalogQuery,
+    ): Promise<CatalogResult<PublicMapMarker[]>> {
+      if (!port.listMapMarkers)
+        return { ok: false, error: { kind: "unavailable" } };
+      const items: PublicMapMarker[] = [];
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const result = await port.listMapMarkers({
+          ...query,
+          page_size: 48,
+          cursor,
+        });
+        if (!result.ok) return result;
+        if (!Array.isArray(result.value.items))
+          return { ok: false, error: { kind: "unavailable" } };
+        items.push(...result.value.items);
+        cursor = result.value.next_cursor;
+        if (cursor) {
+          if (seen.has(cursor))
+            return { ok: false, error: { kind: "unavailable" } };
+          seen.add(cursor);
+        }
+      } while (cursor);
+      return { ok: true, value: items };
+    },
     async categories() {
       return port.listCategories();
     },
@@ -46,6 +74,7 @@ export function createPublicCatalogService(port: PublicCatalogPort) {
       return port.listTerms();
     },
   } satisfies {
+    mapMarkers(query: CatalogQuery): Promise<CatalogResult<PublicMapMarker[]>>;
     categories(): Promise<CatalogResult<PublicSpaceCategories>>;
     locations(query?: {
       q?: string;

@@ -343,7 +343,7 @@ func TestSyntheticHTTPFlowAvailabilityQuoteAndContractPreview(t *testing.T) {
 	if err := json.Unmarshal(previewResponse.Body.Bytes(), &previewEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	if previewEnvelope.Data.State != "preview" || previewEnvelope.Data.SpaceTitle != spaceTitle || len(previewEnvelope.Data.Parties) != 2 || previewEnvelope.Data.Parties[0].RUT != "••••1111" || previewEnvelope.Data.Parties[1].RUT != "••••2222" {
+	if previewEnvelope.Data.State != "preview" || previewEnvelope.Data.SpaceTitle != spaceTitle || len(previewEnvelope.Data.Parties) != 2 || previewEnvelope.Data.Parties[0].RUT != "" || previewEnvelope.Data.Parties[1].RUT != "••••2222" {
 		t.Fatalf("unexpected contract preview: %+v", previewEnvelope.Data)
 	}
 	auth.principal.AccountID = ownerID
@@ -354,8 +354,8 @@ func TestSyntheticHTTPFlowAvailabilityQuoteAndContractPreview(t *testing.T) {
 	if ownerPreviewResponse.Code != http.StatusOK || ownerPreviewResponse.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("owner participant preview status=%d cache=%q body=%s", ownerPreviewResponse.Code, ownerPreviewResponse.Header().Get("Cache-Control"), ownerPreviewResponse.Body.String())
 	}
-	if !strings.Contains(ownerPreviewResponse.Body.String(), "Arrendador de prueba") || !strings.Contains(ownerPreviewResponse.Body.String(), "Arrendataria de prueba") {
-		t.Fatalf("owner participant did not receive both verified parties: %s", ownerPreviewResponse.Body.String())
+	if !strings.Contains(ownerPreviewResponse.Body.String(), "Arrendador de prueba") || strings.Contains(ownerPreviewResponse.Body.String(), "Arrendataria de prueba") {
+		t.Fatalf("owner participant preview must include only their own legal identity: %s", ownerPreviewResponse.Body.String())
 	}
 
 	backend.returnListingToAnyState = true

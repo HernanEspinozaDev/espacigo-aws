@@ -39,6 +39,40 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/host/settlements": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar la liquidación mensual del arrendador */
+    get: operations["listHostSettlements"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/settlements/{reservationID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una liquidación del arrendador por reserva propia */
+    get: operations["getHostSettlement"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/host/mercadopago": {
     parameters: {
       query?: never;
@@ -384,6 +418,126 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/rental-contract-capabilities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar si la reserva comercial requiere contrato y firmas */
+    get: operations["getCommercialContractCapabilities"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/{quoteID}/contract-proposal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Preparar una propuesta comercial inmutable a partir de la cotización */
+    post: operations["createCommercialContractProposal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-contract-proposals/{proposalID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una propuesta comercial como participante */
+    get: operations["getCommercialContractProposal"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar las solicitudes en que participa la persona autenticada */
+    get: operations["listCommercialAgreements"];
+    put?: never;
+    /** Firmar la propuesta como arrendatario y enviar la solicitud */
+    post: operations["createCommercialAgreement"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una solicitud y sus firmas como participante */
+    get: operations["getCommercialAgreement"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}/landlord-signature": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Aceptar y firmar como arrendador con retención atómica del horario */
+    put: operations["signCommercialAgreementAsLandlord"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Rechazar como arrendador o retirar como arrendatario */
+    put: operations["decideCommercialAgreement"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/webhooks/mercadopago": {
     parameters: {
       query?: never;
@@ -504,6 +658,60 @@ export interface paths {
     /** Obtener el detalle de una reserva comercial por ID */
     get: operations["getCommercialReservation"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/documents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar documentos y contacto de una reserva pagada como participante */
+    get: operations["getCommercialReservationDocuments"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/contract-document": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Descargar el PDF contractual de una reserva pagada propia */
+    get: operations["downloadCommercialReservationContract"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/rental-tax-document": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    /** Descargar un PDF tributario adjuntado a una reserva pagada propia */
+    get: operations["downloadCommercialReservationTaxPDF"];
+    /** Adjuntar un PDF tributario externo a una reserva propia pagada */
+    put: operations["attachCommercialReservationTaxPDF"];
     post?: never;
     delete?: never;
     options?: never;
@@ -1173,6 +1381,23 @@ export interface paths {
     };
     /** Explorar publicaciones públicas elegibles */
     get: operations["listPublicSpaces"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/public/spaces/map": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar marcadores para publicaciones con ubicación confirmada */
+    get: operations["listPublicSpaceMapMarkers"];
     put?: never;
     post?: never;
     delete?: never;
@@ -2833,6 +3058,183 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/spaces/{spaceId}/commercial-authorization/current": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["getCommercialAuthorization"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/history": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["listCommercialAuthorizationHistory"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/activate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["activateCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["revokeCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/evaluate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["evaluateCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar la ubicación de un espacio propio */
+    get: operations["getOwnSpaceLocation"];
+    /** Actualizar y opcionalmente confirmar la dirección y el pin de un espacio propio */
+    put: operations["updateOwnSpaceLocation"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/draft": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar la plantilla en borrador de un espacio propio */
+    get: operations["getOwnSpaceContractTemplateDraft"];
+    /** Guardar las cláusulas en borrador */
+    put: operations["updateOwnSpaceContractTemplateDraft"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/publish": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Publicar una versión inmutable de la plantilla */
+    post: operations["publishOwnSpaceContractTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar las versiones publicadas de un espacio propio */
+    get: operations["listOwnSpaceContractTemplateVersions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/copy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Copiar una versión publicada desde otro espacio propio al borrador */
+    post: operations["copyOwnSpaceContractTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/spaces/{spaceId}/publication": {
     parameters: {
       query?: never;
@@ -4317,6 +4719,65 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    SpaceLocationInput: {
+      address: string;
+      region_code: string;
+      comuna_code: string;
+      latitude?: number | null;
+      longitude?: number | null;
+      public_confirmed: boolean;
+    };
+    SpaceLocation: {
+      /** Format: uuid */
+      space_id: string;
+      address: string;
+      region_code: string;
+      comuna_code: string;
+      latitude: number | null;
+      longitude: number | null;
+      public_confirmed: boolean;
+      /** Format: date-time */
+      confirmed_at: string | null;
+      revision: number;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    SpaceContractTemplateSection: {
+      key: string;
+      title: string;
+      body: string;
+    };
+    SpaceContractTemplateInput: {
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+    };
+    SpaceContractTemplateCopyInput: {
+      /** Format: uuid */
+      source_space_id: string;
+      source_version: number;
+    };
+    SpaceContractTemplateDraft: {
+      /** Format: uuid */
+      space_id: string;
+      revision: number;
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      published_version: number;
+      /** Format: date-time */
+      updated_at: string | null;
+    };
+    SpaceContractTemplateVersion: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      version: number;
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      sha256: string;
+      /** Format: date-time */
+      published_at: string;
+    };
+    SpaceContractTemplateVersions: {
+      items: components["schemas"]["SpaceContractTemplateVersion"][];
+    };
     MercadoPagoHostConnection: {
       connected: boolean;
       seller_id?: string;
@@ -4682,6 +5143,115 @@ export interface components {
         };
       };
     };
+    HostSettlementItem: {
+      /** Format: uuid */
+      reservation_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      provider_reference: string;
+      /** Format: date-time */
+      verified_at: string;
+      /** @constant */
+      currency: "CLP";
+      test_mode: boolean;
+      /** @enum {string} */
+      fee_policy:
+        "three_percent_plus_vat" | "recorded_fees" | "no_commission_applied";
+      commission_rate_percent: number | null;
+      commission_vat_rate_percent: number | null;
+      gross_clp: string;
+      base_clp: string;
+      commission_clp: string;
+      commission_vat_clp: string;
+      marketplace_fee_clp: string;
+      after_marketplace_fee_clp: string;
+      processor_fee_clp: string | null;
+      adjustments_clp: string | null;
+      reconciled_net_clp: string | null;
+    };
+    HostSettlementSummary: {
+      month: string;
+      /** @constant */
+      time_zone: "America/Santiago";
+      /** @enum {string} */
+      mode: "live" | "test";
+      /** @constant */
+      currency: "CLP";
+      payment_count: number;
+      gross_clp: string;
+      base_clp: string;
+      commission_clp: string;
+      commission_vat_clp: string;
+      marketplace_fee_clp: string;
+      after_marketplace_fee_clp: string;
+      processor_fee_clp: string | null;
+      adjustments_clp: string | null;
+      reconciled_net_clp: string | null;
+    };
+    HostSettlementPage: {
+      summary: components["schemas"]["HostSettlementSummary"];
+      items: components["schemas"]["HostSettlementItem"][];
+      next_cursor: string | null;
+    };
+    CommercialRentalTaxAttachment: {
+      /** Format: uuid */
+      reservation_id: string;
+      /** @constant */
+      state: "ready";
+      sha256: string;
+      size_bytes: number;
+      /** Format: date-time */
+      uploaded_at: string;
+    };
+    CommercialReservationDocuments: {
+      /** Format: uuid */
+      reservation_id: string;
+      participant_role: string;
+      contract: {
+        /** @enum {string} */
+        state:
+          | "pending"
+          | "processing"
+          | "retry"
+          | "ready"
+          | "terminal"
+          | "unavailable";
+        version?: number;
+        sha256?: string;
+        size_bytes?: number;
+        /** Format: date-time */
+        available_at?: string;
+        download_path?: string;
+      };
+      receipt: {
+        /** @constant */
+        kind: "internal_payment_receipt";
+        /** @constant */
+        status: "approved";
+        /** Format: int64 */
+        amount_clp: number | string;
+        /** @constant */
+        currency: "CLP";
+        /** @constant */
+        provider: "mercadopago";
+        provider_reference: string;
+        /** Format: date-time */
+        verified_at: string;
+      };
+      counterpart_contact: {
+        role: string;
+        display_name: string | null;
+        email: string | null;
+        phone: string | null;
+      } | null;
+      rental_tax_document: {
+        /** @enum {string} */
+        state: "not_attached" | "ready";
+        notice: string;
+      };
+      access_instructions: null;
+    };
     CommercialReservation: {
       /** Format: uuid */
       id: string;
@@ -4968,12 +5538,196 @@ export interface components {
     LocalEarlyRentalTransactionsEnvelope: {
       data: components["schemas"]["LocalEarlyRentalTransactions"];
     };
+    CommercialAuthorizationGrant: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      /** Format: uuid */
+      owner_id: string;
+      template_version: number;
+      max_amount_clp: number;
+      /** Format: date-time */
+      valid_from: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      revoked_at: string | null;
+      revoked_by: string;
+      revocation_reason: string;
+    };
+    CommercialAuthorizationEvent: {
+      /** Format: uuid */
+      grant_id: string;
+      /** Format: uuid */
+      space_id: string;
+      /** Format: uuid */
+      actor_id: string;
+      /** @enum {string} */
+      action: "activated" | "revoked";
+      reason: string;
+      /** Format: date-time */
+      occurred_at: string;
+    };
+    CommercialAuthorizationActivation: {
+      template_version: number;
+      max_amount_clp: number;
+      /** Format: date-time */
+      valid_from: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    CommercialAuthorizationRevocation: {
+      /** Format: uuid */
+      authorization_id: string;
+      reason: string;
+    };
+    CommercialAuthorizationEvaluation: {
+      /** Format: uuid */
+      proposal_id: string;
+    };
+    CommercialAuthorizationResult: {
+      authorization: components["schemas"]["CommercialAuthorizationGrant"];
+      /** @constant */
+      human_signature_recorded: false;
+      /** @constant */
+      commercial_activation_enabled: false;
+      notice?: string;
+    };
+    CommercialAuthorizationHistory: {
+      items: components["schemas"]["CommercialAuthorizationEvent"][];
+      /** @constant */
+      human_signature_recorded: false;
+    };
+    CommercialAuthorizationDecision: {
+      decision: {
+        eligible: boolean;
+        reason: string;
+      };
+      /** @constant */
+      manual_review_required: true;
+      /** @constant */
+      human_signature_recorded: false;
+      /** @constant */
+      commercial_activation_enabled: false;
+    };
+    CommercialAgreement: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      proposal_id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      proposal_version: number;
+      snapshot_sha256: string;
+      /** @enum {string} */
+      state:
+        | "pending_landlord"
+        | "ready_for_payment"
+        | "rejected"
+        | "withdrawn"
+        | "expired";
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      payment_expires_at: string | null;
+      revision: number;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      replayed?: boolean;
+      signatures: {
+        /** @enum {string} */
+        role: "arrendador" | "arrendatario";
+        /** Format: date-time */
+        signed_at: string;
+        snapshot_sha256: string;
+        proposal_version: number;
+        /** @constant */
+        consent_version: "commercial-agreement-v1";
+      }[];
+    };
+    CommercialAgreementCreate: {
+      /** Format: uuid */
+      proposal_id: string;
+      snapshot_sha256: string;
+      /** @constant */
+      consent: true;
+      /** @constant */
+      consent_version: "commercial-agreement-v1";
+    };
+    CommercialAgreementSign: {
+      snapshot_sha256: string;
+      /** @constant */
+      consent: true;
+      /** @constant */
+      consent_version: "commercial-agreement-v1";
+    };
+    CommercialAgreementDecision: {
+      snapshot_sha256: string;
+      /** @enum {string} */
+      decision: "reject" | "withdraw";
+    };
+    CommercialContractProposal: {
+      /** Format: uuid */
+      id: string;
+      version: number;
+      sha256: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: uuid */
+      template_id: string;
+      template_version: number;
+      location: {
+        address: string;
+        latitude: number;
+        longitude: number;
+        revision: number;
+        region_code: string;
+        commune_code: string;
+      };
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      rate_version: number;
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      cancellation_policy: {
+        version: string;
+        text: string;
+      };
+      parties: components["schemas"]["RentalContractPartyPreview"][];
+      contact_notice: string;
+      /** Format: date-time */
+      generated_at: string;
+    };
     RentalContractPartyPreview: {
       /** @enum {string} */
       role: "arrendador" | "arrendatario";
-      legal_name: string;
-      /** @description RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) */
-      rut: string;
+      /** @description Verdadero si esta parte es quien consulta. */
+      self: boolean;
+      legal_name?: string;
+      /** @description RUT propio enmascarado. Se omite para la contraparte */
+      rut?: string;
     };
     /** @description Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste. */
     RentalContractPreview: {
@@ -5004,6 +5758,7 @@ export interface components {
       /** @description Zona IANA autoritativa. */
       time_zone: string;
       parties: components["schemas"]["RentalContractPartyPreview"][];
+      contact_notice: string;
       /** Format: date-time */
       generated_at: string;
     };
@@ -5150,6 +5905,30 @@ export interface components {
       identity_verified: boolean;
       space_verified: boolean;
     };
+    PublicSpaceLocation: {
+      address: string;
+      latitude: number;
+      longitude: number;
+    };
+    PublicSpaceMapMarker: {
+      /** Format: uuid */
+      space_id: string;
+      title: string;
+      /** Format: int64 */
+      base_price_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      location: components["schemas"]["PublicSpaceLocation"];
+      distance_km?: number;
+      /** Format: uuid */
+      cover_image_id?: string;
+    };
+    PublicSpaceMapPage: {
+      items: components["schemas"]["PublicSpaceMapMarker"][];
+      next_cursor?: string;
+    };
     PublicSpace: {
       /** Format: uuid */
       space_id: string;
@@ -5164,6 +5943,8 @@ export interface components {
       base_price_clp: number | string;
       /** @constant */
       currency: "CLP";
+      location?: components["schemas"]["PublicSpaceLocation"];
+      distance_km?: number;
       region_code?: string | null;
       region_name?: string | null;
       comuna_code?: string | null;
@@ -5208,6 +5989,7 @@ export interface components {
       base_price_clp: number | string;
       /** @constant */
       currency: "CLP";
+      location?: components["schemas"]["PublicSpaceLocation"];
       region_code?: string | null;
       region_name?: string | null;
       comuna_code?: string | null;
@@ -7752,6 +8534,41 @@ export interface components {
     };
   };
   responses: {
+    /** @description Solicitud y firmas visibles a los participantes. */
+    CommercialAgreementOK: {
+      headers: {
+        "Cache-Control"?: "no-store";
+        ETag?: string;
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["CommercialAgreement"];
+      };
+    };
+    /** @description Propuesta privada con la identidad propia y la contraparte redactada. */
+    CommercialContractProposalOK: {
+      headers: {
+        "Cache-Control"?: "no-store";
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["CommercialContractProposal"];
+        };
+      };
+    };
+    /** @description Borrador actual o actualizado. */
+    SpaceContractTemplateDraftOK: {
+      headers: {
+        ETag?: string;
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["SpaceContractTemplateDraft"];
+        };
+      };
+    };
     /** @description Solicitud de arriendo mal formada o parámetros inválidos; no almacenar la respuesta. */
     RentalBadRequest: {
       headers: {
@@ -8032,6 +8849,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listHostSettlements: {
+    parameters: {
+      query: {
+        month: string;
+        mode?: "live" | "test";
+        cursor?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Liquidación privada basada en el registro de pagos verificados. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["HostSettlementPage"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getHostSettlement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Liquidación privada basada en el registro de pagos verificados. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["HostSettlementItem"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
   getHostMercadoPagoConnection: {
     parameters: {
       query?: never;
@@ -9340,6 +10219,187 @@ export interface operations {
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
+  getCommercialContractCapabilities: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Modo público de contratación, sin información de cuentas ni credenciales. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              manual_contracts_enabled: boolean;
+            };
+          };
+        };
+      };
+    };
+  };
+  createCommercialContractProposal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialContractProposalOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialContractProposal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        proposalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialContractProposalOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialAgreements: {
+    parameters: {
+      query?: {
+        role?: "landlord" | "renter";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Solicitudes ordenadas de más reciente a más antigua. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["CommercialAgreement"][];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+    };
+  };
+  createCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementCreate"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      201: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+    };
+  };
+  getCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+    };
+  };
+  signCommercialAgreementAsLandlord: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementSign"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  decideCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementDecision"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
   receiveMercadoPagoPaymentWebhook: {
     parameters: {
       query?: never;
@@ -9626,6 +10686,134 @@ export interface operations {
       401: components["responses"]["RentalUnauthorized"];
       403: components["responses"]["RentalForbidden"];
       404: components["responses"]["RentalNotFound"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialReservationDocuments: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle privado de documentos y comprobante interno del pago. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialReservationDocuments"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialReservationContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento contractual privado verificado. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          "Content-Disposition"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialReservationTaxPDF: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento tributario externo adjuntado. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          "Content-Disposition"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  attachCommercialReservationTaxPDF: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/pdf": string;
+      };
+    };
+    responses: {
+      /** @description Archivo privado adjuntado después de inspección. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialRentalTaxAttachment"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      /** @description El PDF supera 10 MiB. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Se requiere un PDF. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      422: components["responses"]["RentalUnprocessableEntity"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
@@ -10902,12 +12090,12 @@ export interface operations {
         rate_unit?: "hora" | "dia" | "mes";
         min_unit_price_clp?: number | string;
         max_unit_price_clp?: number | string;
-        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con la tarifa y zona horaria vigentes. */
+        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados */
         start_at?: string;
         end_at?: string;
         min_total_clp?: number | string;
         max_total_clp?: number | string;
-        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. */
+        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad. */
         sort?:
           | "default"
           | "title_asc"
@@ -10916,10 +12104,16 @@ export interface operations {
           | "unit_price_desc"
           | "relevance"
           | "estimated_total_asc"
-          | "estimated_total_desc";
+          | "estimated_total_desc"
+          | "distance_asc";
         /** @description Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48. */
         page_size?: number;
         cursor?: string;
+        /** @description Área oeste,sur,este,norte. Excluyente con el filtro por proximidad. */
+        bbox?: string;
+        latitude?: number;
+        longitude?: number;
+        radius_km?: number;
       };
       header?: never;
       path?: never;
@@ -10934,6 +12128,64 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["PublicSpacePage"];
+        };
+      };
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listPublicSpaceMapMarkers: {
+    parameters: {
+      query?: {
+        /** @description Texto NFC; máximo 120 caracteres. Stopwords o puntuación sin lexemas dan una página vacía. */
+        q?: string;
+        category_code?: string;
+        region_code?: string;
+        comuna_code?: string;
+        /** @description Superficie positiva en m² */
+        min_area_m2?: number;
+        /** @description Repetible hasta 32 veces y requiere category_code. Booleanos conservan `codigo:true|false`; integer/number usan `codigo:gte:valor` y/o `codigo:lte:valor`; enum usa `codigo:eq:opcion`; enum_list usa `codigo:in:opcion1,opcion2` (OR dentro del atributo). Códigos, operadores, opciones, límites y versión se validan contra la allowlist pública y el perfil; duplicados ambiguos dan 422. */
+        attribute?: string[];
+        rate_unit?: "hora" | "dia" | "mes";
+        min_unit_price_clp?: number | string;
+        max_unit_price_clp?: number | string;
+        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados */
+        start_at?: string;
+        end_at?: string;
+        min_total_clp?: number | string;
+        max_total_clp?: number | string;
+        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad. */
+        sort?:
+          | "default"
+          | "title_asc"
+          | "title_desc"
+          | "unit_price_asc"
+          | "unit_price_desc"
+          | "relevance"
+          | "estimated_total_asc"
+          | "estimated_total_desc"
+          | "distance_asc";
+        /** @description Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48. */
+        page_size?: number;
+        cursor?: string;
+        /** @description Área oeste,sur,este,norte. Excluyente con el filtro por proximidad. */
+        bbox?: string;
+        latitude?: number;
+        longitude?: number;
+        radius_km?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de marcadores con cursor independiente. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicSpaceMapPage"];
         };
       };
       422: components["responses"]["UnprocessableEntity"];
@@ -14206,6 +15458,348 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  getCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listCommercialAuthorizationHistory: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationHistory"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  activateCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationActivation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  revokeCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationRevocation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  evaluateCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationEvaluation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationDecision"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getOwnSpaceLocation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ubicación actual. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceLocation"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateOwnSpaceLocation: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceLocationInput"];
+      };
+    };
+    responses: {
+      /** @description Ubicación actualizada. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceLocation"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  getOwnSpaceContractTemplateDraft: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateOwnSpaceContractTemplateDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceContractTemplateInput"];
+      };
+    };
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  publishOwnSpaceContractTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versión publicada. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["SpaceContractTemplateVersion"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  listOwnSpaceContractTemplateVersions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versiones publicadas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["SpaceContractTemplateVersions"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  copyOwnSpaceContractTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceContractTemplateCopyInput"];
+      };
+    };
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   setOwnSpacePublicationState: {

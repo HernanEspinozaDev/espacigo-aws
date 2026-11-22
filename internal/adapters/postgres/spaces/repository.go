@@ -445,6 +445,9 @@ func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, 
 		if draft.State != "borrador" && draft.State != "oculta" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict
 		}
+		if err = requireConfirmedLocationForFirstPublication(ctx, tx, id, draft.State); err != nil {
+			return spaces.Draft{}, err
+		}
 	} else if state == "oculta" {
 		if draft.State != "activa" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict

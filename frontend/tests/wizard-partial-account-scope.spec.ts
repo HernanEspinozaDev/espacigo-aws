@@ -153,7 +153,7 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
     .fill(
       "Descripción sintética suficientemente extensa para validar la recuperación segura del borrador cuando cambia el ámbito de cuenta.",
     );
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-region").selectOption("13");
   await page.locator("#wizard-comuna").selectOption("13101");
   await page
@@ -168,11 +168,11 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
     else if (attribute.type === "boolean") await control.check();
     else await control.fill("1");
   }
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-price").fill("5001");
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.locator("#wizard-timezone")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
   await page
     .getByRole("button", { name: "Crear espacio y continuar a edición" })
@@ -184,11 +184,16 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
     page
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
       .getByRole("alert"),
-  ).toContainText(/sesión cambió.*alta/i);
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("navigation", { name: "Navegación del panel" }),
+  ).toContainText(nextAccountId);
+  await expect(page.locator("#wizard-category")).toHaveValue("");
+  await expect(page.locator("#wizard-title")).toHaveValue("");
   const safeRecoveryLink = page.getByRole("link", {
     name: "Ir a Mis espacios",
   });
-  await expect(safeRecoveryLink).toHaveAttribute("href", "/anfitrion/espacios");
+  await expect(safeRecoveryLink).toHaveCount(0);
   await expect(
     page.getByRole("link", { name: "Ir al editor del borrador" }),
   ).toHaveCount(0);
@@ -196,49 +201,6 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
   expect(availabilityCount).toBe(0);
   expect(weeklyHoursCount).toBe(0);
 
-  const stepper = page.getByRole("navigation", {
-    name: "Pasos del asistente de publicación",
-  });
-  await page.locator("#wizard-category").selectOption("inmuebles");
-  await page
-    .locator("#wizard-title")
-    .fill("Borrador sintético con cambio de cuenta");
-  await page
-    .locator("#wizard-description")
-    .fill(
-      "Descripción sintética suficientemente extensa para validar la recuperación segura del borrador cuando cambia el ámbito de cuenta.",
-    );
-  await page.getByRole("button", { name: "Siguiente" }).click();
-  await page.locator("#wizard-region").selectOption("13");
-  await page.locator("#wizard-comuna").selectOption("13101");
-  await page
-    .locator("#wizard-address")
-    .fill("Dirección sintética 122, Santiago");
-  await page.locator("#wizard-area").fill("40");
-  await page.locator("#wizard-capacity").fill("2");
-  for (const attribute of profile.attributes.filter((item) => item.required)) {
-    const control = page.locator(`#attr-${attribute.code}`);
-    if (attribute.type === "enum")
-      await control.selectOption(attribute.options![0]!);
-    else if (attribute.type === "boolean") await control.check();
-    else await control.fill("1");
-  }
-  await page.getByRole("button", { name: "Siguiente" }).click();
-  await page.locator("#wizard-price").fill("5001");
-  await page.getByRole("button", { name: "Siguiente" }).click();
-  await expect(page.locator("#wizard-timezone")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente" }).click();
-  const createButton = page.getByRole("button", {
-    name: "Crear espacio y continuar a edición",
-  });
-  await expect(createButton).toBeDisabled();
-  expect(createCount).toBe(1);
-
-  await stepper.getByRole("button", { name: /Tipo y Resumen/ }).click();
-  await expect(safeRecoveryLink).toBeVisible();
-  await expect(safeRecoveryLink).toHaveAttribute("href", "/anfitrion/espacios");
-  await stepper.getByRole("button", { name: /Confirmación/ }).click();
-  await expect(createButton).toBeDisabled();
   expect(createCount).toBe(1);
 
   const accountNavigation = page.getByRole("navigation", {
@@ -253,6 +215,8 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
   await page.waitForURL((url) => url.pathname === "/anfitrion/espacios");
   await page.getByRole("link", { name: "Publicar un espacio" }).click();
   await page.waitForURL((url) => url.pathname === "/anfitrion/espacios/nuevo");
+  await expect(page.locator("#wizard-category")).toHaveValue("");
+  await expect(page.locator("#wizard-title")).toHaveValue("");
   await expect(
     page
       .getByRole("region", { name: "Contenido de la sección de cuenta" })

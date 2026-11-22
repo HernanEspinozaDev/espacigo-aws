@@ -10,6 +10,7 @@ import type {
 const MAX_INT64 = BigInt("9223372036854775807");
 const SORTS = [
   "default",
+  "distance_asc",
   "title_asc",
   "title_desc",
   "unit_price_asc",
@@ -175,6 +176,39 @@ export function parseCatalogQuery(
   }
 
   Object.assign(query, validInterval(params));
+  const bbox = single(params, "bbox");
+  if (bbox) {
+    const v = bbox.split(",").map(Number);
+    if (
+      v.length === 4 &&
+      v.every(Number.isFinite) &&
+      v[0]! >= -180 &&
+      v[2]! <= 180 &&
+      v[1]! >= -90 &&
+      v[3]! <= 90 &&
+      v[0]! < v[2]! &&
+      v[1]! < v[3]!
+    )
+      query.bbox = bbox;
+  }
+  const lat = single(params, "latitude"),
+    lon = single(params, "longitude"),
+    radius = single(params, "radius_km");
+  if (
+    !bbox &&
+    lat &&
+    lon &&
+    radius &&
+    [lat, lon, radius].every((v) => Number.isFinite(Number(v))) &&
+    Math.abs(Number(lat)) <= 90 &&
+    Math.abs(Number(lon)) <= 180 &&
+    Number(radius) >= 1 &&
+    Number(radius) <= 200
+  ) {
+    query.latitude = lat;
+    query.longitude = lon;
+    query.radius_km = radius;
+  }
   const sort = single(params, "sort");
   if (sort && (SORTS as readonly string[]).includes(sort)) {
     const candidate = sort as CatalogSort;
@@ -185,6 +219,7 @@ export function parseCatalogQuery(
       candidate === "estimated_total_desc";
     if (
       (!unitSort || query.rate_unit) &&
+      (candidate !== "distance_asc" || query.latitude !== undefined) &&
       (candidate !== "relevance" || query.q) &&
       (!totalSort || (query.start_at && query.end_at))
     ) {
@@ -211,6 +246,10 @@ export function parseCatalogQuery(
 export function serializeCatalogQuery(query: CatalogQuery): URLSearchParams {
   const params = new URLSearchParams();
   const scalarKeys = [
+    "bbox",
+    "latitude",
+    "longitude",
+    "radius_km",
     "q",
     "category_code",
     "region_code",
@@ -244,6 +283,8 @@ export function withoutCursor(query: CatalogQuery): CatalogQuery {
 
 export function hasCatalogFilters(query: CatalogQuery): boolean {
   return Boolean(
+    query.bbox ||
+    query.latitude ||
     query.q ||
     query.category_code ||
     query.region_code ||

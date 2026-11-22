@@ -178,9 +178,17 @@ test("public space adapters keep allowlisted fields and strip unknown private da
     "PRIVATE_IMAGE_KEY_MARKER",
     "PRIVATE_REVIEWER_MARKER",
     "PRIVATE_SCHEDULE_MARKER",
+    "PRIVATE_LOCATION_MARKER",
   ];
   const wire = {
     ...fixture,
+    location: {
+      address: "Calle Pública 123",
+      latitude: -33.45,
+      longitude: -70.66,
+      owner_contact: hiddenMarkers[7],
+    },
+    distance_km: 1.25,
     region_code: "13",
     region_name: "Región Metropolitana de Santiago",
     comuna_code: "13123",
@@ -260,9 +268,11 @@ test("public space adapters keep allowlisted fields and strip unknown private da
       "cover_image_id",
       "currency",
       "description",
+      "distance_km",
       "estimated_total_clp",
       "features",
       "images",
+      "location",
       "rate_unit",
       "region_code",
       "region_name",
@@ -287,6 +297,7 @@ test("public space adapters keep allowlisted fields and strip unknown private da
       "guarantee",
       "host",
       "images",
+      "location",
       "rate_unit",
       "region_code",
       "region_name",
@@ -298,6 +309,12 @@ test("public space adapters keep allowlisted fields and strip unknown private da
     ]);
 
     for (const value of [listSpace, detailSpace]) {
+      assert.deepEqual(value.location, {
+        address: "Calle Pública 123",
+        latitude: -33.45,
+        longitude: -70.66,
+      });
+      assert.equal(value.distance_km, value === listSpace ? 1.25 : undefined);
       const serialized = JSON.stringify(value);
       for (const marker of hiddenMarkers)
         assert.equal(serialized.includes(marker), false, `${marker} leaked`);
@@ -606,6 +623,77 @@ test("public detail accepts unordered non-overlapping periods without reordering
 test("verification disclaimers are readable without relying on hover titles", () => {
   const markup = render({ identityVerified: true, spaceVerified: true });
   assert.match(markup, /class="sr-only"[^>]*>[^<]*no acredita/);
+});
+
+test("map adapter strips nested private data and retains exact CLP without conversion", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    Response.json({
+      items: [
+        {
+          space_id: fixture.space_id,
+          title: "Sala",
+          base_price_clp: "9223372036854775807",
+          currency: "CLP",
+          rate_unit: "hora",
+          location: {
+            address: "Calle 123",
+            latitude: -33.45,
+            longitude: -70.66,
+            private_contact: "PRIVATE_MAP_CONTACT",
+          },
+          owner_id: "PRIVATE_MAP_OWNER",
+        },
+      ],
+      next_cursor: "opaque-map-cursor",
+      private_metadata: "PRIVATE_PAGE",
+    });
+  try {
+    const result = await adapter.listMapMarkers({
+      attribute: [],
+      bbox: "-71,-34,-70,-33",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.value.items[0].base_price_clp, "9223372036854775807");
+    assert.equal(result.value.next_cursor, "opaque-map-cursor");
+    assert.equal(JSON.stringify(result.value).includes("PRIVATE_"), false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("map facade exhausts its own pages and preserves filters independently of grid cursor", async () => {
+  const { createPublicCatalogService } = await compile(
+    "src/features/public-catalog/application/catalog-service.ts",
+    "catalog-service.mjs",
+    [["../domain/query-state", "./query-state.mjs"]],
+  );
+  const calls = [];
+  const service = createPublicCatalogService({
+    async listMapMarkers(query) {
+      calls.push(query);
+      return {
+        ok: true,
+        value: {
+          items: [{ space_id: query.cursor ? "second" : "first" }],
+          ...(query.cursor ? {} : { next_cursor: "map-next" }),
+        },
+      };
+    },
+  });
+  const result = await service.mapMarkers({
+    attribute: [],
+    cursor: "grid-cursor",
+    bbox: "-71,-34,-70,-33",
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.value.map((item) => item.space_id),
+    ["first", "second"],
+  );
+  assert.equal(calls[0].cursor, undefined);
+  assert.equal(calls[1].cursor, "map-next");
+  assert.equal(calls[1].bbox, "-71,-34,-70,-33");
 });
 
 test.after(async () => rm(temporary, { recursive: true, force: true }));

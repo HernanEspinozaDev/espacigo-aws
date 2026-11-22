@@ -19,6 +19,8 @@ import { publicVerification } from "../domain/verification";
 import type { components } from "@/lib/api/generated/openapi";
 
 const publicSpaceFields = [
+  "location",
+  "distance_km",
   "space_id",
   "category_code",
   "category_name",
@@ -40,6 +42,7 @@ const publicSpaceFields = [
 ] as const satisfies readonly (keyof components["schemas"]["PublicSpace"])[];
 
 const publicSpaceDetailFields = [
+  "location",
   "space_id",
   "category_code",
   "category_name",
@@ -223,10 +226,44 @@ function publicWeeklySchedule(
   };
 }
 
+function publicLocation(
+  value: unknown,
+): components["schemas"]["PublicSpaceLocation"] | undefined {
+  const location = publicRecord(value);
+  if (
+    !location ||
+    typeof location.address !== "string" ||
+    typeof location.latitude !== "number" ||
+    typeof location.longitude !== "number" ||
+    !Number.isFinite(location.latitude) ||
+    !Number.isFinite(location.longitude) ||
+    Math.abs(location.latitude) > 90 ||
+    Math.abs(location.longitude) > 180
+  )
+    return undefined;
+  return {
+    address: location.address,
+    latitude: location.latitude,
+    longitude: location.longitude,
+  };
+}
+function locationProjection(details: Record<string, unknown>) {
+  const location = publicLocation(details.location);
+  if (location) details.location = location;
+  else delete details.location;
+  if (
+    typeof details.distance_km !== "number" ||
+    !Number.isFinite(details.distance_km) ||
+    details.distance_km < 0
+  )
+    delete details.distance_km;
+}
+
 function adaptPublicSpace(
   space: components["schemas"]["PublicSpace"],
 ): PublicSpace {
   const details = pickPublicFields(space, publicSpaceFields);
+  locationProjection(details);
   return {
     ...details,
     features: publicFeatures(space.features),
@@ -339,6 +376,7 @@ function adaptPublicSpaceDetail(
   )
     return undefined;
   const details = pickPublicFields(space, publicSpaceDetailFields);
+  locationProjection(details);
   details.host = publicSpaceHost(space.host);
   details.attributes = publicSpaceAttributes(space.attributes);
   details.cancellation_policy = null;
@@ -418,6 +456,73 @@ function pathWithQuery(path: string, query: URLSearchParams): string {
 }
 
 export const goPublicCatalogAdapter: PublicCatalogPort = {
+  listMapMarkers(query: CatalogQuery) {
+    return requestJson<components["schemas"]["PublicSpaceMapPage"]>(
+      pathWithQuery("/public/spaces/map", serializeCatalogQuery(query)),
+    ).then(
+      (result): CatalogResult<components["schemas"]["PublicSpaceMapPage"]> => {
+        if (!result.ok) return result;
+        const page = publicRecord(result.value);
+        if (!page || !Array.isArray(page.items))
+          return malformedCatalogResponse();
+        const items: components["schemas"]["PublicSpaceMapMarker"][] = [];
+        for (const raw of page.items) {
+          const item = publicRecord(raw);
+          const location = publicLocation(item?.location);
+          if (
+            !item ||
+            !location ||
+            typeof item.space_id !== "string" ||
+            typeof item.title !== "string" ||
+            item.currency !== "CLP" ||
+            !(
+              item.rate_unit === "hora" ||
+              item.rate_unit === "dia" ||
+              item.rate_unit === "mes"
+            ) ||
+            !(
+              typeof item.base_price_clp === "string" ||
+              typeof item.base_price_clp === "number"
+            )
+          )
+            return malformedCatalogResponse();
+          const distance =
+            typeof item.distance_km === "number" &&
+            Number.isFinite(item.distance_km) &&
+            item.distance_km >= 0
+              ? item.distance_km
+              : undefined;
+          items.push({
+            space_id: item.space_id,
+            title: item.title,
+            base_price_clp: item.base_price_clp,
+            currency: "CLP",
+            rate_unit: item.rate_unit,
+            location,
+            ...(distance !== undefined ? { distance_km: distance } : {}),
+            ...(typeof item.cover_image_id === "string"
+              ? { cover_image_id: item.cover_image_id }
+              : {}),
+          });
+        }
+        if (
+          page.next_cursor !== undefined &&
+          (typeof page.next_cursor !== "string" ||
+            page.next_cursor.length > 4096)
+        )
+          return malformedCatalogResponse();
+        return {
+          ok: true,
+          value: {
+            items,
+            ...(typeof page.next_cursor === "string"
+              ? { next_cursor: page.next_cursor }
+              : {}),
+          },
+        };
+      },
+    );
+  },
   listSpaces(query: CatalogQuery) {
     return requestJson<components["schemas"]["PublicSpacePage"]>(
       pathWithQuery("/public/spaces", serializeCatalogQuery(query)),

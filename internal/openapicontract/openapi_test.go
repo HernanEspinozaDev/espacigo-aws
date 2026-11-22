@@ -41,7 +41,7 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 			properties: []string{
 				"space_id", "category_code", "category_name", "title", "description", "area_m2", "rate_unit",
 				"base_price_clp", "currency", "region_code", "region_name", "comuna_code", "comuna_name",
-				"estimated_total_clp", "cover_image_id", "features", "images", "verification",
+				"estimated_total_clp", "cover_image_id", "features", "images", "verification", "location", "distance_km",
 			},
 			required: []string{
 				"space_id", "category_code", "category_name", "title", "description", "area_m2", "rate_unit",
@@ -53,7 +53,7 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 			properties: []string{
 				"space_id", "category_code", "category_name", "title", "description", "area_m2", "capacity_max", "rate_unit",
 				"base_price_clp", "currency", "region_code", "region_name", "comuna_code", "comuna_name",
-				"estimated_total_clp", "usage_rules", "features", "images", "weekly_schedule", "verification",
+				"estimated_total_clp", "usage_rules", "features", "images", "weekly_schedule", "verification", "location",
 				"host", "attributes", "cancellation_policy", "guarantee",
 			},
 			required: []string{
@@ -61,6 +61,16 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 				"base_price_clp", "currency", "estimated_total_clp", "usage_rules", "features", "images",
 				"host", "attributes", "cancellation_policy", "guarantee",
 			},
+		},
+		{
+			name:       "PublicSpaceLocation",
+			properties: []string{"address", "latitude", "longitude"},
+			required:   []string{"address", "latitude", "longitude"},
+		},
+		{
+			name:       "PublicSpaceMapMarker",
+			properties: []string{"space_id", "title", "base_price_clp", "currency", "rate_unit", "location", "cover_image_id", "distance_km"},
+			required:   []string{"space_id", "title", "base_price_clp", "currency", "rate_unit", "location"},
 		},
 		{
 			name:       "PublicSpaceHost",
@@ -252,8 +262,8 @@ func TestPublishedRentalContractsSeparatePublicAvailabilityFromAuthenticatedDraf
 	assertSchemaPropertyKeys(t, schemas, "CreateRentalQuoteRequest", "space_id", "start_at", "end_at")
 	assertSchemaPropertyKeys(t, schemas, "RentalQuote", "id", "space_id", "space_title", "rate_unit", "unit_price_clp", "currency", "units", "subtotal_clp", "start_at", "end_at", "time_zone", "created_at", "expires_at")
 	assertSchemaPropertyKeys(t, schemas, "RentalQuoteEnvelope", "data")
-	assertSchemaPropertyKeys(t, schemas, "RentalContractPartyPreview", "role", "legal_name", "rut")
-	assertSchemaPropertyKeys(t, schemas, "RentalContractPreview", "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "generated_at")
+	assertSchemaPropertyKeys(t, schemas, "RentalContractPartyPreview", "role", "self", "legal_name", "rut")
+	assertSchemaPropertyKeys(t, schemas, "RentalContractPreview", "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "contact_notice", "generated_at")
 	assertSchemaPropertyKeys(t, schemas, "RentalContractPreviewEnvelope", "data")
 	assertSchemaRequiredKeys(t, schemas, "RentalInterval", "start_at", "end_at")
 	assertSchemaRequiredKeys(t, schemas, "PublicRentalAvailability", "space_id", "time_zone", "rate_unit", "checked_at", "items")
@@ -261,8 +271,8 @@ func TestPublishedRentalContractsSeparatePublicAvailabilityFromAuthenticatedDraf
 	assertSchemaRequiredKeys(t, schemas, "CreateRentalQuoteRequest", "space_id", "start_at", "end_at")
 	assertSchemaRequiredKeys(t, schemas, "RentalQuote", "id", "space_id", "space_title", "rate_unit", "unit_price_clp", "currency", "units", "subtotal_clp", "start_at", "end_at", "time_zone", "created_at", "expires_at")
 	assertSchemaRequiredKeys(t, schemas, "RentalQuoteEnvelope", "data")
-	assertSchemaRequiredKeys(t, schemas, "RentalContractPartyPreview", "role", "legal_name", "rut")
-	assertSchemaRequiredKeys(t, schemas, "RentalContractPreview", "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "generated_at")
+	assertSchemaRequiredKeys(t, schemas, "RentalContractPartyPreview", "role", "self")
+	assertSchemaRequiredKeys(t, schemas, "RentalContractPreview", "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "contact_notice", "generated_at")
 	assertSchemaRequiredKeys(t, schemas, "RentalContractPreviewEnvelope", "data")
 	for _, schemaName := range []string{"RentalInterval", "PublicRentalAvailability", "RentalAvailabilityEnvelope", "CreateRentalQuoteRequest", "RentalQuote", "RentalQuoteEnvelope", "RentalContractPartyPreview", "RentalContractPreview", "RentalContractPreviewEnvelope"} {
 		schema := nodeAt(t, schemas, schemaName)
@@ -346,13 +356,13 @@ func TestRuntimeJSONDTOFieldsMatchOpenAPISchemas(t *testing.T) {
 		RateUnit: "hora", UnitPriceCLP: 12000, Currency: "CLP", Units: 1, SubtotalCLP: 12000,
 		StartAt: startAt, EndAt: endAt, TimeZone: availability.TimeZone, CreatedAt: createdAt, ExpiresAt: startAt,
 	}
-	owner := rentalflow.ContractParty{Role: "arrendador", LegalName: "Propietario Sintético", RUT: "12345678-5"}
-	renter := rentalflow.ContractParty{Role: "arrendatario", LegalName: "Arrendatario Sintético", RUT: "87654321-4"}
+	owner := rentalflow.ContractParty{Role: "arrendador", Self: true, LegalName: "Propietario Sintético", RUT: "••••6785"}
+	renter := rentalflow.ContractParty{Role: "arrendatario"}
 	preview := rentalflow.ContractPreview{
 		State: "preview", QuoteID: quote.ID, SpaceID: quote.SpaceID, SpaceTitle: quote.SpaceTitle,
 		RateUnit: quote.RateUnit, UnitPriceCLP: quote.UnitPriceCLP, Units: quote.Units, SubtotalCLP: quote.SubtotalCLP,
 		Currency: quote.Currency, StartAt: quote.StartAt, EndAt: quote.EndAt, TimeZone: quote.TimeZone,
-		Parties: []rentalflow.ContractParty{owner, renter}, GeneratedAt: createdAt,
+		Parties: []rentalflow.ContractParty{owner, renter}, GeneratedAt: createdAt, ContactNotice: rentalflow.ContractContactNotice,
 	}
 	cases := []struct {
 		name   string
@@ -389,30 +399,28 @@ func TestRuntimeJSONDTOFieldsMatchOpenAPISchemas(t *testing.T) {
 			}
 			schema := nodeAt(t, schemas, tc.schema)
 			schemaProperties := nodeAt(t, schema, "properties")
-			if schemaProperties.Kind != yaml.MappingNode || len(schemaProperties.Content) != len(runtimeProperties)*2 {
-				t.Fatalf("runtime DTO fields=%v, OpenAPI %s properties=%v", runtimeProperties, tc.name, schemaProperties.Content)
+			if schemaProperties.Kind != yaml.MappingNode {
+				t.Fatalf("invalid OpenAPI properties for %s", tc.name)
 			}
 			required := nodeAt(t, schema, "required")
-			if required.Kind != yaml.SequenceNode || len(required.Content) != len(runtimeProperties) {
-				t.Fatalf("runtime %s emits %d fields, OpenAPI required=%v", tc.name, len(runtimeProperties), required.Content)
+			if required.Kind != yaml.SequenceNode {
+				t.Fatalf("invalid OpenAPI required fields for %s", tc.name)
+			}
+			for _, field := range required.Content {
+				if _, ok := runtimeProperties[field.Value]; !ok {
+					t.Fatalf("runtime %s omitted required field %q", tc.name, field.Value)
+				}
 			}
 			for key := range runtimeProperties {
-				found := false
-				for _, requiredKey := range required.Content {
-					if requiredKey.Value == key {
-						found = true
-						break
-					}
-				}
-				if !found {
-					t.Fatalf("runtime %s emits %q but OpenAPI does not require it", tc.name, key)
+				if _, ok := optionalMappingValue(schemaProperties, key); !ok {
+					t.Fatalf("runtime %s emitted undeclared field %q", tc.name, key)
 				}
 			}
 			for i := 0; i < len(schemaProperties.Content); i += 2 {
 				key := schemaProperties.Content[i].Value
 				runtimeValue, ok := runtimeProperties[key]
 				if !ok {
-					t.Fatalf("OpenAPI %s declares %q absent from runtime JSON %s", tc.name, key, encoded)
+					continue
 				}
 				property := schemaProperties.Content[i+1]
 				if _, isReference := optionalMappingValue(property, "$ref"); isReference {

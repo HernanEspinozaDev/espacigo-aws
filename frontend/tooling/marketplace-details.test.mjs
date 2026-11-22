@@ -60,9 +60,11 @@ const localRequire = (id) =>
         ? {}
         : id === "../domain/presentation"
           ? presentationModule.exports
-          : id === "./public-host-avatar"
-            ? { PublicHostAvatar: hostAvatar }
-            : require(id);
+          : id === "./public-space-location"
+            ? { PublicSpaceLocation: () => null }
+            : id === "./public-host-avatar"
+              ? { PublicHostAvatar: hostAvatar }
+              : require(id);
 new Function("require", "module", "exports", output.outputText)(
   localRequire,
   componentModule,

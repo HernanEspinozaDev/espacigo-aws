@@ -21,6 +21,10 @@ import type {
 } from "../domain/types";
 
 const scalarKeys = [
+  "bbox",
+  "latitude",
+  "longitude",
+  "radius_km",
   "q",
   "category_code",
   "region_code",
@@ -430,6 +434,11 @@ function FilterForm({
       onSubmit={onSubmit}
       className="space-y-5"
     >
+      {(["bbox", "latitude", "longitude", "radius_km"] as const).map((key) =>
+        query[key] !== undefined ? (
+          <input key={key} type="hidden" name={key} value={query[key]} />
+        ) : null,
+      )}
       {query.sort ? (
         <input type="hidden" name="sort" value={query.sort} />
       ) : null}

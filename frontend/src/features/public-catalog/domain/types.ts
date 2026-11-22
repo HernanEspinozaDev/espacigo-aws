@@ -23,6 +23,10 @@ export type CatalogSort = NonNullable<
 >;
 
 export type CatalogQuery = {
+  bbox?: string;
+  latitude?: string;
+  longitude?: string;
+  radius_km?: string;
   q?: string;
   category_code?: string;
   region_code?: string;
@@ -63,3 +67,6 @@ export type PublicSpaceCategories =
 export type PublicCategoryFilters =
   components["schemas"]["PublicCategoryFilters"];
 export type PublicLocations = components["schemas"]["PublicLocations"];
+
+export type PublicMapMarker = components["schemas"]["PublicSpaceMapMarker"];
+export type PublicMapPage = components["schemas"]["PublicSpaceMapPage"];
