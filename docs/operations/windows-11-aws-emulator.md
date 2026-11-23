@@ -37,6 +37,7 @@ En Windows, crea `%UserProfile%\.wslconfig` directamente desde **PowerShell** (e
 ```powershell
 @"
 [wsl2]
+networkingMode=mirrored
 localhostForwarding=true
 memory=8GB
 "@ | Set-Content -Path "$env:USERPROFILE\.wslconfig" -Encoding utf8
@@ -63,7 +64,9 @@ docker version
 docker compose version
 ```
 
-> Si `docker version` muestra tanto **Client** como **Server**, la integración está lista. Si aparece `npipe:////./pipe/docker_engine`, verifica que Docker Desktop esté abierto (**Engine running**) y ejecuta `wsl --shutdown` en PowerShell antes de reabrir Ubuntu.
+> - Si sale `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`: agrega tu usuario al grupo `docker` con `sudo usermod -aG docker "$USER" && newgrp docker`.
+> - Si sale `Cannot connect to the Docker daemon` y `ls -la /var/run/docker.sock` muestra un socket local en vez de apuntar a `/mnt/wsl/...`, desinstala un `docker.io` previo (`sudo apt-get remove -y docker.io docker-compose`) y reinicia WSL con `wsl --shutdown` desde PowerShell mientras Docker Desktop está abierto.
+> - Si `docker version` muestra tanto **Client** como **Server**, la integración está lista.
 
 ---
 
@@ -257,8 +260,8 @@ docker compose --env-file .local/compose-db.env -f compose.yaml -f .local/compos
 docker ps --filter "name=espacigo_localbackend_20261024-database-1"
 ```
 
-3. **Inicializa los roles base en PostgreSQL (solo la primera vez en una BD vacía):**
-   `compose.yaml` crea `espacigo_admin` y `espacigo_runtime`, pero `scripts/local-dev.sh` también requiere `espacigo_api_login`, `espacigo_schema_owner` y `espacigo_migrator_login`. Si partes desde una base vacía (sin restaurar un dump previo):
+3. **Inicializa los roles base y restaura el dump base en PostgreSQL (solo la primera vez):**
+   `compose.yaml` crea `espacigo_admin` y `espacigo_runtime`, pero `scripts/local-dev.sh` también requiere `espacigo_api_login`, `espacigo_schema_owner` y `espacigo_migrator_login`:
 
 ```bash
 ADMIN_PASS="$(cat .local/secrets/db_admin_password)"
@@ -273,28 +276,100 @@ GRANT espacigo_schema_owner TO espacigo_migrator_login WITH SET OPTION;
 SQL
 ```
 
-   > Si el equipo te comparte un dump base de `espacigo_aws_local`, restáuralo aquí con `psql` / `pg_restore` antes del siguiente paso.
+   > **Importante sobre las migraciones (`V99`):** el migrador genérico (`./scripts/local-dev.sh migrate`) bloquea a propósito `V000099` (`V99 requires the dedicated E1 operation`), por lo que **no se puede migrar desde `0` en una base vacía**. Pide al equipo un dump base (`espacigo_base.dump`) y restáuralo en el contenedor:
 
-4. **Ejecuta el bootstrap completo, migraciones y verificación:**
-   En Docker Desktop sobre Windows 11, exporta `ESPACIGO_LOCAL_DB_HOST=127.0.0.1` y `ESPACIGO_LOCAL_DB_PORT=5432` (porque las IPs internas `172.x.x.x` de los contenedores no son accesibles desde WSL2). `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, permisos de `espacigo_runtime`, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
+```bash
+docker cp ~/espacigo_base.dump espacigo_localbackend_20261024-database-1:/tmp/espacigo_base.dump
+docker exec -e PGPASSWORD="$ADMIN_PASS" espacigo_localbackend_20261024-database-1 \
+  pg_restore -U espacigo_admin -d espacigo_aws_local --clean --if-exists --no-owner --no-acl /tmp/espacigo_base.dump
+```
+
+   *(Es normal si `pg_restore` reporta algún aviso menor en tablas de ensayo como `reserva_ensayo_*`).*
+
+   Inmediatamente después de restaurar con `--no-owner --no-acl`, otorga los permisos explícitos a `espacigo_runtime` (si faltan, el login mostrará `"No pudimos verificar documentos completos y vigentes"` y `permission denied for table version_terminos`):
+
+```bash
+docker exec -i -e PGPASSWORD="$ADMIN_PASS" espacigo_localbackend_20261024-database-1 \
+  psql -v ON_ERROR_STOP=1 -U espacigo_admin -d espacigo_aws_local <<'SQL'
+GRANT USAGE ON SCHEMA public TO espacigo_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO espacigo_runtime;
+GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO espacigo_runtime;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
+SQL
+```
+
+4. **Ejecuta el bootstrap completo y verifica el entorno:**
+   En Docker Desktop sobre Windows 11, exporta `ESPACIGO_LOCAL_DB_HOST=127.0.0.1` y `ESPACIGO_LOCAL_DB_PORT=5432` (porque las IPs internas `172.x.x.x` de los contenedores no son accesibles desde WSL2). `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
 
 ```bash
 export ESPACIGO_LOCAL_DB_HOST=127.0.0.1
 export ESPACIGO_LOCAL_DB_PORT=5432
 ./scripts/local-dev.sh bootstrap
-./scripts/local-dev.sh migrate-plan
-./scripts/local-dev.sh migrate
 ./scripts/local-dev.sh status
 ```
 
 ---
 
-## 7. Ejecutar la API, el Frontend y las pruebas
+## 7. Ejecutar la API, el Frontend y script de inicio diario
 
-Abre terminales separadas en WSL2 (o usa VS Code / Cursor en Windows conectado con la extensión **WSL**):
+### Opción A: En segundo plano con `nohup` (script `~/iniciar-espacigo.sh`)
+
+Cada vez que reinicies Windows 11 y abras Docker Desktop (**Engine running**), puedes levantar todo con un solo comando creando `~/iniciar-espacigo.sh`:
+
+```bash
+cat <<'EOF' > ~/iniciar-espacigo.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd ~/proyectos/espacigo-aws
+mkdir -p .local/logs ~/.aws/emulator
+
+export PATH="/usr/local/go/bin:$HOME/go/bin:$HOME/.local/bin:$PATH"
+[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+
+export ESPACIGO_LOCAL_DB_HOST=127.0.0.1
+export ESPACIGO_LOCAL_DB_PORT=5432
+
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: Docker Desktop no está corriendo. Ábrelo en Windows y espera a 'Engine running'." >&2
+  exit 1
+fi
+
+docker compose --env-file .local/compose-db.env -f compose.yaml -f .local/compose-db-ports.yaml up -d database
+docker start espacigo-mailpit >/dev/null 2>&1 || true
+
+if ! pgrep -f "aws-emulator" >/dev/null 2>&1; then
+  nohup aws-emulator -b 127.0.0.1 -p 9297 > ~/.aws/emulator/9297.log 2>&1 &
+  sleep 2
+fi
+
+pkill -f "cmd/api" >/dev/null 2>&1 || true
+pkill -f "/api" >/dev/null 2>&1 || true
+pkill -f "next dev" >/dev/null 2>&1 || true
+sleep 1
+
+nohup ./scripts/local-dev.sh api > .local/logs/api.log 2>&1 &
+nohup ./scripts/local-dev.sh web > .local/logs/web.log 2>&1 &
+
+sleep 6
+./scripts/local-dev.sh status
+echo "EspaciGo: http://localhost:3000 | Mailpit: http://localhost:8025"
+EOF
+chmod +x ~/iniciar-espacigo.sh
+```
+
+Ejecútalo después de cada reinicio con:
+
+```bash
+~/iniciar-espacigo.sh
+```
+
+### Opción B: En terminales separadas en WSL2
 
 - **Terminal 1 (Backend Go en `:8080`):**
   ```bash
+  export ESPACIGO_LOCAL_DB_HOST=127.0.0.1
+  export ESPACIGO_LOCAL_DB_PORT=5432
   ./scripts/local-dev.sh api
   ```
 - **Terminal 2 (Frontend Next.js en `:3000`):**
@@ -307,8 +382,8 @@ Abre terminales separadas en WSL2 (o usa VS Code / Cursor en Windows conectado c
   ```
 
 Desde tu navegador en **Windows 11**:
-- **Aplicación web:** `http://127.0.0.1:3000`
-- **Bandeja de correos (Mailpit):** `http://127.0.0.1:8025`
+- **Aplicación web:** `http://localhost:3000`
+- **Bandeja de correos (Mailpit):** `http://localhost:8025`
 
 ---
 
@@ -330,8 +405,12 @@ git push origin kyb
 ## 9. Solución de problemas frecuentes en Windows 11
 
 - **`open //./pipe/docker_engine: The system cannot find the file specified`:** Docker Desktop no está corriendo o falta habilitar la integración WSL2. Reinicia Windows si acabas de instalarlo, abre Docker Desktop hasta ver **Engine running** en verde, activa *Settings -> Resources -> WSL Integration -> Ubuntu-24.04*, ejecuta `wsl --shutdown` en PowerShell y vuelve a abrir Ubuntu.
-- **`required variable LOCAL_UID is missing a value`:** ejecutaste `docker compose` sin `--env-file .local/compose-db.env` (o sin las variables exportadas en esa misma terminal). Usa siempre `docker compose --env-file .local/compose-db.env -f compose.yaml ...`.
+- **`permission denied ... /var/run/docker.sock`:** ejecuta `sudo usermod -aG docker "$USER" && newgrp docker`.
+- **`required variable LOCAL_UID is missing a value`:** ejecutaste `docker compose` sin `--env-file .local/compose-db.env`. Usa siempre `docker compose --env-file .local/compose-db.env -f compose.yaml -f .local/compose-db-ports.yaml ...`.
+- **`connection to server at "127.0.0.1", port 5432 failed: Connection refused`:** verifica con `docker ps` que `PORTS` muestre `127.0.0.1:5432->5432/tcp`. Si solo dice `5432/tcp`, falta `networks: data: internal: false` en `.local/compose-db-ports.yaml` seguido de `docker compose ... down` (sin `-v`) y `up -d database`.
+- **`V99 requires the dedicated E1 operation`:** no se puede migrar desde `0` con `./scripts/local-dev.sh migrate`; restaura primero el dump base (`espacigo_base.dump`) y aplica los `GRANT` a `espacigo_runtime`.
+- **`No pudimos verificar documentos completos y vigentes` / `503` en `/api/v1/auth/terms`:** revisa `.local/logs/api.log` o prueba `psql -U espacigo_api_login` con `SET ROLE espacigo_runtime; SELECT count(*) FROM public.version_terminos;`. Si da `permission denied`, ejecuta los `GRANT` a `espacigo_runtime` de la sección 6.3.
 - **`IllegalLocationConstraintException` al crear buckets S3 en `local-aws-bootstrap.sh`:** `~/.aws/emulator/9297.env` debe usar `AWS_REGION="us-east-1"` y `AWS_DEFAULT_REGION="us-east-1"` (no `us-east-2`).
-- **`127.0.0.1:3000` no carga en el navegador de Windows:** verifica que `%UserProfile%\.wslconfig` tenga `localhostForwarding=true` y reinicia WSL con `wsl --shutdown`.
+- **`127.0.0.1:3000` no carga en el navegador de Windows:** usa **`http://localhost:3000`** (y `http://localhost:8025` para Mailpit), o activa `networkingMode=mirrored` en `%UserProfile%\.wslconfig` y reinicia WSL con `wsl --shutdown`.
 - **Errores `\r` o `$'\r': command not found` al correr `.sh`:** asegúrate de tener `git config --global core.autocrlf input` y de haber clonado dentro de WSL2 (`~/proyectos/...`), no en `/mnt/c/...`.
-- **`ERROR: aws-emulator env not found`:** confirma que `aws-emulator` está corriendo en otra terminal (`aws-emulator -b 127.0.0.1 -p 9297`) y que existe `~/.aws/emulator/9297.env`.
+- **`ERROR: aws-emulator env not found`:** confirma que `aws-emulator` está corriendo (`aws-emulator -b 127.0.0.1 -p 9297`) y que existe `~/.aws/emulator/9297.env`.
