@@ -117,6 +117,10 @@ ENV
 }
 
 local_migration_host() {
+  if [[ -n "${ESPACIGO_LOCAL_DB_HOST:-}" ]]; then
+    printf '%s\n' "$ESPACIGO_LOCAL_DB_HOST"
+    return 0
+  fi
   docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER"
 }
 
