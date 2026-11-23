@@ -32,28 +32,38 @@ wsl --install -d Ubuntu-24.04
 
 Reinicia Windows si te lo solicita, abre **Ubuntu 24.04** desde el menú Inicio y crea tu usuario/contraseña de Linux.
 
-En Windows, crea o edita `%UserProfile%\.wslconfig` para asegurar reenvío de puertos a `127.0.0.1` y suficiente memoria:
+En Windows, crea `%UserProfile%\.wslconfig` directamente desde **PowerShell** (evita usar el Bloc de notas para no guardar `.wslconfig.txt` por error):
 
-```ini
+```powershell
+@"
 [wsl2]
 localhostForwarding=true
 memory=8GB
+"@ | Set-Content -Path "$env:USERPROFILE\.wslconfig" -Encoding utf8
+
+wsl --shutdown
 ```
 
-Si editaste `.wslconfig`, reinicia WSL desde PowerShell con `wsl --shutdown` y vuelve a abrir Ubuntu.
+> **Cómo abrir WSL2 rápidamente sin buscar "Ubuntu" cada vez:**
+> - Presiona **`Win + R`**, escribe **`wsl ~`** y presiona **Enter** (abre directo en tu `$HOME` de Linux).
+> - O en **Windows Terminal** (`Win + X` -> Terminal), abre **Configuración (`Ctrl + ,`) -> Inicio -> Perfil predeterminado** y elige **Ubuntu-24.04**.
 
 ### 2.2 Instalar Docker Desktop para Windows
 
 1. Descarga e instala **Docker Desktop for Windows**.
-2. En **Settings -> General**, verifica que esté marcado **Use the WSL 2 based engine**.
-3. En **Settings -> Resources -> WSL Integration**, activa la integración para **Ubuntu-24.04** y haz clic en **Apply & Restart**.
+2. **Reinicia Windows 11** tras la instalación para que se activen el servicio y los permisos del backend WSL2.
+3. Abre **Docker Desktop** y espera hasta que en la esquina inferior izquierda aparezca el estado en verde (**Engine running**).
+4. En **Settings (engranaje) -> General**, verifica que esté marcado **Use the WSL 2 based engine**.
+5. En **Settings -> Resources -> WSL Integration**, activa **Enable integration with my default WSL distro** y el interruptor de **Ubuntu-24.04**, luego haz clic en **Apply & Restart**.
 
-Verifica dentro de Ubuntu (WSL2) que Docker responde:
+Verifica dentro de **Ubuntu (WSL2)** que Docker responde usando el socket Linux (no `npipe://`):
 
 ```bash
 docker version
 docker compose version
 ```
+
+> Si `docker version` muestra tanto **Client** como **Server**, la integración está lista. Si aparece `npipe:////./pipe/docker_engine`, verifica que Docker Desktop esté abierto (**Engine running**) y ejecuta `wsl --shutdown` en PowerShell antes de reabrir Ubuntu.
 
 ---
 
@@ -209,22 +219,31 @@ bash scripts/local-aws-bootstrap.sh
 ```
 
 2. **Construye y levanta el contenedor PostgreSQL 18 (`espacigo_localbackend_20261024-database-1`):**
+   Guardamos la configuración en `.local/compose-db.env` (ignorado por Git) para pasarla con `--env-file` y evitar que se pierdan variables entre comandos:
 
 ```bash
 mkdir -p .local/database-tls ~/.local/share/espacigo/m03-evidence ~/.local/state/espacigo/privacy-replay
 
-export LOCAL_UID="$(id -u)"
-export LOCAL_GID="$(id -g)"
-export LOCAL_SECRETS_DIR="$PWD/.local/secrets"
-export LOCAL_DATABASE_TLS_DIR="$PWD/.local/database-tls"
-export LOCAL_M03_EVIDENCE_DIR="$HOME/.local/share/espacigo/m03-evidence"
-export LOCAL_PRIVACY_REPLAY_DIR="$HOME/.local/state/espacigo/privacy-replay"
-export LOCAL_COMPOSE_PROJECT_NAME="espacigo_localbackend_20261024"
-export LOCAL_IMAGE_PREFIX="espacigo_localbackend_20261024"
-export LOCAL_PGDATA_VOLUME="espacigo_localbackend_20261024_pgdata"
-export LOCAL_DATABASE_NAME="espacigo_aws_local"
+cat <<EOF > .local/compose-db.env
+LOCAL_UID=$(id -u)
+LOCAL_GID=$(id -g)
+LOCAL_SECRETS_DIR=$PWD/.local/secrets
+LOCAL_DATABASE_TLS_DIR=$PWD/.local/database-tls
+LOCAL_M03_EVIDENCE_DIR=$HOME/.local/share/espacigo/m03-evidence
+LOCAL_PRIVACY_REPLAY_DIR=$HOME/.local/state/espacigo/privacy-replay
+LOCAL_COMPOSE_PROJECT_NAME=espacigo_localbackend_20261024
+LOCAL_IMAGE_PREFIX=espacigo_localbackend_20261024
+LOCAL_PGDATA_VOLUME=espacigo_localbackend_20261024_pgdata
+LOCAL_DATABASE_NAME=espacigo_aws_local
+EOF
 
-docker compose -f compose.yaml up -d --build database
+docker compose --env-file .local/compose-db.env -f compose.yaml up -d --build database
+```
+
+   Verifica que el contenedor esté corriendo y saludable (`healthy`):
+
+```bash
+docker ps --filter "name=espacigo_localbackend_20261024-database-1"
 ```
 
 3. **Inicializa los roles base en PostgreSQL (solo la primera vez en una BD vacía):**
@@ -297,7 +316,9 @@ git push origin kyb
 
 ## 9. Solución de problemas frecuentes en Windows 11
 
+- **`open //./pipe/docker_engine: The system cannot find the file specified`:** Docker Desktop no está corriendo o falta habilitar la integración WSL2. Reinicia Windows si acabas de instalarlo, abre Docker Desktop hasta ver **Engine running** en verde, activa *Settings -> Resources -> WSL Integration -> Ubuntu-24.04*, ejecuta `wsl --shutdown` en PowerShell y vuelve a abrir Ubuntu.
+- **`required variable LOCAL_UID is missing a value`:** ejecutaste `docker compose` sin `--env-file .local/compose-db.env` (o sin las variables exportadas en esa misma terminal). Usa siempre `docker compose --env-file .local/compose-db.env -f compose.yaml ...`.
+- **`IllegalLocationConstraintException` al crear buckets S3 en `local-aws-bootstrap.sh`:** `~/.aws/emulator/9297.env` debe usar `AWS_REGION="us-east-1"` y `AWS_DEFAULT_REGION="us-east-1"` (no `us-east-2`).
 - **`127.0.0.1:3000` no carga en el navegador de Windows:** verifica que `%UserProfile%\.wslconfig` tenga `localhostForwarding=true` y reinicia WSL con `wsl --shutdown`.
-- **`docker: command not found` o permiso denegado en WSL2:** abre Docker Desktop en Windows, ve a *Settings -> Resources -> WSL Integration* y habilita `Ubuntu-24.04`.
 - **Errores `\r` o `$'\r': command not found` al correr `.sh`:** asegúrate de tener `git config --global core.autocrlf input` y de haber clonado dentro de WSL2 (`~/proyectos/...`), no en `/mnt/c/...`.
-- **`ERROR: aws-emulator env not found`:** confirma que `aws-emulator` está corriendo y que existe `~/.aws/emulator/9297.env`.
+- **`ERROR: aws-emulator env not found`:** confirma que `aws-emulator` está corriendo en otra terminal (`aws-emulator -b 127.0.0.1 -p 9297`) y que existe `~/.aws/emulator/9297.env`.
