@@ -74,7 +74,7 @@ docker compose version
 Dentro de la terminal de **Ubuntu (WSL2)**:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y git curl jq unzip ca-certificates build-essential python3
+sudo apt-get update && sudo apt-get install -y git curl jq unzip ca-certificates build-essential python3 postgresql-client
 
 # Evita conversiones CRLF de Windows en scripts .sh
 git config --global core.autocrlf input
@@ -237,7 +237,14 @@ LOCAL_PGDATA_VOLUME=espacigo_localbackend_20261024_pgdata
 LOCAL_DATABASE_NAME=espacigo_aws_local
 EOF
 
-docker compose --env-file .local/compose-db.env -f compose.yaml up -d --build database
+cat <<'EOF' > .local/compose-db-ports.yaml
+services:
+  database:
+    ports:
+      - "127.0.0.1:5432:5432"
+EOF
+
+docker compose --env-file .local/compose-db.env -f compose.yaml -f .local/compose-db-ports.yaml up -d --build database
 ```
 
    Verifica que el contenedor esté corriendo y saludable (`healthy`):
@@ -265,9 +272,11 @@ SQL
    > Si el equipo te comparte un dump base de `espacigo_aws_local`, restáuralo aquí con `psql` / `pg_restore` antes del siguiente paso.
 
 4. **Ejecuta el bootstrap completo, migraciones y verificación:**
-   `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, permisos de `espacigo_runtime`, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
+   En Docker Desktop sobre Windows 11, exporta `ESPACIGO_LOCAL_DB_HOST=127.0.0.1` y `ESPACIGO_LOCAL_DB_PORT=5432` (porque las IPs internas `172.x.x.x` de los contenedores no son accesibles desde WSL2). `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, permisos de `espacigo_runtime`, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
 
 ```bash
+export ESPACIGO_LOCAL_DB_HOST=127.0.0.1
+export ESPACIGO_LOCAL_DB_PORT=5432
 ./scripts/local-dev.sh bootstrap
 ./scripts/local-dev.sh migrate-plan
 ./scripts/local-dev.sh migrate
