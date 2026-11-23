@@ -242,6 +242,10 @@ services:
   database:
     ports:
       - "127.0.0.1:5432:5432"
+
+networks:
+  data:
+    internal: false
 EOF
 
 docker compose --env-file .local/compose-db.env -f compose.yaml -f .local/compose-db-ports.yaml up -d --build database
