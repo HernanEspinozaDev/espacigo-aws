@@ -213,16 +213,17 @@ bash scripts/local-aws-bootstrap.sh
 ```bash
 mkdir -p .local/database-tls ~/.local/share/espacigo/m03-evidence ~/.local/state/espacigo/privacy-replay
 
-LOCAL_UID="$(id -u)" \
-LOCAL_GID="$(id -g)" \
-LOCAL_SECRETS_DIR="$PWD/.local/secrets" \
-LOCAL_DATABASE_TLS_DIR="$PWD/.local/database-tls" \
-LOCAL_M03_EVIDENCE_DIR="$HOME/.local/share/espacigo/m03-evidence" \
-LOCAL_PRIVACY_REPLAY_DIR="$HOME/.local/state/espacigo/privacy-replay" \
-LOCAL_COMPOSE_PROJECT_NAME="espacigo_localbackend_20261024" \
-LOCAL_IMAGE_PREFIX="espacigo_localbackend_20261024" \
-LOCAL_PGDATA_VOLUME="espacigo_localbackend_20261024_pgdata" \
-LOCAL_DATABASE_NAME="espacigo_aws_local" \
+export LOCAL_UID="$(id -u)"
+export LOCAL_GID="$(id -g)"
+export LOCAL_SECRETS_DIR="$PWD/.local/secrets"
+export LOCAL_DATABASE_TLS_DIR="$PWD/.local/database-tls"
+export LOCAL_M03_EVIDENCE_DIR="$HOME/.local/share/espacigo/m03-evidence"
+export LOCAL_PRIVACY_REPLAY_DIR="$HOME/.local/state/espacigo/privacy-replay"
+export LOCAL_COMPOSE_PROJECT_NAME="espacigo_localbackend_20261024"
+export LOCAL_IMAGE_PREFIX="espacigo_localbackend_20261024"
+export LOCAL_PGDATA_VOLUME="espacigo_localbackend_20261024_pgdata"
+export LOCAL_DATABASE_NAME="espacigo_aws_local"
+
 docker compose -f compose.yaml up -d --build database
 ```
 
