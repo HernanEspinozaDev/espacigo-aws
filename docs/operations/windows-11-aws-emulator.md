@@ -147,20 +147,19 @@ aws --version
 
 ## 5. Instalar y configurar `aws-emulator`
 
-1. Instala el binario `aws-emulator` (Linux x86_64) en `~/.local/opt/aws-emulator/bin/aws-emulator` y crea el enlace simbólico en `~/.local/bin/aws-emulator`:
+1. Instala el paquete oficial `.deb` de `aws-emulator` para Ubuntu (`amd64`):
 
 ```bash
-mkdir -p ~/.local/bin ~/.local/opt/aws-emulator/bin ~/.aws/emulator
-# Copia o extrae el binario aws-emulator en ~/.local/opt/aws-emulator/bin/aws-emulator
-chmod +x ~/.local/opt/aws-emulator/bin/aws-emulator
-ln -sf ~/.local/opt/aws-emulator/bin/aws-emulator ~/.local/bin/aws-emulator
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-export PATH="$HOME/.local/bin:$PATH"
+curl -fsSLo /tmp/aws-emulator.deb https://downloads.aws.com/aws-emulator/packages/aws-emulator/LTS/latest/aws-emulator_amd64.deb
+sudo apt-get install -y /tmp/aws-emulator.deb
+rm -f /tmp/aws-emulator.deb
+aws-emulator -v
 ```
 
 2. Inicia el emulador en el puerto `9297`:
 
 ```bash
+mkdir -p ~/.aws/emulator
 aws-emulator -b 127.0.0.1 -p 9297
 ```
 
@@ -197,31 +196,61 @@ EOF
 
 ---
 
-## 6. Levantar PostgreSQL 18, Mailpit y aprovisionar el stack
+## 6. Instalar/levantar PostgreSQL 18, generar secretos, Mailpit y aprovisionar el stack
 
-1. Asegúrate de que el contenedor PostgreSQL 18 (`espacigo_localbackend_20261024-database-1`) esté arriba en Docker Desktop (o levántalo con `compose.yaml` según el perfil local) y de contar con los secretos locales en `.local/secrets/` (nunca se suben a Git):
-   - `.local/secrets/db_admin_password`
-   - `.local/secrets/runtime_password`
-   - `.local/secrets/migrator_password`
-   - Keyrings locales requeridos por la API (`document-verification-keyring.json`, `identity-declaration-keyring.json`, `identity-rut-hmac-keyring.json`, etc.).
+No necesitas instalar PostgreSQL manualmente en Ubuntu: el repositorio incluye `compose.yaml` + `Dockerfile` (`target: database`) con **PostgreSQL 18 + PostGIS 3.6**.
 
-2. Ejecuta el bootstrap local para crear los 5 buckets S3 (`espacigo-evidence-local`, `espacigo-media-local`, `espacigo-kyc-identity-local`, `espacigo-kyc-space-local`, `espacigo-privacy-replay-local`), los parámetros SSM en `/espacigo/local/`, los Log Groups, los permisos de PostgreSQL, el login de migraciones, `frontend/.env.local` y el contenedor **Mailpit**:
+1. **Genera los secretos locales y aprovisiona `aws-emulator`:**
+   Con `aws-emulator` corriendo en otra terminal, ejecuta `scripts/local-aws-bootstrap.sh`. Este script crea automáticamente `.local/secrets/` (`db_admin_password`, `runtime_password` y todos los keyrings JSON):
 
 ```bash
 cd ~/proyectos/espacigo-aws
-./scripts/local-dev.sh bootstrap
+bash scripts/local-aws-bootstrap.sh
 ```
 
-3. Revisa y aplica las migraciones locales pendientes:
+2. **Construye y levanta el contenedor PostgreSQL 18 (`espacigo_localbackend_20261024-database-1`):**
 
 ```bash
+mkdir -p .local/database-tls ~/.local/share/espacigo/m03-evidence ~/.local/state/espacigo/privacy-replay
+
+LOCAL_UID="$(id -u)" \
+LOCAL_GID="$(id -g)" \
+LOCAL_SECRETS_DIR="$PWD/.local/secrets" \
+LOCAL_DATABASE_TLS_DIR="$PWD/.local/database-tls" \
+LOCAL_M03_EVIDENCE_DIR="$HOME/.local/share/espacigo/m03-evidence" \
+LOCAL_PRIVACY_REPLAY_DIR="$HOME/.local/state/espacigo/privacy-replay" \
+LOCAL_COMPOSE_PROJECT_NAME="espacigo_localbackend_20261024" \
+LOCAL_IMAGE_PREFIX="espacigo_localbackend_20261024" \
+LOCAL_PGDATA_VOLUME="espacigo_localbackend_20261024_pgdata" \
+LOCAL_DATABASE_NAME="espacigo_aws_local" \
+docker compose -f compose.yaml up -d --build database
+```
+
+3. **Inicializa los roles base en PostgreSQL (solo la primera vez en una BD vacía):**
+   `compose.yaml` crea `espacigo_admin` y `espacigo_runtime`, pero `scripts/local-dev.sh` también requiere `espacigo_api_login`, `espacigo_schema_owner` y `espacigo_migrator_login`. Si partes desde una base vacía (sin restaurar un dump previo):
+
+```bash
+ADMIN_PASS="$(cat .local/secrets/db_admin_password)"
+RUNTIME_PASS="$(cat .local/secrets/runtime_password)"
+docker exec -i -e PGPASSWORD="$ADMIN_PASS" espacigo_localbackend_20261024-database-1 \
+  psql -U espacigo_admin -d espacigo_aws_local <<SQL
+CREATE ROLE espacigo_api_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '${RUNTIME_PASS}';
+GRANT espacigo_runtime TO espacigo_api_login;
+CREATE ROLE espacigo_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+CREATE ROLE espacigo_migrator_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+GRANT espacigo_schema_owner TO espacigo_migrator_login WITH SET OPTION;
+SQL
+```
+
+   > Si el equipo te comparte un dump base de `espacigo_aws_local`, restáuralo aquí con `psql` / `pg_restore` antes del siguiente paso.
+
+4. **Ejecuta el bootstrap completo, migraciones y verificación:**
+   `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, permisos de `espacigo_runtime`, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
+
+```bash
+./scripts/local-dev.sh bootstrap
 ./scripts/local-dev.sh migrate-plan
 ./scripts/local-dev.sh migrate
-```
-
-4. Comprueba que los 5 componentes están `ONLINE`:
-
-```bash
 ./scripts/local-dev.sh status
 ```
 
