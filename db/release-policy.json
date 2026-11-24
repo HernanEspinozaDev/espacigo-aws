@@ -197,6 +197,7 @@
       "checksum": "c95b74fc6dc5c3bb32246441aedeb3593163172bed014503f2806468a81e7f64",
       "strategy": "expand",
       "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
       "reason": "Adds optional owner-confirmed coordinates without backfill. Review publication privacy, historical row compatibility and location revision invalidation before release."
     },
     "V000124__commercial_space_contract_templates.sql": {

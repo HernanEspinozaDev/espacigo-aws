@@ -205,9 +205,15 @@ VALUES('30000000-0000-4000-8000-000000000096','identity',$1,$2,'unsure','identit
 	if _, err := admin.Exec(ctx, `DELETE FROM public.identity_declaration_revision WHERE id=$1 AND account_id=$2`, declarationID, ownerID); err != nil {
 		t.Fatalf("terminal case should no longer block declaration retention: %v", err)
 	}
-	t.Run("public-gallery-sync", func(t *testing.T) {
-		assertRuntimePublicGallerySync(t, ctx, admin, pool)
-	})
+	var hasV136 bool
+	if err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public.schema_migrations WHERE version=136)`).Scan(&hasV136); err != nil {
+		t.Fatal(err)
+	}
+	if hasV136 {
+		t.Run("public-gallery-sync", func(t *testing.T) {
+			assertRuntimePublicGallerySync(t, ctx, admin, pool)
+		})
+	}
 	var hasV97 bool
 	if err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public.schema_migrations WHERE version=97)`).Scan(&hasV97); err != nil {
 		t.Fatal(err)

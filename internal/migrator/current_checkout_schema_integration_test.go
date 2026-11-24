@@ -223,7 +223,8 @@ ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public REVOKE 
 				}
 				if len(all) > 111 {
 					if _, err := admin.Exec(ctx, `GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;
-						GRANT REFERENCES(id) ON TABLE public.usuario, public.espacio TO espacigo_schema_owner`); err != nil {
+						GRANT REFERENCES(id) ON TABLE public.usuario, public.espacio TO espacigo_schema_owner;
+						ALTER TABLE public.espacio OWNER TO espacigo_schema_owner`); err != nil {
 						t.Fatalf("prepare isolated V112+ DDL authority: %v", err)
 					}
 					if _, err := RunWithRole(ctx, migrationURL, prefixMigrationDirForCombined(t, all, len(all)), "espacigo_schema_owner"); err != nil {
