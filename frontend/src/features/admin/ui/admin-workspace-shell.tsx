@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Clock, LogOut, Menu, Shield, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import {
+  Clock,
+  LogOut,
+  Menu,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/workspace/ui/button";
 import { AdminAssistedViewBanner } from "./admin-assisted-view-banner";

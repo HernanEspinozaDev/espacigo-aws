@@ -191,7 +191,8 @@ export function usePublishPrerequisites({
   }, [requestKey, accessToken, isHost, spaceId, onLoaded]);
 
   const isLoading = Boolean(requestKey) && result.key !== requestKey;
-  const loaded = Boolean(requestKey) && result.key === requestKey && result.loaded;
+  const loaded =
+    Boolean(requestKey) && result.key === requestKey && result.loaded;
 
   return {
     loading: isLoading,
@@ -205,7 +206,11 @@ export function usePublishPrerequisites({
   };
 }
 
-function StepStatusBadge({ status }: { readonly status: PublishGuideStepStatus }) {
+function StepStatusBadge({
+  status,
+}: {
+  readonly status: PublishGuideStepStatus;
+}) {
   switch (status) {
     case "completed":
       return (

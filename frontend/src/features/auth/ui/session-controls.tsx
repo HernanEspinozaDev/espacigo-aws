@@ -3,13 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import {
-  Building2,
-  ChevronDown,
-  FileText,
-  LogOut,
-  User,
-} from "lucide-react";
+import { Building2, ChevronDown, FileText, LogOut, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAccount } from "@/features/account/ui/use-account";
@@ -174,7 +168,10 @@ export function SessionControls({
                   }}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
                 >
-                  <User className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <User
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
                   <span>Mi cuenta</span>
                 </Link>
                 <Link
@@ -186,7 +183,10 @@ export function SessionControls({
                   }}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
                 >
-                  <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <FileText
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
                   <span>Mis contratos</span>
                 </Link>
                 <Link
@@ -198,7 +198,10 @@ export function SessionControls({
                   }}
                   className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
                 >
-                  <Building2 className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <Building2
+                    className="size-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
                   <span>Mis espacios</span>
                 </Link>
               </div>
@@ -211,7 +214,9 @@ export function SessionControls({
                   className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
                 >
                   <LogOut className="size-4" aria-hidden="true" />
-                  <span>{loggingOut ? "Cerrando sesión…" : "Cerrar sesión"}</span>
+                  <span>
+                    {loggingOut ? "Cerrando sesión…" : "Cerrar sesión"}
+                  </span>
                 </button>
               </div>
             </div>

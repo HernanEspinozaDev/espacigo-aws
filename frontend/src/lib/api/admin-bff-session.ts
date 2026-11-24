@@ -69,7 +69,10 @@ export function validateAdminBffRequest(
 export async function readBoundedJsonRequest(
   request: Request,
   maxBytes = 16 * 1024,
-): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; status: number; code: string }> {
+): Promise<
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; status: number; code: string }
+> {
   const rawLength = request.headers.get("content-length");
   if (rawLength !== null) {
     if (!/^\d+$/.test(rawLength)) {
@@ -170,7 +173,9 @@ export function extractSanitizedAdminPayload(
   }
   const envelope = rawJson as { data?: unknown };
   const rawData =
-    envelope.data && typeof envelope.data === "object" && !Array.isArray(envelope.data)
+    envelope.data &&
+    typeof envelope.data === "object" &&
+    !Array.isArray(envelope.data)
       ? (envelope.data as Record<string, unknown>)
       : (rawJson as Record<string, unknown>);
 

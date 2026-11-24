@@ -366,7 +366,10 @@ function Requests({
                   </p>
                 )}
                 {notice && (
-                  <p role="status" className="text-sm font-medium text-emerald-700">
+                  <p
+                    role="status"
+                    className="text-sm font-medium text-emerald-700"
+                  >
                     {notice}
                   </p>
                 )}

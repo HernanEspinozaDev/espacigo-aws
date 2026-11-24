@@ -448,7 +448,10 @@ export function ReservationsList({
   }, [scopedReservations, activeTab, searchQuery]);
 
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(filteredReservations.length / pageSize));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredReservations.length / pageSize),
+  );
   const currentPage = Math.min(page, totalPages);
   const paginatedReservations = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -585,7 +588,9 @@ export function ReservationsList({
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
-                  <p className="font-medium">No pudimos sincronizar las reservas</p>
+                  <p className="font-medium">
+                    No pudimos sincronizar las reservas
+                  </p>
                   <p className="mt-0.5">{error}</p>
                 </div>
               </div>
@@ -617,7 +622,9 @@ export function ReservationsList({
                         }`}
                       >
                         <span>{tab.label}</span>
-                        <span className="tabular-nums opacity-75">({count})</span>
+                        <span className="tabular-nums opacity-75">
+                          ({count})
+                        </span>
                       </button>
                     );
                   })}
@@ -665,7 +672,9 @@ export function ReservationsList({
                 {!searchQuery && activeTab === "todas" && (
                   <div className="mt-5">
                     <Button asChild size="sm">
-                      <Link href="/explorar">Explorar Espacios Disponibles</Link>
+                      <Link href="/explorar">
+                        Explorar Espacios Disponibles
+                      </Link>
                     </Button>
                   </div>
                 )}
@@ -757,7 +766,10 @@ export function ReservationsList({
                               size="sm"
                               onClick={() => setPassesReservation(reservation)}
                             >
-                              <QrCode className="h-3.5 w-3.5" aria-hidden="true" />
+                              <QrCode
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
                               Pases / QR
                             </Button>
                           )}
@@ -773,7 +785,10 @@ export function ReservationsList({
                                 })
                               }
                             >
-                              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                              <FileText
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
                               Comprobante
                             </Button>
                           )}
@@ -1362,163 +1377,164 @@ export function ReservationsList({
                 role="feed"
                 aria-label="Listado de reservas"
               >
-              {paginatedReservations.map((reservation) => {
-                const config = getBookingStateConfig(reservation.state);
-                const Icon = config.icon;
-                const financial = getReservationFinancialBreakdown(reservation);
-                const canViewInvoice = isReservationPaid(reservation);
+                {paginatedReservations.map((reservation) => {
+                  const config = getBookingStateConfig(reservation.state);
+                  const Icon = config.icon;
+                  const financial =
+                    getReservationFinancialBreakdown(reservation);
+                  const canViewInvoice = isReservationPaid(reservation);
 
-                return (
-                  <article
-                    key={reservation.id}
-                    className="group relative rounded-2xl border border-border bg-card p-5 transition-shadow hover:shadow-md sm:p-6"
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.badgeClass}`}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
-                            {config.label}
-                          </span>
-                          {reservation.unread_count > 0 && (
-                            <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                              {reservation.unread_count} nuevo
-                              {reservation.unread_count > 1 ? "s" : ""}
-                            </span>
-                          )}
-                          <span className="font-mono text-xs text-muted-foreground">
-                            ID Reserva: {reservation.id}
-                          </span>
-                          {reservation.provider_payment_id && (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                              <Receipt className="h-3 w-3" />
-                              Operación MP #{reservation.provider_payment_id}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap items-baseline gap-2">
-                          <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                            <Link
-                              href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
-                              className="underline-offset-4 hover:underline"
+                  return (
+                    <article
+                      key={reservation.id}
+                      className="group relative rounded-2xl border border-border bg-card p-5 transition-shadow hover:shadow-md sm:p-6"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.badgeClass}`}
                             >
-                              {reservation.space_title
-                                ? reservation.space_title
-                                : `Espacio: ${reservation.space_id.slice(0, 8)}...`}
-                            </Link>
-                          </h2>
-                          <span className="text-sm text-muted-foreground">
-                            · {reservation.units} {reservation.rate_unit}
-                            {reservation.units > 1 ? "s" : ""}
-                          </span>
-                          {reservation.checkout_status && (
-                            <span className="text-xs text-muted-foreground">
-                              · Checkout:{" "}
-                              {reservation.checkout_method === "payments_api"
-                                ? `Tarjeta (${reservation.checkout_status})`
-                                : `Checkout Pro (${reservation.checkout_status})`}
+                              <Icon className="h-3.5 w-3.5" />
+                              {config.label}
                             </span>
-                          )}
+                            {reservation.unread_count > 0 && (
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                                {reservation.unread_count} nuevo
+                                {reservation.unread_count > 1 ? "s" : ""}
+                              </span>
+                            )}
+                            <span className="font-mono text-xs text-muted-foreground">
+                              ID Reserva: {reservation.id}
+                            </span>
+                            {reservation.provider_payment_id && (
+                              <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                                <Receipt className="h-3 w-3" />
+                                Operación MP #{reservation.provider_payment_id}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-baseline gap-2">
+                            <h2 className="text-lg font-semibold tracking-tight text-foreground">
+                              <Link
+                                href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
+                                className="underline-offset-4 hover:underline"
+                              >
+                                {reservation.space_title
+                                  ? reservation.space_title
+                                  : `Espacio: ${reservation.space_id.slice(0, 8)}...`}
+                              </Link>
+                            </h2>
+                            <span className="text-sm text-muted-foreground">
+                              · {reservation.units} {reservation.rate_unit}
+                              {reservation.units > 1 ? "s" : ""}
+                            </span>
+                            {reservation.checkout_status && (
+                              <span className="text-xs text-muted-foreground">
+                                · Checkout:{" "}
+                                {reservation.checkout_method === "payments_api"
+                                  ? `Tarjeta (${reservation.checkout_status})`
+                                  : `Checkout Pro (${reservation.checkout_status})`}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                            <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span>Espacio ID: {reservation.space_id}</span>
+                          </p>
+
+                          <ReservationScheduleBreakdown
+                            reservation={reservation}
+                            compact
+                            allowHostControls
+                          />
                         </div>
 
-                        <p className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-                          <Building2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <span>Espacio ID: {reservation.space_id}</span>
-                        </p>
-
-                        <ReservationScheduleBreakdown
-                          reservation={reservation}
-                          compact
-                          allowHostControls
-                        />
-                      </div>
-
-                      <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end">
-                        <div className="text-left sm:text-right">
-                          <p className="text-xs text-muted-foreground">
-                            Tarifa Base
-                          </p>
-                          <p className="text-lg font-bold text-foreground">
-                            {formatBookingClp(financial.baseClp)} CLP
-                          </p>
-                          {canViewInvoice && (
-                            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                              Neto anfitrión:{" "}
-                              {formatBookingClp(financial.netHostClp)} CLP
+                        <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end">
+                          <div className="text-left sm:text-right">
+                            <p className="text-xs text-muted-foreground">
+                              Tarifa Base
                             </p>
-                          )}
-                        </div>
+                            <p className="text-lg font-bold text-foreground">
+                              {formatBookingClp(financial.baseClp)} CLP
+                            </p>
+                            {canViewInvoice && (
+                              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                                Neto anfitrión:{" "}
+                                {formatBookingClp(financial.netHostClp)} CLP
+                              </p>
+                            )}
+                          </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          {canViewInvoice && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            {canViewInvoice && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setInvoiceReservation({
+                                    ...reservation,
+                                    participant_role: "anfitrion",
+                                  })
+                                }
+                                className="inline-flex items-center gap-1.5"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                Invoice
+                              </Button>
+                            )}
                             <Button
-                              type="button"
-                              variant="outline"
+                              asChild
                               size="sm"
-                              onClick={() =>
-                                setInvoiceReservation({
-                                  ...reservation,
-                                  participant_role: "anfitrion",
-                                })
-                              }
                               className="inline-flex items-center gap-1.5"
                             >
-                              <FileText className="h-3.5 w-3.5" />
-                              Invoice
+                              <Link
+                                href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
+                              >
+                                Ver reserva
+                                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                              </Link>
                             </Button>
-                          )}
-                          <Button
-                            asChild
-                            size="sm"
-                            className="inline-flex items-center gap-1.5"
-                          >
-                            <Link
-                              href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
-                            >
-                              Ver reserva
-                              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                            </Link>
-                          </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={currentPage >= totalPages}
-                    onClick={() =>
-                      setPage((p) => Math.min(totalPages, p + 1))
-                    }
-                  >
-                    Siguiente
-                  </Button>
-                </div>
+                    </article>
+                  );
+                })}
               </div>
-            )}
-          </>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={currentPage >= totalPages}
+                      onClick={() =>
+                        setPage((p) => Math.min(totalPages, p + 1))
+                      }
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -392,9 +392,7 @@ export function CatalogProximityControls({
             </label>
           )}
           <label className="block space-y-1 text-sm">
-            <span className="font-medium">
-              Buscar comuna, barrio o calle
-            </span>
+            <span className="font-medium">Buscar comuna, barrio o calle</span>
             <input
               type="search"
               value={communeSearch}

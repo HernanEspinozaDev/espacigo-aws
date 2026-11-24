@@ -599,7 +599,8 @@ export function ListingWizard() {
       {/* Guía compacta de requisitos previos para publicar */}
       {prerequisites.loaded &&
         !prerequisites.error &&
-        (!prerequisites.kycVerified || (isHost && !prerequisites.mpConnected)) && (
+        (!prerequisites.kycVerified ||
+          (isHost && !prerequisites.mpConnected)) && (
           <section
             aria-label="Requisitos previos para publicar"
             className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-3"
@@ -607,7 +608,8 @@ export function ListingWizard() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-1">
                 <h2 className="text-sm font-semibold text-amber-950">
-                  Antes de publicar tu espacio, necesitarás completar estos pasos
+                  Antes de publicar tu espacio, necesitarás completar estos
+                  pasos
                 </h2>
                 <p className="text-xs text-amber-900">
                   Puedes crear tu borrador ahora, pero para activarlo en el

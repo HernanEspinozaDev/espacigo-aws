@@ -41,8 +41,8 @@ export function AdminMfaStepUpModal() {
             <span>Confirmar autenticación reciente (MFA)</span>
           </DialogTitle>
           <DialogDescription>
-            Esta operación sensible requiere verificar nuevamente tu código
-            TOTP o de respaldo (HTTP 428) para continuar sin perder el contexto.
+            Esta operación sensible requiere verificar nuevamente tu código TOTP
+            o de respaldo (HTTP 428) para continuar sin perder el contexto.
           </DialogDescription>
         </DialogHeader>
 

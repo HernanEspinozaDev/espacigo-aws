@@ -270,8 +270,7 @@ export function ListingEditor({
     authSnapshot.status === "authenticated" &&
     authSnapshot.roles.includes("arrendador");
   const prerequisites = usePublishPrerequisites({
-    accessToken:
-      authSnapshot.status === "authenticated" ? accessToken : null,
+    accessToken: authSnapshot.status === "authenticated" ? accessToken : null,
     isHost,
     spaceId: listingId,
     enabled: authSnapshot.status === "authenticated" && Boolean(accessToken),
@@ -1104,7 +1103,9 @@ export function ListingEditor({
       : []),
     ...publishCheck.reasons,
     ...(prerequisitesKnown && prerequisites.contractPublishedVersion < 1
-      ? ["Configura y publica al menos una versión de la plantilla de contrato."]
+      ? [
+          "Configura y publica al menos una versión de la plantilla de contrato.",
+        ]
       : []),
   ];
 

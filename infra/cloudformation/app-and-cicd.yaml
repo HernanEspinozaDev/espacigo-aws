@@ -51,20 +51,10 @@ Parameters:
     Default: ''
     Description: Digest ECR de espacigo-web (@sha256:...). Vacio omite la tarea ECS de la app.
 
-  DatabaseApiSecretArn:
-    Type: String
-    Default: ''
-    Description: ARN completo del secreto espacigo/<env>/database/api en Secrets Manager.
-
   DatabaseMigratorSecretArn:
     Type: String
     Default: ''
     Description: ARN completo del secreto espacigo/<env>/database/migrator en Secrets Manager.
-
-  AuthSmtpSecretArn:
-    Type: String
-    Default: ''
-    Description: ARN completo del secreto espacigo/<env>/auth/smtp en Secrets Manager.
 
   MercadoPagoSecretArn:
     Type: String

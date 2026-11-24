@@ -205,7 +205,13 @@ function AgreementList({ isCurrent }: { isCurrent(): boolean }) {
                     <FileText className="size-4" aria-hidden="true" />
                     <span>Ver PDF</span>
                   </Button>
-                  <Button asChild size="sm" variant={a.state === "ready_for_payment" ? "default" : "outline"}>
+                  <Button
+                    asChild
+                    size="sm"
+                    variant={
+                      a.state === "ready_for_payment" ? "default" : "outline"
+                    }
+                  >
                     <Link
                       href={`/reservas/contratos/${encodeURIComponent(a.id)}`}
                     >

@@ -7,8 +7,7 @@ export function PublicVerificationBadges({
   verification: PublicVerification;
   variant?: "card" | "detail";
 }) {
-  const showSpace =
-    verification.identityVerified && verification.spaceVerified;
+  const showSpace = verification.identityVerified && verification.spaceVerified;
 
   if (!showSpace) return null;
 
@@ -26,8 +25,8 @@ export function PublicVerificationBadges({
           Espacio verificado
         </span>
         <span className="sr-only">
-          La revisión no acredita legalidad o titularidad ni constituye
-          garantía o firma.
+          La revisión no acredita legalidad o titularidad ni constituye garantía
+          o firma.
         </span>
       </li>
     </ul>

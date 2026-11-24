@@ -11,9 +11,9 @@ type NearbyPoiItem = {
 };
 
 export function SpaceNearbyPois({ spaceId }: { spaceId: string }) {
-  const [status, setStatus] = useState<
-    "idle" | "loading" | "loaded" | "error"
-  >("idle");
+  const [status, setStatus] = useState<"idle" | "loading" | "loaded" | "error">(
+    "idle",
+  );
   const [available, setAvailable] = useState(true);
   const [items, setItems] = useState<NearbyPoiItem[]>([]);
   const abortRef = useRef<AbortController | null>(null);

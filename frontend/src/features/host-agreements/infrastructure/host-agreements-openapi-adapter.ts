@@ -72,7 +72,9 @@ export class HostAgreementsOpenApiAdapter implements HostAgreementsPort {
           snapshot_sha256: read.agreement.snapshot_sha256,
           consent: true,
           consent_version: agreementConsentVersion,
-          ...(otp ? { otp_challenge_id: otp.challengeId, otp_code: otp.code } : {}),
+          ...(otp
+            ? { otp_challenge_id: otp.challengeId, otp_code: otp.code }
+            : {}),
         },
         bodySerializer: serializeExactJson,
         signal,

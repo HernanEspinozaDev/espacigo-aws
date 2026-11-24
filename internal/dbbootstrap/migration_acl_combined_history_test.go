@@ -1,18 +1,19 @@
 package dbbootstrap
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestCombinedHistoryACLParsingRegressions(t *testing.T) {
-	t.Run("V85 unconditional revoke and conditional grant", func(t *testing.T) {
-		source, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "V000085__identity_encrypted_declarations_and_minimal_events.sql"))
-		if err != nil {
-			t.Fatal(err)
-		}
+	t.Run("unconditional revoke and conditional grant", func(t *testing.T) {
+		source := []byte(`REVOKE ALL ON TABLE public.identity_declaration_revision FROM espacigo_runtime;
+DO $$
+BEGIN
+	IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_runtime') THEN
+		GRANT SELECT, INSERT ON TABLE public.identity_declaration_revision TO espacigo_runtime;
+	END IF;
+END $$;`)
 		effects, err := ExtractMigrationRuntimeACL(85, source)
 		if err != nil {
 			t.Fatal(err)
@@ -27,14 +28,14 @@ func TestCombinedHistoryACLParsingRegressions(t *testing.T) {
 			}
 		}
 		if !unconditionalRevoke || !conditionalGrant {
-			t.Fatalf("V85 lost action-specific condition: revoke=%v grant=%v effects=%+v", unconditionalRevoke, conditionalGrant, effects)
+			t.Fatalf("lost action-specific condition: revoke=%v grant=%v effects=%+v", unconditionalRevoke, conditionalGrant, effects)
 		}
 	})
-	t.Run("V95 procedural role mention without ACL", func(t *testing.T) {
-		source, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "V000095__identity_document_case_declaration_binding.sql"))
-		if err != nil {
-			t.Fatal(err)
-		}
+	t.Run("procedural role mention without ACL", func(t *testing.T) {
+		source := []byte(`DO $$
+BEGIN
+	PERFORM 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_runtime';
+END $$;`)
 		if _, err := ExtractMigrationRuntimeACL(95, source); err != nil {
 			t.Fatal(err)
 		}

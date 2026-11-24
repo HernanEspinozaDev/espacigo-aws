@@ -118,7 +118,11 @@ export function HeroShowcase() {
         </Link>
 
         <div className="flex shrink-0 items-center gap-1.5 rounded-full bg-background/90 px-2 py-1.5 shadow-sm backdrop-blur-sm">
-          <div className="flex items-center gap-1" role="tablist" aria-label="Elegir categoría">
+          <div
+            className="flex items-center gap-1"
+            role="tablist"
+            aria-label="Elegir categoría"
+          >
             {SLIDES.map((slide, index) => (
               <button
                 key={slide.category}
@@ -139,7 +143,9 @@ export function HeroShowcase() {
             type="button"
             onClick={() => setPaused((prev) => !prev)}
             aria-label={
-              paused ? "Reanudar presentación de espacios" : "Pausar presentación de espacios"
+              paused
+                ? "Reanudar presentación de espacios"
+                : "Pausar presentación de espacios"
             }
             className="ml-1 inline-flex size-7 items-center justify-center rounded-full text-foreground transition-colors hover:bg-[var(--brand-primary-soft)] hover:text-[var(--brand-primary-soft-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >

@@ -89,13 +89,10 @@ type CustomerTab =
   | "actions";
 
 type Result<T> =
-  | { status: "ready"; value: T }
-  | { status: "error"; message: string };
+  { status: "ready"; value: T } | { status: "error"; message: string };
 
 type OperationalReason =
-  | "correccion_perfil"
-  | "revision_administrativa"
-  | "gestion_operativa";
+  "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
 
 function requestError(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status === 403)
@@ -190,7 +187,9 @@ function AssistedViewTriggerModal({ accountId }: { accountId: string }) {
       return;
     }
     if (!isValidAdminReason(reason)) {
-      setLocalError("El motivo es obligatorio y debe tener al menos 5 caracteres.");
+      setLocalError(
+        "El motivo es obligatorio y debe tener al menos 5 caracteres.",
+      );
       return;
     }
     setSubmitting(true);
@@ -240,7 +239,10 @@ function AssistedViewTriggerModal({ accountId }: { accountId: string }) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="size-5 text-amber-600" aria-hidden="true" />
+              <ShieldAlert
+                className="size-5 text-amber-600"
+                aria-hidden="true"
+              />
               <span>Abrir vista asistida (solo lectura)</span>
             </DialogTitle>
             <DialogDescription>
@@ -260,10 +262,14 @@ function AssistedViewTriggerModal({ accountId }: { accountId: string }) {
             )}
 
             <div className="space-y-1.5">
-              <Label htmlFor={`assisted-role-${accountId}`}>Rol a proyectar</Label>
+              <Label htmlFor={`assisted-role-${accountId}`}>
+                Rol a proyectar
+              </Label>
               <Select
                 value={role}
-                onValueChange={(value) => setRole(value as AdminAssistedViewRole)}
+                onValueChange={(value) =>
+                  setRole(value as AdminAssistedViewRole)
+                }
               >
                 <SelectTrigger id={`assisted-role-${accountId}`}>
                   <SelectValue />
@@ -410,7 +416,8 @@ function CustomerRecord({
                   {record.value.display_name || "Cuenta sin nombre"}
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground break-all">
-                  {canRevealEmail && record.value.state !== "desidentificado" ? (
+                  {canRevealEmail &&
+                  record.value.state !== "desidentificado" ? (
                     <AdminSensitiveEmailControl
                       accountId={accountId}
                       maskedEmail={record.value.email}
@@ -724,7 +731,10 @@ function CustomerResources({
         if (!controller.signal.aborted) {
           setPage({
             status: "error",
-            message: requestError(error, `No pudimos cargar ${title.toLowerCase()}.`),
+            message: requestError(
+              error,
+              `No pudimos cargar ${title.toLowerCase()}.`,
+            ),
           });
         }
       },
@@ -788,7 +798,9 @@ function CustomerResources({
                   <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-muted-foreground">
                     <div>
                       <dt className="font-medium text-foreground/80">Fecha</dt>
-                      <dd>{dateTimeFormatter.format(new Date(item.occurred_at))}</dd>
+                      <dd>
+                        {dateTimeFormatter.format(new Date(item.occurred_at))}
+                      </dd>
                     </div>
                     {roleLabel && (
                       <div>
@@ -798,7 +810,9 @@ function CustomerResources({
                     )}
                     {displayAmount !== null && (
                       <div>
-                        <dt className="font-medium text-foreground/80">Monto</dt>
+                        <dt className="font-medium text-foreground/80">
+                          Monto
+                        </dt>
                         <dd className="tabular-nums font-medium text-foreground">
                           {clpFormatter.format(displayAmount)}
                         </dd>
@@ -1041,9 +1055,7 @@ function CustomerOperationalActions({
       roleReason,
     );
     if (ok) {
-      setFeedback(
-        !hasRole ? `Rol ${role} asignado.` : `Rol ${role} retirado.`,
-      );
+      setFeedback(!hasRole ? `Rol ${role} asignado.` : `Rol ${role} retirado.`);
       onAccountUpdated();
     }
   };

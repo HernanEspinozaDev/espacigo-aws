@@ -31,7 +31,8 @@ export const CATEGORY_GUIDES: Record<string, CategoryGuideInfo> = {
   },
   sala_multiproposito: {
     image: "/editorial/hero-sala.jpg",
-    imageAlt: "Sala multipropósito luminosa para talleres, terapias o reuniones",
+    imageAlt:
+      "Sala multipropósito luminosa para talleres, terapias o reuniones",
     tagline: "Reuniones, talleres, clases y consultas",
     description:
       "Salas versátiles equipadas para sesiones de kinesiología, capacitaciones, directorio o actividades grupales.",
@@ -55,7 +56,11 @@ export const CATEGORY_GUIDES: Record<string, CategoryGuideInfo> = {
     tagline: "Estacionamientos por hora, día o mes",
     description:
       "Estacionamientos privados en edificios, casas o recintos comerciales cerca de zonas de alta demanda.",
-    examples: ["Estacionamiento cubierto", "Estacionamiento residencial", "Uso diario"],
+    examples: [
+      "Estacionamiento cubierto",
+      "Estacionamiento residencial",
+      "Uso diario",
+    ],
     howToPublish:
       "Ubica el pin en el mapa, indica si es techado, altura máxima o tipo de acceso y publica tu tarifa gratis.",
   },
@@ -95,7 +100,11 @@ export const CATEGORY_GUIDES: Record<string, CategoryGuideInfo> = {
     tagline: "Eventos al aire libre y jornadas de equipo",
     description:
       "Parcelas, jardines y recintos amplios para matrimonios, paseos de empresa, retiros y celebraciones.",
-    examples: ["Parcela con piscina", "Centro de eventos", "Jornada corporativa"],
+    examples: [
+      "Parcela con piscina",
+      "Centro de eventos",
+      "Jornada corporativa",
+    ],
     howToPublish:
       "Comparte fotografías de las áreas verdes, capacidad total, estacionamientos disponibles y reglas del recinto.",
   },
