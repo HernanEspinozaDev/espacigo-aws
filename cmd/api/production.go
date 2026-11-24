@@ -484,6 +484,17 @@ func handleQuickVerification(
 	service *verification.Service,
 	repo quickVerificationReviewer,
 ) {
+	handleQuickVerificationWithLocalKYC(w, r, auth, service, repo, false)
+}
+
+func handleQuickVerificationWithLocalKYC(
+	w http.ResponseWriter,
+	r *http.Request,
+	auth quickVerificationAuthorizer,
+	service *verification.Service,
+	repo quickVerificationReviewer,
+	allowLocalKYC bool,
+) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -511,6 +522,11 @@ func handleQuickVerification(
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "invalid_json", "message": "Solicitud inválida."}})
+		return
+	}
+	if in.Type == "kyc" && !allowLocalKYC {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "invalid_value", "message": "No fue posible iniciar la verificación."}})
 		return
 	}
 	item, err := service.Start(r.Context(), principal.AccountID, in.Type, r.Header.Get("Idempotency-Key"))

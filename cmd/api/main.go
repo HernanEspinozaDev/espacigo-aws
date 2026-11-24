@@ -640,9 +640,10 @@ func run() error {
 			return err
 		}
 		verificationHandler := verificationhttp.NewHandlerWithDeclarationWithoutExternalProvider(service, verificationService, cfg.allowedOrigins, evidenceService, declarationService)
+		allowLocalSyntheticKYC := localSyntheticKYCEnabled(os.Getenv, cfg)
 		quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
-				handleQuickVerification(w, r, service, verificationService, verificationRepository)
+				handleQuickVerificationWithLocalKYC(w, r, service, verificationService, verificationRepository, allowLocalSyntheticKYC)
 				return
 			}
 			verificationHandler.ServeHTTP(w, r)

@@ -10,8 +10,9 @@ test.use({ trace: "off", screenshot: "off", video: "off" });
 
 test("owner saves declaration, explicitly captures identity, refreshes clean evidence, then submits", async ({
   page,
-}) => {
+}, testInfo) => {
   let loggedIn = false;
+  let sessionExpiresAt = "";
   let declaration: Record<string, unknown> | null = null;
   let declarationWrites = 0;
   let declarationReadAfterSave = false;
@@ -33,7 +34,7 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
     [];
   const outsideLoopback: string[] = [];
   const unexpectedSameOrigin: string[] = [];
-  const localOrigin = "http://127.0.0.1:4211";
+  const localOrigin = "http://localhost:4211";
   const allowedPagePaths = new Set([
     "/",
     "/acceso",
@@ -50,7 +51,11 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
     "/mi-cuenta/seguridad",
     "/mi-cuenta/revisiones",
   ]);
-  const allowedPublicAssets = new Set(["/favicon.ico", "/espacigo-mark.svg"]);
+  const allowedPublicAssets = new Set([
+    "/favicon.ico",
+    "/espacigo-mark.svg",
+    "/__nextjs_font/geist-latin.woff2",
+  ]);
   const syntheticScanner = (() => {
     let state: "pendiente" | "limpio" = "pendiente";
     const transitions: string[] = [];
@@ -146,24 +151,37 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
       });
 
     if (pathname === "/api/backend/auth/session" && method === "GET") {
-      return loggedIn
+      const cookie = headers.cookie ?? "";
+      const hasMockSessionCookie = cookie.includes(
+        `synthetic-owner-session=${sessionToken}`,
+      );
+      return loggedIn && hasMockSessionCookie
         ? json(200, {
             account_id: accountId,
             roles: ["arrendador"],
             capabilities: [],
             restricted_mode: false,
+            expires_at: sessionExpiresAt,
           })
         : json(401, { error: { code: "unauthenticated" } });
     }
     if (pathname === "/api/backend/auth/login" && method === "POST") {
       loggedIn = true;
+      sessionExpiresAt = new Date(Date.now() + 60_000).toISOString();
+      await page.context().addCookies([
+        {
+          name: "synthetic-owner-session",
+          value: sessionToken,
+          url: localOrigin,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ]);
       return json(200, {
         account_id: accountId,
         roles: ["arrendador"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
-        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        expires_at: sessionExpiresAt,
         restricted_mode: false,
       });
     }
@@ -340,7 +358,9 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
     return json(404, { error: { code: "not_found" } });
   });
 
-  await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
+  await page.goto(
+    `${localOrigin}/acceso?return_to=%2Fmi-cuenta%2Fverificaciones`,
+  );
   const unexpectedLocalApiWasAborted = await page.evaluate(async () => {
     try {
       await fetch("/api/unexpected-local-probe");
@@ -398,12 +418,14 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
   await page
     .getByRole("link", { name: "Iniciar verificación de identidad" })
     .click();
-  await expect(page).toHaveURL(/\/mi-cuenta\/documentos$/);
+  await expect(page).toHaveURL(
+    /\/mi-cuenta\/verificaciones#documentos-identidad$/,
+  );
   await page
     .getByLabel("Formato declarado del documento")
     .selectOption("legacy");
   await page.getByLabel(/Confirmo que usaré solo datos sintéticos/).check();
-  await page.getByRole("button", { name: "Crear expediente" }).click();
+  await page.getByRole("button", { name: "Continuar con identidad" }).click();
   await expect(
     page.getByText(
       "Expediente creado. Puedes cargar los documentos requeridos.",
@@ -480,6 +502,36 @@ test("owner saves declaration, explicitly captures identity, refreshes clean evi
   expect(submits).toHaveLength(1);
   expect(uploads.map((item) => item.ifMatch)).toEqual(['"1"', '"2"', '"3"']);
   expect(submits[0]?.ifMatch).toBe(detailReadbacks[0]?.etag);
+
+  await expect(
+    page.getByRole("button", { name: "Continuar con identidad" }),
+  ).toBeDisabled();
+  await page.reload();
+  await expect(page).toHaveURL(
+    /\/mi-cuenta\/verificaciones(?:#documentos-identidad)?$/,
+  );
+  await expect(
+    page.getByText("Expediente de identidad · Enviada"),
+  ).toBeVisible();
+  await expect(page.getByText("Selfie", { exact: true })).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "Continuar con identidad" }),
+  ).toBeDisabled();
+  await expect.poll(() => detailReadbacks.length).toBe(3);
+  expect(
+    mutations.filter(
+      (item) => item.method === "POST" && item.path.endsWith("/cases"),
+    ),
+  ).toHaveLength(1);
+  await page.screenshot({
+    path: testInfo.outputPath("identity-flow-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: testInfo.outputPath("identity-flow-mobile.png"),
+    fullPage: true,
+  });
   expect(outsideLoopback).toEqual([]);
   expect(unexpectedSameOrigin).toEqual([]);
 });

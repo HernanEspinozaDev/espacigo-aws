@@ -1421,8 +1421,8 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
     if (route === "/mi-cuenta/verificaciones") {
       await expect(
         page.getByRole("heading", {
-          level: 2,
-          name: "Verificación de cuenta y espacios",
+          level: 1,
+          name: "Verificación de identidad",
           exact: true,
         }),
       ).toBeVisible();
@@ -1561,42 +1561,44 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: guarda declaración y muest
 
   // Paso 1: formulario de declaración sin llamada a Didit
   await expect(
-    page.getByRole("button", { name: "Guardar datos de identidad" }),
+    page.getByRole("button", { name: "Guardar declaración" }),
   ).toBeVisible();
-  await page.getByLabel("Nombres legales completos").fill("Camila Andrea");
-  await page.getByLabel("Apellidos legales completos").fill("Soto Muñoz");
+  await page.getByLabel("Nombres legales").fill("Camila Andrea");
+  await page.getByLabel("Apellidos legales").fill("Soto Muñoz");
   await page.getByLabel("Fecha de nacimiento").fill("1994-06-15");
-  await page.getByLabel("RUN / RUT chileno").fill("123456785");
-  await page.locator('input[name="consent"]').check();
-  await page
-    .getByRole("button", { name: "Guardar datos de identidad" })
-    .click();
+  await page.getByLabel("RUN/RUT").fill("123456785");
+  await page.locator("#identity-declaration-consent").check();
+  await page.getByRole("button", { name: "Guardar declaración" }).click();
 
   expect(providerApiRequests).toBe(0);
-  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(page.getByText("Declaración guardada.")).toBeVisible();
   await expect(page.getByText("Camila Andrea")).toBeVisible();
-  await expect(page.getByText("12.345.678-5")).toBeVisible();
+  await expect(page.getByText("123456785")).toBeVisible();
 
   // Editar la declaración sin iniciar ningún flujo de verificación externo.
-  await page.getByRole("button", { name: "Editar datos" }).click();
-  await page.getByLabel("Nombres legales completos").fill("Camila Paz");
-  await page.locator('input[name="consent"]').check();
-  await page
-    .getByRole("button", { name: "Guardar datos de identidad" })
-    .click();
-  await expect(page.getByText("Datos guardados (revisión #2)")).toBeVisible();
+  await page.getByRole("button", { name: "Editar declaración" }).click();
+  await page.getByLabel("Nombres legales").fill("Camila Paz");
+  await page.locator("#identity-declaration-consent").check();
+  await page.getByRole("button", { name: "Guardar declaración" }).click();
+  await expect(page.getByText("Declaración guardada.")).toBeVisible();
   await expect(page.getByText("Camila Paz")).toBeVisible();
   expect(providerApiRequests).toBe(0);
 
   await expect(
-    page.getByRole("heading", { name: "Verificación de la cuenta" }),
+    page.getByRole("heading", {
+      level: 1,
+      name: "Verificación de identidad",
+    }),
   ).toBeVisible();
   await expect(
-    page.getByText("Aún no has iniciado una revisión documental propia."),
+    page.getByRole("heading", { name: "Etapa 2 · expediente de identidad" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Iniciar verificación documental" }),
-  ).toHaveAttribute("href", "/mi-cuenta/documentos");
+    page.getByRole("button", { name: "Continuar con identidad" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Aún no tienes expedientes documentales."),
+  ).toBeVisible();
   expect(caseListReads).toBeGreaterThan(0);
   await expect(page.getByText("Verificar identidad con Didit")).toHaveCount(0);
   expect(providerApiRequests).toBe(0);

@@ -1360,7 +1360,7 @@ test("legacy return URL strips query parameters without reading provider status"
   expect(providerRequests).toBe(0);
 });
 
-test("identity declaration screen has no provider CTA or provider request", async ({
+test("identity entry shows the document flow without provider CTA or request", async ({
   page,
 }) => {
   let providerRequests = 0;
@@ -1370,15 +1370,22 @@ test("identity declaration screen has no provider CTA or provider request", asyn
   });
   await signIn(page, "/mi-cuenta/verificaciones");
   await expect(
-    page.getByRole("button", { name: "Guardar datos de identidad" }),
+    page.getByRole("heading", { name: "Declaración de identidad" }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Verificar identidad con Didit" }),
   ).toHaveCount(0);
   await expect(
-    page.getByText(
-      /La declaración legal y la revisión documental son pasos separados/,
-    ),
+    page.getByRole("heading", {
+      level: 1,
+      name: "Verificación de identidad",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Etapa 2 · expediente de identidad" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Continuar con identidad" }),
   ).toBeVisible();
   expect(providerRequests).toBe(0);
 });

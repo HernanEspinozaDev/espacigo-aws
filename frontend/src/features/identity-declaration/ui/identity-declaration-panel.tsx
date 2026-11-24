@@ -268,7 +268,7 @@ export function IdentityDeclarationPanel({
                   Editar declaración
                 </Button>
                 <Button asChild>
-                  <Link href="/mi-cuenta/documentos">
+                  <Link href="/mi-cuenta/verificaciones#documentos-identidad">
                     Iniciar verificación de identidad
                   </Link>
                 </Button>

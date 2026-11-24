@@ -34,6 +34,24 @@ async function expectAccountPageAccessible(page: Page): Promise<void> {
   }
 }
 
+async function logoutFromWorkspaceMenu(page: Page): Promise<void> {
+  const accountMenuButton = page
+    .getByRole("navigation", { name: "Navegación del panel" })
+    .locator('button[aria-haspopup="menu"]');
+  await expect(accountMenuButton).toBeVisible();
+  await accountMenuButton.click();
+
+  const logoutResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return (
+      new URL(response.url()).pathname === "/api/backend/auth/logout" &&
+      request.method() === "POST"
+    );
+  });
+  await page.getByRole("menuitem", { name: "Cerrar sesión" }).click();
+  expect((await logoutResponse).status()).toBe(204);
+}
+
 test("identity declaration saves synthetic data and waits for readback", async ({
   page,
 }) => {
@@ -257,7 +275,9 @@ test("identity declaration saves synthetic data and waits for readback", async (
   await page
     .getByRole("link", { name: "Iniciar verificación de identidad" })
     .click();
-  await expect(page).toHaveURL(/\/mi-cuenta\/documentos$/);
+  await expect(page).toHaveURL(
+    /\/mi-cuenta\/verificaciones#documentos-identidad$/,
+  );
   expect(caseCreates).toBe(0);
   expect(evidenceUploads).toBe(0);
   expect(requestsOutsideLoopback).toEqual([]);
@@ -299,6 +319,7 @@ test("identity declaration stays isolated across account changes and logout", as
   };
   let currentAccountId: string | null = null;
   let currentEmail: string | null = null;
+  let expiresAt: string | null = null;
   const declarationReads: Array<string | null> = [];
 
   page.on("request", (request) => {
@@ -327,6 +348,8 @@ test("identity declaration stays isolated across account changes and logout", as
             account_id: currentAccountId,
             roles: ["arrendador"],
             capabilities: [],
+            expires_at:
+              expiresAt ?? new Date(Date.now() + 60_000).toISOString(),
             restricted_mode: false,
           })
         : json(401, { error: { code: "unauthenticated" } });
@@ -341,19 +364,21 @@ test("identity declaration stays isolated across account changes and logout", as
       if (!currentAccountId) {
         return json(401, { error: { code: "unauthenticated" } });
       }
+      expiresAt = new Date(Date.now() + 60_000).toISOString();
       return json(200, {
         account_id: currentAccountId,
         roles: ["arrendador"],
         capabilities: [],
         access_token: `synthetic-token-${currentEmail}`,
         token_type: "Bearer",
-        expires_at: new Date(Date.now() + 60_000).toISOString(),
+        expires_at: expiresAt,
         restricted_mode: false,
       });
     }
     if (pathname === "/api/backend/auth/logout" && method === "POST") {
       currentAccountId = null;
       currentEmail = null;
+      expiresAt = null;
       return route.fulfill({ status: 204 });
     }
     if (
@@ -416,13 +441,7 @@ test("identity declaration stays isolated across account changes and logout", as
     "Unsubmitted A only",
   );
 
-  const logoutBtn = page.getByRole("button", { name: "Cerrar sesión" });
-  if (await logoutBtn.isVisible()) {
-    await logoutBtn.click();
-  } else {
-    await page.goto("/acceso");
-    await page.getByRole("button", { name: "Cerrar sesión" }).click();
-  }
+  await logoutFromWorkspaceMenu(page);
   await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
   await page.getByLabel("Correo electrónico").fill("owner-b@example.invalid");
   await page
@@ -472,13 +491,7 @@ test("identity declaration stays isolated across account changes and logout", as
     accounts["owner-b@example.invalid"],
   ]);
 
-  const logoutBtn2 = page.getByRole("button", { name: "Cerrar sesión" });
-  if (await logoutBtn2.isVisible()) {
-    await logoutBtn2.click();
-  } else {
-    await page.goto("/acceso");
-    await page.getByRole("button", { name: "Cerrar sesión" }).click();
-  }
+  await logoutFromWorkspaceMenu(page);
   await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
   await page.getByLabel("Correo electrónico").fill("owner-a@example.invalid");
   await page
@@ -525,13 +538,7 @@ test("identity declaration stays isolated across account changes and logout", as
     "Unsubmitted B only",
   );
 
-  const logoutBtn3 = page.getByRole("button", { name: "Cerrar sesión" });
-  if (await logoutBtn3.isVisible()) {
-    await logoutBtn3.click();
-  } else {
-    await page.goto("/acceso");
-    await page.getByRole("button", { name: "Cerrar sesión" }).click();
-  }
+  await logoutFromWorkspaceMenu(page);
   await page.goto("/mi-cuenta/verificaciones");
   await expect(declaration).toBeVisible();
   await expect(

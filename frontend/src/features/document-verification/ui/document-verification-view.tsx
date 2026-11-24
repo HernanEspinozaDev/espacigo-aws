@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   Download,
+  Camera,
   FileCheck2,
   FileText,
   Loader2,
   RefreshCw,
   UploadCloud,
 } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/workspace/ui/button";
 import {
   Card,
@@ -21,6 +23,7 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError, isAbortError } from "@/lib/api/errors";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import { useDocumentVerification } from "./use-document-verification";
+import { IdentityDocumentCamera } from "./identity-document-camera";
 import type {
   DocumentVerificationCase,
   IdentityEvidenceRole,
@@ -35,6 +38,20 @@ const identityEvidenceRoles: readonly IdentityEvidenceRole[] = [
   "identity_back",
   "identity_selfie",
 ];
+const resumableIdentityStates: ReadonlySet<DocumentVerificationCase["state"]> =
+  new Set([
+    "borrador",
+    "enviada",
+    "en_revision",
+    "requiere_antecedentes",
+    "aprobada",
+  ]);
+
+function isResumableIdentityCase(value: DocumentVerificationCase): boolean {
+  return (
+    value.purpose === "identity" && resumableIdentityStates.has(value.state)
+  );
+}
 const identityEvidenceRoleLabels: Readonly<
   Record<IdentityEvidenceRole, string>
 > = {
@@ -105,7 +122,11 @@ function canSubmit(value: DocumentVerificationCase): boolean {
   });
 }
 
-export function DocumentVerificationView() {
+export function DocumentVerificationView({
+  identityOnly = false,
+}: {
+  readonly identityOnly?: boolean;
+} = {}) {
   const { snapshot: auth } = useAuth();
   const sessionKey = JSON.stringify([
     auth.status,
@@ -115,12 +136,24 @@ export function DocumentVerificationView() {
     auth.restrictedMode,
     auth.expiresAt,
   ]);
-  return <DocumentVerificationContent key={sessionKey} auth={auth} />;
+  return (
+    <DocumentVerificationContent
+      key={sessionKey}
+      auth={auth}
+      identityOnly={identityOnly}
+    />
+  );
 }
 
 type AuthSnapshot = ReturnType<typeof useAuth>["snapshot"];
 
-function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
+function DocumentVerificationContent({
+  auth,
+  identityOnly,
+}: {
+  auth: AuthSnapshot;
+  identityOnly: boolean;
+}) {
   const {
     snapshot,
     loadCases,
@@ -148,25 +181,77 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
   const [identityRole, setIdentityRole] =
     useState<IdentityEvidenceRole>("identity_front");
   const [file, setFile] = useState<File | null>(null);
+  const [cameraCaptured, setCameraCaptured] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
+  const filePreviewUrlRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [needsRefresh, setNeedsRefresh] = useState(false);
 
+  function selectFile(nextFile: File | null, capturedByCamera = false) {
+    if (filePreviewUrlRef.current) {
+      URL.revokeObjectURL(filePreviewUrlRef.current);
+      filePreviewUrlRef.current = null;
+    }
+    setFile(nextFile);
+    setCameraCaptured(nextFile !== null && capturedByCamera);
+    if (nextFile && identityAllowedMimes.has(nextFile.type)) {
+      const previewUrl = URL.createObjectURL(nextFile);
+      filePreviewUrlRef.current = previewUrl;
+      setFilePreviewUrl(previewUrl);
+    } else {
+      setFilePreviewUrl(null);
+    }
+  }
+
+  useEffect(
+    () => () => {
+      if (filePreviewUrlRef.current) {
+        URL.revokeObjectURL(filePreviewUrlRef.current);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (auth.status !== "authenticated") return;
-    void loadCases().catch((cause) => {
-      if (!isAbortError(cause)) {
-        setError("No se pudieron cargar tus expedientes. Intenta actualizar.");
-      }
-    });
-    void loadOwnSpaces().catch((cause) => {
-      if (!isAbortError(cause)) {
-        setError(
-          "No se pudieron cargar tus espacios para crear el expediente.",
-        );
-      }
-    });
-  }, [auth.accountId, auth.status, loadCases, loadOwnSpaces]);
+    let active = true;
+    void loadCases()
+      .then(async (cases) => {
+        if (!active || !identityOnly) return;
+        const resumable = cases.find(isResumableIdentityCase);
+        if (!resumable) return;
+        setSelectedCaseId(resumable.id);
+        await loadOwnCase(resumable.id);
+      })
+      .catch((cause) => {
+        if (active && !isAbortError(cause)) {
+          setError(
+            "No se pudieron cargar tus expedientes. Intenta actualizar.",
+          );
+        }
+      });
+    if (!identityOnly) {
+      void loadOwnSpaces().catch((cause) => {
+        if (active && !isAbortError(cause)) {
+          setError(
+            "No se pudieron cargar tus espacios para crear el expediente.",
+          );
+        }
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [
+    auth.accountId,
+    auth.status,
+    identityOnly,
+    loadCases,
+    loadOwnCase,
+    loadOwnSpaces,
+  ]);
 
   useEffect(() => {
     return () => privateBlobUrls.revoke("document-verification-download");
@@ -193,6 +278,16 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
       return;
     }
     try {
+      if (purpose === "identity") {
+        const currentCases = await loadCases();
+        const existing = currentCases.find(isResumableIdentityCase);
+        if (existing) {
+          setSelectedCaseId(existing.id);
+          await loadOwnCase(existing.id);
+          setMessage("Retomamos tu expediente existente; no creamos otro.");
+          return;
+        }
+      }
       const input =
         purpose === "identity"
           ? ({
@@ -226,7 +321,8 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
   async function handleSelectCase(id: string) {
     setError(null);
     setMessage(null);
-    setFile(null);
+    selectFile(null);
+    setCameraOpen(false);
     setSelectedCaseId(id);
     setNeedsRefresh(false);
     privateBlobUrls.revoke("document-verification-download");
@@ -236,6 +332,13 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
       if (isAbortError(cause)) return;
       setError("No se pudo cargar el expediente seleccionado.");
     }
+  }
+
+  function handleCameraCapture(capturedFile: File) {
+    selectFile(capturedFile, true);
+    setCameraOpen(false);
+    setError(null);
+    setMessage("Foto capturada. Revisa la vista previa antes de cargarla.");
   }
 
   async function handleUpload() {
@@ -261,7 +364,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
         file,
         identityCase ? identityRole : undefined,
       );
-      setFile(null);
+      selectFile(null);
       setMessage(
         identityCase
           ? "Evidencia recibida y pendiente de inspección."
@@ -320,7 +423,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
           throw new Error("Selected owner case was not refreshed.");
         }
         if (!isEditable(refreshedCase)) {
-          setFile(null);
+          selectFile(null);
         }
       }
       setNeedsRefresh(false);
@@ -380,7 +483,13 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
         </CardHeader>
         <CardContent>
           <Button asChild>
-            <a href="/acceso?returnTo=%2Fmi-cuenta%2Fdocumentos">
+            <a
+              href={
+                identityOnly
+                  ? "/acceso?returnTo=%2Fmi-cuenta%2Fverificaciones"
+                  : "/acceso?returnTo=%2Fmi-cuenta%2Fdocumentos"
+              }
+            >
               Ir a iniciar sesión
             </a>
           </Button>
@@ -392,6 +501,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
   return (
     <div className="space-y-6">
       <section
+        id={identityOnly ? "documentos-identidad" : undefined}
         aria-labelledby="document-verification-heading"
         className="space-y-2"
       >
@@ -399,12 +509,14 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
           id="document-verification-heading"
           className="text-2xl font-semibold tracking-tight"
         >
-          Documentos de verificación
+          {identityOnly
+            ? "Verificación de identidad"
+            : "Documentos de verificación"}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Crea y consulta tus expedientes. Los documentos se inspeccionan en
-          almacenamiento privado; solo archivos limpios de espacios propios
-          pueden descargarse.
+          {identityOnly
+            ? "Adjunta tus evidencias y consulta el estado confirmado del expediente. Si ya existe uno abierto, lo retomaremos."
+            : "Crea y consulta tus expedientes. Los documentos se inspeccionan en almacenamiento privado; solo archivos limpios de espacios propios pueden descargarse."}
         </p>
       </section>
 
@@ -427,33 +539,39 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Crear expediente</CardTitle>
+          <CardTitle>
+            {identityOnly
+              ? "Etapa 2 · expediente de identidad"
+              : "Crear expediente"}
+          </CardTitle>
           <CardDescription>
             {purpose === "identity"
-              ? "Ensayo local únicamente con datos sintéticos. No ingreses documentos ni datos reales."
+              ? "Prueba local con datos sintéticos únicamente. Reanudaremos un expediente abierto; el resultado requiere inspección y revisión humana."
               : "El servidor valida la titularidad del espacio y determina al titular desde la sesión."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleCreate} className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor={purposeId} className="text-sm font-medium">
-                Tipo de expediente
-              </label>
-              <select
-                id={purposeId}
-                value={purpose}
-                onChange={(event) => {
-                  setPurpose(event.target.value as "identity" | "space");
-                  setCaptureConsentGiven(false);
-                }}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                <option value="identity">Identidad</option>
-                <option value="space">Espacio</option>
-              </select>
-            </div>
-            {purpose === "space" && (
+            {!identityOnly && (
+              <div className="space-y-2">
+                <label htmlFor={purposeId} className="text-sm font-medium">
+                  Tipo de expediente
+                </label>
+                <select
+                  id={purposeId}
+                  value={purpose}
+                  onChange={(event) => {
+                    setPurpose(event.target.value as "identity" | "space");
+                    setCaptureConsentGiven(false);
+                  }}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="identity">Identidad</option>
+                  <option value="space">Espacio</option>
+                </select>
+              </div>
+            )}
+            {purpose === "space" && !identityOnly && (
               <div className="space-y-2">
                 <label htmlFor={spaceId} className="text-sm font-medium">
                   Espacio propio
@@ -543,7 +661,14 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
               </div>
             )}
             <div className="sm:col-span-2">
-              <Button type="submit" disabled={busy}>
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  (purpose === "identity" &&
+                    snapshot.cases.some(isResumableIdentityCase))
+                }
+              >
                 {snapshot.action === "create" ? (
                   <Loader2
                     className="mr-2 size-4 animate-spin"
@@ -552,7 +677,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                 ) : (
                   <FileCheck2 className="mr-2 size-4" aria-hidden="true" />
                 )}
-                Crear expediente
+                {identityOnly ? "Continuar con identidad" : "Crear expediente"}
               </Button>
             </div>
           </form>
@@ -585,13 +710,19 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {snapshot.cases.length === 0 ? (
+          {(identityOnly
+            ? snapshot.cases.filter((item) => item.purpose === "identity")
+            : snapshot.cases
+          ).length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Aún no tienes expedientes documentales.
             </p>
           ) : (
             <ul className="divide-y rounded-md border">
-              {snapshot.cases.map((item) => (
+              {(identityOnly
+                ? snapshot.cases.filter((item) => item.purpose === "identity")
+                : snapshot.cases
+              ).map((item) => (
                 <li key={item.id}>
                   <button
                     type="button"
@@ -608,7 +739,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                       />
                       <span className="min-w-0">
                         <span className="block font-medium">
-                          {item.purpose === "identity"
+                          {identityOnly || item.purpose === "identity"
                             ? "Identidad"
                             : "Documentos del espacio"}
                         </span>
@@ -751,11 +882,13 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                     <select
                       id={evidenceRoleId}
                       value={identityRole}
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setIdentityRole(
                           event.target.value as IdentityEvidenceRole,
-                        )
-                      }
+                        );
+                        selectFile(null);
+                        setCameraOpen(false);
+                      }}
                       className="h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 text-sm"
                     >
                       {identityEvidenceRoles.map((role) => (
@@ -766,6 +899,45 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                     </select>
                   </div>
                 )}
+                {identityOnly &&
+                  selected.value.purpose === "identity" &&
+                  (identityRole === "identity_front" ||
+                    identityRole === "identity_back") && (
+                    <div className="space-y-3">
+                      {!cameraCaptured && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setCameraOpen(true)}
+                            disabled={busy || needsRefresh}
+                          >
+                            <Camera
+                              className="mr-2 size-4"
+                              aria-hidden="true"
+                            />
+                            Abrir cámara para{" "}
+                            {identityEvidenceRoleLabels[
+                              identityRole
+                            ].toLowerCase()}
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            La cámara es opcional. Si no está disponible, puedes
+                            seleccionar una imagen JPEG o PNG desde tus
+                            archivos.
+                          </p>
+                        </>
+                      )}
+                      {cameraOpen && (
+                        <IdentityDocumentCamera
+                          key={identityRole}
+                          role={identityRole}
+                          onCapture={handleCameraCapture}
+                          onClose={() => setCameraOpen(false)}
+                        />
+                      )}
+                    </div>
+                  )}
                 <div className="space-y-2">
                   <label htmlFor={fileId} className="text-sm font-medium">
                     {selected.value.purpose === "identity"
@@ -780,12 +952,59 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                         ? "image/jpeg,image/png"
                         : "application/pdf,image/jpeg,image/png"
                     }
-                    onChange={(event) =>
-                      setFile(event.target.files?.[0] ?? null)
-                    }
+                    onChange={(event) => {
+                      setCameraOpen(false);
+                      selectFile(event.target.files?.[0] ?? null);
+                    }}
                     className="block w-full max-w-xl text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-2"
                   />
                 </div>
+                {selected.value.purpose === "identity" && file && (
+                  <div className="flex flex-col gap-3 rounded-md border p-3 sm:flex-row sm:items-start">
+                    {filePreviewUrl && (
+                      <Image
+                        src={filePreviewUrl}
+                        alt={`Vista previa del ${identityEvidenceRoleLabels[identityRole].toLowerCase()}`}
+                        width={640}
+                        height={480}
+                        unoptimized
+                        className="aspect-[4/3] w-full rounded-md bg-muted object-contain sm:max-h-48 sm:w-64"
+                      />
+                    )}
+                    <div className="min-w-0 text-sm">
+                      <p className="font-medium">
+                        {cameraCaptured
+                          ? "Foto capturada · "
+                          : "Vista previa · "}
+                        {identityEvidenceRoleLabels[identityRole]}
+                      </p>
+                      <p className="break-all text-muted-foreground">
+                        {file.name} · {Math.ceil(file.size / 1024)} KiB
+                      </p>
+                      {cameraCaptured && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          La foto aún no se ha cargado. Confirma con “Cargar
+                          evidencia”.
+                        </p>
+                      )}
+                      {identityOnly &&
+                        cameraCaptured &&
+                        (identityRole === "identity_front" ||
+                          identityRole === "identity_back") && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                            onClick={() => setCameraOpen(true)}
+                            disabled={busy || needsRefresh}
+                          >
+                            Repetir foto
+                          </Button>
+                        )}
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
