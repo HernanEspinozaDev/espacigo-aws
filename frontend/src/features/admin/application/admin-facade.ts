@@ -42,6 +42,9 @@ function isUnauthorizedError(error: unknown): boolean {
   );
 }
 import type {
+  AdminAssistedViewGrant,
+  AdminAssistedViewProjection,
+  AdminAssistedViewStartInput,
   AdminCapability,
   AdminDamageClaim,
   AdminDamageClaimResolutionInput,
@@ -50,25 +53,57 @@ import type {
   AdminLocalAccount,
   AdminLocalDispute,
   AdminLocalNotice,
+  AdminMfaChallenge,
   AdminPublishedSpace,
   AdminReservationDetail,
   AdminReservationSummary,
   AdminReservationsReport,
   AdminReviewReport,
   AdminSection,
+  AdminSensitiveAccessInput,
+  AdminSensitiveAccessResult,
+  AdminSessionData,
+  AdminSessionStartResponse,
+  AdminSessionStatus,
   AdminVerificationCase,
   AuditEvent,
   AuditEventsQuery,
   GlobalAdminAccount,
   GlobalAdminAccountQuery,
+  GlobalAdminAccountResourceKind,
+  GlobalAdminAccountResourcePage,
+  GlobalAdminAccountResourceQuery,
   GlobalAdminKPIs,
   GlobalAdminMe,
   GlobalAdminOverview,
   GlobalAdminPublication,
   GlobalAdminPublicationQuery,
+  GlobalAdminPayment,
+  GlobalAdminPaymentQuery,
+  GlobalAdminReservation,
+  GlobalAdminReservationQuery,
+  GlobalAdminContract,
+  GlobalAdminContractQuery,
+  GlobalAdminKycCase,
+  GlobalAdminKycCaseQuery,
+  GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestQuery,
+  GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminSupportTicket,
+  GlobalAdminSupportTicketQuery,
+  GlobalAdminSupportTicketCreateInput,
+  GlobalAdminApproval,
+  GlobalAdminApprovalQuery,
+  GlobalAdminApprovalCreateInput,
+  GlobalAdminApprovalDecisionInput,
 } from "../domain/types";
 import type { AdminPort } from "./admin.port";
 export interface AdminSnapshot {
+  readonly adminSessionStatus: AdminSessionStatus;
+  readonly adminSession: AdminSessionData | null;
+  readonly mfaChallenge: AdminMfaChallenge | null;
+  readonly mfaStepUpRequired: boolean;
+  readonly assistedViewGrant: AdminAssistedViewGrant | null;
   readonly me: GlobalAdminMe | null;
   readonly overview: GlobalAdminOverview | null;
   readonly kpis: GlobalAdminKPIs | null;
@@ -98,6 +133,11 @@ export interface AdminSnapshot {
   readonly concurrencyConflict: boolean;
 }
 const initialSnapshot: AdminSnapshot = Object.freeze({
+  adminSessionStatus: "unknown",
+  adminSession: null,
+  mfaChallenge: null,
+  mfaStepUpRequired: false,
+  assistedViewGrant: null,
   me: null,
   overview: null,
   kpis: null,
@@ -323,6 +363,7 @@ export class AdminFacade {
       // non-blocking purge listener
     }
     this.#setSnapshot({
+      assistedViewGrant: null,
       me: null,
       error: null,
       overview: null,
@@ -371,6 +412,14 @@ export class AdminFacade {
       this.purgePrivateData();
       void this.#authSource?.checkSession().catch(() => undefined);
       this.#setSnapshot({
+        ...(this.#authSource
+          ? {}
+          : {
+              adminSession: null,
+              adminSessionStatus: "anonymous" as const,
+              mfaChallenge: null,
+              mfaStepUpRequired: false,
+            }),
         error: "Sesión no autorizada o expirada.",
         loading: false,
         actionLoading: false,
@@ -380,6 +429,7 @@ export class AdminFacade {
     if (isRecentAuthRequired(err)) {
       this.#setSnapshot({
         recentAuthRequired: true,
+        mfaStepUpRequired: true,
         error:
           "Se requiere autenticación reciente para realizar esta operación administrativa sensible (código 428).",
         loading: false,
@@ -631,6 +681,30 @@ export class AdminFacade {
     );
     if (!account?.email.includes("@")) throw new Error("Correo no disponible.");
     return account.email;
+  }
+
+  async listGlobalAccountResources(
+    accountId: string,
+    kind: GlobalAdminAccountResourceKind,
+    query?: GlobalAdminAccountResourceQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminAccountResourcePage> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("Sesión requerida.");
+    }
+    const scope = this.#captureSession();
+    return await this.#waitSession(
+      this.#port.listGlobalAccountResources(
+        accountId,
+        kind,
+        query,
+        this.#sessionSignal(scope, signal),
+      ),
+      scope,
+    );
   }
 
   async updateGlobalAccountProfile(
@@ -1685,5 +1759,502 @@ export class AdminFacade {
       this.#handleError(err, "No pudimos resolver el reclamo por daños.");
       return await this.#waitSession(false, _sessionScope);
     }
+  }
+
+  #checkAdminSessionPromise: Promise<boolean> | null = null;
+
+  async checkAdminSession(): Promise<boolean> {
+    if (this.#checkAdminSessionPromise) {
+      return this.#checkAdminSessionPromise;
+    }
+    const run = async (): Promise<boolean> => {
+      if (this.#snapshot.adminSessionStatus === "unknown") {
+        this.#setSnapshot({ adminSessionStatus: "checking" });
+      }
+      try {
+        const session = await this.#port.getAdminSession(
+          this.#sessionController.signal,
+        );
+        if (!session) {
+          this.purgePrivateData();
+          this.#setSnapshot({
+            adminSession: null,
+            adminSessionStatus: "anonymous",
+            mfaChallenge: null,
+            mfaStepUpRequired: false,
+          });
+          return false;
+        }
+        this.#setSnapshot({
+          adminSession: session,
+          adminSessionStatus: "authenticated",
+          mfaChallenge: null,
+          mfaStepUpRequired: false,
+          error: null,
+        });
+        return true;
+      } catch (err) {
+        if ((err as { name?: string } | null)?.name === "AbortError") {
+          return false;
+        }
+        this.#setSnapshot({
+          adminSession: null,
+          adminSessionStatus: "anonymous",
+          mfaChallenge: null,
+        });
+        return false;
+      } finally {
+        this.#checkAdminSessionPromise = null;
+      }
+    };
+    this.#checkAdminSessionPromise = run();
+    return this.#checkAdminSessionPromise;
+  }
+
+  async startAdminSession(
+    email: string,
+    password: string,
+  ): Promise<AdminSessionStartResponse | null> {
+    this.#setSnapshot({
+      actionLoading: true,
+      error: null,
+      recentAuthRequired: false,
+    });
+    try {
+      const response = await this.#port.startAdminSession(
+        { email: email.trim(), password },
+        this.#sessionController.signal,
+      );
+      if (response.status === "mfa_required") {
+        this.#setSnapshot({
+          adminSessionStatus: "mfa_required",
+          mfaChallenge: {
+            challenge_id: response.challenge_id ?? "",
+            methods: response.methods ?? ["totp"],
+            expires_at: response.expires_at,
+          },
+          actionLoading: false,
+          error: null,
+        });
+        return response;
+      }
+      const session: AdminSessionData = {
+        account_id: response.account_id ?? "",
+        audience: response.audience ?? "admin",
+        roles: response.roles ?? [],
+        capabilities: response.capabilities ?? [],
+        mfa_verified_at: response.mfa_verified_at ?? new Date().toISOString(),
+        recent_auth_expires_at:
+          response.recent_auth_expires_at ?? response.expires_at,
+        expires_at: response.expires_at,
+      };
+      this.#setSnapshot({
+        adminSession: session,
+        adminSessionStatus: "authenticated",
+        mfaChallenge: null,
+        mfaStepUpRequired: false,
+        actionLoading: false,
+        error: null,
+      });
+      return response;
+    } catch (err) {
+      this.#handleError(err, "No pudimos iniciar la sesión administrativa.");
+      return null;
+    }
+  }
+
+  async verifyAdminSessionMfa(
+    code: string,
+    challengeId?: string,
+  ): Promise<boolean> {
+    const trimmedCode = code.trim();
+    if (!trimmedCode) {
+      this.#setSnapshot({ error: "Ingresa el código de verificación MFA." });
+      return false;
+    }
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      const resolvedChallengeId =
+        challengeId ?? this.#snapshot.mfaChallenge?.challenge_id;
+      const session = await this.#port.verifyAdminSessionMfa(
+        resolvedChallengeId
+          ? { challenge_id: resolvedChallengeId, code: trimmedCode }
+          : { code: trimmedCode },
+        this.#sessionController.signal,
+      );
+      this.#setSnapshot({
+        adminSession: session,
+        adminSessionStatus: "authenticated",
+        mfaChallenge: null,
+        mfaStepUpRequired: false,
+        recentAuthRequired: false,
+        actionLoading: false,
+        error: null,
+      });
+      return true;
+    } catch (err) {
+      this.#handleError(err, "No pudimos validar el código MFA.");
+      return false;
+    }
+  }
+
+  async logoutAdminSession(): Promise<void> {
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      await this.#port.deleteAdminSession();
+    } catch {
+      // Clear local state regardless of upstream response
+    } finally {
+      this.purgePrivateData();
+      this.#setSnapshot({
+        adminSession: null,
+        adminSessionStatus: "anonymous",
+        mfaChallenge: null,
+        mfaStepUpRequired: false,
+        actionLoading: false,
+      });
+    }
+  }
+
+  openMfaStepUp(): void {
+    this.#setSnapshot({ mfaStepUpRequired: true });
+  }
+
+  closeMfaStepUp(): void {
+    this.#setSnapshot({
+      mfaStepUpRequired: false,
+      recentAuthRequired: false,
+    });
+  }
+
+  async requestGlobalAccountSensitiveAccess(
+    accountId: string,
+    input: AdminSensitiveAccessInput,
+    signal?: AbortSignal,
+  ): Promise<AdminSensitiveAccessResult | null> {
+    const scope = this.#captureSession();
+    const reason = input.reason.trim();
+    if (!isValidAdminReason(reason)) {
+      this.#setSnapshot({
+        error: "El motivo debe tener al menos 5 caracteres válidos.",
+      });
+      return null;
+    }
+    try {
+      const result = await this.#waitSession(
+        this.#port.requestGlobalAccountSensitiveAccess(
+          accountId,
+          {
+            field: input.field,
+            reason,
+            ...(input.case_id?.trim() ? { case_id: input.case_id.trim() } : {}),
+            ...(input.scope ? { scope: input.scope } : {}),
+          },
+          this.#sessionSignal(scope, signal),
+        ),
+        scope,
+      );
+      return result;
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) return null;
+      this.#handleError(
+        err,
+        "No pudimos revelar el dato sensible de la cuenta.",
+      );
+      throw err;
+    }
+  }
+
+  async startAssistedView(
+    accountId: string,
+    input: AdminAssistedViewStartInput,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewGrant | null> {
+    const scope = this.#captureSession();
+    const caseId = input.case_id.trim();
+    const reason = input.reason.trim();
+    if (!caseId) {
+      this.#setSnapshot({
+        error: "El identificador de caso es obligatorio.",
+      });
+      return null;
+    }
+    if (!isValidAdminReason(reason)) {
+      this.#setSnapshot({
+        error: "El motivo debe tener al menos 5 caracteres válidos.",
+      });
+      return null;
+    }
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      const grant = await this.#waitSession(
+        this.#port.startAssistedView(
+          accountId,
+          {
+            role: input.role,
+            case_id: caseId,
+            reason,
+          },
+          this.#sessionSignal(scope, signal),
+        ),
+        scope,
+      );
+      if (!this.#isSessionCurrent(scope)) return null;
+      this.#setSnapshot({
+        assistedViewGrant: grant,
+        actionLoading: false,
+      });
+      return grant;
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) return null;
+      this.#handleError(
+        err,
+        "No pudimos iniciar la vista asistida del cliente.",
+      );
+      throw err;
+    }
+  }
+
+  async getAssistedViewProjection(
+    grantId: string,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewProjection | null> {
+    const scope = this.#captureSession();
+    try {
+      const projection = await this.#waitSession(
+        this.#port.getAssistedViewProjection(
+          grantId,
+          this.#sessionSignal(scope, signal),
+        ),
+        scope,
+      );
+      return projection;
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) return null;
+      this.#handleError(
+        err,
+        "No pudimos cargar la proyección de vista asistida.",
+      );
+      throw err;
+    }
+  }
+
+  async closeAssistedView(
+    grantId?: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const scope = this.#captureSession();
+    const targetGrantId = grantId ?? this.#snapshot.assistedViewGrant?.grant_id;
+    if (!targetGrantId) {
+      this.#setSnapshot({ assistedViewGrant: null });
+      return;
+    }
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      await this.#waitSession(
+        this.#port.closeAssistedView(
+          targetGrantId,
+          this.#sessionSignal(scope, signal),
+        ),
+        scope,
+      );
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) return;
+      this.#handleError(
+        err,
+        "No pudimos cerrar la vista asistida.",
+      );
+      throw err;
+    } finally {
+      if (this.#isSessionCurrent(scope)) {
+        this.#setSnapshot({
+          assistedViewGrant: null,
+          actionLoading: false,
+        });
+      }
+    }
+  }
+
+  // Phase 4: Specialized Operations
+  async #runPhase4Query<T>(
+    errorMessage: string,
+    fn: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const scope = this.#captureSession();
+    try {
+      return await this.#waitSession(
+        fn(this.#sessionSignal(scope, signal)),
+        scope,
+      );
+    } catch (err) {
+      if (this.#isSessionCurrent(scope)) {
+        this.#handleError(err, errorMessage);
+      }
+      throw err;
+    }
+  }
+
+  async #runPhase4Mutation<T>(
+    errorMessage: string,
+    fn: (signal: AbortSignal) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const scope = this.#captureSession();
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      return await this.#waitSession(
+        fn(this.#sessionSignal(scope, signal)),
+        scope,
+      );
+    } catch (err) {
+      if (this.#isSessionCurrent(scope)) {
+        this.#handleError(err, errorMessage);
+      }
+      throw err;
+    } finally {
+      if (this.#isSessionCurrent(scope)) {
+        this.#setSnapshot({ actionLoading: false });
+      }
+    }
+  }
+
+  listGlobalPayments(
+    query?: GlobalAdminPaymentQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPayment[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar la conciliación de pagos.",
+      (s) => this.#port.listGlobalPayments(query, s),
+      signal,
+    );
+  }
+
+  listGlobalReservations(
+    query?: GlobalAdminReservationQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminReservation[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar las reservas transversales.",
+      (s) => this.#port.listGlobalReservations(query, s),
+      signal,
+    );
+  }
+
+  listGlobalContracts(
+    query?: GlobalAdminContractQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminContract[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar los contratos comerciales.",
+      (s) => this.#port.listGlobalContracts(query, s),
+      signal,
+    );
+  }
+
+  listGlobalKycCases(
+    query?: GlobalAdminKycCaseQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminKycCase[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar los casos KYC.",
+      (s) => this.#port.listGlobalKycCases(query, s),
+      signal,
+    );
+  }
+
+  listGlobalPrivacyRequests(
+    query?: GlobalAdminPrivacyRequestQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar las solicitudes ARCO+.",
+      (s) => this.#port.listGlobalPrivacyRequests(query, s),
+      signal,
+    );
+  }
+
+  createGlobalPrivacyRequest(
+    input: GlobalAdminPrivacyRequestCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    return this.#runPhase4Mutation(
+      "No pudimos registrar la solicitud ARCO+.",
+      (s) =>
+        this.#port.createGlobalPrivacyRequest(
+          generateIdempotencyKey(),
+          input,
+          s,
+        ),
+      signal,
+    );
+  }
+
+  listGlobalSupportTickets(
+    query?: GlobalAdminSupportTicketQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminSupportTicket[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar los tickets de soporte.",
+      (s) => this.#port.listGlobalSupportTickets(query, s),
+      signal,
+    );
+  }
+
+  createGlobalSupportTicket(
+    input: GlobalAdminSupportTicketCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminSupportTicket> {
+    return this.#runPhase4Mutation(
+      "No pudimos crear el ticket de soporte.",
+      (s) =>
+        this.#port.createGlobalSupportTicket(
+          generateIdempotencyKey(),
+          input,
+          s,
+        ),
+      signal,
+    );
+  }
+
+  listGlobalApprovals(
+    query?: GlobalAdminApprovalQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminApproval[]; next_cursor?: string }> {
+    return this.#runPhase4Query(
+      "No pudimos cargar la cola de doble control.",
+      (s) => this.#port.listGlobalApprovals(query, s),
+      signal,
+    );
+  }
+
+  createGlobalApproval(
+    input: GlobalAdminApprovalCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval> {
+    return this.#runPhase4Mutation(
+      "No pudimos crear la solicitud de doble control.",
+      (s) =>
+        this.#port.createGlobalApproval(generateIdempotencyKey(), input, s),
+      signal,
+    );
+  }
+
+  decideGlobalApproval(
+    approvalId: string,
+    input: GlobalAdminApprovalDecisionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval> {
+    return this.#runPhase4Mutation(
+      "No pudimos registrar la decisión de doble control.",
+      (s) =>
+        this.#port.decideGlobalApproval(
+          approvalId,
+          generateIdempotencyKey(),
+          input,
+          s,
+        ),
+      signal,
+    );
   }
 }

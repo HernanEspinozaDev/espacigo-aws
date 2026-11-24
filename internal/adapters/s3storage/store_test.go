@@ -17,10 +17,10 @@ import (
 func newMockS3Client(t *testing.T, serverURL string) *s3.Client {
 	t.Helper()
 	return s3.New(s3.Options{
-		Region:       "us-east-1",
-		BaseEndpoint: aws.String(serverURL),
-		UsePathStyle: true,
-		Credentials:  credentials.NewStaticCredentialsProvider("TESTKEY", "TESTSECRET", ""),
+		Region:           "us-east-1",
+		BaseEndpoint:     aws.String(serverURL),
+		UsePathStyle:     true,
+		Credentials:      credentials.NewStaticCredentialsProvider("TESTKEY", "TESTSECRET", ""),
 		RetryMaxAttempts: 1,
 	})
 }
@@ -302,5 +302,32 @@ func TestValidateMetadataRejectsUnsafeValuesAndBounds(t *testing.T) {
 	input["key_version"] = "v2"
 	if clone["key_version"] != "v1" {
 		t.Fatalf("validated metadata aliases caller map: %v", clone)
+	}
+}
+
+func TestStoreVersionedReadPinsHeadAndBodyToTheSavedVersion(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/private-bucket/contracts/"+id+".blob" || r.URL.Query().Get("versionId") != "saved-version" {
+			http.Error(w, "expected pinned object version", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("X-Amz-Version-Id", "saved-version")
+		w.Header().Set("ETag", `"saved-etag"`)
+		w.Header().Set("Content-Length", "3")
+		if r.Method == http.MethodGet {
+			if r.Header.Get("If-Match") != `"saved-etag"` {
+				http.Error(w, "expected the observed object ETag", http.StatusPreconditionFailed)
+				return
+			}
+			_, _ = io.WriteString(w, "PDF")
+		}
+	}))
+	defer server.Close()
+
+	store := newStoreWithPrefix(newMockS3Client(t, server.URL), "private-bucket", "contracts")
+	blob, _, version, err := store.GetVersionedWithMetadata(context.Background(), id, 3, "saved-version")
+	if err != nil || string(blob) != "PDF" || version != "saved-version" {
+		t.Fatalf("versioned read returned data=%q version=%q err=%v", blob, version, err)
 	}
 }

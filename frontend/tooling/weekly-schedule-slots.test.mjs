@@ -51,6 +51,12 @@ test("propagates optional external schedule errors to both time controls", async
   );
   assert.match(source, /invalid\?: boolean;/);
   assert.match(source, /errorId\?: string;/);
+  assert.match(source, /Marcar cerrado/);
+  assert.match(source, /Agregar tramo/);
+  assert.match(source, /validateScheduleSlots\(next\)/);
+  assert.match(source, /Desde/);
+  assert.match(source, /Hasta \(incluye 24:00\)/);
+  assert.match(source, /Resumen de horario semanal/);
   assert.equal(
     (source.match(/aria-invalid=\{invalid \|\| undefined\}/g) ?? []).length,
     2,

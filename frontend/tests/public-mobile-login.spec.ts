@@ -9,7 +9,7 @@ test("anonymous mobile menu exposes Ingresar and closes when opening access", as
 
   const drawer = page.getByRole("dialog");
   const loginLink = drawer.getByRole("link", {
-    name: "Ingresar a EspaciGo",
+    name: "Iniciar sesión",
   });
   await expect(loginLink).toBeVisible();
   await loginLink.click();

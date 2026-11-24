@@ -39,6 +39,40 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/host/settlements": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar la liquidación mensual del arrendador */
+    get: operations["listHostSettlements"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/settlements/{reservationID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una liquidación del arrendador por reserva propia */
+    get: operations["getHostSettlement"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/host/mercadopago": {
     parameters: {
       query?: never;
@@ -424,6 +458,194 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/rental-contract-capabilities": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar si la reserva comercial requiere contrato y firmas */
+    get: operations["getCommercialContractCapabilities"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/{quoteID}/contract-proposal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Preparar una propuesta comercial inmutable a partir de la cotización */
+    post: operations["createCommercialContractProposal"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-contract-proposals/{proposalID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una propuesta comercial como participante */
+    get: operations["getCommercialContractProposal"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar las solicitudes en que participa la persona autenticada */
+    get: operations["listCommercialAgreements"];
+    put?: never;
+    /** Firmar la propuesta como arrendatario y enviar la solicitud */
+    post: operations["createCommercialAgreement"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/otp-challenge": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Enviar código OTP al correo para firmar un contrato (FES) */
+    post: operations["createCommercialAgreementOTPChallenge"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar una solicitud y sus firmas como participante */
+    get: operations["getCommercialAgreement"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}/landlord-signature": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Aceptar y firmar como arrendador con retención atómica del horario */
+    put: operations["signCommercialAgreementAsLandlord"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-agreements/{agreementID}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Rechazar como arrendador o retirar como arrendatario */
+    put: operations["decideCommercialAgreement"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/notifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar notificaciones in-app de la cuenta autenticada */
+    get: operations["listNotifications"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/notifications/read-all": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Marcar todas las notificaciones como leídas */
+    post: operations["markAllNotificationsRead"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/notifications/{notificationID}/read": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Marcar una notificación como leída */
+    post: operations["markNotificationRead"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/webhooks/mercadopago": {
     parameters: {
       query?: never;
@@ -547,6 +769,60 @@ export interface paths {
     /** Obtener el detalle de una reserva comercial por ID */
     get: operations["getCommercialReservation"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/documents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar documentos y contacto de una reserva pagada como participante */
+    get: operations["getCommercialReservationDocuments"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/contract-document": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Descargar el PDF contractual de una reserva pagada propia */
+    get: operations["downloadCommercialReservationContract"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/rental-tax-document": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    /** Descargar un PDF tributario adjuntado a una reserva pagada propia */
+    get: operations["downloadCommercialReservationTaxPDF"];
+    /** Adjuntar un PDF tributario externo a una reserva propia pagada */
+    put: operations["attachCommercialReservationTaxPDF"];
     post?: never;
     delete?: never;
     options?: never;
@@ -828,6 +1104,58 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/admin/session/start": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Iniciar sesión administrativa dedicada (credenciales de staff) */
+    post: operations["startAdminSession"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/session/mfa": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Verificar MFA o step-up reciente para la sesión administrativa */
+    post: operations["verifyAdminSessionMfa"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/session": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar estado de la sesión administrativa dedicada */
+    get: operations["getAdminSession"];
+    put?: never;
+    post?: never;
+    /** Cerrar y revocar la sesión administrativa dedicada */
+    delete: operations["deleteAdminSession"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/global/me": {
     parameters: {
       query?: never;
@@ -946,11 +1274,94 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Consultar proyección mínima de una cuenta */
+    /**
+     * Consultar proyección mínima de una cuenta
+     * @description Requiere accounts.read. La respuesta enmascara el correo por defecto. Revelarlo requiere además accounts.email.reveal y una sesión autenticada en los últimos 10 minutos. La revelación se registra por separado en auditoría.
+     */
     get: operations["getGlobalAdminAccount"];
     put?: never;
     post?: never;
     delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/accounts/{accountID}/sensitive-access": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Solicitar acceso temporal auditado a campo sensible de una cuenta
+     * @description Requiere accounts.email.reveal y autenticación MFA reciente (HTTP 428 si expiró). Registra motivo, caso opcional y alcance en auditoría.
+     */
+    post: operations["requestGlobalAdminAccountSensitiveAccess"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/accounts/{accountID}/assisted-view": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Iniciar vista asistida de solo lectura para una cuenta
+     * @description Requiere accounts.read y autenticación MFA reciente (HTTP 428 si expiró). Emite un grant acotado en el tiempo y registra el inicio en auditoría.
+     */
+    post: operations["startGlobalAdminAccountAssistedView"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/assisted-view/{grantID}/projection": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar proyección de solo lectura para una vista asistida activa
+     * @description Devuelve la proyección acotada al rol solicitado (espacios, reservas y contratos) en modo estrictamente de solo lectura.
+     */
+    get: operations["getGlobalAdminAssistedViewProjection"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/assisted-view/{grantID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Cerrar una vista asistida activa
+     * @description Revoca inmediatamente el grant de vista asistida y registra el cierre en auditoría.
+     */
+    delete: operations["closeGlobalAdminAssistedView"];
     options?: never;
     head?: never;
     patch?: never;
@@ -1057,6 +1468,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Listar reservas, contratos, pagos o incidentes vinculados a una cuenta */
     get: operations["listGlobalAdminAccountResources"];
     put?: never;
     post?: never;
@@ -1073,6 +1485,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Consultar un recurso (reserva, contrato, pago o incidente) de la cuenta */
     get: operations["getGlobalAdminAccountResource"];
     put?: never;
     post?: never;
@@ -1187,6 +1600,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Listar fotografías de una publicación para moderación */
     get: operations["listGlobalAdminPublicationGallery"];
     put?: never;
     post?: never;
@@ -1209,6 +1623,7 @@ export interface paths {
     delete?: never;
     options?: never;
     head?: never;
+    /** Cambiar la visibilidad de una fotografía */
     patch: operations["setGlobalAdminPublicationPhotoVisibility"];
     trace?: never;
   };
@@ -1221,6 +1636,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** Seleccionar la portada de una publicación */
     post: operations["selectGlobalAdminPublicationCover"];
     delete?: never;
     options?: never;
@@ -1237,7 +1653,180 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** Retirar una fotografía de una publicación */
     post: operations["removeGlobalAdminPublicationPhoto"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/payments": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar pagos y conciliación transversal
+     * @description Requiere payments.read. Separa modo de prueba MP y comercial, incluye desglose CLP exacto y motivo de conciliación.
+     */
+    get: operations["listGlobalAdminPayments"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/reservations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar reservas transversales en administración global
+     * @description Requiere reservations.read.
+     */
+    get: operations["listGlobalAdminReservations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/contracts": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar contratos comerciales transversales
+     * @description Requiere contracts.read.
+     */
+    get: operations["listGlobalAdminContracts"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/kyc-cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar resumen de casos KYC
+     * @description Requiere kyc.case.read.
+     */
+    get: operations["listGlobalAdminKycCases"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar solicitudes ARCO+ (Ley 21.719)
+     * @description Requiere privacy.requests.manage.
+     */
+    get: operations["listGlobalAdminPrivacyRequests"];
+    put?: never;
+    /**
+     * Registrar solicitud ARCO+ (Ley 21.719)
+     * @description Requiere privacy.requests.manage.
+     */
+    post: operations["createGlobalAdminPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/support-tickets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar bandeja de tickets de soporte
+     * @description Requiere support.tickets.read.
+     */
+    get: operations["listGlobalAdminSupportTickets"];
+    put?: never;
+    /**
+     * Crear ticket de soporte operativo
+     * @description Requiere support.tickets.manage.
+     */
+    post: operations["createGlobalAdminSupportTicket"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/approvals": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar cola de doble control
+     * @description Requiere approvals.read.
+     */
+    get: operations["listGlobalAdminApprovals"];
+    put?: never;
+    /**
+     * Solicitar operación sujeta a doble control
+     * @description Requiere approvals.request. Permite solicitar reembolso, exportación o cambio de rol.
+     */
+    post: operations["createGlobalAdminApproval"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/approvals/{approvalID}/decisions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Aprobar, rechazar o cancelar solicitud de doble control
+     * @description Requiere approvals.decide, motivo, versión vigente e Idempotency-Key. Rechaza auto-aprobación (solicitante == aprobador) y exige MFA reciente (428).
+     */
+    post: operations["decideGlobalAdminApproval"];
     delete?: never;
     options?: never;
     head?: never;
@@ -1253,6 +1842,40 @@ export interface paths {
     };
     /** Explorar publicaciones públicas elegibles */
     get: operations["listPublicSpaces"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/public/spaces/map": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar marcadores para publicaciones con ubicación confirmada */
+    get: operations["listPublicSpaceMapMarkers"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/public/spaces/nearby": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar hasta 6 espacios más cercanos fuera de un área vacía manteniendo filtros no geográficos */
+    get: operations["listPublicSpaceNearbyMarkers"];
     put?: never;
     post?: never;
     delete?: never;
@@ -1295,6 +1918,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/public/destinations/suggest": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Sugerir comunas oficiales y destinos extendidos (barrios/calles/hitos) sin persistencia */
+    get: operations["suggestPublicDestinations"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/public/spaces/{spaceID}/nearby-pois": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar transporte y estacionamiento cercanos bajo demanda usando la proyección pública */
+    get: operations["getPublicSpaceNearbyPOIs"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/public/spaces/{spaceID}/month": {
     parameters: {
       query?: never;
@@ -1302,6 +1959,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Consultar el calendario mensual público de un espacio */
     get: operations["getPublicSpaceMonth"];
     put?: never;
     post?: never;
@@ -1718,7 +2376,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por mensaje. */
+    /** @description Valida formato chileno, inicia cooldown de 60s, genera OTP de 6 dígitos y lo envía por el canal elegido. Omitir el número reenvía al destino pendiente. */
     post: operations["sendAccountPhoneVerificationCode"];
     delete?: never;
     options?: never;
@@ -2133,6 +2791,7 @@ export interface paths {
     /** @description Sin cuerpo conserva el flujo sintético histórico. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, aplica límites, orientación y normaliza derivados WebP en almacenamiento privado. Requiere Idempotency-Key y Bearer del titular. */
     put: operations["generateOwnSyntheticProfilePhoto"];
     post?: never;
+    /** Quitar la foto del perfil autenticado */
     delete: operations["removeOwnSyntheticProfilePhoto"];
     options?: never;
     head?: never;
@@ -2168,6 +2827,7 @@ export interface paths {
     /** @description Requiere KYC sintético efectivo. No recibe RUT, datos bancarios ni credenciales externas. */
     put: operations["createOrReplaceOwnSyntheticPayoutAccount"];
     post?: never;
+    /** Quitar la cuenta de abono del titular autenticado */
     delete: operations["revokeOwnSyntheticPayoutAccount"];
     options?: never;
     head?: never;
@@ -2376,6 +3036,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Consultar el detalle de una verificación propia */
     get: operations["getOwnVerification"];
     put?: never;
     post?: never;
@@ -2392,6 +3053,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Consultar el historial de una verificación propia */
     get: operations["listOwnVerificationHistory"];
     put?: never;
     post?: never;
@@ -2884,7 +3546,7 @@ export interface paths {
     /** @description Lista exclusivamente espacios propios; borradores, publicaciones activas y espacios ocultos permanecen privados fuera de los recorridos autorizados. */
     get: operations["listOwnSpaces"];
     put?: never;
-    /** @description Crea un borrador privado. El propietario se obtiene de la sesión; no hay publicación, reserva ni cobro. */
+    /** @description Crea un borrador privado con ubicación validada en una sola transacción. El propietario se obtiene de la sesión. */
     post: operations["createOwnSpaceDraft"];
     delete?: never;
     options?: never;
@@ -2903,11 +3565,267 @@ export interface paths {
     };
     /** @description Consulta un espacio propio; un recurso ajeno o inexistente responde 404. */
     get: operations["getOwnSpaceDraft"];
-    /** @description Reemplaza los campos de un borrador propio; no permite cambios de estado comercial. */
+    /** @description Actualiza contenido de un borrador propio. La ubicación solo se modifica mediante el endpoint de ubicación. */
     put: operations["updateOwnSpaceDraft"];
     post?: never;
     /** @description Retira una publicación propia elegible. Revalida reservas no terminales y obligaciones financieras o de disputa bajo los bloqueos de propietario/espacio. Si procede, retira contenido del catálogo, minimiza el registro técnico y encola los archivos privados para limpieza durable. Conserva reservas, ocupaciones, snapshots e historiales; no cancela ni elimina en cascada. Repetir la solicitud devuelve el recibo persistido. No implica anonimización. */
     delete: operations["deleteOwnPublication"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/current": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar la autorización comercial vigente del espacio */
+    get: operations["getCommercialAuthorization"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/history": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar el historial de autorizaciones comerciales del espacio */
+    get: operations["listCommercialAuthorizationHistory"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/activate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Activar la autorización comercial del espacio */
+    post: operations["activateCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Revocar la autorización comercial del espacio */
+    post: operations["revokeCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/evaluate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Evaluar los requisitos de la autorización comercial */
+    post: operations["evaluateCommercialAuthorization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/commercial-authorization/otp-challenge": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Solicitar un código para autorizar la publicación */
+    post: operations["createCommercialAuthorizationOTPChallenge"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/location/communes/{communeCode}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Obtener la extensión cartográfica de una comuna para centrar el mapa */
+    get: operations["getSpaceLocationCommuneBounds"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/location/geocode": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Buscar una dirección chilena para colocar el pin del espacio
+     * @description Requiere una sesión autenticada. Puede usarse antes de crear el borrador. La región y comuna son opcionales y se indican juntas.
+     */
+    post: operations["geocodeSpaceAddress"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/location/reverse-geocode": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Estimar la dirección y determinar la comuna de un pin
+     * @description Requiere una sesión autenticada. Puede usarse antes de crear el borrador.
+     */
+    post: operations["reverseGeocodeSpacePin"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/location": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar la ubicación de un espacio propio */
+    get: operations["getOwnSpaceLocation"];
+    /** Actualizar la ubicación geográfica validada y su consentimiento público */
+    put: operations["updateOwnSpaceLocation"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/draft": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar la plantilla en borrador de un espacio propio */
+    get: operations["getOwnSpaceContractTemplateDraft"];
+    /** Guardar las cláusulas en borrador */
+    put: operations["updateOwnSpaceContractTemplateDraft"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/publish": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Publicar una versión inmutable de la plantilla */
+    post: operations["publishOwnSpaceContractTemplate"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/versions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** Consultar las versiones publicadas de un espacio propio */
+    get: operations["listOwnSpaceContractTemplateVersions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/contract-template/copy": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Copiar una versión publicada desde otro espacio propio al borrador */
+    post: operations["copyOwnSpaceContractTemplate"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -2942,7 +3860,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Modifica título, descripción, capacidad, reglas de uso, ubicación pública y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. La ubicación usa el catálogo SUBDERE_DPA_2018 y no se deriva de dirección o coordenadas. An `If-Match` strong ETag from the current listing revision is required. A stale revision returns 412; a missing required precondition returns 428 and a malformed precondition returns 400. Every successful response includes the new strong ETag for the next mutation. The operation is a compare-and-swap; clients must not silently retry stale writes. */
+    /** @description Modifica título, descripción, capacidad, reglas de uso y precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. La ubicación se actualiza solo mediante el endpoint de ubicación. An `If-Match` strong ETag from the current listing revision is required. A stale revision returns 412; a missing required precondition returns 428 and a malformed precondition returns 400. Every successful response includes the new strong ETag for the next mutation. The operation is a compare-and-swap; clients must not silently retry stale writes. */
     put: operations["updateOwnPublishedSpaceContent"];
     post?: never;
     delete?: never;
@@ -3019,6 +3937,7 @@ export interface paths {
       };
       cookie?: never;
     };
+    /** Consultar una fotografía de la galería del espacio */
     get: operations["getOwnSyntheticSpaceGalleryPhoto"];
     /** @description Actualiza los metadatos de una imagen propia usando control de concurrencia optimista. Requiere un If-Match fuerte; responde 428 si falta, 400 si es inválido y 412 si está obsoleto. Toda respuesta exitosa devuelve el ETag fuerte renovado del espacio. */
     put: operations["updateOwnSpaceMediaPhoto"];
@@ -3440,6 +4359,7 @@ export interface paths {
       };
       cookie?: never;
     };
+    /** Consultar una reserva del ensayo local */
     get: operations["getOwnLocalTrialReservation"];
     put?: never;
     post?: never;
@@ -3727,6 +4647,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** Consultar el historial de una disputa del ensayo local */
     get: operations["getOwnTrialDisputeHistory"];
     put?: never;
     post?: never;
@@ -3815,6 +4736,7 @@ export interface paths {
       };
       cookie?: never;
     };
+    /** Consultar un contrato del ensayo local */
     get: operations["getOwnSyntheticContract"];
     put?: never;
     post?: never;
@@ -4397,6 +5319,108 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    UserNotification: {
+      /** Format: uuid */
+      id: string;
+      type: string;
+      title: string;
+      message: string;
+      href: string;
+      /** Format: uuid */
+      reference_id?: string | null;
+      /** Format: date-time */
+      read_at?: string | null;
+      /** Format: date-time */
+      created_at: string;
+    };
+    SpaceLocationCommuneBounds: {
+      west: number;
+      south: number;
+      east: number;
+      north: number;
+    };
+    SpaceAddressGeocodeInput: {
+      address: string;
+      region_code?: string;
+      comuna_code?: string;
+    };
+    SpaceAddressGeocodeResponse: {
+      candidates: components["schemas"]["SpaceAddressGeocodeCandidate"][];
+    };
+    SpaceAddressGeocodeCandidate: {
+      label: string;
+      latitude: number;
+      longitude: number;
+      /** @enum {string} */
+      precision: "address" | "approximate";
+    };
+    SpaceLocationInput: {
+      address: string;
+      region_code: string;
+      comuna_code: string;
+      latitude: number;
+      longitude: number;
+      /** @enum {string} */
+      source?: "manual" | "geocoded";
+      /** @enum {string} */
+      precision?: "address" | "approximate";
+      public_confirmed: boolean;
+    };
+    SpaceLocation: {
+      /** Format: uuid */
+      space_id: string;
+      address: string;
+      region_code: string;
+      comuna_code: string;
+      latitude: number | null;
+      longitude: number | null;
+      /** @enum {string} */
+      source?: "manual" | "geocoded";
+      /** @enum {string} */
+      precision?: "address" | "approximate";
+      public_confirmed: boolean;
+      /** Format: date-time */
+      confirmed_at: string | null;
+      revision: number;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    SpaceContractTemplateSection: {
+      key: string;
+      title: string;
+      body: string;
+    };
+    SpaceContractTemplateInput: {
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+    };
+    SpaceContractTemplateCopyInput: {
+      /** Format: uuid */
+      source_space_id: string;
+      source_version: number;
+    };
+    SpaceContractTemplateDraft: {
+      /** Format: uuid */
+      space_id: string;
+      revision: number;
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      published_version: number;
+      /** Format: date-time */
+      updated_at: string | null;
+    };
+    SpaceContractTemplateVersion: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      version: number;
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      sha256: string;
+      /** Format: date-time */
+      published_at: string;
+    };
+    SpaceContractTemplateVersions: {
+      items: components["schemas"]["SpaceContractTemplateVersion"][];
+    };
     MercadoPagoHostConnection: {
       connected: boolean;
       seller_id?: string;
@@ -4645,7 +5669,15 @@ export interface components {
        */
       end_at: string;
     };
+    /** @enum {string} */
+    CommercialCancellationPolicyVersion:
+      "flexible_v1" | "moderada_v1" | "estricta_v1";
+    CommercialCancellationPolicy: {
+      version: components["schemas"]["CommercialCancellationPolicyVersion"];
+      text: string;
+    };
     RentalQuote: {
+      cancellation_policy?: components["schemas"]["CommercialCancellationPolicy"];
       /** Format: uuid */
       id: string;
       /** Format: uuid */
@@ -4699,6 +5731,7 @@ export interface components {
       qr_payload?: string;
     };
     RentalMultiQuote: {
+      cancellation_policy?: components["schemas"]["CommercialCancellationPolicy"];
       /** Format: uuid */
       id: string;
       /** Format: uuid */
@@ -4844,6 +5877,115 @@ export interface components {
           reconnect_required?: true;
         };
       };
+    };
+    HostSettlementItem: {
+      /** Format: uuid */
+      reservation_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      provider_reference: string;
+      /** Format: date-time */
+      verified_at: string;
+      /** @constant */
+      currency: "CLP";
+      test_mode: boolean;
+      /** @enum {string} */
+      fee_policy:
+        "three_percent_plus_vat" | "recorded_fees" | "no_commission_applied";
+      commission_rate_percent: number | null;
+      commission_vat_rate_percent: number | null;
+      gross_clp: string;
+      base_clp: string;
+      commission_clp: string;
+      commission_vat_clp: string;
+      marketplace_fee_clp: string;
+      after_marketplace_fee_clp: string;
+      processor_fee_clp: string | null;
+      adjustments_clp: string | null;
+      reconciled_net_clp: string | null;
+    };
+    HostSettlementSummary: {
+      month: string;
+      /** @constant */
+      time_zone: "America/Santiago";
+      /** @enum {string} */
+      mode: "live" | "test";
+      /** @constant */
+      currency: "CLP";
+      payment_count: number;
+      gross_clp: string;
+      base_clp: string;
+      commission_clp: string;
+      commission_vat_clp: string;
+      marketplace_fee_clp: string;
+      after_marketplace_fee_clp: string;
+      processor_fee_clp: string | null;
+      adjustments_clp: string | null;
+      reconciled_net_clp: string | null;
+    };
+    HostSettlementPage: {
+      summary: components["schemas"]["HostSettlementSummary"];
+      items: components["schemas"]["HostSettlementItem"][];
+      next_cursor: string | null;
+    };
+    CommercialRentalTaxAttachment: {
+      /** Format: uuid */
+      reservation_id: string;
+      /** @constant */
+      state: "ready";
+      sha256: string;
+      size_bytes: number;
+      /** Format: date-time */
+      uploaded_at: string;
+    };
+    CommercialReservationDocuments: {
+      /** Format: uuid */
+      reservation_id: string;
+      participant_role: string;
+      contract: {
+        /** @enum {string} */
+        state:
+          | "pending"
+          | "processing"
+          | "retry"
+          | "ready"
+          | "terminal"
+          | "unavailable";
+        version?: number;
+        sha256?: string;
+        size_bytes?: number;
+        /** Format: date-time */
+        available_at?: string;
+        download_path?: string;
+      };
+      receipt: {
+        /** @constant */
+        kind: "internal_payment_receipt";
+        /** @constant */
+        status: "approved";
+        /** Format: int64 */
+        amount_clp: number | string;
+        /** @constant */
+        currency: "CLP";
+        /** @constant */
+        provider: "mercadopago";
+        provider_reference: string;
+        /** Format: date-time */
+        verified_at: string;
+      };
+      counterpart_contact: {
+        role: string;
+        display_name: string | null;
+        email: string | null;
+        phone: string | null;
+      } | null;
+      rental_tax_document: {
+        /** @enum {string} */
+        state: "not_attached" | "ready";
+        notice: string;
+      };
+      access_instructions: null;
     };
     CommercialReservation: {
       /** Format: uuid */
@@ -5151,12 +6293,220 @@ export interface components {
     LocalEarlyRentalTransactionsEnvelope: {
       data: components["schemas"]["LocalEarlyRentalTransactions"];
     };
+    CommercialAuthorizationGrant: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      /** Format: uuid */
+      owner_id: string;
+      template_version: number;
+      max_amount_clp: number;
+      /** Format: date-time */
+      valid_from: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      revoked_at: string | null;
+      revoked_by: string;
+      revocation_reason: string;
+    };
+    CommercialAuthorizationEvent: {
+      /** Format: uuid */
+      grant_id: string;
+      /** Format: uuid */
+      space_id: string;
+      /** Format: uuid */
+      actor_id: string;
+      /** @enum {string} */
+      action: "activated" | "revoked" | "auto_confirmed";
+      reason: string;
+      /** Format: date-time */
+      occurred_at: string;
+    };
+    CommercialAuthorizationActivation: {
+      template_version: number;
+      consent: boolean;
+      /** Format: uuid */
+      otp_challenge_id: string;
+      otp_code: string;
+      max_amount_clp?: number;
+      /** Format: date-time */
+      valid_from?: string;
+      /** Format: date-time */
+      expires_at?: string;
+    };
+    CommercialAuthorizationOTPChallengeRequest: {
+      template_version: number;
+    };
+    CommercialAuthorizationOTPChallengeResult: {
+      /** Format: uuid */
+      challenge_id: string;
+      channel: string;
+      /** Format: date-time */
+      expires_at: string;
+      masked_email: string;
+    };
+    CommercialAuthorizationRevocation: {
+      /** Format: uuid */
+      authorization_id: string;
+      reason: string;
+    };
+    CommercialAuthorizationEvaluation: {
+      /** Format: uuid */
+      proposal_id: string;
+    };
+    CommercialAuthorizationResult: {
+      authorization: components["schemas"]["CommercialAuthorizationGrant"];
+      /** @constant */
+      human_signature_recorded: false;
+      /** @constant */
+      commercial_activation_enabled: true;
+      notice?: string;
+    };
+    CommercialAuthorizationHistory: {
+      items: components["schemas"]["CommercialAuthorizationEvent"][];
+      /** @constant */
+      human_signature_recorded: false;
+    };
+    CommercialAuthorizationDecision: {
+      decision: {
+        eligible: boolean;
+        reason: string;
+      };
+      manual_review_required: boolean;
+      human_signature_recorded: boolean;
+      /** @constant */
+      commercial_activation_enabled: true;
+    };
+    CommercialAgreement: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      proposal_id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      proposal_version: number;
+      snapshot_sha256: string;
+      /** @enum {string} */
+      state:
+        | "pending_landlord"
+        | "ready_for_payment"
+        | "rejected"
+        | "withdrawn"
+        | "expired";
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      payment_expires_at: string | null;
+      revision: number;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      signature_mode?: string;
+      replayed?: boolean;
+      signatures: {
+        /** @enum {string} */
+        role: "arrendador" | "arrendatario";
+        /** Format: date-time */
+        signed_at: string;
+        snapshot_sha256: string;
+        proposal_version: number;
+        /** @constant */
+        consent_version: "commercial-agreement-v1";
+        signature_type?: string;
+        auth_method?: string;
+        evidence_sha256?: string;
+      }[];
+    };
+    CommercialAgreementCreate: {
+      /** Format: uuid */
+      proposal_id: string;
+      snapshot_sha256: string;
+      /** @constant */
+      consent: true;
+      /** @constant */
+      consent_version: "commercial-agreement-v1";
+      /** Format: uuid */
+      otp_challenge_id?: string;
+      otp_code?: string;
+      signature_mode?: string;
+    };
+    CommercialAgreementSign: {
+      snapshot_sha256: string;
+      /** @constant */
+      consent: true;
+      /** @constant */
+      consent_version: "commercial-agreement-v1";
+      /** Format: uuid */
+      otp_challenge_id?: string;
+      otp_code?: string;
+    };
+    CommercialAgreementDecision: {
+      snapshot_sha256: string;
+      /** @enum {string} */
+      decision: "reject" | "withdraw";
+    };
+    CommercialContractProposal: {
+      /** Format: uuid */
+      id: string;
+      version: number;
+      sha256: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: uuid */
+      template_id: string;
+      template_version: number;
+      location: {
+        address: string;
+        latitude: number;
+        longitude: number;
+        revision: number;
+        region_code: string;
+        commune_code: string;
+      };
+      sections: components["schemas"]["SpaceContractTemplateSection"][];
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      rate_version: number;
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      cancellation_policy: {
+        version: string;
+        text: string;
+      };
+      parties: components["schemas"]["RentalContractPartyPreview"][];
+      contact_notice: string;
+      /** Format: date-time */
+      generated_at: string;
+    };
     RentalContractPartyPreview: {
       /** @enum {string} */
       role: "arrendador" | "arrendatario";
-      legal_name: string;
-      /** @description RUT enmascarado del participante en la vista previa contractual (últimos 4 caracteres significativos) */
-      rut: string;
+      /** @description Verdadero si esta parte es quien consulta. */
+      self: boolean;
+      legal_name?: string;
+      /** @description RUT propio enmascarado. Se omite para la contraparte */
+      rut?: string;
     };
     /** @description Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste. */
     RentalContractPreview: {
@@ -5187,6 +6537,7 @@ export interface components {
       /** @description Zona IANA autoritativa. */
       time_zone: string;
       parties: components["schemas"]["RentalContractPartyPreview"][];
+      contact_notice: string;
       /** Format: date-time */
       generated_at: string;
     };
@@ -5198,6 +6549,7 @@ export interface components {
       | "legacy.administration"
       | "accounts.list"
       | "accounts.read"
+      | "accounts.email.reveal"
       | "accounts.update"
       | "accounts.block"
       | "accounts.roles"
@@ -5209,7 +6561,545 @@ export interface components {
       | "admin_access.manage"
       | "kpi.read"
       | "audit.read"
-      | "audit.export";
+      | "audit.export"
+      | "payments.read"
+      | "payments.reconcile"
+      | "payments.refund.request"
+      | "payments.refund.approve"
+      | "reservations.read"
+      | "contracts.read"
+      | "kyc.case.read"
+      | "kyc.review"
+      | "privacy.requests.manage"
+      | "privacy.export.approve"
+      | "support.tickets.read"
+      | "support.tickets.manage"
+      | "approvals.read"
+      | "approvals.request"
+      | "approvals.decide";
+    AdminSessionStartRequest: {
+      /** Format: email */
+      email: string;
+      password: string;
+    };
+    AdminSessionStartResponseEnvelope: {
+      data: {
+        /** @enum {string} */
+        status: "mfa_required" | "authenticated";
+        challenge_id?: string;
+        methods?: string[];
+        /** Format: date-time */
+        expires_at: string;
+        /** Format: uuid */
+        account_id?: string;
+        audience?: string;
+        roles?: string[];
+        capabilities?: components["schemas"]["AdminCapability"][];
+        /** Format: date-time */
+        mfa_verified_at?: string | null;
+        /** Format: date-time */
+        recent_auth_expires_at?: string | null;
+      };
+    };
+    AdminSessionMfaRequest: {
+      challenge_id?: string;
+      code: string;
+    };
+    AdminSessionEnvelope: {
+      data: {
+        /** Format: uuid */
+        account_id: string;
+        audience: string;
+        roles: string[];
+        capabilities: components["schemas"]["AdminCapability"][];
+        /** Format: date-time */
+        mfa_verified_at: string | null;
+        /** Format: date-time */
+        recent_auth_expires_at: string | null;
+        /** Format: date-time */
+        expires_at: string;
+      };
+    };
+    AdminSensitiveAccessRequest: {
+      /** @enum {string} */
+      field: "email";
+      reason: string;
+      case_id?: string;
+      /** @enum {string} */
+      scope?: "account_email" | "account_summary";
+    };
+    AdminSensitiveAccessEnvelope: {
+      data: {
+        /** Format: uuid */
+        account_id: string;
+        /** @enum {string} */
+        field: "email";
+        value: string;
+        masked_value: string;
+        /** @enum {string} */
+        scope: "account_email" | "account_summary";
+        reason: string;
+        case_id?: string;
+        /** Format: date-time */
+        expires_at: string;
+        /** Format: uuid */
+        audit_event_id?: string;
+      };
+    };
+    /** @enum {string} */
+    AdminAssistedViewRole: "arrendador" | "arrendatario";
+    AdminAssistedViewStartRequest: {
+      role: components["schemas"]["AdminAssistedViewRole"];
+      case_id: string;
+      reason: string;
+    };
+    AdminAssistedViewGrant: {
+      /** Format: uuid */
+      grant_id: string;
+      /** Format: uuid */
+      account_id: string;
+      /** Format: uuid */
+      actor_account_id: string;
+      role: components["schemas"]["AdminAssistedViewRole"];
+      case_id: string;
+      reason: string;
+      /** @enum {boolean} */
+      read_only: true;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      created_at?: string;
+      /** Format: uuid */
+      audit_event_id?: string;
+    };
+    AdminAssistedViewGrantEnvelope: {
+      data: components["schemas"]["AdminAssistedViewGrant"];
+    };
+    AdminAssistedViewAccountSummary: {
+      /** Format: uuid */
+      account_id: string;
+      state: string;
+      email_verified: boolean;
+      phone_verified: boolean;
+      kyc_status: string;
+      kyc_rejection_reason?: string;
+      roles: string[];
+      admin_blocked: boolean;
+    };
+    AdminAssistedViewDiagnostic: {
+      code: string;
+      /** @enum {string} */
+      severity: "error" | "warning" | "info";
+      area: string;
+      title: string;
+      detail: string;
+    };
+    AdminAssistedViewPublishStep: {
+      step: number;
+      key: string;
+      title: string;
+      status: string;
+      detail: string;
+    };
+    AdminAssistedViewPublishGuide: {
+      kyc_status: string;
+      draft_status: string;
+      mercadopago_status: string;
+      contract_status: string;
+      steps: components["schemas"]["AdminAssistedViewPublishStep"][];
+    };
+    AdminAssistedViewMercadoPagoConnection: {
+      connected: boolean;
+      connection_state?: string;
+      live_mode?: boolean;
+      /** Format: date-time */
+      connected_at?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    AdminAssistedViewSpaceItem: {
+      /** Format: uuid */
+      id: string;
+      title: string;
+      status: string;
+      modality?: string;
+      /** Format: int64 */
+      price_clp?: number | string | null;
+      max_capacity?: number | null;
+      area_m2?: number | null;
+      time_zone?: string;
+      location_confirmed: boolean;
+      contract_published_version: number;
+      publish_blockers: string[];
+    };
+    AdminAssistedViewReservationItem: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      status: string;
+      modality?: string;
+      /** Format: int64 */
+      subtotal_clp?: number | string | null;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** Format: date-time */
+      payment_expires_at?: string | null;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AdminAssistedViewContractItem: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      proposal_id?: string | null;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      status: string;
+      signing_mode?: string;
+      document_status?: string;
+      /** Format: int64 */
+      subtotal_clp?: number | string | null;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AdminAssistedViewPaymentItem: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      reservation_id?: string | null;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      status: string;
+      checkout_method: string;
+      test_mode: boolean;
+      /** Format: int64 */
+      total_charged_clp: number | string;
+      provider_payment_status?: string;
+      reconciliation_reason?: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    AdminAssistedViewProjection: {
+      /** Format: uuid */
+      grant_id: string;
+      /** Format: uuid */
+      account_id: string;
+      /** Format: uuid */
+      actor_account_id: string;
+      role: components["schemas"]["AdminAssistedViewRole"];
+      case_id: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** @enum {boolean} */
+      read_only: true;
+      account_summary: components["schemas"]["AdminAssistedViewAccountSummary"];
+      diagnostics: components["schemas"]["AdminAssistedViewDiagnostic"][];
+      publish_guide?:
+        components["schemas"]["AdminAssistedViewPublishGuide"] | null;
+      mercadopago_connection?:
+        components["schemas"]["AdminAssistedViewMercadoPagoConnection"] | null;
+      spaces: components["schemas"]["AdminAssistedViewSpaceItem"][];
+      reservations: components["schemas"]["AdminAssistedViewReservationItem"][];
+      contracts: components["schemas"]["AdminAssistedViewContractItem"][];
+      payments: components["schemas"]["AdminAssistedViewPaymentItem"][];
+    };
+    AdminAssistedViewProjectionEnvelope: {
+      data: components["schemas"]["AdminAssistedViewProjection"];
+    };
+    GlobalAdminPayment: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: uuid */
+      renter_id: string;
+      /** Format: uuid */
+      host_id: string;
+      status: string;
+      checkout_method: string;
+      test_mode: boolean;
+      base_clp: number;
+      commission_clp: number;
+      iva_clp: number;
+      buyer_fee_clp: number;
+      total_charged_clp: number;
+      provider_payment_id: string;
+      provider_payment_status: string;
+      reconciliation_reason: string;
+      /** Format: date-time */
+      payment_verified_at?: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    GlobalAdminPaymentPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminPayment"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminReservation: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      checkout_operation_id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: uuid */
+      renter_id: string;
+      /** Format: uuid */
+      host_id: string;
+      status: string;
+      modality: string;
+      unit_price_clp: number;
+      units: number;
+      subtotal_clp: number;
+      currency: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    GlobalAdminReservationPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminReservation"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminContract: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      proposal_id: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: uuid */
+      owner_id: string;
+      /** Format: uuid */
+      renter_id: string;
+      status: string;
+      signing_mode: string;
+      proposal_version: number;
+      subtotal_clp: number;
+      currency: string;
+      document_status: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    GlobalAdminContractPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminContract"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminKycCase: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      account_id: string;
+      environment: string;
+      status: string;
+      id_country: string;
+      decision_status: string;
+      rejection_reason: string;
+      /** Format: date-time */
+      verified_at?: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    GlobalAdminKycCasePageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminKycCase"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminPrivacyRequest: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      account_id: string;
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @enum {string} */
+      status:
+        "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
+      reason: string;
+      case_ref: string;
+      /** Format: uuid */
+      requested_by?: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      /** Format: date-time */
+      resolved_at?: string | null;
+    };
+    GlobalAdminPrivacyRequestCreateInput: {
+      /** Format: uuid */
+      account_id: string;
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      reason: string;
+      case_ref?: string;
+    };
+    GlobalAdminPrivacyRequestEnvelope: {
+      data: components["schemas"]["GlobalAdminPrivacyRequest"];
+    };
+    GlobalAdminPrivacyRequestPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminPrivacyRequest"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminSupportTicket: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      account_id?: string;
+      /** Format: uuid */
+      assigned_to_id?: string;
+      category: string;
+      /** @enum {string} */
+      priority: "baja" | "media" | "alta" | "critica";
+      /** @enum {string} */
+      status: "abierto" | "en_progreso" | "resuelto" | "cerrado";
+      subject: string;
+      case_ref: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    GlobalAdminSupportTicketCreateInput: {
+      /** Format: uuid */
+      account_id?: string;
+      /** Format: uuid */
+      assigned_to_id?: string;
+      category: string;
+      /** @enum {string} */
+      priority: "baja" | "media" | "alta" | "critica";
+      subject: string;
+      case_ref?: string;
+    };
+    GlobalAdminSupportTicketEnvelope: {
+      data: components["schemas"]["GlobalAdminSupportTicket"];
+    };
+    GlobalAdminSupportTicketPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminSupportTicket"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    GlobalAdminApproval: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      action_type: "refund_request" | "privacy_export" | "staff_role_grant";
+      resource_type: string;
+      resource_id: string;
+      /** Format: uuid */
+      requester_id: string;
+      /** Format: uuid */
+      approver_id?: string | null;
+      /** @enum {string} */
+      status: "pending" | "approved" | "rejected" | "cancelled";
+      reason: string;
+      decision_reason: string;
+      payload?: {
+        [key: string]: unknown;
+      };
+      idempotency_key: string;
+      version: number;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      decided_at?: string | null;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    GlobalAdminApprovalCreateInput: {
+      /** @enum {string} */
+      action_type: "refund_request" | "privacy_export" | "staff_role_grant";
+      resource_type: string;
+      resource_id: string;
+      reason: string;
+      idempotency_key: string;
+      payload?: {
+        [key: string]: unknown;
+      };
+    };
+    GlobalAdminApprovalDecisionInput: {
+      /** @enum {string} */
+      decision: "approved" | "rejected" | "cancelled";
+      decision_reason: string;
+      expected_version: number;
+    };
+    GlobalAdminApprovalEnvelope: {
+      data: components["schemas"]["GlobalAdminApproval"];
+    };
+    GlobalAdminApprovalPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminApproval"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
     GlobalAdminMeEnvelope: {
       data: {
         /** Format: uuid */
@@ -5284,6 +7174,51 @@ export interface components {
         generated_at: string;
       };
     };
+    GlobalAdminAccountResource: {
+      id: string;
+      /** @enum {string} */
+      kind:
+        | "reservations"
+        | "incidents"
+        | "commercial_reservations"
+        | "commercial_contracts"
+        | "commercial_payments";
+      state: string;
+      /** Format: date-time */
+      occurred_at: string;
+      reservation_id?: string;
+      participant_role?: string;
+      /** @enum {string} */
+      data_origin?: "commercial" | "trial";
+      test_mode?: boolean | null;
+      role_in_record?: string;
+      /** Format: int64 */
+      amount_clp?: number | string | null;
+      /** Format: int64 */
+      total_charged_clp?: number | string | null;
+      currency?: string;
+      space_id?: string;
+      space_title?: string;
+      provider_payment_id?: string;
+      provider_status?: string;
+      document_status?: string;
+      related_ids?: {
+        [key: string]: string;
+      };
+    };
+    GlobalAdminAccountResourceEnvelope: {
+      data: components["schemas"]["GlobalAdminAccountResource"];
+    };
+    GlobalAdminAccountResourcePageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminAccountResource"][];
+        next_cursor: string;
+        /** Format: int64 */
+        matching_total: number | string;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
     GlobalAdminPublication: {
       /** Format: uuid */
       publication_id: string;
@@ -5333,6 +7268,62 @@ export interface components {
       identity_verified: boolean;
       space_verified: boolean;
     };
+    PublicSpaceLocation: {
+      address: string;
+      latitude: number;
+      longitude: number;
+      /** @enum {string} */
+      visibility?: "exact" | "approximate";
+    };
+    PublicDestinationSuggestions: {
+      items: {
+        /** @enum {string} */
+        kind: "comuna" | "place";
+        label: string;
+        subtitle?: string;
+        region_code?: string;
+        comuna_code?: string;
+        latitude?: number;
+        longitude?: number;
+      }[];
+    };
+    PublicNearbyPOIs: {
+      available: boolean;
+      items: {
+        name: string;
+        /** @enum {string} */
+        category: "transit" | "parking";
+        distance_meters: number;
+        walking_minutes?: number;
+        /** @enum {string} */
+        distance_mode: "route" | "straight_line";
+      }[];
+    };
+    PublicSpaceMapMarker: {
+      /** Format: uuid */
+      space_id: string;
+      title: string;
+      /** Format: int64 */
+      base_price_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: int64 */
+      estimated_total_clp?: number | string | null;
+      comuna_name?: string | null;
+      location: components["schemas"]["PublicSpaceLocation"];
+      distance_km?: number;
+      /** Format: uuid */
+      cover_image_id?: string;
+      cover_url?: string;
+    };
+    PublicSpaceMapPage: {
+      items: components["schemas"]["PublicSpaceMapMarker"][];
+      next_cursor?: string;
+      has_more: boolean;
+      total_count: number;
+    };
     PublicSpace: {
       /** Format: uuid */
       space_id: string;
@@ -5347,6 +7338,8 @@ export interface components {
       base_price_clp: number | string;
       /** @constant */
       currency: "CLP";
+      location?: components["schemas"]["PublicSpaceLocation"];
+      distance_km?: number;
       region_code?: string | null;
       region_name?: string | null;
       comuna_code?: string | null;
@@ -5381,8 +7374,8 @@ export interface components {
       host: components["schemas"]["PublicSpaceHost"] | null;
       /** @description Contiene todas las clases de atributos permitidas por el perfil y la política pública vigente; no expone el perfil ni valores crudos. */
       attributes: components["schemas"]["PublicSpaceAttribute"][];
-      /** @description No informada porque no existe configuración pública. */
-      cancellation_policy: null;
+      /** @description Texto público de la política seleccionada por el anfitrión. */
+      cancellation_policy: string | null;
       /** @description No informada porque no existe configuración pública. */
       guarantee: null;
       /** @enum {string} */
@@ -5391,6 +7384,7 @@ export interface components {
       base_price_clp: number | string;
       /** @constant */
       currency: "CLP";
+      location?: components["schemas"]["PublicSpaceLocation"];
       region_code?: string | null;
       region_name?: string | null;
       comuna_code?: string | null;
@@ -6672,21 +8666,46 @@ export interface components {
     SpaceCategoryList: {
       items: components["schemas"]["SpaceCategory"][];
     };
-    SpaceDraftInput: {
+    SpaceCreateInput: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       category_code: string;
       title: string;
-      description: string;
+      description?: string;
       area_m2: number;
       capacity: number;
       usage_rules: string;
       /** @enum {string} */
       rate_unit: "hora" | "dia" | "mes";
       base_price_clp: number;
-      /** @description Dirección privada del borrador. */
-      address: string;
-      /** @description Código de región del catálogo público SUBDERE_DPA_2018; omitir ambos códigos deja la ubicación pública sin declarar. */
+      location: components["schemas"]["SpaceLocationInput"];
+      /** @description Versión del perfil de atributos; se asume la vigente si se omite. */
+      attribute_schema_version?: number;
+      /** @description Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. */
+      attributes?: Record<string, never>;
+    };
+    SpaceDraftInput: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
+      category_code: string;
+      title: string;
+      description?: string;
+      area_m2: number;
+      capacity: number;
+      usage_rules: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      base_price_clp: number;
+      /**
+       * @deprecated
+       * @description Solo se admite si coincide con la dirección guardada.
+       */
+      address?: string;
+      /** @deprecated */
       region_code?: string;
-      /** @description Código de comuna de la región seleccionada; debe enviarse junto con region_code. */
+      /** @deprecated */
       comuna_code?: string;
       /** @description Versión del perfil de atributos; se asume la vigente si se omite. */
       attribute_schema_version?: number;
@@ -6694,6 +8713,9 @@ export interface components {
       attributes?: Record<string, never>;
     };
     SpaceDraft: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       /** Format: uuid */
       id: string;
       category_code: string;
@@ -6813,6 +8835,9 @@ export interface components {
       state: "activa" | "oculta";
     };
     PublishedSpaceContentInput: {
+      /** @enum {string} */
+      cancellation_policy_version?:
+        "flexible_v1" | "moderada_v1" | "estricta_v1";
       title?: string;
       description?: string;
       /** Format: int32 */
@@ -6820,9 +8845,15 @@ export interface components {
       usage_rules?: string;
       /** Format: int64 */
       base_price_clp?: number | string;
-      /** @description Enviar junto a comuna_code para cambiar ubicación; enviar ambos vacíos la retira del catálogo público. */
+      /**
+       * @deprecated
+       * @description Si se envía debe coincidir con la región ya guardada.
+       */
       region_code?: string;
-      /** @description Código de comuna dentro de region_code; enviar ambos vacíos retira la ubicación. */
+      /**
+       * @deprecated
+       * @description Si se envía debe coincidir con la comuna ya guardada.
+       */
       comuna_code?: string;
     };
     CalendarInventoryOverride: {
@@ -7025,6 +9056,7 @@ export interface components {
       items: components["schemas"]["SpaceDraft"][];
     };
     AccountPhoneStatus: {
+      available_channels: ("sms" | "whatsapp")[];
       configured: boolean;
       verified: boolean;
       masked_phone: string;
@@ -7035,8 +9067,16 @@ export interface components {
       resend_available_at?: string | null;
     };
     SendPhoneCodeRequest: {
-      /** @example +56 9 1234 5678 */
-      phone: string;
+      /**
+       * @description Si se omite, se usa el número de la solicitud pendiente.
+       * @example +56 9 1234 5678
+       */
+      phone?: string;
+      /**
+       * @default sms
+       * @enum {string}
+       */
+      channel: "sms" | "whatsapp";
     };
     AccountPhoneCodeSent: {
       /** @example code_sent */
@@ -7200,8 +9240,8 @@ export interface components {
       /** @example Y3JlYXRlQ2hhbGxlbmdlQmFzZTY0VXJs */
       challenge: string;
       rp: {
-        /** @example espacigo.com */
-        id: string;
+        /** @description Si se omite, el navegador usa el dominio de la aplicación. */
+        id?: string;
         /** @example EspaciGo */
         name: string;
       };
@@ -7778,6 +9818,8 @@ export interface components {
       /** Format: email */
       email: string;
       password: $Write<string>;
+      /** @description Código TOTP o de respaldo solicitado luego de validar la contraseña. */
+      authenticator_code?: $Write<string>;
     };
     AccountCreated: {
       /** Format: uuid */
@@ -7935,6 +9977,41 @@ export interface components {
     };
   };
   responses: {
+    /** @description Solicitud y firmas visibles a los participantes. */
+    CommercialAgreementOK: {
+      headers: {
+        "Cache-Control"?: "no-store";
+        ETag?: string;
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["CommercialAgreement"];
+      };
+    };
+    /** @description Propuesta privada con la identidad propia y la contraparte redactada. */
+    CommercialContractProposalOK: {
+      headers: {
+        "Cache-Control"?: "no-store";
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["CommercialContractProposal"];
+        };
+      };
+    };
+    /** @description Borrador actual o actualizado. */
+    SpaceContractTemplateDraftOK: {
+      headers: {
+        ETag?: string;
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["SpaceContractTemplateDraft"];
+        };
+      };
+    };
     /** @description Solicitud de arriendo mal formada o parámetros inválidos; no almacenar la respuesta. */
     RentalBadRequest: {
       headers: {
@@ -8215,6 +10292,68 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  listHostSettlements: {
+    parameters: {
+      query: {
+        month: string;
+        mode?: "live" | "test";
+        cursor?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Liquidación privada basada en el registro de pagos verificados. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["HostSettlementPage"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getHostSettlement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Liquidación privada basada en el registro de pagos verificados. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["HostSettlementItem"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
   getHostMercadoPagoConnection: {
     parameters: {
       query?: never;
@@ -9590,6 +11729,303 @@ export interface operations {
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
+  getCommercialContractCapabilities: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Modo público de contratación, sin información de cuentas ni credenciales. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              manual_contracts_enabled: boolean;
+            };
+          };
+        };
+      };
+    };
+  };
+  createCommercialContractProposal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialContractProposalOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialContractProposal: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        proposalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialContractProposalOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialAgreements: {
+    parameters: {
+      query?: {
+        role?: "landlord" | "renter";
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Solicitudes ordenadas de más reciente a más antigua. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["CommercialAgreement"][];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+    };
+  };
+  createCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementCreate"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      201: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+    };
+  };
+  createCommercialAgreementOTPChallenge: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: uuid */
+          proposal_id: string;
+          snapshot_sha256: string;
+          /** @enum {string} */
+          role: "arrendatario" | "arrendador";
+          /** Format: uuid */
+          agreement_id?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Desafío OTP creado y enviado por correo. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: uuid */
+            challenge_id: string;
+            channel: string;
+            /** Format: date-time */
+            expires_at: string;
+            masked_email: string;
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+    };
+  };
+  getCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+    };
+  };
+  signCommercialAgreementAsLandlord: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementSign"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  decideCommercialAgreement: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        agreementID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAgreementDecision"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommercialAgreementOK"];
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  listNotifications: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista de notificaciones y conteo de no leídas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            unread_count: number;
+            items: components["schemas"]["UserNotification"][];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+    };
+  };
+  markAllNotificationsRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Todas las notificaciones marcadas como leídas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            unread_count: number;
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+    };
+  };
+  markNotificationRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        notificationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Notificación marcada como leída. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            ok: boolean;
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+    };
+  };
   receiveMercadoPagoPaymentWebhook: {
     parameters: {
       query: {
@@ -9886,6 +12322,134 @@ export interface operations {
       401: components["responses"]["RentalUnauthorized"];
       403: components["responses"]["RentalForbidden"];
       404: components["responses"]["RentalNotFound"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialReservationDocuments: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle privado de documentos y comprobante interno del pago. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialReservationDocuments"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialReservationContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento contractual privado verificado. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          "Content-Disposition"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialReservationTaxPDF: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento tributario externo adjuntado. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          "Content-Disposition"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  attachCommercialReservationTaxPDF: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/pdf": string;
+      };
+    };
+    responses: {
+      /** @description Archivo privado adjuntado después de inspección. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialRentalTaxAttachment"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      /** @description El PDF supera 10 MiB. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Se requiere un PDF. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      422: components["responses"]["RentalUnprocessableEntity"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
@@ -10355,6 +12919,108 @@ export interface operations {
       503: components["responses"]["ServiceUnavailable"];
     };
   };
+  startAdminSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AdminSessionStartRequest"];
+      };
+    };
+    responses: {
+      /** @description Sesión administrativa iniciada o desafío MFA requerido */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminSessionStartResponseEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  verifyAdminSessionMfa: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AdminSessionMfaRequest"];
+      };
+    };
+    responses: {
+      /** @description Sesión administrativa autenticada con MFA reciente */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminSessionEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getAdminSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sesión administrativa vigente */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminSessionEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  deleteAdminSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Sesión administrativa cerrada */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
   getGlobalAdminMe: {
     parameters: {
       query?: never;
@@ -10558,7 +13224,7 @@ export interface operations {
   getGlobalAdminAccount: {
     parameters: {
       query?: {
-        /** @description Revelación explícita del correo para el administrador autorizado */
+        /** @description Revelación explícita del correo con permiso específico y autenticación reciente */
         reveal_email?: true;
       };
       header?: never;
@@ -10582,6 +13248,138 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación reciente para revelar el correo */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  requestGlobalAdminAccountSensitiveAccess: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        accountID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AdminSensitiveAccessRequest"];
+      };
+    };
+    responses: {
+      /** @description Valor sensible revelado temporalmente y auditado */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminSensitiveAccessEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente para acceder al dato sensible */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  startGlobalAdminAccountAssistedView: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        accountID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AdminAssistedViewStartRequest"];
+      };
+    };
+    responses: {
+      /** @description Grant temporal de vista asistida emitido y auditado */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminAssistedViewGrantEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente para iniciar la vista asistida */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getGlobalAdminAssistedViewProjection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        grantID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Proyección de solo lectura de la cuenta para el rol indicado */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AdminAssistedViewProjectionEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  closeGlobalAdminAssistedView: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        grantID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Vista asistida cerrada y auditada */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
     };
   };
   updateGlobalAdminAccountProfile: {
@@ -10804,7 +13602,12 @@ export interface operations {
       header?: never;
       path: {
         accountID: string;
-        resourceKind: "reservations" | "incidents";
+        resourceKind:
+          | "reservations"
+          | "incidents"
+          | "commercial_reservations"
+          | "commercial_contracts"
+          | "commercial_payments";
       };
       cookie?: never;
     };
@@ -10815,8 +13618,11 @@ export interface operations {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["GlobalAdminAccountResourcePageEnvelope"];
+        };
       };
+      401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
     };
@@ -10827,7 +13633,12 @@ export interface operations {
       header?: never;
       path: {
         accountID: string;
-        resourceKind: "reservations" | "incidents";
+        resourceKind:
+          | "reservations"
+          | "incidents"
+          | "commercial_reservations"
+          | "commercial_contracts"
+          | "commercial_payments";
         resourceID: string;
       };
       cookie?: never;
@@ -10839,8 +13650,11 @@ export interface operations {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          "application/json": components["schemas"]["GlobalAdminAccountResourceEnvelope"];
+        };
       };
+      401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
     };
@@ -11226,6 +14040,352 @@ export interface operations {
       };
     };
   };
+  listGlobalAdminPayments: {
+    parameters: {
+      query?: {
+        status?: string;
+        test_mode?: boolean;
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de pagos globales */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPaymentPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listGlobalAdminReservations: {
+    parameters: {
+      query?: {
+        status?: string;
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de reservas globales */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminReservationPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listGlobalAdminContracts: {
+    parameters: {
+      query?: {
+        status?: string;
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de contratos globales */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminContractPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listGlobalAdminKycCases: {
+    parameters: {
+      query?: {
+        status?: string;
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de casos KYC */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminKycCasePageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listGlobalAdminPrivacyRequests: {
+    parameters: {
+      query?: {
+        status?:
+          "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de solicitudes de privacidad */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createGlobalAdminPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminPrivacyRequestCreateInput"];
+      };
+    };
+    responses: {
+      /** @description Solicitud ARCO+ registrada */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  listGlobalAdminSupportTickets: {
+    parameters: {
+      query?: {
+        status?: "abierto" | "en_progreso" | "resuelto" | "cerrado";
+        priority?: "baja" | "media" | "alta" | "critica";
+        account_id?: string;
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de tickets de soporte */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminSupportTicketPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createGlobalAdminSupportTicket: {
+    parameters: {
+      query?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminSupportTicketCreateInput"];
+      };
+    };
+    responses: {
+      /** @description Ticket de soporte creado */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminSupportTicketEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listGlobalAdminApprovals: {
+    parameters: {
+      query?: {
+        status?: "pending" | "approved" | "rejected" | "cancelled";
+        action_type?: "refund_request" | "privacy_export" | "staff_role_grant";
+        cursor?: string;
+        page_size?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de aprobaciones de doble control */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminApprovalPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createGlobalAdminApproval: {
+    parameters: {
+      query?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminApprovalCreateInput"];
+      };
+    };
+    responses: {
+      /** @description Solicitud de doble control registrada */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminApprovalEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  decideGlobalAdminApproval: {
+    parameters: {
+      query?: never;
+      header?: {
+        "Idempotency-Key"?: string;
+      };
+      path: {
+        approvalID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminApprovalDecisionInput"];
+      };
+    };
+    responses: {
+      /** @description Decisión registrada sobre la solicitud */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminApprovalEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente para decidir */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listPublicSpaces: {
     parameters: {
       query?: {
@@ -11236,17 +14396,19 @@ export interface operations {
         comuna_code?: string;
         /** @description Superficie positiva en m² */
         min_area_m2?: number;
+        /** @description Capacidad mínima inclusiva. */
+        min_capacity?: number;
         /** @description Repetible hasta 32 veces y requiere category_code. Booleanos conservan `codigo:true|false`; integer/number usan `codigo:gte:valor` y/o `codigo:lte:valor`; enum usa `codigo:eq:opcion`; enum_list usa `codigo:in:opcion1,opcion2` (OR dentro del atributo). Códigos, operadores, opciones, límites y versión se validan contra la allowlist pública y el perfil; duplicados ambiguos dan 422. */
         attribute?: string[];
         rate_unit?: "hora" | "dia" | "mes";
         min_unit_price_clp?: number | string;
         max_unit_price_clp?: number | string;
-        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con la tarifa y zona horaria vigentes. */
+        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados */
         start_at?: string;
         end_at?: string;
         min_total_clp?: number | string;
         max_total_clp?: number | string;
-        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. */
+        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad. */
         sort?:
           | "default"
           | "title_asc"
@@ -11255,10 +14417,16 @@ export interface operations {
           | "unit_price_desc"
           | "relevance"
           | "estimated_total_asc"
-          | "estimated_total_desc";
-        /** @description Tamaño de página limitado por cursor keyset. Conserva valores históricos 1–25 y admite hasta 48. */
+          | "estimated_total_desc"
+          | "distance_asc";
+        /** @description Cantidad máxima de marcadores devueltos en una sola llamada (hasta 250). */
         page_size?: number;
         cursor?: string;
+        /** @description Área oeste,sur,este,norte. Excluyente con el filtro por proximidad. */
+        bbox?: string;
+        latitude?: number;
+        longitude?: number;
+        radius_km?: number;
       };
       header?: never;
       path?: never;
@@ -11273,6 +14441,105 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["PublicSpacePage"];
+        };
+      };
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listPublicSpaceMapMarkers: {
+    parameters: {
+      query?: {
+        /** @description Texto NFC; máximo 120 caracteres. Stopwords o puntuación sin lexemas dan una página vacía. */
+        q?: string;
+        category_code?: string;
+        region_code?: string;
+        comuna_code?: string;
+        /** @description Superficie positiva en m² */
+        min_area_m2?: number;
+        /** @description Capacidad mínima inclusiva. */
+        min_capacity?: number;
+        /** @description Repetible hasta 32 veces y requiere category_code. Booleanos conservan `codigo:true|false`; integer/number usan `codigo:gte:valor` y/o `codigo:lte:valor`; enum usa `codigo:eq:opcion`; enum_list usa `codigo:in:opcion1,opcion2` (OR dentro del atributo). Códigos, operadores, opciones, límites y versión se validan contra la allowlist pública y el perfil; duplicados ambiguos dan 422. */
+        attribute?: string[];
+        rate_unit?: "hora" | "dia" | "mes";
+        min_unit_price_clp?: number | string;
+        max_unit_price_clp?: number | string;
+        /** @description RFC3339 con offset. Ambos extremos habilitan estimación con tarifa y zona horaria vigentes. Se descartan intervalos ocupados */
+        start_at?: string;
+        end_at?: string;
+        min_total_clp?: number | string;
+        max_total_clp?: number | string;
+        /** @description default ordena por categoría y título; title_asc/title_desc comparan título normalizado con space_id estable. Las tarifas requieren rate_unit explícito, relevance requiere q y total estimado requiere inicio/fin. distance_asc requiere proximidad. */
+        sort?:
+          | "default"
+          | "title_asc"
+          | "title_desc"
+          | "unit_price_asc"
+          | "unit_price_desc"
+          | "relevance"
+          | "estimated_total_asc"
+          | "estimated_total_desc"
+          | "distance_asc";
+        /** @description Cantidad máxima de marcadores devueltos en una sola llamada (hasta 250). */
+        page_size?: number;
+        cursor?: string;
+        /** @description Área oeste,sur,este,norte. Excluyente con el filtro por proximidad. */
+        bbox?: string;
+        latitude?: number;
+        longitude?: number;
+        radius_km?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de marcadores con conteo total y bandera has_more. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicSpaceMapPage"];
+        };
+      };
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listPublicSpaceNearbyMarkers: {
+    parameters: {
+      query: {
+        latitude: number;
+        longitude: number;
+        /** @description Área oeste,sur,este,norte a excluir. */
+        exclude_bbox?: string;
+        exclude_radius_km?: number;
+        q?: string;
+        category_code?: string;
+        min_area_m2?: number;
+        min_capacity?: number;
+        attribute?: string[];
+        rate_unit?: "hora" | "dia" | "mes";
+        min_unit_price_clp?: number | string;
+        max_unit_price_clp?: number | string;
+        start_at?: string;
+        end_at?: string;
+        min_total_clp?: number | string;
+        max_total_clp?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Hasta 6 espacios cercanos ordenados por distancia. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicSpaceMapPage"];
         };
       };
       422: components["responses"]["UnprocessableEntity"];
@@ -11324,6 +14591,53 @@ export interface operations {
         };
       };
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  suggestPublicDestinations: {
+    parameters: {
+      query: {
+        q: string;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Lista priorizada por comunas oficiales y luego lugares. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicDestinationSuggestions"];
+        };
+      };
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getPublicSpaceNearbyPOIs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Puntos cercanos de transporte y estacionamiento. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicNearbyPOIs"];
+        };
+      };
+      404: components["responses"]["NotFound"];
     };
   };
   getPublicSpaceMonth: {
@@ -12108,8 +15422,16 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
+      /** @description El teléfono ya está verificado. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
       429: components["responses"]["TooManyRequests"];
       500: components["responses"]["InternalServerError"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   verifyAccountPhoneCode: {
@@ -14439,7 +17761,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["SpaceDraftInput"];
+        "application/json": components["schemas"]["SpaceCreateInput"];
       };
     };
     responses: {
@@ -14456,6 +17778,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   getOwnSpaceDraft: {
@@ -14545,6 +17868,476 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  getCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listCommercialAuthorizationHistory: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationHistory"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  activateCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationActivation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  revokeCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationRevocation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  evaluateCommercialAuthorization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationEvaluation"];
+      };
+    };
+    responses: {
+      /** @description Resultado privado del modo de evaluación de reservas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationDecision"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createCommercialAuthorizationOTPChallenge: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommercialAuthorizationOTPChallengeRequest"];
+      };
+    };
+    responses: {
+      /** @description Desafío OTP creado y enviado por correo al propietario del espacio. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialAuthorizationOTPChallengeResult"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getSpaceLocationCommuneBounds: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        communeCode: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Extensión en coordenadas WGS84 tomada del conjunto de límites configurado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceLocationCommuneBounds"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  geocodeSpaceAddress: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceAddressGeocodeInput"];
+      };
+    };
+    responses: {
+      /** @description Candidatos de ubicación para revisión del anfitrión. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceAddressGeocodeResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      415: components["responses"]["UnsupportedMediaType"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  reverseGeocodeSpacePin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          latitude: number;
+          longitude: number;
+        };
+      };
+    };
+    responses: {
+      /** @description Región y comuna oficiales del pin. La calle sugerida puede faltar. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            address?: string;
+            region_code: string;
+            comuna_code: string;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      415: components["responses"]["UnsupportedMediaType"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getOwnSpaceLocation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Ubicación actual. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceLocation"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateOwnSpaceLocation: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceLocationInput"];
+      };
+    };
+    responses: {
+      /** @description Ubicación actualizada. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceLocation"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getOwnSpaceContractTemplateDraft: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateOwnSpaceContractTemplateDraft: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceContractTemplateInput"];
+      };
+    };
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  publishOwnSpaceContractTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versión publicada. */
+      200: {
+        headers: {
+          ETag?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["SpaceContractTemplateVersion"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      428: components["responses"]["PreconditionRequired"];
+    };
+  };
+  listOwnSpaceContractTemplateVersions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versiones publicadas. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["SpaceContractTemplateVersions"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  copyOwnSpaceContractTemplate: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SpaceContractTemplateCopyInput"];
+      };
+    };
+    responses: {
+      200: components["responses"]["SpaceContractTemplateDraftOK"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   setOwnSpacePublicationState: {

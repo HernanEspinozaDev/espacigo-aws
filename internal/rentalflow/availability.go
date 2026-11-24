@@ -26,15 +26,16 @@ var (
 const publicAvailabilityHorizonDays = 90
 
 type Listing struct {
-	ID           string
-	OwnerID      string
-	State        string
-	Title        string
-	RateUnit     string
-	UnitPriceCLP int64
-	Currency     string
-	RateVersion  int64
-	TimeZone     string
+	ID                        string
+	OwnerID                   string
+	State                     string
+	Title                     string
+	RateUnit                  string
+	UnitPriceCLP              int64
+	Currency                  string
+	RateVersion               int64
+	TimeZone                  string
+	CancellationPolicyVersion string
 }
 
 type Interval struct {

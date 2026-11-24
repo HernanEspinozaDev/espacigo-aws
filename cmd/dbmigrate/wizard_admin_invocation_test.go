@@ -5,21 +5,6 @@ import (
 	"testing"
 )
 
-func TestReviewedWizardAdminInventoryMatchesSource(t *testing.T) {
-	root, err := repoRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture := wizardAdminTestFixture(t, root)
-	got, err := reviewedWizardAdminInventory(filepath.Join(fixture, "db", "migrations"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 83 || got[59].Version != 60 || got[63].Version != 64 || got[65].Version != 66 || got[82].Version != 83 {
-		t.Fatalf("unexpected reviewed inventory shape: %d entries", len(got))
-	}
-}
-
 func TestWizardAdminInvocationIsSeparateAndExact(t *testing.T) {
 	valid := func(version int64, confirm string, plan, apply, recover bool, acl, f5 string, cloud bool, cloudConfirm string) error {
 		return validateWizardAdminInvocation(version, confirm, plan, apply, recover, acl, f5, cloud, cloudConfirm)

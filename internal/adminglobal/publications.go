@@ -135,11 +135,11 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	if err = requireGlobalActor(ctx, tx, actor); err != nil {
 		return Publication{}, err
 	}
-	var state, unit string
+	var state, unit, oldRegion, oldCommune string
 	var updated time.Time
 	var oldPrice int64
 	var areaM2 float64
-	err = tx.QueryRow(ctx, `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8 FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, id, owner).Scan(&state, &updated, &unit, &oldPrice, &areaM2)
+	err = tx.QueryRow(ctx, `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8,COALESCE(region_codigo,''),COALESCE(comuna_codigo,'') FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, id, owner).Scan(&state, &updated, &unit, &oldPrice, &areaM2, &oldRegion, &oldCommune)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Publication{}, ErrNotFound
 	}
@@ -151,6 +151,9 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 	}
 	if !updated.Equal(in.ExpectedUpdatedAt.UTC()) {
 		return Publication{}, ErrConflict
+	}
+	if (in.RegionCode != nil && *in.RegionCode != oldRegion) || (in.CommuneCode != nil && *in.CommuneCode != oldCommune) {
+		return Publication{}, ErrInvalid
 	}
 	if in.CoverPhotoID != nil {
 		if *in.CoverPhotoID != "" {
@@ -198,7 +201,7 @@ func (s *Service) UpdatePublication(ctx context.Context, actor, id, correlation 
 		cover = *in.CoverPhotoID
 	}
 	var updatedAt time.Time
-	err = tx.QueryRow(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN CASE WHEN $9='' THEN NULL ELSE 'SUBDERE_DPA_2018' END ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN NULLIF($9,'') ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN NULLIF($10,'') ELSE comuna_codigo END,portada_foto_id=CASE WHEN $11 THEN $12::uuid ELSE portada_foto_id END,actualizado_en=GREATEST(clock_timestamp(),actualizado_en+interval '1 microsecond') WHERE id=$1 AND propietario_id=$2 AND actualizado_en=$13 RETURNING actualizado_en`, id, owner, in.Title, in.Description, in.Capacity, in.UsageRules, price, in.RegionCode != nil, coalesceString(in.RegionCode), coalesceString(in.CommuneCode), in.CoverPhotoID != nil, cover, in.ExpectedUpdatedAt.UTC()).Scan(&updatedAt)
+	err = tx.QueryRow(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),portada_foto_id=CASE WHEN $8 THEN $9::uuid ELSE portada_foto_id END,actualizado_en=GREATEST(clock_timestamp(),actualizado_en+interval '1 microsecond') WHERE id=$1 AND propietario_id=$2 AND actualizado_en=$10 RETURNING actualizado_en`, id, owner, in.Title, in.Description, in.Capacity, in.UsageRules, price, in.CoverPhotoID != nil, cover, in.ExpectedUpdatedAt.UTC()).Scan(&updatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Publication{}, ErrConflict
 	}

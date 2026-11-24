@@ -10,5 +10,12 @@ export default async function EditarEspacioPage({
   searchParams,
 }: PageProps) {
   const [{ id }, { tab }] = await Promise.all([params, searchParams]);
-  return <ListingEditor listingId={id} startWithPhotos={tab === "fotos"} />;
+  return (
+    <ListingEditor
+      listingId={id}
+      startWithPhotos={tab === "fotos"}
+      startWithLocation={tab === "ubicacion"}
+      startWithContract={tab === "contrato"}
+    />
+  );
 }

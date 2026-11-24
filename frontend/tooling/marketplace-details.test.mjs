@@ -60,9 +60,11 @@ const localRequire = (id) =>
         ? {}
         : id === "../domain/presentation"
           ? presentationModule.exports
-          : id === "./public-host-avatar"
-            ? { PublicHostAvatar: hostAvatar }
-            : require(id);
+          : id === "./public-space-location"
+            ? { PublicSpaceLocation: () => null }
+            : id === "./public-host-avatar"
+              ? { PublicHostAvatar: hostAvatar }
+              : require(id);
 new Function("require", "module", "exports", output.outputText)(
   localRequire,
   componentModule,
@@ -147,7 +149,8 @@ test("detalles públicos presentan valores tipados, anfitrión verificado y priv
     }),
   );
   for (const text of [
-    "Especificaciones y reglas",
+    "Detalles y atributos",
+    "Reglas y cancelación",
     "24 m²",
     "8<span",
     "personas</span>",

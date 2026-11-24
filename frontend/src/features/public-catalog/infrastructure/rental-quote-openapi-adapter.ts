@@ -66,6 +66,18 @@ function isRentalQuote(
     Date.parse(value.expires_at) <= Date.parse(value.created_at)
   )
     return false;
+  const policy = value.cancellation_policy;
+  if (
+    policy !== undefined &&
+    (!record(policy) ||
+      (policy.version !== "flexible_v1" &&
+        policy.version !== "moderada_v1" &&
+        policy.version !== "estricta_v1") ||
+      typeof policy.text !== "string" ||
+      !policy.text.trim() ||
+      Array.from(policy.text).length > 500)
+  )
+    return false;
   try {
     new Intl.DateTimeFormat("es-CL", { timeZone: value.time_zone });
   } catch {

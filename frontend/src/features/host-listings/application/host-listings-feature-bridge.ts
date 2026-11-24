@@ -4,6 +4,7 @@ import type { HostListingsFacade } from "./host-listings-facade";
 import type {
   ContentUpdateInput,
   ListingDraftInput,
+  ListingCreateInput,
   PhotoUploadInput,
   PricingInput,
   ScheduleInput,

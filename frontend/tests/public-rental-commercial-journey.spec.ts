@@ -68,7 +68,12 @@ test("public rental journey returns from login and requests an official quote", 
       headers?: Record<string, string>;
     } = { status: 404, body: { error: { code: "not_found" } } };
 
-    if (pathname === "/api/backend/auth/logout" && method === "POST") {
+    if (pathname === "/api/backend/rental-contract-capabilities") {
+      result = {
+        status: 200,
+        body: { data: { manual_contracts_enabled: false } },
+      };
+    } else if (pathname === "/api/backend/auth/logout" && method === "POST") {
       result = { status: 204, body: undefined };
     } else if (pathname === "/api/backend/auth/login" && method === "POST") {
       result = {
@@ -177,15 +182,17 @@ test("public rental journey returns from login and requests an official quote", 
         parties: [
           {
             role: "arrendador",
-            legal_name: "Propietario Sintético",
-            rut: "12.345.678-9",
+            self: false,
           },
           {
             role: "arrendatario",
+            self: true,
             legal_name: "Arrendataria Sintética",
-            rut: "98.765.432-1",
+            rut: "••••4321",
           },
         ],
+        contact_notice:
+          "Los datos personales y contactos se habilitan después de confirmar el pago.",
         generated_at: new Date().toISOString(),
       } satisfies components["schemas"]["RentalContractPreview"];
       result = { status: 200, body: { data: preview } };
@@ -265,9 +272,7 @@ test("public rental journey returns from login and requests an official quote", 
     .fill("SyntheticPass123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await page.waitForURL((url) => url.pathname === "/reservas/nueva");
-  await page
-    .getByRole("button", { name: "Calcular cotización oficial" })
-    .click();
+  // Authenticated marketplace checkout requests the quote automatically.
   await expect(
     page.getByText("Cotización oficial", { exact: true }),
   ).toBeVisible();
@@ -533,6 +538,17 @@ test("Checkout API submits only the tokenized payment data to the BFF", async ({
         status: 404,
         contentType: "application/json",
         body: JSON.stringify({ error: { code: "not_found" } }),
+      });
+      return;
+    }
+    if (
+      pathname === "/api/backend/rental-contract-capabilities" &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { manual_contracts_enabled: false } }),
       });
       return;
     }
@@ -927,6 +943,17 @@ test("marketplace quote handoff shows a high-contrast payment action", async ({
       return;
     }
     if (
+      pathname === "/api/backend/rental-contract-capabilities" &&
+      request.method() === "GET"
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { manual_contracts_enabled: false } }),
+      });
+      return;
+    }
+    if (
       pathname === "/api/backend/rental-quotes" &&
       request.method() === "POST"
     ) {
@@ -1027,6 +1054,14 @@ test("Checkout Pro return trusts backend status instead of Mercado Pago query", 
         },
       };
     } else if (
+      pathname === "/api/backend/rental-contract-capabilities" &&
+      request.method() === "GET"
+    ) {
+      result = {
+        status: 200,
+        body: { data: { manual_contracts_enabled: false } },
+      };
+    } else if (
       pathname === `/api/backend/rental-quotes/${quoteId}/checkout` &&
       request.method() === "GET"
     ) {
@@ -1125,6 +1160,14 @@ test("Checkout Pro start reuses its idempotency key and redirects to backend URL
         },
       };
     } else if (
+      pathname === "/api/backend/rental-contract-capabilities" &&
+      request.method() === "GET"
+    ) {
+      result = {
+        status: 200,
+        body: { data: { manual_contracts_enabled: false } },
+      };
+    } else if (
       pathname === "/api/backend/rental-quotes" &&
       request.method() === "POST"
     ) {
@@ -1195,8 +1238,12 @@ test("Checkout Pro start reuses its idempotency key and redirects to backend URL
       body: JSON.stringify(adapted.body ?? {}),
     });
   });
-  await context.route("https://sandbox.mercadopago.cl/**", (route) =>
-    route.abort("blockedbyclient"),
+  const providerUrl = "https://sandbox.mercadopago.cl/checkout/v1/redirect";
+  await context.route(providerUrl, (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: "<h1>Checkout de prueba</h1>",
+    }),
   );
 
   await page.goto("/acceso");
@@ -1217,9 +1264,7 @@ test("Checkout Pro start reuses its idempotency key and redirects to backend URL
     source: "marketplace",
   });
   await page.goto(`/reservas/nueva?${query.toString()}`);
-  await page
-    .getByRole("button", { name: "Calcular cotización oficial" })
-    .click();
+  // Authenticated marketplace checkout requests the quote automatically.
   await expect(page.getByText("$25.000 CLP")).toBeVisible();
   await page.getByRole("button", { name: "Pagar con Mercado Pago" }).click();
   await expect(
@@ -1233,36 +1278,21 @@ test("Checkout Pro start reuses its idempotency key and redirects to backend URL
       "Mercado Pago no mostró un medio de pago compatible para esta compra. No se inició ningún pago.",
     ),
   ).toBeVisible();
-  const providerRequest = page.waitForRequest(
-    (request) =>
-      request.url() === "https://sandbox.mercadopago.cl/checkout/v1/redirect",
-  );
   await page.getByRole("button", { name: "Pagar con Mercado Pago" }).click();
-  await providerRequest;
+  await expect(page).toHaveURL(providerUrl);
+  await expect(
+    page.getByRole("heading", { name: "Checkout de prueba" }),
+  ).toBeVisible();
   await expect.poll(() => starts).toBe(3);
   await expect.poll(() => startKeys.length).toBe(3);
   await expect.poll(() => startKeys[1]).toBe(startKeys[0]);
   await expect.poll(() => startKeys[2]).toBe(startKeys[0]);
   expect(startKeys[0]).toMatch(/^[0-9a-f-]{36}$/i);
 
-  const expiryQuery = new URLSearchParams({
-    spaceId,
-    date: "2030-01-16",
-    duration: "1",
-    start: startAt,
-    end: endAt,
-    rate_unit: "hora",
-    time_zone: "America/Santiago",
-    source: "marketplace",
-  });
-  await page.goto(`/reservas/nueva?${expiryQuery.toString()}`);
-  await page.clock.install({ time: new Date() });
-  quoteExpiryOverride = new Date(
-    await page.evaluate(() => Date.now() + 15 * 60 * 1000),
-  ).toISOString();
-  await page
-    .getByRole("button", { name: "Calcular cotización oficial" })
-    .click();
+  const now = new Date();
+  quoteExpiryOverride = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  await page.clock.install({ time: now });
+  await page.goto(`/reservas/nueva?${query.toString()}`);
   await expect(page.getByText("$25.000 CLP")).toBeVisible();
   await page.clock.fastForward("16:00");
   await page.getByRole("button", { name: "Pagar con Mercado Pago" }).click();

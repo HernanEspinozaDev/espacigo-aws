@@ -65,10 +65,7 @@ export async function POST(request: Request): Promise<Response> {
     "x-request-id": requestId,
   });
 
-  const upstreamPayload = JSON.stringify({
-    email: bodyResult.data.email,
-    password: bodyResult.data.password,
-  });
+  const upstreamPayload = JSON.stringify(bodyResult.data);
 
   let loginRes: Response;
   try {

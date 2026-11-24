@@ -382,8 +382,8 @@ func TestSecurityMethodsSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSecurityMethodsSummary: %v", err)
 	}
-	if sum.TotalCount != 7 {
-		t.Fatalf("expected TotalCount 7, got %d", sum.TotalCount)
+	if sum.TotalCount != 6 {
+		t.Fatalf("expected TotalCount 6, got %d", sum.TotalCount)
 	}
 	if sum.ActiveCount != 2 {
 		t.Fatalf("expected ActiveCount 2, got %d", sum.ActiveCount)

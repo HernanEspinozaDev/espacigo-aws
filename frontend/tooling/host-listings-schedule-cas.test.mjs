@@ -132,7 +132,14 @@ test("createDraft returns the strong ETag needed by the first CAS mutation", asy
       usage_rules: "",
       rate_unit: "hora",
       base_price_clp: 6000,
-      address: "Dirección",
+      location: {
+        address: "Dirección",
+        region_code: "13",
+        comuna_code: "13101",
+        latitude: -33.45,
+        longitude: -70.66,
+        public_confirmed: false,
+      },
     },
     "create-idempotency-key",
   );

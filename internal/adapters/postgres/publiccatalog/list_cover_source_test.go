@@ -136,7 +136,7 @@ func TestListCoverImageSourceMatchesPublicContract(t *testing.T) {
 				sql.NullString{String: "America/Santiago", Valid: true},
 				sql.NullString{String: "13", Valid: true}, sql.NullString{String: "Metropolitana", Valid: true},
 				sql.NullString{String: "13101", Valid: true}, sql.NullString{String: "Santiago", Valid: true},
-				sql.NullString{String: imageID, Valid: true}, sql.NullString{String: tc.source, Valid: true}, sql.NullInt64{}, float64(0), true, false,
+				sql.NullString{String: imageID, Valid: true}, sql.NullString{String: tc.source, Valid: true}, sql.NullInt64{}, float64(0), true, false, []byte(nil),
 			}}
 			repo := &Repository{pool: pool}
 			service, err := publiccatalog.New(repo, []byte("01234567890123456789012345678901"))
@@ -202,7 +202,7 @@ func TestPublicCatalogEstimatedTotalFlowsFromRepositoryThroughHTTP(t *testing.T)
 				spaceID, "oficina", "Oficina", "Sala", "Sala sintética", float64(20), tc.unit, tc.price, "CLP", 1, "sala",
 				sql.NullString{String: zone, Valid: true},
 				sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{},
-				sql.NullString{}, sql.NullString{}, sql.NullInt64{}, float64(0), false, false,
+				sql.NullString{}, sql.NullString{}, sql.NullInt64{}, float64(0), false, false, []byte(nil),
 			}}
 			repo := &Repository{pool: pool}
 			service, err := publiccatalog.New(repo, []byte("01234567890123456789012345678901"))
