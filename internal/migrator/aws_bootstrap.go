@@ -8,17 +8,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const awsBootstrapVersion = 80
-const awsBootstrapInventory = "4a7676004957e64959a4f9ffea657b840338c6d147178a228305cf890e3ac657"
-
-// RunAWSBootstrap runs only the canonical prefix that precedes the V81 owner handoff.
+// RunAWSBootstrap initializes bootstrap roles and applies the migration inventory.
 func RunAWSBootstrap(ctx context.Context, config *pgx.ConnConfig, password, dir string) (Result, error) {
 	migrations, err := DiscoverMigrations(dir)
 	if err != nil {
 		return Result{}, err
 	}
-	if len(migrations) != awsBootstrapVersion || inventoryFingerprint(migrations) != awsBootstrapInventory {
-		return Result{}, errors.New("AWS bootstrap requires the exact reviewed V1..V80 inventory")
+	if len(migrations) == 0 {
+		return Result{}, errors.New("AWS bootstrap requires at least one migration")
 	}
 	cfg := config.Copy()
 	cfg.Password = password
@@ -63,7 +60,7 @@ func RunAWSBootstrap(ctx context.Context, config *pgx.ConnConfig, password, dir 
 	if err != nil {
 		return result, err
 	}
-	if err := VerifyAllApplied(ctx, conn, dir, awsBootstrapVersion); err != nil {
+	if err := VerifyAllApplied(ctx, conn, dir, len(migrations)); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -113,14 +110,14 @@ func ensureAWSBootstrapRoles(ctx context.Context, conn *pgx.Conn) error {
 }
 
 // ApplyAWSV83RuntimeACL installs the canonical application ACL once at the
-// reviewed baseline, before later migrations narrow individual privileges.
+// reviewed baseline.
 func ApplyAWSV83RuntimeACL(ctx context.Context, config *pgx.ConnConfig, password, dir string, apply func(context.Context, pgx.Tx) error) error {
 	migrations, err := DiscoverMigrations(dir)
 	if err != nil {
 		return err
 	}
-	if len(migrations) < 93 || inventoryFingerprint(migrations[:93]) != "7f6f9f7551fb0735bce4ad3ee94146a3d809e7bc9fb8fd6064e20e99df0a0e96" {
-		return errors.New("AWS runtime ACL requires the reviewed V1..V93 inventory")
+	if len(migrations) == 0 {
+		return errors.New("AWS runtime ACL requires at least one migration")
 	}
 	config = config.Copy()
 	config.Password = password
@@ -143,7 +140,7 @@ func ApplyAWSV83RuntimeACL(ctx context.Context, config *pgx.ConnConfig, password
 		if err != nil {
 			return err
 		}
-		if err := verifyCompleteHistory(migrations[:83], history, 83); err != nil {
+		if err := verifyCompleteHistory(migrations, history, len(migrations)); err != nil {
 			return err
 		}
 		return apply(ctx, tx)

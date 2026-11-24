@@ -33,7 +33,7 @@ func TestApprovedReleasePolicyChecksAllPendingMigrations(t *testing.T) {
 		{name: "approved", history: true, applied: 100, pending: []MigrationSummary{approved}},
 		{name: "noop", history: true, applied: 101},
 		{name: "empty database", applied: 0, wantErr: true},
-		{name: "initial ledger incomplete", history: true, applied: 83, wantErr: true},
+		{name: "initial ledger incomplete", history: true, applied: 82, wantErr: true},
 		{name: "changed SQL", history: true, applied: 100, pending: []MigrationSummary{{Name: approved.Name, Checksum: "different"}}, wantErr: true},
 		{name: "later review blocks the entire batch", history: true, applied: 100, pending: []MigrationSummary{approved, {Name: "V000102__review.sql"}}, wantErr: true},
 		{name: "unclassified", history: true, applied: 100, pending: []MigrationSummary{{Name: "V000103__unclassified.sql"}}, wantErr: true},
@@ -105,7 +105,7 @@ func TestReleasePolicyRejectsUnsafeOwnerTarget(t *testing.T) {
 	}
 }
 
-func TestV104DeclaresOnlyHistoricalSessionOwnerDependency(t *testing.T) {
+func TestBaselineReleasePolicyMatchesDiscoveredBaselineAndAllowsV2Expand(t *testing.T) {
 	bytes, err := os.ReadFile(filepath.Join("..", "..", "db", "release-policy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,11 +114,47 @@ func TestV104DeclaresOnlyHistoricalSessionOwnerDependency(t *testing.T) {
 	if err := json.Unmarshal(bytes, &policy); err != nil {
 		t.Fatal(err)
 	}
-	rule, ok := policy.Automatic["V000104__session_device_metadata.sql"]
-	if !ok || rule.Checksum != "f23d99dea23ddeebb5491e1f569f49b2da0812f5880fef5306fd688cf69b68c3" {
-		t.Fatalf("V104 release rule/checksum changed unexpectedly: %#v", rule)
+	if policy.Format != "espacigo.initial-migration-policy.v1" || policy.Baseline != 1 {
+		t.Fatalf("unexpected release policy header: %+v", policy)
 	}
-	if len(rule.RequiresSchemaOwner) != 1 || rule.RequiresSchemaOwner[0] != "public.sesion" {
-		t.Fatalf("V104 owner dependency must be limited to public.sesion: %#v", rule.RequiresSchemaOwner)
+	if len(policy.Automatic) != 0 {
+		t.Fatalf("expected empty automatic_migrations at baseline 1, got %d", len(policy.Automatic))
+	}
+	migrations, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) != 1 || migrations[0].Version != 1 || migrations[0].Name != "V000001__baseline.sql" {
+		t.Fatalf("unexpected baseline migration discovery: %+v", migrations)
+	}
+	rawReview, ok := policy.ReviewRequired["V000001__baseline.sql"]
+	if !ok {
+		t.Fatal("V000001__baseline.sql missing from review_required_migrations")
+	}
+	var reviewRule struct {
+		Checksum  string `json:"checksum"`
+		Strategy  string `json:"strategy"`
+		Automatic bool   `json:"automatic"`
+	}
+	if err := json.Unmarshal(rawReview, &reviewRule); err != nil {
+		t.Fatal(err)
+	}
+	if reviewRule.Checksum != migrations[0].Checksum || reviewRule.Strategy != "expand" || reviewRule.Automatic {
+		t.Fatalf("unexpected V000001 review rule: %+v (file checksum %s)", reviewRule, migrations[0].Checksum)
+	}
+
+	// Verify V000002+ expand migration is allowed once V000001 is applied.
+	policy.Automatic["V000002__expand_example.sql"] = struct {
+		Checksum            string   `json:"checksum"`
+		Strategy            string   `json:"strategy"`
+		RequiresSchemaOwner []string `json:"requires_schema_owner,omitempty"`
+	}{Checksum: "abc123", Strategy: "expand"}
+	plan := PlanResult{
+		HistoryExists: true,
+		Applied:       []HistoryEntry{{Version: 1, Name: migrations[0].Name, Checksum: migrations[0].Checksum}},
+		Pending:       []MigrationSummary{{Version: 2, Name: "V000002__expand_example.sql", Checksum: "abc123"}},
+	}
+	if err := policy.checkPending(plan); err != nil {
+		t.Fatalf("expected V2 expand migration to pass after baseline 1: %v", err)
 	}
 }

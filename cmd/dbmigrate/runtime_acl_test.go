@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,7 +68,14 @@ func TestApplyRuntimeACLPhaseRequiresReviewedReadback(t *testing.T) {
 }
 
 func TestRuntimeACLSourceSetUsesOnlyChecksumMatchedAppliedMigrations(t *testing.T) {
-	migrations, err := migrator.DiscoverMigrations("../../db/migrations")
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "V000001__baseline.sql"), []byte("CREATE TABLE public.usuario (id int);\nGRANT SELECT ON public.usuario TO espacigo_runtime;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "V000002__extra.sql"), []byte("GRANT INSERT ON public.usuario TO espacigo_runtime;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := migrator.DiscoverMigrations(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
