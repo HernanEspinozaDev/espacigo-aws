@@ -78,7 +78,11 @@ export function PublicSpaceMarketplaceLayout({
             />
           )}
         </div>
-        <div ref={calendarRef} className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">
+        <div
+          id="disponibilidad"
+          ref={calendarRef}
+          className="mt-8 min-w-0 scroll-mt-24 lg:col-span-4 lg:mt-0"
+        >
           {availabilityElement}
         </div>
         <div className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">{gallery}</div>

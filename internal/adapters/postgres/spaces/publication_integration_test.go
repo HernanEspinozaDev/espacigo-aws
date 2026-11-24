@@ -191,9 +191,34 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc' AND estado='elegible'`, owner).Scan(&initialEligibilityCount); err != nil || initialEligibilityCount != 0 {
 		t.Fatalf("new synthetic owner unexpectedly has identity eligibility count=%d err=%v", initialEligibilityCount, err)
 	}
-	publishedWithoutIdentity, err := svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-without-identity")
-	if err != nil || publishedWithoutIdentity.State != "activa" {
-		t.Fatalf("publication without verified identity=%+v err=%v", publishedWithoutIdentity, err)
+	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-without-identity"); err != spaces.ErrIdentityRequired {
+		t.Fatalf("publication without verified identity error=%v, want ErrIdentityRequired", err)
+	}
+	verificationID := "10000000-0000-4000-8000-000000000002"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+	VALUES($1,$2,'kyc','aprobada',$3,'approved-kyc',$4,now())`, verificationID, owner, "fixture:"+verificationID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, owner, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-without-mercadopago"); err != spaces.ErrMercadoPagoRequired {
+		t.Fatalf("publication without Mercado Pago error=%v, want ErrMercadoPagoRequired", err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.mercadopago_seller_connection(anfitrion_id,seller_id,encrypted_access_token,encrypted_refresh_token,token_expires_at,scopes,live_mode,connection_state)
+	VALUES($1,'123456789',decode(repeat('aa',40),'hex'),decode(repeat('bb',40),'hex'),now()+interval '30 days',ARRAY['read','write'],false,'active')`, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-without-contract"); err != spaces.ErrContractTemplateRequired {
+		t.Fatalf("publication without published contract template error=%v, want ErrContractTemplateRequired", err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+	VALUES($1,2,'[{"key":"uso","title":"Uso","body":"Uso permitido del espacio"}]'::jsonb,1)`, draft.ID); err != nil {
+		t.Fatal(err)
+	}
+	publishedWithAllGates, err := svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-with-gates")
+	if err != nil || publishedWithAllGates.State != "activa" {
+		t.Fatalf("publication with all gates=%+v err=%v", publishedWithAllGates, err)
 	}
 	if _, err = repo.SetPublicationState(ctx, other, draft.ID, "activa", "foreign-owner"); err != spaces.ErrNotFound {
 		t.Fatalf("foreign owner error=%v", err)
@@ -255,19 +280,13 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if configuredResponse.Code != http.StatusOK || !strings.Contains(configuredResponse.Body.String(), `"time_zone":"America/Santiago"`) {
 		t.Fatalf("configure zone response=%d body=%s", configuredResponse.Code, configuredResponse.Body.String())
 	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+	VALUES($1,2,'[{"key":"uso","title":"Uso","body":"Uso permitido del espacio"}]'::jsonb,1)`, created.ID); err != nil {
+		t.Fatal(err)
+	}
 	publishResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+created.ID+"/publication", "owner-token", publicationBody)
 	if publishResponse.Code != http.StatusOK || !strings.Contains(publishResponse.Body.String(), `"state":"activa"`) {
 		t.Fatalf("publish configured draft response=%d body=%s", publishResponse.Code, publishResponse.Body.String())
-	}
-	// Identity verification remains a prerequisite for booking, not for
-	// preparing or publishing a listing.
-	verificationID := "10000000-0000-4000-8000-000000000002"
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
-	VALUES($1,$2,'kyc','aprobada',$3,'approved-kyc',$4,now())`, verificationID, owner, "fixture:"+verificationID, adminID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, owner, verificationID); err != nil {
-		t.Fatal(err)
 	}
 	renterVerification := "10000000-0000-4000-8000-000000000003"
 	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
@@ -345,6 +364,10 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 		t.Fatal(err)
 	}
 	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET estado='oculta' WHERE id=$1`, legacyDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+	VALUES($1,2,'[{"key":"uso","title":"Uso","body":"Uso permitido del espacio"}]'::jsonb,1)`, legacyDraft.ID); err != nil {
 		t.Fatal(err)
 	}
 	legacyZoneResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+legacyDraft.ID+"/availability", "owner-token", zoneBody)
@@ -432,6 +455,10 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_ensayo_local_fixture SET habilitada=false WHERE espacio_id=$1`, fixtureDraft.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+	VALUES($1,2,'[{"key":"uso","title":"Uso","body":"Uso permitido del espacio"}]'::jsonb,1)`, fixtureDraft.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = svc.SetPublicationState(ctx, owner, fixtureDraft.ID, "activa", "activate-for-edit-test"); err != nil {
 		t.Fatalf("activate non-fixture publication for edit test: %v", err)
 	}
@@ -475,10 +502,18 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if err != nil || updated.State != "activa" || updated.Title != newTitle || updated.BasePriceCLP != newPrice {
 		t.Fatalf("stale title-only listing edit=%+v err=%v", updated, err)
 	}
-	regionCode, communeCode := "13", "13123"
+	originalLocation, err := repo.GetOwn(ctx, owner, fixtureDraft.ID)
+	if err != nil || originalLocation.RegionCode == nil || originalLocation.CommuneCode == nil {
+		t.Fatalf("fixture location missing: %+v err=%v", originalLocation, err)
+	}
+	regionCode, communeCode := *originalLocation.RegionCode, *originalLocation.CommuneCode
 	updated, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{RegionCode: &regionCode, CommuneCode: &communeCode})
 	if err != nil || updated.State != "activa" || updated.RegionCode == nil || *updated.RegionCode != regionCode || updated.CommuneCode == nil || *updated.CommuneCode != communeCode {
-		t.Fatalf("active public location edit=%+v err=%v", updated, err)
+		t.Fatalf("equal legacy location submission=%+v err=%v", updated, err)
+	}
+	changedCommune := "13123"
+	if _, err = svc.UpdatePublishedOwn(ctx, owner, fixtureDraft.ID, spaces.PublishedContentInput{RegionCode: &regionCode, CommuneCode: &changedCommune}); !errors.Is(err, spaces.ErrInvalid) {
+		t.Fatalf("changed published location got %v, want validation error", err)
 	}
 	for _, body := range []string{
 		`{"region_code":"","comuna_code":"13123"}`,
@@ -737,9 +772,11 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "oculta", "hide-2"); err != nil {
 		t.Fatal(err)
 	}
-	republishedWithoutCurrentIdentity, err := svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-after-revoke")
-	if err != nil || republishedWithoutCurrentIdentity.State != "activa" {
-		t.Fatalf("publication after identity eligibility revocation=%+v err=%v", republishedWithoutCurrentIdentity, err)
+	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-after-revoke"); err != spaces.ErrIdentityRequired {
+		t.Fatalf("publication after identity eligibility revocation error=%v, want ErrIdentityRequired", err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='elegible',revocada_en=NULL,revocada_por=NULL,motivo_revocacion_codigo=NULL WHERE usuario_id=$1 AND tipo='kyc'`, owner); err != nil {
+		t.Fatal(err)
 	}
 	// A pending reservation is an atomic blocker: the failed request must keep
 	// the offer, rate snapshots, and booking history available.

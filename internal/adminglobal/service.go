@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
@@ -23,9 +24,11 @@ import (
 )
 
 var (
-	ErrInvalid   = errors.New("adminglobal: invalid input")
-	ErrForbidden = errors.New("adminglobal: forbidden")
-	ErrNotFound  = errors.New("adminglobal: not found")
+	ErrInvalid                = errors.New("adminglobal: invalid input")
+	ErrSensitiveAccessInvalid = errors.New("adminglobal: invalid sensitive access input")
+	ErrAssistedViewInvalid    = errors.New("adminglobal: invalid assisted view input")
+	ErrForbidden              = errors.New("adminglobal: forbidden")
+	ErrNotFound               = errors.New("adminglobal: not found")
 )
 
 const collectionID = "00000000-0000-0000-0000-000000000000"
@@ -50,6 +53,18 @@ type Service struct {
 		SelectCoverAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Cover, error)
 		RemoveAsAdministrator(context.Context, string, string, string, string, time.Time, string, string) (gallery.Removal, error)
 	}
+	sensitiveAccessStore SensitiveAccessStore
+	assistedViewStore    AssistedViewStore
+	specializedOpsStore  SpecializedOpsStore
+}
+
+// SensitiveAccessStore persists audited sensitive-access grants (used by tests or custom adapters).
+type SensitiveAccessStore interface {
+	GrantSensitiveAccess(context.Context, SensitiveAccessRecord) (SensitiveAccessGrant, error)
+}
+
+func (s *Service) SetSensitiveAccessStore(store SensitiveAccessStore) {
+	s.sensitiveAccessStore = store
 }
 
 func (s *Service) SetPublicationGallery(manager interface {
@@ -321,13 +336,16 @@ func (s *Service) queryAccounts(ctx context.Context, actor, correlation string, 
 		}
 	}
 	result, reason, resource := "exito", "consulta_administrativa", collectionID
-	if action == "admin.global.accounts.read" {
+	individualRead := action == accountDetailRead || action == accountEmailReveal
+	if individualRead {
 		resource = filter.AccountID
 		if len(out.Items) == 0 {
 			result, reason = "rechazo", "cuenta_no_encontrada"
+		} else if action == accountEmailReveal && out.Items[0].State == string(identity.AccountDeidentified) {
+			result, reason = "rechazo", "cuenta_desidentificada"
 		}
 	}
-	if action == "admin.global.accounts.read" {
+	if individualRead {
 		err = s.auditWithTarget(ctx, tx, actor, resource, action, result, reason, correlation, now, filter.AccountID)
 	} else {
 		err = s.audit(ctx, tx, actor, resource, action, result, reason, correlation, now)
@@ -341,18 +359,35 @@ func (s *Service) queryAccounts(ctx context.Context, actor, correlation string, 
 	return out, nil
 }
 
+const (
+	accountDetailRead  = "admin.global.accounts.read"
+	accountEmailReveal = "admin.global.accounts.email.reveal"
+)
+
 func (s *Service) LookupAccount(ctx context.Context, actor, target, correlation string) (AccountSummary, error) {
+	return s.lookupAccount(ctx, actor, target, correlation, accountDetailRead)
+}
+
+func (s *Service) RevealAccountEmail(ctx context.Context, actor, target, correlation string) (AccountSummary, error) {
+	return s.lookupAccount(ctx, actor, target, correlation, accountEmailReveal)
+}
+
+func (s *Service) lookupAccount(ctx context.Context, actor, target, correlation, action string) (AccountSummary, error) {
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(target) || !canonicalUUID.MatchString(correlation) {
 		return AccountSummary{}, ErrInvalid
 	}
-	page, err := s.queryAccounts(ctx, actor, correlation, AccountFilter{AccountID: target, PageSize: 1}, "admin.global.accounts.read")
+	page, err := s.queryAccounts(ctx, actor, correlation, AccountFilter{AccountID: target, PageSize: 1}, action)
 	if err != nil {
 		return AccountSummary{}, err
 	}
 	if len(page.Items) == 0 {
 		return AccountSummary{}, ErrNotFound
 	}
-	return page.Items[0], nil
+	item := page.Items[0]
+	if action == accountDetailRead || item.State == string(identity.AccountDeidentified) {
+		item.Email = identity.MaskEmail(item.Email)
+	}
+	return item, nil
 }
 
 func (f AccountFilter) validate() error {
@@ -515,4 +550,200 @@ func utcPointer(value *time.Time) *time.Time {
 	}
 	utc := value.UTC()
 	return &utc
+}
+
+const (
+	accountSensitiveAccessAction = "admin.global.accounts.sensitive_access"
+	sensitiveAccessTTL           = 10 * time.Minute
+)
+
+type SensitiveAccessInput struct {
+	ActorID        string
+	TargetID       string
+	AdminSessionID string
+	CorrelationID  string
+	Field          string
+	Reason         string
+	CaseID         string
+	Scope          string
+}
+
+type SensitiveAccessRecord struct {
+	ID             string
+	ActorID        string
+	TargetID       string
+	AdminSessionID string
+	CorrelationID  string
+	Field          string
+	Scope          string
+	Reason         string
+	CaseID         string
+	GrantedAt      time.Time
+	ExpiresAt      time.Time
+	AuditEventID   string
+}
+
+type SensitiveAccessGrant struct {
+	Value        string
+	MaskedValue  string
+	AuditEventID string
+}
+
+type SensitiveAccessResult struct {
+	AccountID    string    `json:"account_id"`
+	Field        string    `json:"field"`
+	Value        string    `json:"value"`
+	MaskedValue  string    `json:"masked_value"`
+	Scope        string    `json:"scope"`
+	Reason       string    `json:"reason"`
+	CaseID       string    `json:"case_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	AuditEventID string    `json:"audit_event_id"`
+}
+
+// GrantSensitiveAccess validates, audits, and records an explicit sensitive-field reveal.
+func (s *Service) GrantSensitiveAccess(ctx context.Context, input SensitiveAccessInput) (SensitiveAccessResult, error) {
+	field := strings.TrimSpace(input.Field)
+	if field != "email" {
+		return SensitiveAccessResult{}, ErrSensitiveAccessInvalid
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if n := utf8.RuneCountInString(reason); n < 5 || n > 500 {
+		return SensitiveAccessResult{}, ErrSensitiveAccessInvalid
+	}
+	scope := strings.TrimSpace(input.Scope)
+	if scope == "" {
+		scope = "account_email"
+	}
+	if scope != "account_email" && scope != "account_summary" {
+		return SensitiveAccessResult{}, ErrSensitiveAccessInvalid
+	}
+	caseID := strings.TrimSpace(input.CaseID)
+	if utf8.RuneCountInString(caseID) > 100 {
+		return SensitiveAccessResult{}, ErrSensitiveAccessInvalid
+	}
+	if !canonicalUUID.MatchString(input.ActorID) || !canonicalUUID.MatchString(input.TargetID) || !canonicalUUID.MatchString(input.CorrelationID) {
+		return SensitiveAccessResult{}, ErrInvalid
+	}
+
+	nowFn := s.now
+	if nowFn == nil {
+		nowFn = time.Now
+	}
+	now := nowFn().UTC()
+	expiresAt := now.Add(sensitiveAccessTTL)
+
+	accessID, err := s.ids.ID()
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+	auditEventID, err := s.ids.ID()
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	rec := SensitiveAccessRecord{
+		ID:             accessID,
+		ActorID:        input.ActorID,
+		TargetID:       input.TargetID,
+		AdminSessionID: input.AdminSessionID,
+		CorrelationID:  input.CorrelationID,
+		Field:          field,
+		Scope:          scope,
+		Reason:         reason,
+		CaseID:         caseID,
+		GrantedAt:      now,
+		ExpiresAt:      expiresAt,
+		AuditEventID:   auditEventID,
+	}
+
+	if s.sensitiveAccessStore != nil {
+		grant, err := s.sensitiveAccessStore.GrantSensitiveAccess(ctx, rec)
+		if err != nil {
+			return SensitiveAccessResult{}, err
+		}
+		if grant.AuditEventID != "" {
+			auditEventID = grant.AuditEventID
+		}
+		return SensitiveAccessResult{
+			AccountID:    input.TargetID,
+			Field:        field,
+			Value:        grant.Value,
+			MaskedValue:  grant.MaskedValue,
+			Scope:        scope,
+			Reason:       reason,
+			CaseID:       caseID,
+			ExpiresAt:    expiresAt,
+			AuditEventID: auditEventID,
+		}, nil
+	}
+
+	if s.pool == nil {
+		return SensitiveAccessResult{}, ErrInvalid
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	if err := requireGlobalActor(ctx, tx, input.ActorID); err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	var email, state string
+	err = tx.QueryRow(ctx, `SELECT correo_original, estado FROM public.usuario WHERE id = $1 FOR SHARE`, input.TargetID).Scan(&email, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SensitiveAccessResult{}, ErrNotFound
+	}
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	masked := identity.MaskEmail(email)
+	value := email
+	if state == string(identity.AccountDeidentified) {
+		value = masked
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO public.evento_auditoria_local(
+			id, actor_id, cuenta_objetivo_id, recurso_tipo, recurso_id,
+			accion, resultado, motivo_codigo, correlacion_id, ocurrido_en, registrado_en, retirar_en
+		) VALUES ($1, $2, $3, 'cuenta_global', $4, $5, 'exito', $6, $7, $8, clock_timestamp(), $8::timestamptz + interval '5 years')
+	`, auditEventID, input.ActorID, input.TargetID, input.TargetID, accountSensitiveAccessAction, reason, input.CorrelationID, now)
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	var sessionID any
+	if canonicalUUID.MatchString(input.AdminSessionID) {
+		sessionID = input.AdminSessionID
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO public.acceso_sensible_administrativo(
+			id, actor_cuenta_id, objetivo_cuenta_id, sesion_administrativa_id,
+			campo, alcance, motivo, caso_id, otorgado_en, expira_en, evento_auditoria_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, accessID, input.ActorID, input.TargetID, sessionID, field, scope, reason, caseID, now, expiresAt, auditEventID)
+	if err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return SensitiveAccessResult{}, err
+	}
+
+	return SensitiveAccessResult{
+		AccountID:    input.TargetID,
+		Field:        field,
+		Value:        value,
+		MaskedValue:  masked,
+		Scope:        scope,
+		Reason:       reason,
+		CaseID:       caseID,
+		ExpiresAt:    expiresAt,
+		AuditEventID: auditEventID,
+	}, nil
 }

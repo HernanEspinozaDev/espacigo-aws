@@ -589,7 +589,7 @@ func TestQuoteMapsAuthenticatorOperationalFailureToServiceUnavailable(t *testing
 
 func TestPreviewRequiresAuthenticatedParticipantAndSerializesAllowlistedDataNoStore(t *testing.T) {
 	preview := &previewStub{result: rentalflow.ContractPreview{State: "preview", QuoteID: testQuoteID, SpaceID: testSpaceID,
-		Parties: []rentalflow.ContractParty{{Role: "arrendador", LegalName: "Nombre Sintético", RUT: "12345678-5"}}}}
+		Parties: []rentalflow.ContractParty{{Role: "arrendador", Self: true, LegalName: "Nombre Sintético", RUT: "12345678-5"}}}}
 	auth := &authStub{principal: identity.Principal{AccountID: testActorID}}
 	h := newTestHandler(auth, &availabilityStub{}, &quoteStub{}, preview)
 	r := httptest.NewRequest(http.MethodPost, "/api/v1/rental-quotes/"+testQuoteID+"/contract-preview", nil)
@@ -622,7 +622,7 @@ func TestPreviewRequiresAuthenticatedParticipantAndSerializesAllowlistedDataNoSt
 	if err := json.Unmarshal(envelope["data"], &data); err != nil {
 		t.Fatalf("invalid preview data JSON: %v", err)
 	}
-	assertKeys(data, "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "generated_at")
+	assertKeys(data, "state", "quote_id", "space_id", "space_title", "rate_unit", "unit_price_clp", "units", "subtotal_clp", "currency", "start_at", "end_at", "time_zone", "parties", "generated_at", "contact_notice")
 	var parties []map[string]json.RawMessage
 	if err := json.Unmarshal(data["parties"], &parties); err != nil {
 		t.Fatalf("invalid preview parties JSON: %v", err)
@@ -630,7 +630,7 @@ func TestPreviewRequiresAuthenticatedParticipantAndSerializesAllowlistedDataNoSt
 	if len(parties) != 1 {
 		t.Fatalf("preview parties=%v, want one synthetic party", parties)
 	}
-	assertKeys(parties[0], "role", "legal_name", "rut")
+	assertKeys(parties[0], "role", "self", "legal_name", "rut")
 }
 
 func TestPreviewStopsOnAuthenticationFailureBeforeCallingService(t *testing.T) {

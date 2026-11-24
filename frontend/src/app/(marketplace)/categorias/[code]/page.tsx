@@ -1,22 +1,18 @@
+import { CheckCircle2, PlusCircle } from "lucide-react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { hasCatalogFilters } from "@/features/public-catalog/domain/query-state";
-import { parseCatalogQuery } from "@/features/public-catalog/domain/query-state";
+import { ExplorePage } from "@/app/(marketplace)/explorar/_explore-page";
+import { getCategoryGuide } from "@/features/public-catalog/domain/category-guides";
 import { categoryLabel } from "@/features/public-catalog/domain/presentation";
-import type {
-  PublicCategoryFilter,
-  RawCatalogParams,
-} from "@/features/public-catalog/domain/types";
-import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
-import { CatalogFilters } from "@/features/public-catalog/ui/catalog-filters";
-import { CatalogSortControls } from "@/features/public-catalog/ui/catalog-sort-controls";
 import {
-  CatalogUnavailable,
-  EmptyCatalog,
-} from "@/features/public-catalog/ui/catalog-states";
-import { PublicCatalogGrid } from "@/features/public-catalog/ui/catalog-sections";
-import { PublicSearchForm } from "@/features/public-catalog/ui/public-search-form";
+  hasCatalogFilters,
+  parseCatalogQuery,
+} from "@/features/public-catalog/domain/query-state";
+import type { RawCatalogParams } from "@/features/public-catalog/domain/types";
+import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
+import { CatalogUnavailable } from "@/features/public-catalog/ui/catalog-states";
 
 export const dynamic = "force-dynamic";
 
@@ -43,11 +39,11 @@ export async function generateMetadata({
   const title = category ? categoryLabel(category) : "Categoría";
   const hasRawAttributes = Boolean(
     raw.attribute &&
-    (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
+      (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
   );
   return {
     title: `${title} en arriendo`,
-    description: `Explora publicaciones públicas de ${title} en EspaciGo, si están disponibles en el catálogo.`,
+    description: `Explora publicaciones públicas de ${title} en EspaciGo en cuadrícula o mapa.`,
     alternates: { canonical: pathFor(code) },
     robots:
       hasRawAttributes || hasCatalogFilters(query)
@@ -63,7 +59,7 @@ export default async function CategoryPage({
   params: Promise<{ code: string }>;
   searchParams: Promise<RawCatalogParams>;
 }) {
-  const [{ code }, raw] = await Promise.all([params, searchParams]);
+  const { code } = await params;
   const categoriesResult = await publicCatalog.categories();
   if (!categoriesResult.ok) {
     return (
@@ -75,131 +71,93 @@ export default async function CategoryPage({
       </section>
     );
   }
-  const categories = [...categoriesResult.value.items].sort(
-    (a, b) => a.order - b.order,
+  const category = categoriesResult.value.items.find(
+    (item) => item.code === code,
   );
-  const category = categories.find((item) => item.code === code);
   if (!category) notFound();
 
-  const [locationsResult, profileResult] = await Promise.all([
-    publicCatalog.locations({ limit: 400 }),
-    publicCatalog.categoryFilters(code),
-  ]);
-  let categoryFilters: readonly PublicCategoryFilter[] = [];
-  const profileUnavailable =
-    !profileResult.ok && profileResult.error.status !== 404;
-  if (profileResult.ok) categoryFilters = profileResult.value.items;
-
-  const { query, result } = await publicCatalog.spacesFromParams(
-    { ...raw, category_code: code },
-    categoryFilters,
-  );
-  const locations = locationsResult.ok ? locationsResult.value.items : [];
-  const residential = category.code === "inmuebles";
+  const label = categoryLabel(category);
+  const guide = getCategoryGuide(category.code);
 
   return (
-    <section className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 sm:pt-12 lg:px-8">
-      <nav
-        aria-label="Breadcrumb"
-        className="mb-7 text-sm text-muted-foreground"
-      >
-        <Link href="/" className="hover:text-foreground">
-          Inicio
-        </Link>
-        <span aria-hidden="true"> / </span>
-        <Link href="/categorias" className="hover:text-foreground">
-          Categorías
-        </Link>
-        <span aria-hidden="true"> / </span>
-        <span aria-current="page">{categoryLabel(category)}</span>
-      </nav>
-      <header className="mb-8 border-b border-border pb-8">
-        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Categoría activa
-        </p>
-        <h1 className="mt-3 text-4xl font-medium tracking-tight sm:text-5xl">
-          {categoryLabel(category)} en arriendo
-        </h1>
-        {residential ? (
-          <p className="mt-4 max-w-3xl leading-relaxed text-muted-foreground">
-            Busca casas, departamentos, habitaciones, estudios, cabañas y casas
-            de veraneo cuando haya anuncios públicos elegibles. La categoría no
-            implica inventario disponible.
-          </p>
-        ) : null}
-        <PublicSearchForm initialQuery={query.q ?? ""} />
-      </header>
-      <div className="grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10">
-        <CatalogFilters
-          actionPath={pathFor(code)}
-          categories={categories}
-          locations={locations}
-          filters={categoryFilters}
-          query={query}
-          fixedCategoryCode={code}
-        />
-        <div className="min-w-0">
-          <div className="mb-7 flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Publicaciones del catálogo
+    <ExplorePage
+      searchParams={searchParams}
+      view="grid"
+      lockedCategoryCode={code}
+      actionPathOverride={pathFor(code)}
+      titleOverride={label}
+      breadcrumb={
+        <nav
+          aria-label="Breadcrumb"
+          className="mb-5 text-sm text-muted-foreground"
+        >
+          <Link href="/" className="hover:text-foreground">
+            Inicio
+          </Link>
+          <span aria-hidden="true"> / </span>
+          <Link href="/categorias" className="hover:text-foreground">
+            Categorías
+          </Link>
+          <span aria-hidden="true"> / </span>
+          <span aria-current="page">{label}</span>
+        </nav>
+      }
+      introSlot={
+        <div className="mb-6 grid items-center gap-6 rounded-2xl border border-border bg-[var(--brand-surface-subtle)] p-5 sm:p-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="inline-flex items-center rounded-full bg-[var(--brand-primary-soft)] px-3 py-0.5 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-primary-soft-ink)]">
+              Categoría activa · {label}
             </p>
-            <CatalogSortControls actionPath={pathFor(code)} query={query} />
-          </div>
-          {!locationsResult.ok || profileUnavailable ? (
-            <p
-              role="status"
-              className="mb-5 rounded-xl border border-border p-4 text-sm text-muted-foreground"
-            >
-              Algunos filtros no están disponibles temporalmente; las
-              publicaciones se consultan igualmente en Go.
+            <p className="mt-3 text-base leading-relaxed text-foreground">
+              {guide.description}
             </p>
-          ) : null}
-          {!result.ok ? (
-            result.error.kind === "invalid" ? (
-              <section role="alert" className="border-y border-border py-12">
-                <h2 className="text-2xl font-medium">
-                  No pudimos aplicar esos filtros
-                </h2>
-                <p className="mt-3 text-muted-foreground">
-                  Restablece los filtros y vuelve a intentarlo.
-                </p>
-                <Link
-                  href={pathFor(code)}
-                  className="mt-6 inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {guide.examples.map((ex) => (
+                <li
+                  key={ex}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground"
                 >
-                  Restablecer filtros
-                </Link>
-              </section>
-            ) : (
-              <CatalogUnavailable
-                title="No pudimos cargar esta categoría"
-                retryHref={pathFor(code)}
-              />
-            )
-          ) : result.value.items.length ? (
-            <PublicCatalogGrid
-              spaces={result.value.items}
-              query={query}
-              nextCursor={result.value.next_cursor}
-              actionPath={pathFor(code)}
+                  <CheckCircle2
+                    className="size-3 text-[var(--brand-success)]"
+                    aria-hidden="true"
+                  />
+                  {ex}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs leading-relaxed text-[var(--brand-muted-on-subtle)]">
+              <strong className="font-semibold text-foreground">
+                ¿Quieres publicar en {label}?{" "}
+              </strong>
+              {guide.howToPublish}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href="/acceso?return_to=%2Fanfitrion%2Fespacios%2Fnuevo"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-[var(--brand-primary-hover)]"
+              >
+                <PlusCircle className="size-3.5" aria-hidden="true" />
+                Publicar gratis en esta categoría
+              </Link>
+              <Link
+                href="/explorar"
+                className="inline-flex min-h-9 items-center rounded-full border border-border bg-background px-4 text-xs font-medium text-foreground hover:bg-secondary"
+              >
+                Ver todas las categorías
+              </Link>
+            </div>
+          </div>
+          <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-border bg-background">
+            <Image
+              src={guide.image}
+              alt={guide.imageAlt}
+              fill
+              sizes="(max-width: 1024px) 100vw, 35vw"
+              className="object-cover"
             />
-          ) : (
-            <EmptyCatalog
-              title={
-                residential
-                  ? "Aún no hay publicaciones residenciales"
-                  : `Aún no hay publicaciones públicas en ${categoryLabel(category)}`
-              }
-              description={
-                residential
-                  ? "La categoría admite varias modalidades residenciales, pero hoy no hay anuncios elegibles para mostrar."
-                  : "Las publicaciones se mostrarán cuando Go las habilite para el catálogo público."
-              }
-              ownerCta={residential}
-            />
-          )}
+          </div>
         </div>
-      </div>
-    </section>
+      }
+    />
   );
 }

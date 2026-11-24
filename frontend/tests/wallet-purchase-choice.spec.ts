@@ -14,6 +14,14 @@ test("marketplace quote offers Ir a pagar and opens the method chooser", async (
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
+    if (pathname === "/api/backend/rental-contract-capabilities") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ data: { manual_contracts_enabled: false } }),
+      });
+      return;
+    }
     if (
       pathname === "/api/backend/auth/session" &&
       request.method() === "GET"

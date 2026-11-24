@@ -27,15 +27,17 @@ test("rental contract preview payload and KYC gate response match Phase 4 contra
       parties: [
         {
           role: "arrendador",
-          legal_name: "Carlos Propietario",
-          rut: "12.345.678-9",
+          self: false,
         },
         {
           role: "arrendatario",
+          self: true,
           legal_name: "Ana Arrendataria",
-          rut: "98.765.432-1",
+          rut: "••••4321",
         },
       ],
+      contact_notice:
+        "Los datos personales y contactos se habilitan después de confirmar el pago.",
       generated_at: "2026-11-14T05:00:00Z",
     },
   };
@@ -44,8 +46,8 @@ test("rental contract preview payload and KYC gate response match Phase 4 contra
   assert.equal(successResponse.data.parties.length, 2);
   assert.equal(successResponse.data.parties[0].role, "arrendador");
   assert.equal(successResponse.data.parties[1].role, "arrendatario");
-  assert.equal(successResponse.data.parties[0].rut, "12.345.678-9");
-  assert.equal(successResponse.data.parties[1].rut, "98.765.432-1");
+  assert.equal(successResponse.data.parties[0].rut, undefined);
+  assert.equal(successResponse.data.parties[1].rut, "••••4321");
 
   // 2. KYC verification path
   const kycRedirectUrl = "/verificacion";

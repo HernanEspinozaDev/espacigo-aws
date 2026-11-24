@@ -7,6 +7,7 @@ import type {
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
+  ListingCreateInput,
   ListingState,
   ListingSummary,
   ManualAvailabilityBlock,
@@ -34,7 +35,7 @@ export interface HostListingsPort {
     signal?: AbortSignal,
   ): Promise<ListingDetail | null>;
   createDraft(
-    input: ListingDraftInput,
+    input: ListingCreateInput,
     idempotencyKey?: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail>;

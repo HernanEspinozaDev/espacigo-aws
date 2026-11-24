@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -66,4 +67,26 @@ func commercialRentalFlowLocalRuntime(getenv func(string) string) bool {
 func isLoopbackIP(value string) bool {
 	ip := net.ParseIP(value)
 	return ip != nil && ip.IsLoopback()
+}
+
+func commercialContractMode(getenv func(string) string, commercialFlow bool) (bool, error) {
+	switch getenv("COMMERCIAL_CONTRACTS_ENABLED") {
+	case "":
+		return false, nil
+	case "1":
+		if commercialFlow {
+			return true, nil
+		}
+		return false, errors.New("commercial contracts require the local commercial rental flow")
+	default:
+		return false, errors.New("COMMERCIAL_CONTRACTS_ENABLED must be 1 when configured")
+	}
+}
+
+func mountCommercialContractCapabilities(mux *http.ServeMux, enabled bool) {
+	mux.HandleFunc("GET /api/v1/rental-contract-capabilities", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(w).Encode(map[string]map[string]bool{"data": {"manual_contracts_enabled": enabled}})
+	})
 }

@@ -19,6 +19,13 @@ import type { BookingReservation, BookingState } from "../domain/types";
 import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 import { Button } from "@/components/workspace/ui/button";
 import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/workspace/ui/card";
+import {
   BarChart3,
   Building2,
   Calendar,
@@ -213,6 +220,7 @@ export function ReservationsList({
   );
   const [activeTab, setActiveTab] = useState<ReservationFilterGroup>("todas");
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [invoiceReservation, setInvoiceReservation] =
     useState<BookingReservation | null>(null);
   const [passesReservation, setPassesReservation] =
@@ -439,6 +447,30 @@ export function ReservationsList({
     });
   }, [scopedReservations, activeTab, searchQuery]);
 
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredReservations.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedReservations = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredReservations.slice(start, start + pageSize);
+  }, [filteredReservations, currentPage]);
+
+  const renterCounts = useMemo(
+    () => ({
+      todas: scopedReservations.length,
+      solicitada: scopedReservations.filter(
+        (r) => getBookingStateConfig(r.state).group === "solicitada",
+      ).length,
+      confirmada: scopedReservations.filter(
+        (r) => getBookingStateConfig(r.state).group === "confirmada",
+      ).length,
+      cancelada: scopedReservations.filter(
+        (r) => getBookingStateConfig(r.state).group === "cancelada",
+      ).length,
+    }),
+    [scopedReservations],
+  );
+
   const detailBaseHref =
     effectiveMode === "host" ? "/anfitrion/reservas" : "/reservas";
 
@@ -537,241 +569,278 @@ export function ReservationsList({
           </div>
         )}
 
-        {error && (
-          <div
-            role="alert"
-            className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-red-800 dark:text-red-300"
-          >
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div>
-              <p className="font-medium">No pudimos sincronizar las reservas</p>
-              <p className="mt-0.5">{error}</p>
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <nav
-            aria-label="Filtro por estado de reserva"
-            className="flex flex-wrap gap-1.5"
-          >
-            {filterTabs.map((tab) => {
-              const isSelected = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-current={isSelected ? "true" : undefined}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar reserva o espacio..."
-              className="w-full rounded-lg border border-input bg-background py-1.5 pl-9 pr-3 text-sm shadow-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-        </div>
-
-        {loading && reservations.length === 0 ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map((n) => (
+        <Card>
+          <CardHeader>
+            <CardTitle>Listado de reservas</CardTitle>
+            <CardDescription>
+              Filtra por estado, busca por espacio o folio y revisa tus
+              comprobantes o pases QR.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {error && (
               <div
-                key={n}
-                className="h-32 animate-pulse rounded-2xl border border-border bg-card/50 p-6"
-              />
-            ))}
-          </div>
-        ) : filteredReservations.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border p-12 text-center">
-            <Calendar className="mx-auto h-12 w-12 text-muted-foreground/50" />
-            <h2 className="mt-4 text-base font-medium text-foreground">
-              No se encontraron reservas
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {searchQuery || activeTab !== "todas"
-                ? "No hay reservas que coincidan con los filtros seleccionados."
-                : "Aún no tienes reservas activas ni solicitudes en proceso."}
-            </p>
-            {!searchQuery && activeTab === "todas" && (
-              <div className="mt-6">
-                <Button asChild>
-                  <Link href="/explorar">Explorar Espacios Disponibles</Link>
-                </Button>
+                role="alert"
+                className="flex items-start gap-2.5 rounded-xl border border-destructive/20 bg-destructive/10 p-3.5 text-sm text-red-800 dark:text-red-300"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">No pudimos sincronizar las reservas</p>
+                  <p className="mt-0.5">{error}</p>
+                </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div
-            className="space-y-4"
-            role="feed"
-            aria-label="Listado de reservas"
-          >
-            {filteredReservations.map((reservation) => {
-              const config = getBookingStateConfig(reservation.state);
-              const Icon = config.icon;
-              const financial = getReservationFinancialBreakdown(reservation);
-              const totalPaidClp =
-                reservation.total_charged_clp ?? reservation.subtotal_clp;
-              const canViewReceipt = isReservationPaid(reservation);
 
-              return (
-                <article
-                  key={reservation.id}
-                  className="group relative rounded-2xl border border-border bg-card p-5 transition-shadow hover:shadow-md sm:p-6"
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <nav
+                  aria-label="Filtro por estado de reserva"
+                  className="flex flex-wrap gap-1.5"
                 >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${config.badgeClass}`}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          {config.label}
-                        </span>
-                        {reservation.unread_count > 0 && (
-                          <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                            {reservation.unread_count} nuevo
-                            {reservation.unread_count > 1 ? "s" : ""}
-                          </span>
-                        )}
-                        <span className="font-mono text-xs text-muted-foreground">
-                          ID: {reservation.id}
-                        </span>
-                        {reservation.provider_payment_id && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-mono text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                            <Receipt className="h-3 w-3" />
-                            Operación MP #{reservation.provider_payment_id}
-                          </span>
-                        )}
-                        {reservation.state === "pendiente_de_pago" &&
-                          reservation.pay_expires_at && (
-                            <ReservationCountdown
-                              expiresAt={reservation.pay_expires_at}
-                            />
-                          )}
-                      </div>
+                  {filterTabs.map((tab) => {
+                    const isSelected = activeTab === tab.id;
+                    const count =
+                      renterCounts[tab.id as keyof typeof renterCounts] ?? 0;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTab(tab.id);
+                          setPage(1);
+                        }}
+                        aria-current={isSelected ? "true" : undefined}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                        }`}
+                      >
+                        <span>{tab.label}</span>
+                        <span className="tabular-nums opacity-75">({count})</span>
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
 
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                          <Link
-                            href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
-                            className="underline-offset-4 hover:underline"
-                          >
-                            {reservation.space_title
-                              ? reservation.space_title
-                              : `Espacio: ${reservation.space_id.slice(0, 8)}...`}
-                          </Link>
-                        </h2>
-                        <span className="text-sm text-muted-foreground">
-                          · {reservation.units} {reservation.rate_unit}
-                          {reservation.units > 1 ? "s" : ""}
-                        </span>
-                        {reservation.checkout_status && (
-                          <span className="text-xs text-muted-foreground">
-                            ·{" "}
-                            {reservation.checkout_method === "payments_api"
-                              ? `Tarjeta (${reservation.checkout_status})`
-                              : `Checkout Pro (${reservation.checkout_status})`}
-                          </span>
-                        )}
-                      </div>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setPage(1);
+                  }}
+                  placeholder="Buscar por espacio, folio o ID de operación…"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
+                />
+              </div>
+            </div>
 
-                      <ReservationScheduleBreakdown
-                        reservation={reservation}
-                        compact
-                      />
-                    </div>
+            {loading && reservations.length === 0 ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((n) => (
+                  <div
+                    key={n}
+                    className="h-20 animate-pulse rounded-lg border border-border bg-muted/30"
+                  />
+                ))}
+              </div>
+            ) : filteredReservations.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-10 text-center">
+                <Calendar className="mx-auto h-10 w-10 text-muted-foreground/50" />
+                <h2 className="mt-3 text-base font-medium text-foreground">
+                  No se encontraron reservas
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {searchQuery || activeTab !== "todas"
+                    ? "No hay reservas que coincidan con los filtros seleccionados."
+                    : "Aún no tienes reservas activas ni solicitudes en proceso."}
+                </p>
+                {!searchQuery && activeTab === "todas" && (
+                  <div className="mt-5">
+                    <Button asChild size="sm">
+                      <Link href="/explorar">Explorar Espacios Disponibles</Link>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <ul
+                  className="divide-y divide-border rounded-lg border border-border"
+                  aria-label="Listado de reservas"
+                >
+                  {paginatedReservations.map((reservation) => {
+                    const config = getBookingStateConfig(reservation.state);
+                    const Icon = config.icon;
+                    const financial =
+                      getReservationFinancialBreakdown(reservation);
+                    const totalPaidClp =
+                      reservation.total_charged_clp ?? reservation.subtotal_clp;
+                    const canViewReceipt = isReservationPaid(reservation);
 
-                    <div className="flex flex-row items-center justify-between gap-4 sm:flex-col sm:items-end">
-                      <div className="text-left sm:text-right">
-                        <p className="text-xs text-muted-foreground">
-                          Total Pagado
-                        </p>
-                        <p className="text-lg font-bold text-foreground">
-                          {formatBookingClp(totalPaidClp)} CLP
-                        </p>
-                        {financial.buyerFeeClp > 0 && (
-                          <p className="text-[11px] text-muted-foreground">
-                            Incluye servicio (
-                            {formatBookingClp(financial.buyerFeeClp)} CLP)
+                    return (
+                      <li
+                        key={reservation.id}
+                        className="flex flex-wrap items-center justify-between gap-3 p-3.5 transition-colors hover:bg-muted/20"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
+                              className="text-sm font-semibold text-foreground hover:underline"
+                            >
+                              {reservation.space_title ||
+                                `Reserva ${reservation.id.slice(0, 8)}`}
+                            </Link>
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${config.badgeClass}`}
+                            >
+                              <Icon className="h-3 w-3" aria-hidden="true" />
+                              {config.label}
+                            </span>
+                            {reservation.unread_count > 0 && (
+                              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                                {reservation.unread_count} nuevo
+                                {reservation.unread_count > 1 ? "s" : ""}
+                              </span>
+                            )}
+                          </div>
+                          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                            <span className="font-mono">
+                              #{reservation.id.slice(0, 8)}
+                            </span>
+                            <span>·</span>
+                            <span>
+                              {reservation.units} {reservation.rate_unit}
+                              {reservation.units > 1 ? "s" : ""}
+                            </span>
+                            <span>·</span>
+                            <span className="font-semibold tabular-nums text-foreground">
+                              {formatBookingClp(totalPaidClp)} CLP
+                            </span>
+                            {financial.buyerFeeClp > 0 && (
+                              <span className="text-[11px]">
+                                (incl. servicio)
+                              </span>
+                            )}
+                            {reservation.provider_payment_id && (
+                              <>
+                                <span>·</span>
+                                <span className="font-mono text-emerald-700 dark:text-emerald-300">
+                                  MP #{reservation.provider_payment_id}
+                                </span>
+                              </>
+                            )}
                           </p>
-                        )}
-                      </div>
+                          {reservation.state === "pendiente_de_pago" &&
+                            reservation.pay_expires_at && (
+                              <div className="pt-0.5">
+                                <ReservationCountdown
+                                  expiresAt={reservation.pay_expires_at}
+                                />
+                              </div>
+                            )}
+                        </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canViewReceipt && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => setPassesReservation(reservation)}
-                            className="inline-flex items-center gap-1.5 bg-[#D46236] text-white hover:bg-[#B94628]"
-                          >
-                            <QrCode className="h-3.5 w-3.5" />
-                            Pases / QR
-                          </Button>
-                        )}
-                        {canViewReceipt && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              setInvoiceReservation({
-                                ...reservation,
-                                participant_role: "arrendatario",
-                              })
-                            }
-                            className="inline-flex items-center gap-1.5"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            Comprobante
-                          </Button>
-                        )}
-                        {reservation.state === "pendiente_de_pago" &&
-                          reservation.quote_id && (
-                            <Button asChild variant="outline" size="sm">
-                              <Link
-                                href={`/reservas/checkout/${encodeURIComponent(reservation.quote_id)}`}
-                              >
-                                Estado del pago
-                              </Link>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {canViewReceipt && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setPassesReservation(reservation)}
+                            >
+                              <QrCode className="h-3.5 w-3.5" aria-hidden="true" />
+                              Pases / QR
                             </Button>
                           )}
-                        <Button
-                          asChild
-                          size="sm"
-                          className="inline-flex items-center gap-1.5"
-                        >
-                          <Link
-                            href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
+                          {canViewReceipt && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setInvoiceReservation({
+                                  ...reservation,
+                                  participant_role: "arrendatario",
+                                })
+                              }
+                            >
+                              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                              Comprobante
+                            </Button>
+                          )}
+                          {reservation.state === "pendiente_de_pago" &&
+                            reservation.quote_id && (
+                              <Button asChild variant="outline" size="sm">
+                                <Link
+                                  href={`/reservas/checkout/${encodeURIComponent(reservation.quote_id)}`}
+                                >
+                                  Estado del pago
+                                </Link>
+                              </Button>
+                            )}
+                          <Button
+                            asChild
+                            size="sm"
+                            variant={
+                              reservation.state === "pendiente_de_pago"
+                                ? "default"
+                                : "outline"
+                            }
                           >
-                            Ver reserva
-                            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                          </Link>
-                        </Button>
-                      </div>
+                            <Link
+                              href={`${detailBaseHref}/${encodeURIComponent(reservation.id)}`}
+                            >
+                              Ver reserva
+                            </Link>
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      Página {currentPage} de {totalPages}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage <= 1}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={currentPage >= totalPages}
+                        onClick={() =>
+                          setPage((p) => Math.min(totalPages, p + 1))
+                        }
+                      >
+                        Siguiente
+                      </Button>
                     </div>
                   </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         <ReservationInvoiceModal
           reservation={invoiceReservation}
@@ -1287,12 +1356,13 @@ export function ReservationsList({
               </p>
             </div>
           ) : (
-            <div
-              className="space-y-4"
-              role="feed"
-              aria-label="Listado de reservas"
-            >
-              {filteredReservations.map((reservation) => {
+            <>
+              <div
+                className="space-y-4"
+                role="feed"
+                aria-label="Listado de reservas"
+              >
+              {paginatedReservations.map((reservation) => {
                 const config = getBookingStateConfig(reservation.state);
                 const Icon = config.icon;
                 const financial = getReservationFinancialBreakdown(reservation);
@@ -1419,6 +1489,36 @@ export function ReservationsList({
                 );
               })}
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={currentPage >= totalPages}
+                    onClick={() =>
+                      setPage((p) => Math.min(totalPages, p + 1))
+                    }
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
           )}
         </div>
       )}

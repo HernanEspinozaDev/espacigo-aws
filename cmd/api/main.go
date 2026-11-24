@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -18,7 +19,6 @@ import (
 	clamavadapter "github.com/HernanEspinozaDev/espaciGo/internal/adapters/clamav"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
-	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devphone"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -71,6 +71,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/marketplaceoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"github.com/HernanEspinozaDev/espaciGo/internal/notifications"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
@@ -242,6 +243,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid commercial rental flow configuration")
 	}
+	commercialContractsEnabled, err := commercialContractMode(os.Getenv, commercialFlowEnabled)
+	if err != nil {
+		return err
+	}
 	webhookOnlyEnabled, err := mercadoPagoWebhookOnlyEnabled(os.Getenv, commercialFlowEnabled)
 	if err != nil {
 		return errors.New("invalid Mercado Pago webhook-only configuration")
@@ -261,7 +266,13 @@ func run() error {
 	defer closeConnector()
 	defer pool.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	trackedWorkers := newTrackedWorkerGroup(ctx)
+	defer trackedWorkers.StopAndWait()
+
 	mux := http.NewServeMux()
+	mountCommercialContractCapabilities(mux, commercialContractsEnabled)
 	var localPaymentService *booking.Service
 	var marketplaceTokens *marketplaceoauth.Service
 	var localIdentityService *identity.AuthenticationService
@@ -277,6 +288,7 @@ func run() error {
 	var localNoticeService *localnotice.Service
 	var checkoutNoticeService *checkoutnotice.Service
 	var checkoutPaymentWorker *checkoutpro.PaymentWorker
+	var commercialAgreementWorkers []namedWorker
 	var localContractRepository *contractpg.Repository
 	var publicCatalogMasterKey []byte
 	var privacyReplayRegistryPath string
@@ -300,7 +312,11 @@ func run() error {
 		if err != nil {
 			return errors.New("production global admin initialization failed")
 		}
-		registerProductionAdminAccountRoutes(mux, adminglobalhttp.NewHandler(authService, admin, cfg.allowedOrigins))
+		adminSessionService, err := newAdminSessionService(identitypg.NewIdentityRepository(pool), os.Getenv, true)
+		if err != nil {
+			return errors.New("production admin session initialization failed")
+		}
+		registerProductionAdminAccountRoutes(mux, adminglobalhttp.NewHandler(adminSessionService, admin, cfg.allowedOrigins))
 		localIdentityService = authService
 	}
 	if prototypeEnabled {
@@ -329,6 +345,7 @@ func run() error {
 		}
 		if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
 			service.SetTOTPKeyring(totpKeyring)
+			service.SetTOTPLoginEnabled(os.Getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 		}
 		localIdentityService = service
 		marketplaceTokens, err = mountMarketplaceOAuth(mux, pool, service, cfg, os.Getenv)
@@ -390,6 +407,38 @@ func run() error {
 			previewService, serviceErr := rentalflow.NewContractPreviewService(commercialQuoteRepository, commercialQuoteRepository, commercialQuoteRepository, identityVerifier, commercialQuoteRepository, time.Now)
 			if serviceErr != nil {
 				return errors.New("commercial rental preview initialization failed")
+			}
+			commercialQuoteRepository.RequireCommercialContracts(commercialContractsEnabled)
+			if commercialContractsEnabled {
+				mountCommercialAuthorization(mux, pool, service, localNoticeSender, cfg.allowedOrigins)
+				cipher, proposalErr := mountCommercialContractProposals(mux, pool, service, commercialQuoteRepository, previewService, identityVerifier, commercialQuoteRepository, cfg.allowedOrigins, os.Getenv)
+				if proposalErr != nil {
+					return proposalErr
+				}
+				commercialAgreementWorkers, serviceErr = mountCommercialAgreementRoutes(trackedWorkers, mux, pool, service, identityVerifier, localNoticeSender, cfg.allowedOrigins)
+				if serviceErr != nil {
+					return errors.New("commercial agreement initialization failed")
+				}
+				notificationsHandler := notifications.NewHandler(service, pool, cfg.allowedOrigins)
+				mux.Handle("/api/v1/notifications", notificationsHandler)
+				mux.Handle("/api/v1/notifications/", notificationsHandler)
+				contractStore, documentWorker, documentErr := buildCommercialDocumentRuntime(ctx, trackedWorkers, pool, cipher, os.Getenv)
+				if documentErr != nil {
+					return documentErr
+				}
+				if contractStore != nil {
+					commercialAgreementWorkers = append(commercialAgreementWorkers, documentWorker)
+				}
+				if contractStore != nil {
+					if routeErr := mountCommercialReservationDocuments(mux, pool, service, contractStore, os.Getenv("S3_STORAGE_BUCKET"), cfg.allowedOrigins); routeErr != nil {
+						return routeErr
+					}
+				} else if routeErr := mountCommercialReservationDocuments(mux, pool, service, nil, "", cfg.allowedOrigins); routeErr != nil {
+					return routeErr
+				}
+				if routeErr := mountLocalRentalTaxDocuments(ctx, mux, pool, service, cfg.allowedOrigins, os.Getenv); routeErr != nil {
+					return routeErr
+				}
 			}
 			checkoutService, serviceErr := newCheckoutPreferenceService(commercialQuoteRepository, marketplaceTokens, cfg, os.Getenv)
 			if serviceErr != nil {
@@ -563,10 +612,20 @@ func run() error {
 		}
 		localM02Service = m02Service
 		identityHandler := identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore)
-		phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
-		phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+		phoneSender, phoneKey, err := phoneDelivery(os.Getenv, true)
+		if err != nil {
+			return fmt.Errorf("phone delivery initialization: %w", err)
+		}
+		phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now, phoneKey)
 		identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
 		mux.Handle("/api/v1/", identityHandler)
+		adminSessionService, err := newAdminSessionService(repo, os.Getenv, false)
+		if err != nil {
+			return errors.New("admin session initialization failed")
+		}
+		adminSessionHandler := identityhttp.NewAdminSessionHandler(adminSessionService, cfg.allowedOrigins)
+		mux.Handle("/api/v1/admin/session", adminSessionHandler)
+		mux.Handle("/api/v1/admin/session/", adminSessionHandler)
 		globalAdminService, err := adminglobal.New(pool, time.Now)
 		if err != nil {
 			return errors.New("global administration service initialization failed")
@@ -596,8 +655,11 @@ func run() error {
 		if err != nil {
 			return errors.New("spaces initialization failed")
 		}
+		if err := configureSpaceLocationBoundaries(spacesService, os.Getenv); err != nil {
+			return err
+		}
 		globalAdminService.SetPublicationRetirer(spacesService)
-		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(service, globalAdminService, cfg.allowedOrigins))
+		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(adminSessionService, globalAdminService, cfg.allowedOrigins))
 		calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
 		if err != nil {
 			return errors.New("calendar initialization failed")
@@ -607,8 +669,13 @@ func run() error {
 			return errors.New("pricing initialization failed")
 		}
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
+		if err := configureLocationGeocoder(ctx, spacesHandler, pool, os.Getenv, true); err != nil {
+			return err
+		}
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		mountContractTemplates(mux, pool, service, cfg.allowedOrigins)
+		mountHostSettlements(mux, pool, service, cfg.allowedOrigins)
 		registerPublicSpaceMonthRoute(mux, spacesHandler)
 		ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
 		ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(service, ownerWeeklyHoursService, cfg.allowedOrigins)
@@ -756,20 +823,13 @@ func run() error {
 			}
 			registerDamageClaimRoutes(mux, damageclaimhttp.NewHandler(service, claimService, cfg.allowedOrigins))
 		}
-		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/yaml")
-			http.ServeFile(w, r, "/openapi.yaml")
-		})
 		mountLocalAPIDocs(mux, os.Getenv)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	trackedWorkers := newTrackedWorkerGroup(ctx)
-	defer trackedWorkers.StopAndWait()
 
 	// Keep every mutating background loop in this registry so the explicit
 	// worker-free profile can suppress them as one enforceable startup gate.
-	workers := make([]namedWorker, 0, 14)
+	workers := make([]namedWorker, 0, 16)
+	workers = append(workers, commercialAgreementWorkers...)
 	if commercialQuoteRepository != nil {
 		workers = append(workers, namedWorker{"commercial-rental-quote-expiry", func() {
 			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(error) {
@@ -1053,6 +1113,7 @@ func runDocumentScanOnly(cfg config) error {
 	}
 	if totpKeyring, err := identity.LoadTOTPKeyring(os.Getenv); err == nil && totpKeyring != nil {
 		service.SetTOTPKeyring(totpKeyring)
+		service.SetTOTPLoginEnabled(os.Getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 	}
 
 	documentRepository := documentverificationpg.New(pool)
@@ -1099,8 +1160,11 @@ func runDocumentScanOnly(cfg config) error {
 	mux := http.NewServeMux()
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins)
-	phoneSender := devphone.NewLocalPhoneSender(os.Getenv("LOCAL_SMTP_ADDR"))
-	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+	phoneSender, phoneKey, err := phoneDelivery(os.Getenv, true)
+	if err != nil {
+		return fmt.Errorf("phone delivery initialization: %w", err)
+	}
+	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now, phoneKey)
 	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
 	mux.Handle("/api/v1/", identityHandler)
 	registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentService, uploadService), documentverificationhttp.NewOwnerDownloadHandler(service, downloadService))
@@ -1108,13 +1172,13 @@ func runDocumentScanOnly(cfg config) error {
 	if err != nil {
 		return errors.New("spaces initialization failed")
 	}
+	if err := configureSpaceLocationBoundaries(spacesService, os.Getenv); err != nil {
+		return err
+	}
 	spacesHandler := spaceshttp.NewHandler(service, spacesService, cfg.allowedOrigins)
 	mux.Handle("/api/v1/spaces", spacesHandler)
 	mux.Handle("/api/v1/spaces/", spacesHandler)
-	mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/yaml")
-		http.ServeFile(w, r, "/openapi.yaml")
-	})
+	mountLocalAPIDocs(mux, os.Getenv)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -1245,6 +1309,26 @@ func localPaymentEventKey() ([]byte, error) {
 	return key, nil
 }
 
+func newAdminSessionService(repo identity.AdminSessionRepository, getenv func(string) string, requireEnrolledMFA bool) (*identity.AdminSessionService, error) {
+	var totpKeyring *identity.TOTPKeyring
+	kr, err := identity.LoadTOTPKeyring(getenv)
+	if err != nil {
+		if requireEnrolledMFA {
+			return nil, err
+		}
+	} else {
+		totpKeyring = kr
+	}
+	return identity.NewAdminSessionService(
+		repo,
+		password.Hasher{},
+		totpKeyring,
+		credentials.Generator{},
+		time.Now,
+		requireEnrolledMFA,
+	)
+}
+
 // The hosted account dashboard exposes reads through the same capability and
 // audit checks as local administration.
 func registerProductionAdminAccountRoutes(mux *http.ServeMux, handler http.Handler) {
@@ -1252,4 +1336,19 @@ func registerProductionAdminAccountRoutes(mux *http.ServeMux, handler http.Handl
 	mux.Handle("GET /api/v1/admin/global/overview", handler)
 	mux.Handle("GET /api/v1/admin/global/accounts", handler)
 	mux.Handle("GET /api/v1/admin/global/accounts/{accountID}", handler)
+	mux.Handle("POST /api/v1/admin/global/accounts/{accountID}/sensitive-access", handler)
+	mux.Handle("POST /api/v1/admin/global/accounts/{accountID}/assisted-view", handler)
+	mux.Handle("GET /api/v1/admin/global/assisted-view/{grantID}/projection", handler)
+	mux.Handle("DELETE /api/v1/admin/global/assisted-view/{grantID}", handler)
+	mux.Handle("GET /api/v1/admin/global/payments", handler)
+	mux.Handle("GET /api/v1/admin/global/reservations", handler)
+	mux.Handle("GET /api/v1/admin/global/contracts", handler)
+	mux.Handle("GET /api/v1/admin/global/kyc-cases", handler)
+	mux.Handle("GET /api/v1/admin/global/privacy-requests", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests", handler)
+	mux.Handle("GET /api/v1/admin/global/support-tickets", handler)
+	mux.Handle("POST /api/v1/admin/global/support-tickets", handler)
+	mux.Handle("GET /api/v1/admin/global/approvals", handler)
+	mux.Handle("POST /api/v1/admin/global/approvals", handler)
+	mux.Handle("POST /api/v1/admin/global/approvals/{approvalID}/decisions", handler)
 }

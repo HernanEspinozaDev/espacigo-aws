@@ -204,6 +204,37 @@ export default async function PublicSpacePage({
           />
         }
       />
+      <nav
+        aria-label="Secciones de la publicación"
+        className="my-8 flex flex-wrap gap-3 border-y border-border py-4 text-sm"
+      >
+        <a
+          className="min-h-11 rounded-md px-3 py-2 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+          href="#detalles"
+        >
+          Detalles y atributos
+        </a>
+        <a
+          className="min-h-11 rounded-md px-3 py-2 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+          href="#disponibilidad"
+        >
+          Disponibilidad
+        </a>
+        {space.location ? (
+          <a
+            className="min-h-11 rounded-md px-3 py-2 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+            href="#ubicacion"
+          >
+            Ubicación
+          </a>
+        ) : null}
+        <a
+          className="min-h-11 rounded-md px-3 py-2 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+          href="#reglas-cancelacion"
+        >
+          Reglas y cancelación
+        </a>
+      </nav>
       <div className="mt-8">
         <PublicSpaceDetails space={space} reviews={reviews} />
       </div>

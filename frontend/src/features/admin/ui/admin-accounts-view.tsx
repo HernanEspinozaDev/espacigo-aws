@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   AlertTriangle,
@@ -23,8 +24,7 @@ import {
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { RevealEmail } from "@/components/reveal-email";
-import { useAuth } from "@/features/auth/ui/use-auth";
+import { AdminSensitiveEmailControl } from "./admin-sensitive-email-control";
 import {
   Dialog,
   DialogContent,
@@ -99,7 +99,6 @@ export function AdminAccountsView() {
   const {
     snapshot,
     loadGlobalAccounts,
-    revealGlobalAccountEmail,
     hasAdminCapability,
     setGlobalAccountRole,
     setGlobalLegacyAdminRole,
@@ -107,7 +106,6 @@ export function AdminAccountsView() {
     revokeGlobalAccountSessions,
     updateGlobalAccountProfile,
   } = useAdmin();
-  const { snapshot: session } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [emailPrefix, setEmailPrefix] = useState("");
@@ -380,25 +378,32 @@ export function AdminAccountsView() {
             >
               <CardHeader className="pb-3 bg-muted/20 border-b border-border/40">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="space-y-0.5">
-                    <CardTitle className="text-base font-semibold text-foreground">
+                  <div className="min-w-0 space-y-0.5">
+                    <CardTitle className="break-words text-base font-semibold text-foreground">
                       {acc.display_name || "Usuario sin nombre configurado"}
                     </CardTitle>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                      {hasAdminCapability("accounts.read") &&
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground font-mono">
+                      {hasAdminCapability("accounts.email.reveal") &&
                       acc.state !== "desidentificado" ? (
-                        <RevealEmail
-                          key={session.accountId ?? "anonymous"}
-                          masked={acc.email}
-                          reveal={(signal) =>
-                            revealGlobalAccountEmail(acc.account_id, signal)
-                          }
+                        <AdminSensitiveEmailControl
+                          key={snapshot.adminSession?.account_id ?? "anonymous"}
+                          accountId={acc.account_id}
+                          maskedEmail={acc.email}
+                          defaultScope="account_email"
                         />
                       ) : (
                         <span>{acc.email}</span>
                       )}
                       <span>•</span>
                       <span>ID: {acc.account_id.slice(0, 8)}...</span>
+                      {hasAdminCapability("accounts.read") && (
+                        <Link
+                          className="font-sans font-medium text-primary underline underline-offset-2"
+                          href={`/administracion/cuentas/${acc.account_id}`}
+                        >
+                          Abrir ficha 360
+                        </Link>
+                      )}
                     </div>
                   </div>
                   <div>

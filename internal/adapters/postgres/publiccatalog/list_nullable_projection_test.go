@@ -13,7 +13,7 @@ func TestListAdapterKeepsAbsentPublicMetadataNil(t *testing.T) {
 		"11111111-1111-4111-8111-111111111111", "oficina", "Oficina", "Sala", "Descripción sintética", float64(20), "dia", int64(5000), "CLP", 1, "sala",
 		sql.NullString{},
 		sql.NullString{}, sql.NullString{}, sql.NullString{}, sql.NullString{},
-		sql.NullString{}, sql.NullString{String: "media", Valid: true}, sql.NullInt64{}, float64(0), true, false,
+		sql.NullString{}, sql.NullString{String: "media", Valid: true}, sql.NullInt64{}, float64(0), true, false, []byte(nil),
 	}}
 	repo := &Repository{pool: pool}
 	items, err := repo.List(context.Background(), publiccatalog.Filters{}, nil, 5)

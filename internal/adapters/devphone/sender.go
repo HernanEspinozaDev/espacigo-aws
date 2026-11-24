@@ -3,7 +3,6 @@ package devphone
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -26,11 +25,13 @@ func NewLocalPhoneSender(smtpAddr string) *LocalPhoneSender {
 	return &LocalPhoneSender{smtpAddr: smtpAddr}
 }
 
-func (s *LocalPhoneSender) SendPhoneCode(ctx context.Context, phoneE164, code string) error {
-	log.Printf("[DEV SMS] Verification code for %s: %s (expires in 10 minutes)", phoneE164, code)
+func (s *LocalPhoneSender) Channels() []identity.PhoneChannel {
+	return []identity.PhoneChannel{identity.PhoneChannelSMS}
+}
 
-	if s.smtpAddr == "" {
-		return nil
+func (s *LocalPhoneSender) SendPhoneCode(ctx context.Context, phoneE164, code string, channel identity.PhoneChannel) error {
+	if channel != identity.PhoneChannelSMS {
+		return identity.ErrPhoneDeliveryUnavailable
 	}
 
 	recipientEmail := fmt.Sprintf("sms-%s@mailpit.local", strings.TrimPrefix(phoneE164, "+"))
@@ -43,8 +44,7 @@ func (s *LocalPhoneSender) SendPhoneCode(ctx context.Context, phoneE164, code st
 func (s *LocalPhoneSender) sendMail(ctx context.Context, email, subject, body string) error {
 	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", s.smtpAddr)
 	if err != nil {
-		log.Printf("[DEV SMS] Mailpit unreachable at %s (%v), SMS logged to console only", s.smtpAddr, err)
-		return nil
+		return err
 	}
 	defer conn.Close()
 
@@ -80,17 +80,4 @@ func (s *LocalPhoneSender) sendMail(ctx context.Context, email, subject, body st
 		return err
 	}
 	return writer.Close()
-}
-
-// StubPhoneSender provides a safe stub for production or environments without SMS integration.
-type StubPhoneSender struct{}
-
-var _ identity.PhoneCodeSender = (*StubPhoneSender)(nil)
-
-func NewStubPhoneSender() *StubPhoneSender {
-	return &StubPhoneSender{}
-}
-
-func (s *StubPhoneSender) SendPhoneCode(_ context.Context, phoneE164, code string) error {
-	return nil
 }

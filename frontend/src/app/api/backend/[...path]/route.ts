@@ -1,7 +1,9 @@
 import { gatewayOperations } from "@/lib/api/generated/gateway-operations";
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
 import {
+  buildClearAdminSessionCookie,
   buildClearSessionCookies,
+  parseAdminSessionCookie,
   parseSessionCookies,
   validateCsrfOrigin,
 } from "@/lib/api/server-session";
@@ -170,6 +172,27 @@ function validateQuery(requestUrl: URL, operation: GatewayOperation): boolean {
   return true;
 }
 
+function isAdminGlobalOperation(operation: GatewayOperation): boolean {
+  return (
+    operation.path.startsWith("/admin/global/") ||
+    operation.path === "/admin/session" ||
+    operation.path.startsWith("/admin/session/")
+  );
+}
+
+function appendClearCookiesForOperation(
+  headers: Headers,
+  operation: GatewayOperation,
+): void {
+  if (isAdminGlobalOperation(operation)) {
+    headers.append("set-cookie", buildClearAdminSessionCookie());
+    return;
+  }
+  const [c1, c2] = buildClearSessionCookies();
+  headers.append("set-cookie", c1);
+  headers.append("set-cookie", c2);
+}
+
 function collectHeaders(
   request: Request,
   requestId: string,
@@ -193,15 +216,23 @@ function collectHeaders(
 
   if (operation.bearer) {
     const cookieHeader = request.headers.get("cookie");
-    const session = parseSessionCookies(cookieHeader);
-    if (!session) {
-      const [c1, c2] = buildClearSessionCookies();
-      const res = errorResponse(401, "unauthenticated", requestId);
-      res.headers.append("set-cookie", c1);
-      res.headers.append("set-cookie", c2);
-      return { error: res };
+    if (isAdminGlobalOperation(operation)) {
+      const adminToken = parseAdminSessionCookie(cookieHeader);
+      if (!adminToken) {
+        const res = errorResponse(401, "unauthenticated", requestId);
+        appendClearCookiesForOperation(res.headers, operation);
+        return { error: res };
+      }
+      headers.set("authorization", `Bearer ${adminToken}`);
+    } else {
+      const session = parseSessionCookies(cookieHeader);
+      if (!session) {
+        const res = errorResponse(401, "unauthenticated", requestId);
+        appendClearCookiesForOperation(res.headers, operation);
+        return { error: res };
+      }
+      headers.set("authorization", `Bearer ${session.token}`);
     }
-    headers.set("authorization", `Bearer ${session.token}`);
   }
 
   for (const [rawName, value] of request.headers) {
@@ -488,8 +519,7 @@ async function proxy(
           requestId,
         );
         if (upstream.status === 401 && operation.bearer) {
-          for (const cookie of buildClearSessionCookies())
-            sanitized.headers.append("set-cookie", cookie);
+          appendClearCookiesForOperation(sanitized.headers, operation);
         }
         return sanitized;
       }
@@ -501,9 +531,7 @@ async function proxy(
 
   const outgoingHeaders = new Headers();
   if (upstream.status === 401 && operation.bearer) {
-    const [clear1, clear2] = buildClearSessionCookies();
-    outgoingHeaders.append("set-cookie", clear1);
-    outgoingHeaders.append("set-cookie", clear2);
+    appendClearCookiesForOperation(outgoingHeaders, operation);
   }
   for (const name of responseHeaders) {
     const value = upstream.headers.get(name);

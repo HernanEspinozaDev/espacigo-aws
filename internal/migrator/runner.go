@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -14,23 +13,7 @@ import (
 const (
 	advisoryLockClass  int32 = 0x45535047 // "ESPG"
 	advisoryLockObject int32 = 0x4d494752 // "MIGR"
-
-	v77GalleryMigration = "V000077__img01b_gallery_slot_record_guard.sql"
 )
-
-const v77OriginalFragment = "IF TG_TABLE_NAME='media_asset' AND NEW.replacement_target_space_media_id IS NOT NULL THEN"
-
-func guardV77Predecessor(ctx context.Context, queryer migrationRowQueryer) error {
-	const query = `SELECT pg_catalog.pg_get_functiondef('public.img01b_enforce_gallery_slot()'::regprocedure)`
-	var definition string
-	if err := queryer.QueryRow(ctx, query).Scan(&definition); err != nil {
-		return fmt.Errorf("V77 predecessor-function guard could not read public.img01b_enforce_gallery_slot(): %w", err)
-	}
-	if count := strings.Count(definition, v77OriginalFragment); count != 1 {
-		return fmt.Errorf("V77 predecessor-function guard expected exactly one original fragment in public.img01b_enforce_gallery_slot(); found %d", count)
-	}
-	return nil
-}
 
 func validDatabaseRoleName(value string) bool {
 	if len(value) == 0 || len(value) > 63 {
@@ -179,33 +162,6 @@ func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, s
 	for _, migration := range migrations[len(history):] {
 		report.Pending = append(report.Pending, MigrationSummary{Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum})
 	}
-	var needsV84Authority, needsIdentityTailAuthority bool
-	// A fresh database has no identity schema or ledger to inspect yet.
-	if report.HistoryExists {
-		for _, pending := range report.Pending {
-			needsV84Authority = needsV84Authority || needsIdentityDDLAuthority(pending.Version, pending.Name)
-			needsIdentityTailAuthority = needsIdentityTailAuthority || needsIdentityTailDDLAuthority(pending.Version, pending.Name)
-		}
-	}
-	if needsV84Authority || needsIdentityTailAuthority {
-		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
-			return PlanResult{}, fmt.Errorf("set reviewed identity migration search path: %w", err)
-		}
-	}
-	if needsV84Authority {
-		authority, err := readV84DDLAuthority(ctx, tx)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		report.DDLAuthority = &authority
-	}
-	if needsIdentityTailAuthority {
-		authority, err := readIdentityTailDDLAuthority(ctx, tx)
-		if err != nil {
-			return PlanResult{}, err
-		}
-		report.IdentityDDLAuthority = &authority
-	}
 	if report.Applied == nil {
 		report.Applied = []HistoryEntry{}
 	}
@@ -277,31 +233,6 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 	if nativeTarget {
 		if err := guardNativeV86ExecutionTarget(ctx, conn, NativeKYCMigrationRequiresCreate(bounded.maxVersion)); err != nil {
 			return Result{}, err
-		}
-	}
-	// The canonical E1 delta is deliberately not a generic applying migration.
-	// Reject before ledger initialization or applying an earlier prefix; only the
-	// dedicated source/backup/authority-gated command may execute it.
-	for _, m := range migrations {
-		if m.Version != 99 || m.Name != "V000099__early_rental_manual_contract.sql" {
-			continue
-		}
-		var exists bool
-		if err := conn.QueryRow(ctx, `SELECT pg_catalog.to_regclass('public.schema_migrations') IS NOT NULL`).Scan(&exists); err != nil {
-			return Result{}, err
-		}
-		if !exists {
-			return Result{}, errors.New("V99 requires the dedicated E1 operation; generic migration application is disabled")
-		}
-		h, err := readHistory(ctx, conn)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := verifyHistory(migrations, h); err != nil {
-			return Result{}, err
-		}
-		if len(h) < 99 {
-			return Result{}, errors.New("V99 requires the dedicated E1 operation; generic migration application is disabled")
 		}
 	}
 
@@ -378,51 +309,6 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 				_ = tx.Rollback(context.Background())
 				return result, err
 			}
-		}
-		if migration.Version == 77 && migration.Name == v77GalleryMigration {
-			if err := guardV77Predecessor(ctx, tx); err != nil {
-				_ = tx.Rollback(context.Background())
-				return result, err
-			}
-		}
-		if needsIdentityDDLAuthority(migration.Version, migration.Name) {
-			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
-				_ = tx.Rollback(context.Background())
-				return result, fmt.Errorf("set V84 safe migration search path: %w", err)
-			}
-			authority, authorityErr := readV84DDLAuthority(ctx, tx)
-			if authorityErr != nil {
-				_ = tx.Rollback(context.Background())
-				return result, authorityErr
-			}
-			switch migration.Version {
-			case 86, 88:
-				authorityErr = requireV86DDLAuthority(authority)
-			case 87:
-				authorityErr = requireV87DDLAuthority(authority)
-			default:
-				authorityErr = requireV84DDLAuthority(authority)
-			}
-			if authorityErr != nil {
-				_ = tx.Rollback(context.Background())
-				return result, authorityErr
-			}
-			result.DDLAuthority = &authority
-		}
-		if needsIdentityTailDDLAuthority(migration.Version, migration.Name) {
-			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
-				_ = tx.Rollback(context.Background())
-				return result, fmt.Errorf("set V%d safe migration search path: %w", migration.Version, err)
-			}
-			authority, authorityErr := readIdentityTailDDLAuthority(ctx, tx)
-			if authorityErr == nil {
-				authorityErr = ValidateIdentityTailDDLAuthority(authority, migration.Version)
-			}
-			if authorityErr != nil {
-				_ = tx.Rollback(context.Background())
-				return result, authorityErr
-			}
-			result.IdentityDDLAuthority = &authority
 		}
 		if _, err := tx.Conn().PgConn().Exec(ctx, string(migration.SQL)).ReadAll(); err != nil {
 			_ = tx.Rollback(context.Background())

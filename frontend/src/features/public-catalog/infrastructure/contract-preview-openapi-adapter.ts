@@ -51,7 +51,9 @@ function isPreview(
     typeof value.time_zone !== "string" ||
     !isDateTime(value.generated_at) ||
     !Array.isArray(value.parties) ||
-    value.parties.length !== 2
+    value.parties.length !== 2 ||
+    typeof value.contact_notice !== "string" ||
+    value.contact_notice.trim().length === 0
   ) {
     return false;
   }
@@ -63,21 +65,31 @@ function isPreview(
   }
 
   const roles = new Set<string>();
+  let selfCount = 0;
   for (const party of value.parties) {
     if (
       !isRecord(party) ||
       (party.role !== "arrendador" && party.role !== "arrendatario") ||
-      typeof party.legal_name !== "string" ||
-      party.legal_name.trim().length === 0 ||
-      typeof party.rut !== "string" ||
-      party.rut.trim().length === 0 ||
+      typeof party.self !== "boolean" ||
       roles.has(party.role)
     ) {
       return false;
     }
+    if (party.self) {
+      selfCount++;
+      if (
+        Object.keys(party).sort().join(",") !== "legal_name,role,rut,self" ||
+        typeof party.legal_name !== "string" ||
+        !party.legal_name.trim() ||
+        typeof party.rut !== "string" ||
+        !/^••••[0-9kK]{4}$/.test(party.rut)
+      )
+        return false;
+    } else if (Object.keys(party).sort().join(",") !== "role,self")
+      return false;
     roles.add(party.role);
   }
-  return roles.size === 2;
+  return roles.size === 2 && selfCount === 1;
 }
 
 function failure(status: number, body?: unknown): RentalContractPreviewResult {

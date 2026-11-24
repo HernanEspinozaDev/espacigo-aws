@@ -1,4 +1,7 @@
 import type {
+  AdminAssistedViewGrant,
+  AdminAssistedViewProjection,
+  AdminAssistedViewStartInput,
   AdminDamageClaim,
   AdminDamageClaimResolutionInput,
   AdminDisputesReport,
@@ -11,19 +14,78 @@ import type {
   AdminReservationSummary,
   AdminReservationsReport,
   AdminReviewReport,
+  AdminSensitiveAccessInput,
+  AdminSensitiveAccessResult,
+  AdminSessionData,
+  AdminSessionStartResponse,
   AdminVerificationCase,
   AuditEvent,
   AuditEventsQuery,
   GlobalAdminAccount,
   GlobalAdminAccountQuery,
+  GlobalAdminAccountResourceKind,
+  GlobalAdminAccountResourcePage,
+  GlobalAdminAccountResourceQuery,
   GlobalAdminKPIs,
   GlobalAdminMe,
   GlobalAdminOverview,
   GlobalAdminPublication,
   GlobalAdminPublicationQuery,
+  GlobalAdminPayment,
+  GlobalAdminPaymentQuery,
+  GlobalAdminReservation,
+  GlobalAdminReservationQuery,
+  GlobalAdminContract,
+  GlobalAdminContractQuery,
+  GlobalAdminKycCase,
+  GlobalAdminKycCaseQuery,
+  GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestQuery,
+  GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminSupportTicket,
+  GlobalAdminSupportTicketQuery,
+  GlobalAdminSupportTicketCreateInput,
+  GlobalAdminApproval,
+  GlobalAdminApprovalQuery,
+  GlobalAdminApprovalCreateInput,
+  GlobalAdminApprovalDecisionInput,
 } from "../domain/types";
 
 export interface AdminPort {
+  // Dedicated Admin Session
+  getAdminSession(signal?: AbortSignal): Promise<AdminSessionData | null>;
+
+  startAdminSession(
+    input: { email: string; password: string },
+    signal?: AbortSignal,
+  ): Promise<AdminSessionStartResponse>;
+
+  verifyAdminSessionMfa(
+    input: { challenge_id?: string; code: string },
+    signal?: AbortSignal,
+  ): Promise<AdminSessionData>;
+
+  deleteAdminSession(signal?: AbortSignal): Promise<void>;
+
+  requestGlobalAccountSensitiveAccess(
+    accountId: string,
+    input: AdminSensitiveAccessInput,
+    signal?: AbortSignal,
+  ): Promise<AdminSensitiveAccessResult>;
+
+  startAssistedView(
+    accountId: string,
+    input: AdminAssistedViewStartInput,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewGrant>;
+
+  getAssistedViewProjection(
+    grantId: string,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewProjection>;
+
+  closeAssistedView(grantId: string, signal?: AbortSignal): Promise<void>;
+
   // Global Admin
   getGlobalAdminMe(signal?: AbortSignal): Promise<GlobalAdminMe>;
 
@@ -54,6 +116,13 @@ export interface AdminPort {
     signal?: AbortSignal,
     revealEmail?: true,
   ): Promise<GlobalAdminAccount | null>;
+
+  listGlobalAccountResources(
+    accountId: string,
+    kind: GlobalAdminAccountResourceKind,
+    query?: GlobalAdminAccountResourceQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminAccountResourcePage>;
 
   updateGlobalAccountProfile(
     accountId: string,
@@ -280,4 +349,65 @@ export interface AdminPort {
     input: AdminDamageClaimResolutionInput,
     signal?: AbortSignal,
   ): Promise<AdminDamageClaim>;
+
+  // Phase 4: Specialized Operations
+  listGlobalPayments(
+    query?: GlobalAdminPaymentQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPayment[]; next_cursor?: string }>;
+
+  listGlobalReservations(
+    query?: GlobalAdminReservationQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminReservation[]; next_cursor?: string }>;
+
+  listGlobalContracts(
+    query?: GlobalAdminContractQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminContract[]; next_cursor?: string }>;
+
+  listGlobalKycCases(
+    query?: GlobalAdminKycCaseQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminKycCase[]; next_cursor?: string }>;
+
+  listGlobalPrivacyRequests(
+    query?: GlobalAdminPrivacyRequestQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }>;
+
+  createGlobalPrivacyRequest(
+    idempotencyKey: string,
+    input: GlobalAdminPrivacyRequestCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+
+  listGlobalSupportTickets(
+    query?: GlobalAdminSupportTicketQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminSupportTicket[]; next_cursor?: string }>;
+
+  createGlobalSupportTicket(
+    idempotencyKey: string,
+    input: GlobalAdminSupportTicketCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminSupportTicket>;
+
+  listGlobalApprovals(
+    query?: GlobalAdminApprovalQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminApproval[]; next_cursor?: string }>;
+
+  createGlobalApproval(
+    idempotencyKey: string,
+    input: GlobalAdminApprovalCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval>;
+
+  decideGlobalApproval(
+    approvalId: string,
+    idempotencyKey: string,
+    input: GlobalAdminApprovalDecisionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval>;
 }

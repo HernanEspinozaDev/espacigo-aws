@@ -38,13 +38,13 @@ func TestGlobalAdministrationCapabilitiesAreExplicit(t *testing.T) {
 		t.Fatalf("legacy administrator capabilities escalated: %v", legacy)
 	}
 	global := CapabilitiesForRoles([]Role{RoleGlobalAdministrator})
-	for _, required := range []Capability{CapabilityLegacyAdministration, CapabilityAccountsList, CapabilityAccountsRead, CapabilityAdminAccessManage, CapabilityAuditRead, CapabilityAuditExport, CapabilityKPIRead} {
+	for _, required := range []Capability{CapabilityLegacyAdministration, CapabilityAccountsList, CapabilityAccountsRead, CapabilityAccountsEmailReveal, CapabilityAdminAccessManage, CapabilityAuditRead, CapabilityAuditExport, CapabilityKPIRead} {
 		if !HasCapability([]Role{RoleGlobalAdministrator}, required) {
 			t.Fatalf("global administrator missing %q in %v", required, global)
 		}
 	}
 	for _, roles := range [][]Role{{RoleTenant}, {RoleLandlord}, nil} {
-		if HasCapability(roles, CapabilityLegacyAdministration) || HasCapability(roles, CapabilityAccountsList) {
+		if HasCapability(roles, CapabilityLegacyAdministration) || HasCapability(roles, CapabilityAccountsList) || HasCapability(roles, CapabilityAccountsEmailReveal) {
 			t.Fatalf("non-admin received admin access: roles=%v", roles)
 		}
 	}

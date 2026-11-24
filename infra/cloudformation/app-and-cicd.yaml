@@ -78,6 +78,21 @@ Parameters:
       - 'true'
       - 'false'
 
+  AppCpu:
+    Type: String
+    Default: '256'
+    Description: vCPU de la tarea ECS Fargate de la aplicacion (256 = 0.25 vCPU).
+
+  AppMemory:
+    Type: String
+    Default: '512'
+    Description: Memoria en MB de la tarea ECS Fargate de la aplicacion.
+
+  AppDesiredCount:
+    Type: Number
+    Default: 1
+    Description: Numero de tareas deseadas para el servicio ECS de la aplicacion.
+
   DeployAlertEmail:
     Type: String
     Default: ''
@@ -241,15 +256,6 @@ Resources:
     Properties:
       LogGroupName: /aws/ecs/espacigo-dbmigrate
       RetentionInDays: 14
-
-  TotpKeyringSecret:
-    Type: AWS::SecretsManager::Secret
-    Condition: ProvisionApp
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      Name: !Sub espacigo/${Environment}/auth/totp-keyring
-      Description: TOTP encryption keyring for the EspaciGo production API
 
   AppLogGroup:
     Type: AWS::Logs::LogGroup
@@ -415,15 +421,21 @@ Resources:
                   - logs:PutLogEvents
                 Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${AppLogGroup}:log-stream:application/*'
               - Effect: Allow
-                Action: secretsmanager:GetSecretValue
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
                 Resource:
-                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/api-*'
-                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/auth/smtp-*'
-                  - !Ref TotpKeyringSecret
-                  - !If
-                    - EnableMercadoPago
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/api_password'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/cursor_key'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
+              - !If
+                - EnableMercadoPago
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource:
                     - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
-                    - !Ref AWS::NoValue
+                - !Ref AWS::NoValue
 
   AppRuntimeRole:
     Type: AWS::IAM::Role
@@ -522,8 +534,8 @@ Resources:
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt AppExecutionRole.Arn
       TaskRoleArn: !GetAtt AppRuntimeRole.Arn
-      Cpu: '512'
-      Memory: '1024'
+      Cpu: !Ref AppCpu
+      Memory: !Ref AppMemory
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
@@ -588,13 +600,13 @@ Resources:
               Value: !Ref FrontendPublicOrigin
           Secrets:
             - Name: DATABASE_ECS_PASSWORD
-              ValueFrom: !Sub '${DatabaseApiSecretArn}:password::'
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/api_password'
             - Name: PUBLIC_CATALOG_ECS_CURSOR_KEY
-              ValueFrom: !Sub '${DatabaseApiSecretArn}:cursor_key::'
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/cursor_key'
             - Name: AUTH_SMTP_ECS_PASSWORD
-              ValueFrom: !Sub '${AuthSmtpSecretArn}:password::'
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
             - Name: TOTP_KEYRING_JSON
-              ValueFrom: !Ref TotpKeyringSecret
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
             - !If
               - EnableMercadoPago
               - Name: MERCADOPAGO_CLIENT_ID
@@ -662,7 +674,7 @@ Resources:
       Cluster: espacigo-production
       TaskDefinition: !Ref AppTaskDefinition
       PlatformVersion: 1.4.0
-      DesiredCount: 1
+      DesiredCount: !Ref AppDesiredCount
       HealthCheckGracePeriodSeconds: 30
       DeploymentConfiguration:
         MinimumHealthyPercent: 100
@@ -1185,9 +1197,6 @@ Outputs:
   AppTaskDefinitionArn:
     Condition: ProvisionApp
     Value: !Ref AppTaskDefinition
-  TotpKeyringSecretArn:
-    Condition: ProvisionApp
-    Value: !Ref TotpKeyringSecret
   MigratorTaskDefinitionArn:
     Condition: ProvisionMigrator
     Value: !Ref MigratorTaskDefinition

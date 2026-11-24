@@ -1,6 +1,7 @@
 import { clpAmount } from "@/lib/api/clp";
 import { assertIanaTimeZone, parseRfc3339 } from "@/lib/api/time";
 import type {
+  CatalogAreaMode,
   CatalogQuery,
   CatalogSort,
   PublicCategoryFilter,
@@ -10,6 +11,7 @@ import type {
 const MAX_INT64 = BigInt("9223372036854775807");
 const SORTS = [
   "default",
+  "distance_asc",
   "title_asc",
   "title_desc",
   "unit_price_asc",
@@ -23,8 +25,23 @@ const DECIMAL = /^(0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const RFC3339_WITH_OFFSET =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+const LEGACY_KEYS: Readonly<Partial<Record<string, string>>> = {
+  category_code: "category",
+  region_code: "region",
+  comuna_code: "comuna",
+  latitude: "lat",
+  longitude: "lng",
+  radius_km: "radius",
+  rate_unit: "unit",
+  start_at: "from",
+  end_at: "to",
+  min_unit_price_clp: "min_price",
+  max_unit_price_clp: "max_price",
+};
+
 function single(params: RawCatalogParams, key: string): string | undefined {
-  const value = params[key];
+  const alias = LEGACY_KEYS[key];
+  const value = params[key] ?? (alias ? params[alias] : undefined);
   return typeof value === "string" ? value : undefined;
 }
 
@@ -142,6 +159,79 @@ function validInterval(params: RawCatalogParams) {
   }
 }
 
+const AREA_MODES = [
+  "admin",
+  "radius",
+  "bbox",
+] as const satisfies readonly CatalogAreaMode[];
+const COORDINATE = /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)$/;
+
+function parseCatalogArea(params: RawCatalogParams, query: CatalogQuery) {
+  const bbox = single(params, "bbox");
+  let validBbox: string | undefined;
+  if (bbox) {
+    const v = bbox.split(",").map(Number);
+    if (
+      v.length === 4 &&
+      bbox.split(",").every((value) => COORDINATE.test(value)) &&
+      v.every(Number.isFinite) &&
+      v[0]! >= -180 &&
+      v[2]! <= 180 &&
+      v[1]! >= -90 &&
+      v[3]! <= 90 &&
+      v[0]! < v[2]! &&
+      v[1]! < v[3]!
+    )
+      validBbox = bbox;
+  }
+  const lat = single(params, "latitude"),
+    lon = single(params, "longitude"),
+    radius = single(params, "radius_km");
+  const validRadius =
+    lat &&
+    lon &&
+    radius &&
+    [lat, lon, radius].every((value) => COORDINATE.test(value)) &&
+    Math.abs(Number(lat)) <= 90 &&
+    Math.abs(Number(lon)) <= 180 &&
+    Number(radius) >= 1 &&
+    Number(radius) <= 200;
+
+  const requested = single(params, "areaMode");
+  const admin = query.region_code || query.comuna_code;
+  const inferred = validBbox
+    ? "bbox"
+    : validRadius
+      ? "radius"
+      : admin
+        ? "admin"
+        : undefined;
+  const mode =
+    AREA_MODES.find((candidate) => candidate === requested) ?? inferred;
+  if (mode === "bbox" && validBbox) {
+    query.areaMode = mode;
+    query.bbox = validBbox;
+  }
+  if (mode === "radius" && validRadius) {
+    query.areaMode = mode;
+    query.latitude = lat;
+    query.longitude = lon;
+    query.radius_km = radius;
+  }
+  if (mode === "admin" && admin) query.areaMode = mode;
+  if (query.areaMode !== "admin") {
+    delete query.region_code;
+    delete query.comuna_code;
+  }
+
+  return (
+    Number(Boolean(admin)) +
+      Number(Boolean(validBbox)) +
+      Number(Boolean(validRadius)) <=
+      1 && mode === inferred
+  );
+}
+
 export function parseCatalogQuery(
   params: RawCatalogParams,
   filters: readonly PublicCategoryFilter[] = [],
@@ -160,6 +250,17 @@ export function parseCatalogQuery(
   const area = validArea(single(params, "min_area_m2"));
   if (area) query.min_area_m2 = area;
 
+  if (query.comuna_code) query.region_code = query.comuna_code.slice(0, 2);
+
+  const capacity = single(params, "min_capacity");
+  if (
+    capacity &&
+    /^[1-9][0-9]{0,9}$/.test(capacity) &&
+    Number(capacity) <= 2147483647
+  ) {
+    query.min_capacity = capacity;
+  }
+
   const unit = single(params, "rate_unit");
   if (RATE_UNITS.includes(unit as (typeof RATE_UNITS)[number]))
     query.rate_unit = unit as CatalogQuery["rate_unit"];
@@ -175,6 +276,7 @@ export function parseCatalogQuery(
   }
 
   Object.assign(query, validInterval(params));
+  const geographic = parseCatalogArea(params, query);
   const sort = single(params, "sort");
   if (sort && (SORTS as readonly string[]).includes(sort)) {
     const candidate = sort as CatalogSort;
@@ -183,13 +285,39 @@ export function parseCatalogQuery(
     const totalSort =
       candidate === "estimated_total_asc" ||
       candidate === "estimated_total_desc";
-    if (
-      (!unitSort || query.rate_unit) &&
+    if (unitSort && !query.rate_unit) {
+      if (
+        query.start_at &&
+        query.end_at &&
+        !query.min_unit_price_clp &&
+        !query.max_unit_price_clp
+      ) {
+        query.sort =
+          candidate === "unit_price_asc"
+            ? "estimated_total_asc"
+            : "estimated_total_desc";
+      } else {
+        query.rate_unit = "hora";
+        query.sort = candidate;
+      }
+    } else if (
+      (candidate !== "distance_asc" || query.latitude !== undefined) &&
       (candidate !== "relevance" || query.q) &&
       (!totalSort || (query.start_at && query.end_at))
     ) {
       query.sort = candidate;
     }
+  }
+
+  if (
+    !query.rate_unit &&
+    (query.min_unit_price_clp || query.max_unit_price_clp)
+  ) {
+    query.rate_unit = "hora";
+  }
+  if (!query.start_at || !query.end_at) {
+    delete query.min_total_clp;
+    delete query.max_total_clp;
   }
 
   const pageSize = single(params, "page_size");
@@ -199,7 +327,14 @@ export function parseCatalogQuery(
   }
 
   const cursor = single(params, "cursor");
-  if (cursor && cursor.length <= 4096) query.cursor = cursor;
+  if (
+    cursor &&
+    cursor.length <= 4096 &&
+    geographic &&
+    (!sort || query.sort === sort)
+  ) {
+    query.cursor = cursor;
+  }
 
   if (query.category_code) {
     const attributes = params.attribute;
@@ -208,14 +343,30 @@ export function parseCatalogQuery(
   return query;
 }
 
+export function withoutCatalogArea(query: CatalogQuery): CatalogQuery {
+  const next = withoutCursor(query);
+  for (const field of [
+    "areaMode",
+    "bbox",
+    "latitude",
+    "longitude",
+    "radius_km",
+    "region_code",
+    "comuna_code",
+  ] as const) {
+    delete next[field];
+  }
+  if (next.sort === "distance_asc") delete next.sort;
+  return next;
+}
+
 export function serializeCatalogQuery(query: CatalogQuery): URLSearchParams {
   const params = new URLSearchParams();
   const scalarKeys = [
     "q",
     "category_code",
-    "region_code",
-    "comuna_code",
     "min_area_m2",
+    "min_capacity",
     "rate_unit",
     "min_unit_price_clp",
     "max_unit_price_clp",
@@ -231,8 +382,35 @@ export function serializeCatalogQuery(query: CatalogQuery): URLSearchParams {
     const value = query[key];
     if (value !== undefined && value !== "") params.set(key, String(value));
   }
+  const area =
+    query.areaMode ??
+    (query.bbox
+      ? "bbox"
+      : query.latitude
+        ? "radius"
+        : query.region_code || query.comuna_code
+          ? "admin"
+          : undefined);
+  if (area) {
+    params.set("areaMode", area);
+    const fields = {
+      admin: ["region_code", "comuna_code"],
+      radius: ["latitude", "longitude", "radius_km"],
+      bbox: ["bbox"],
+    } as const;
+    for (const field of fields[area]) {
+      const value = query[field];
+      if (value) params.set(field, value);
+    }
+  }
   for (const attribute of query.attribute)
     params.append("attribute", attribute);
+  return params;
+}
+
+export function serializeCatalogApiQuery(query: CatalogQuery): URLSearchParams {
+  const params = serializeCatalogQuery(query);
+  params.delete("areaMode");
   return params;
 }
 
@@ -244,11 +422,14 @@ export function withoutCursor(query: CatalogQuery): CatalogQuery {
 
 export function hasCatalogFilters(query: CatalogQuery): boolean {
   return Boolean(
+    query.bbox ||
+    query.latitude ||
     query.q ||
     query.category_code ||
     query.region_code ||
     query.comuna_code ||
     query.min_area_m2 ||
+    query.min_capacity ||
     query.attribute.length ||
     query.rate_unit ||
     query.min_unit_price_clp ||

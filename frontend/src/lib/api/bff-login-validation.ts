@@ -17,6 +17,8 @@ export const ALLOWED_GO_IDENTITY_ERROR_CODES: ReadonlySet<string> = new Set([
   "email_registered",
   "unauthenticated",
   "email_unverified",
+  "authenticator_required",
+  "authenticator_invalid",
   "forbidden",
   "credential_notice_not_recoverable",
   "credential_notice_recipient_inactive",
@@ -214,7 +216,11 @@ export async function revokeUpstreamSession(
 }
 
 export type ReadBodyResult =
-  | { ok: true; data: { email: string; password: string }; rawText: string }
+  | {
+      ok: true;
+      data: { email: string; password: string; authenticator_code?: string };
+      rawText: string;
+    }
   | { ok: false; status: number; code: string };
 
 export async function readAndValidateLoginBody(
@@ -273,7 +279,13 @@ export async function readAndValidateLoginBody(
   const rec = parsed as Record<string, unknown>;
   const keys = Object.keys(rec);
   if (
-    keys.length !== 2 ||
+    keys.some(
+      (key) =>
+        key !== "email" && key !== "password" && key !== "authenticator_code",
+    ) ||
+    (keys.includes("authenticator_code") &&
+      (typeof rec.authenticator_code !== "string" ||
+        rec.authenticator_code.length > 32)) ||
     typeof rec.email !== "string" ||
     typeof rec.password !== "string" ||
     rec.email.length === 0 ||
@@ -285,7 +297,13 @@ export async function readAndValidateLoginBody(
   }
   return {
     ok: true,
-    data: { email: rec.email, password: rec.password },
+    data: {
+      email: rec.email,
+      password: rec.password,
+      ...(typeof rec.authenticator_code === "string" && {
+        authenticator_code: rec.authenticator_code,
+      }),
+    },
     rawText: text,
   };
 }

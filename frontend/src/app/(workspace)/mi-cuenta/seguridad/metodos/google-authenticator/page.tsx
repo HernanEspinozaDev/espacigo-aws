@@ -1,21 +1,17 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowLeft,
   Check,
   CheckCircle2,
-  ChevronRight,
   Copy,
   Download,
   Info,
   KeyRound,
   Loader2,
   Lock,
-  RefreshCw,
   ShieldCheck,
   Smartphone,
   Trash2,
@@ -23,6 +19,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SecurityMethodHeader } from "@/features/account/ui/security-method-header";
+import { SecurityQrCode } from "@/features/account/ui/security-qr-code";
 import { useTOTP } from "@/features/account/ui/use-totp";
 
 function formatKeyBlocks(key: string): string {
@@ -57,7 +55,7 @@ function downloadBackupCodesFile(codes: string[]) {
     "",
     "INSTRUCCIONES IMPORTANTES:",
     "- Cada uno de estos códigos puede ser utilizado UNA SOLA VEZ.",
-    "- Úsalos para iniciar sesión o desactivar TOTP si pierdes tu teléfono.",
+    "- Úsalos para desactivar el autenticador si pierdes tu teléfono.",
     "- Mantén este archivo en un lugar protegido y confidencial.",
     "",
     "TUS 8 CÓDIGOS DE RESPALDO:",
@@ -147,77 +145,11 @@ export default function GoogleAuthenticatorPage() {
 
   return (
     <div className="space-y-8">
-      {/* Breadcrumb */}
-      <nav
-        aria-label="Ruta de navegación"
-        className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap"
-      >
-        <Link
-          href="/mi-cuenta"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Mi perfil
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <Link
-          href="/mi-cuenta/seguridad"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Seguridad
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <Link
-          href="/mi-cuenta/seguridad/metodos"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Métodos de verificación
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <span className="text-foreground font-semibold">
-          Google Authenticator
-        </span>
-      </nav>
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/mi-cuenta/seguridad/metodos"
-              className="size-8 rounded-full flex items-center justify-center hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Volver a métodos de verificación"
-            >
-              <ArrowLeft className="size-4" />
-            </Link>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
-              <span>Google Authenticator</span>
-              {status?.enabled && (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                  <CheckCircle2 className="size-3.5" />
-                  Activo
-                </span>
-              )}
-            </h1>
-          </div>
-          <p className="text-sm text-muted-foreground ml-11">
-            Protege tu cuenta con códigos de seguridad TOTP de un solo uso
-            generados en tu dispositivo móvil.
-          </p>
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refresh()}
-          disabled={isLoading}
-          className="self-start sm:self-auto shrink-0"
-        >
-          <RefreshCw
-            className={`size-3.5 mr-1.5 ${isLoading ? "animate-spin" : ""}`}
-          />
-          Actualizar
-        </Button>
-      </div>
+      <SecurityMethodHeader
+        title="Google Authenticator"
+        description="Vincula una aplicación que genera códigos de seis dígitos."
+        overview
+      />
 
       {/* Banners de Notificación y Error */}
       {notification && (
@@ -260,6 +192,12 @@ export default function GoogleAuthenticatorPage() {
         </div>
       )}
 
+      {!isLoading && !status && (
+        <Button variant="outline" type="button" onClick={() => void refresh()}>
+          Reintentar consulta
+        </Button>
+      )}
+
       {/* VISTA 1: CÓDIGOS DE RESPALDO RECIÉN GENERADOS (DESPUÉS DE ACTIVAR) */}
       {backupCodes && backupCodes.length > 0 && (
         <div className="bg-card border-2 border-primary/30 rounded-2xl p-6 sm:p-8 space-y-6 shadow-md">
@@ -276,8 +214,8 @@ export default function GoogleAuthenticatorPage() {
               </h2>
               <p className="text-sm text-muted-foreground">
                 Si alguna vez no tienes acceso a tu app de autenticación o
-                pierdes tu teléfono, estos códigos de 8 caracteres te permitirán
-                iniciar sesión y gestionar tu seguridad.
+                pierdes tu teléfono, estos códigos de 8 caracteres te permiten
+                desactivar el autenticador desde una sesión abierta.
               </p>
             </div>
           </div>
@@ -502,226 +440,229 @@ export default function GoogleAuthenticatorPage() {
       )}
 
       {/* VISTA 3: ENROLAMIENTO (NO ACTIVADO) */}
-      {!status?.enabled && (!backupCodes || backupCodes.length === 0) && (
-        <div className="space-y-6">
-          {!setupData ? (
-            /* Pantalla inicial previa a setup */
-            <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 space-y-6 shadow-sm">
-              <div className="flex flex-col sm:flex-row items-start gap-5">
-                <div className="size-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  <Smartphone className="size-7" />
-                </div>
-                <div className="space-y-2 flex-1">
-                  <h2 className="text-xl font-bold text-foreground">
-                    Configura la verificación en dos pasos con Google
-                    Authenticator
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Añade una capa extra de protección a tu cuenta. Al iniciar
-                    sesión o realizar acciones sensibles, se te solicitará un
-                    código numérico generado por la aplicación en tu celular.
-                  </p>
-                </div>
-              </div>
-
-              {/* Beneficios */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
-                    <Lock className="size-4 text-primary" />
-                    <span>Mayor seguridad</span>
+      {status &&
+        !status.enabled &&
+        (!backupCodes || backupCodes.length === 0) && (
+          <div className="space-y-6">
+            {!setupData ? (
+              /* Pantalla inicial previa a setup */
+              <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 space-y-6 shadow-sm">
+                <div className="flex flex-col sm:flex-row items-start gap-5">
+                  <div className="size-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                    <Smartphone className="size-7" />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Protege tu cuenta incluso si tu contraseña llega a ser
-                    comprometida.
-                  </p>
-                </div>
-
-                <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
-                    <ShieldCheck className="size-4 text-emerald-600" />
-                    <span>Funciona offline</span>
+                  <div className="space-y-2 flex-1">
+                    <h2 className="text-xl font-bold text-foreground">
+                      Configura la verificación en dos pasos con Google
+                      Authenticator
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Añade una capa extra de protección a tu cuenta. Al iniciar
+                      sesión o realizar acciones sensibles, se te solicitará un
+                      código numérico generado por la aplicación en tu celular.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    No depende de cobertura telefónica, SMS ni recepción de
-                    correos.
-                  </p>
                 </div>
 
-                <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
-                  <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
-                    <KeyRound className="size-4 text-primary" />
-                    <span>Estándar abierto</span>
+                {/* Beneficios */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                  <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
+                    <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                      <Lock className="size-4 text-primary" />
+                      <span>Mayor seguridad</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Protege tu cuenta incluso si tu contraseña llega a ser
+                      comprometida.
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Compatible con Google Authenticator, Microsoft
-                    Authenticator, Authy o 1Password.
-                  </p>
-                </div>
-              </div>
 
-              <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Info className="size-4 text-muted-foreground shrink-0" />
-                  <span>
-                    El proceso toma menos de 2 minutos y requiere tu teléfono.
-                  </span>
-                </div>
-
-                <Button
-                  variant="default"
-                  size="lg"
-                  onClick={() => startSetup()}
-                  disabled={isSettingUp}
-                  className="font-medium"
-                >
-                  {isSettingUp ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin mr-2" />
-                      <span>Iniciando configuración...</span>
-                    </>
-                  ) : (
-                    <span>Configurar Google Authenticator</span>
-                  )}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            /* Pantalla de configuración en progreso (setupData) */
-            <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 space-y-8 shadow-sm">
-              <div className="space-y-1">
-                <span className="text-xs font-semibold tracking-wider uppercase text-primary">
-                  Paso 1 de 2
-                </span>
-                <h2 className="text-xl sm:text-2xl font-bold text-foreground">
-                  Vincula tu aplicación de autenticación
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Abre tu aplicación (Google Authenticator, Microsoft
-                  Authenticator, etc.), añade una nueva cuenta seleccionando{" "}
-                  <strong>Ingresar clave de configuración</strong> y copia la
-                  siguiente llave secreta:
-                </p>
-              </div>
-
-              {/* Bloque visual de la Llave Manual */}
-              <div className="space-y-3">
-                <Label className="text-xs font-medium text-muted-foreground">
-                  Clave secreta manual de configuración
-                </Label>
-                <div className="bg-muted/60 border border-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-                  <div className="font-mono text-lg sm:text-xl font-bold tracking-widest text-foreground select-all break-all text-center sm:text-left">
-                    {formatKeyBlocks(setupData.manual_key)}
+                  <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
+                    <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                      <ShieldCheck className="size-4 text-emerald-600" />
+                      <span>Funciona offline</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      No depende de cobertura telefónica, SMS ni recepción de
+                      correos.
+                    </p>
                   </div>
+
+                  <div className="bg-muted/30 border border-border/60 rounded-xl p-4 space-y-1.5">
+                    <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+                      <KeyRound className="size-4 text-primary" />
+                      <span>Estándar abierto</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Compatible con Google Authenticator, Microsoft
+                      Authenticator, Authy o 1Password.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Info className="size-4 text-muted-foreground shrink-0" />
+                    <span>
+                      El proceso toma menos de 2 minutos y requiere tu teléfono.
+                    </span>
+                  </div>
+
                   <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleCopyKey(setupData.manual_key)}
-                    className="shrink-0 flex items-center gap-2"
+                    variant="default"
+                    size="lg"
+                    onClick={() => startSetup()}
+                    disabled={isSettingUp}
+                    className="font-medium"
                   >
-                    {isCopiedKey ? (
+                    {isSettingUp ? (
                       <>
-                        <Check className="size-4 text-emerald-600" />
-                        <span>¡Copiada!</span>
+                        <Loader2 className="size-4 animate-spin mr-2" />
+                        <span>Iniciando configuración...</span>
                       </>
                     ) : (
-                      <>
-                        <Copy className="size-4" />
-                        <span>Copiar clave</span>
-                      </>
+                      <span>Configurar Google Authenticator</span>
                     )}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Tipo de clave: Basada en tiempo (TOTP) • 6 dígitos • 30
-                  segundos.
-                </p>
               </div>
-
-              {/* Paso 2: Verificar el código de 6 dígitos */}
-              <div className="pt-6 border-t border-border space-y-4">
+            ) : (
+              /* Pantalla de configuración en progreso (setupData) */
+              <div className="bg-card border border-border rounded-2xl p-6 sm:p-8 space-y-8 shadow-sm">
                 <div className="space-y-1">
                   <span className="text-xs font-semibold tracking-wider uppercase text-primary">
-                    Paso 2 de 2
+                    Paso 1 de 2
                   </span>
-                  <h3 className="text-lg font-bold text-foreground">
-                    Verifica el código generado
-                  </h3>
+                  <h2 className="text-xl sm:text-2xl font-bold text-foreground">
+                    Vincula tu aplicación de autenticación
+                  </h2>
                   <p className="text-sm text-muted-foreground">
-                    Introduce el código de 6 dígitos que muestra tu aplicación
-                    para confirmar que se vinculó correctamente.
+                    Abre tu aplicación de autenticación y escanea el código QR.
+                    También puedes ingresar la clave manual.
                   </p>
                 </div>
 
-                <form
-                  onSubmit={handleEnableSubmit}
-                  className="space-y-4 max-w-md"
-                >
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="verify-totp-code"
-                      className="text-xs font-medium"
-                    >
-                      Código de 6 dígitos
-                    </Label>
-                    <div className="flex items-center gap-3">
-                      <Input
-                        id="verify-totp-code"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        autoComplete="one-time-code"
-                        placeholder="123456"
-                        value={verifyCodeInput}
-                        onChange={(e) =>
-                          setVerifyCodeInput(e.target.value.slice(0, 6))
-                        }
-                        maxLength={6}
-                        className="font-mono text-center tracking-widest text-xl h-11"
-                        disabled={isEnabling}
-                        required
-                        autoFocus
-                      />
-                      <Button
-                        type="submit"
-                        variant="default"
-                        size="lg"
-                        disabled={
-                          isEnabling || verifyCodeInput.trim().length !== 6
-                        }
-                        className="shrink-0"
-                      >
-                        {isEnabling ? (
-                          <>
-                            <Loader2 className="size-4 animate-spin mr-2" />
-                            <span>Verificando...</span>
-                          </>
-                        ) : (
-                          <span>Verificar y activar</span>
-                        )}
-                      </Button>
+                <SecurityQrCode
+                  payload={setupData.otpauth_uri}
+                  label="Código QR para configurar la aplicación de autenticación"
+                />
+                <div className="space-y-3">
+                  <Label className="text-xs font-medium text-muted-foreground">
+                    Clave secreta manual de configuración
+                  </Label>
+                  <div className="bg-muted/60 border border-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="font-mono text-lg sm:text-xl font-bold tracking-widest text-foreground select-all break-all text-center sm:text-left">
+                      {formatKeyBlocks(setupData.manual_key)}
                     </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleCopyKey(setupData.manual_key)}
+                      className="shrink-0 flex items-center gap-2"
+                    >
+                      {isCopiedKey ? (
+                        <>
+                          <Check className="size-4 text-emerald-600" />
+                          <span>¡Copiada!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="size-4" />
+                          <span>Copiar clave</span>
+                        </>
+                      )}
+                    </Button>
                   </div>
-                </form>
+                  <p className="text-xs text-muted-foreground">
+                    Tipo de clave: Basada en tiempo (TOTP) • 6 dígitos • 30
+                    segundos.
+                  </p>
+                </div>
 
-                <div className="pt-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={resetSetup}
-                    disabled={isEnabling}
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                {/* Paso 2: Verificar el código de 6 dígitos */}
+                <div className="pt-6 border-t border-border space-y-4">
+                  <div className="space-y-1">
+                    <span className="text-xs font-semibold tracking-wider uppercase text-primary">
+                      Paso 2 de 2
+                    </span>
+                    <h3 className="text-lg font-bold text-foreground">
+                      Verifica el código generado
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Introduce el código de 6 dígitos que muestra tu aplicación
+                      para confirmar que se vinculó correctamente.
+                    </p>
+                  </div>
+
+                  <form
+                    onSubmit={handleEnableSubmit}
+                    className="space-y-4 max-w-md"
                   >
-                    Cancelar configuración
-                  </Button>
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="verify-totp-code"
+                        className="text-xs font-medium"
+                      >
+                        Código de 6 dígitos
+                      </Label>
+                      <div className="flex items-center gap-3">
+                        <Input
+                          id="verify-totp-code"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          autoComplete="one-time-code"
+                          placeholder="123456"
+                          value={verifyCodeInput}
+                          onChange={(e) =>
+                            setVerifyCodeInput(e.target.value.slice(0, 6))
+                          }
+                          maxLength={6}
+                          className="font-mono text-center tracking-widest text-xl h-11"
+                          disabled={isEnabling}
+                          required
+                          autoFocus
+                        />
+                        <Button
+                          type="submit"
+                          variant="default"
+                          size="lg"
+                          disabled={
+                            isEnabling || verifyCodeInput.trim().length !== 6
+                          }
+                          className="shrink-0"
+                        >
+                          {isEnabling ? (
+                            <>
+                              <Loader2 className="size-4 animate-spin mr-2" />
+                              <span>Verificando...</span>
+                            </>
+                          ) : (
+                            <span>Verificar y activar</span>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </form>
+
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={resetSetup}
+                      disabled={isEnabling}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Cancelar configuración
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
     </div>
   );
 }

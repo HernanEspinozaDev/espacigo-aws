@@ -5,7 +5,6 @@ import Link from "next/link";
 import type { RentalContractPreview } from "../domain/contract-preview";
 import { formatRentalCLP } from "../domain/contract-preview-format";
 import { publicRentalContractPreview } from "../infrastructure/contract-preview-runtime";
-import { maskRUT } from "@/components/reveal-email";
 
 interface PublicRentalContractPreviewProps {
   quoteId: string;
@@ -168,6 +167,12 @@ export function PublicRentalContractPreview({
           </div>
         ) : preview ? (
           <div className="space-y-6 text-sm">
+            <p
+              role="note"
+              className="rounded-lg border border-border bg-muted/20 p-3 text-sm"
+            >
+              {preview.contact_notice}
+            </p>
             <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
               <h3 className="font-semibold text-foreground">
                 Partes del Arriendo
@@ -183,12 +188,21 @@ export function PublicRentalContractPreview({
                         ? "Propietario / Anfitrión"
                         : "Arrendatario"}
                     </span>
-                    <span className="font-medium text-foreground block mt-1">
-                      {party.legal_name}
-                    </span>
-                    <span className="text-xs text-muted-foreground block mt-0.5">
-                      RUT: {maskRUT(party.rut)}
-                    </span>
+                    {party.self ? (
+                      <>
+                        <span className="font-medium text-foreground block mt-1">
+                          {party.legal_name} (tú)
+                        </span>
+                        <span className="text-xs text-muted-foreground block mt-0.5">
+                          RUT: {party.rut}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-muted-foreground block mt-1">
+                        Identidad verificada. Datos personales reservados hasta
+                        confirmar el pago.
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

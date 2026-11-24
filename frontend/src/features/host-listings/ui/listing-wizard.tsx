@@ -15,6 +15,10 @@ import {
   Loader2,
   AlertCircle,
   Info,
+  ListChecks,
+  CheckCircle2,
+  Clock,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -32,11 +36,24 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { authFacade } from "@/features/auth/auth-runtime";
 import { listingErrorMessage } from "../domain/listing-error-message";
 import {
-  CHILE_COMUNAS,
-  CHILE_REGIONS,
-  getComunasByRegion,
-} from "../domain/chile-dpa";
+  mercadoPagoReturnHref,
+  verificationReturnHref,
+} from "../domain/publish-guide";
+import {
+  PublishGuideModal,
+  usePublishPrerequisites,
+} from "./publish-guide-modal";
+import {
+  cancellationPolicies,
+  cancellationPolicyVersion,
+} from "../domain/cancellation-policy";
+import type { CancellationPolicyVersion } from "../domain/cancellation-policy";
+import { CHILE_COMUNAS, CHILE_REGIONS } from "../domain/chile-dpa";
+import { validateLocation } from "../domain/commercial-location";
+import { CommercialLocationFields } from "./commercial-location-fields";
 import { validateWizardLocation } from "../domain/wizard-location";
+import { reverseGeocodeCommercialPin } from "../commercial-location-runtime";
+import { useCommercialPinResolution } from "./use-commercial-pin-resolution";
 import { CHILE_TIME_ZONE_OPTIONS } from "../domain/chile-time-zones";
 import {
   cleanAttributesForPayload,
@@ -61,17 +78,18 @@ import {
 } from "../domain/validation";
 import type {
   Category,
-  ListingDraftInput,
+  ListingCreateInput,
   RateUnit,
   ScheduleSlot,
 } from "../domain/types";
 
 const STEPS = [
   { number: 1, title: "Tipo y Resumen", icon: Building2 },
-  { number: 2, title: "Ubicación y Atributos", icon: MapPin },
-  { number: 3, title: "Tarifas y Reglas", icon: DollarSign },
-  { number: 4, title: "Disponibilidad", icon: Calendar },
-  { number: 5, title: "Confirmación", icon: Eye },
+  { number: 2, title: "Ubicación", icon: MapPin },
+  { number: 3, title: "Atributos", icon: Building2 },
+  { number: 4, title: "Tarifas y Reglas", icon: DollarSign },
+  { number: 5, title: "Disponibilidad", icon: Calendar },
+  { number: 6, title: "Confirmación", icon: Eye },
 ];
 
 export function ListingWizard() {
@@ -94,9 +112,21 @@ export function ListingWizard() {
 
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [maxVisitedStep, setMaxVisitedStep] = useState<number>(1);
+  const [returnToConfirmation, setReturnToConfirmation] = useState(false);
   const [stepError, setStepError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const isAuthenticated =
+    authSnapshot.status === "authenticated" && Boolean(accessToken);
+  const isHost =
+    authSnapshot.status === "authenticated" &&
+    authSnapshot.roles.includes("arrendador");
+  const prerequisites = usePublishPrerequisites({
+    accessToken: isAuthenticated ? accessToken : null,
+    isHost,
+    enabled: isAuthenticated,
+  });
   const [partialDraft, setPartialDraft] = useState<{
     id: string | null;
     accountId: string | null;
@@ -113,9 +143,25 @@ export function ListingWizard() {
   const [description, setDescription] = useState<string>("");
 
   // Paso 2: Ubicación, dimensiones y atributos dinámicos
-  const [address, setAddress] = useState<string>("");
-  const [comunaCode, setComunaCode] = useState<string>("");
-  const [regionCode, setRegionCode] = useState<string>("");
+  const pinResolution = useCommercialPinResolution({
+    initial: {
+      address: "",
+      region_code: "",
+      comuna_code: "",
+      latitude: null,
+      longitude: null,
+      public_confirmed: false,
+    },
+    resolvePin: reverseGeocodeCommercialPin,
+    onChange: () => {},
+  });
+  const {
+    location: pin,
+    onLocationChange,
+    selectPin,
+    isResolved,
+  } = pinResolution;
+  const { address, region_code: regionCode, comuna_code: comunaCode } = pin;
   const [areaM2, setAreaM2] = useState<number>(25);
   const [capacity, setCapacity] = useState<number>(4);
   const [dynamicAttributes, setDynamicAttributes] = useState<
@@ -141,12 +187,12 @@ export function ListingWizard() {
   const [rateUnit, setRateUnit] = useState<RateUnit>("hora");
   const [basePriceCLP, setBasePriceCLP] = useState<number>(15000);
   const [cancellationPolicy, setCancellationPolicy] =
-    useState<string>("flexible");
+    useState<CancellationPolicyVersion>("flexible_v1");
   const [usageRules, setUsageRules] = useState<string>(
     "No fumar. Cuidar el orden y limpieza de las instalaciones.",
   );
 
-  // Paso 4: Disponibilidad semanal
+  // Paso 5: Disponibilidad semanal
   const [timeZone, setTimeZone] = useState<string>("America/Santiago");
   const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(true);
   const [slots, setSlots] = useState<ScheduleSlot[]>([
@@ -228,15 +274,16 @@ export function ListingWizard() {
       if (!title.trim()) errors.title = "El título es obligatorio.";
       else if (Array.from(title).length > 70)
         errors.title = "El título no puede superar los 70 caracteres.";
-      if (Array.from(description.trim()).length < 100)
-        errors.description =
-          "La descripción debe tener al menos 100 caracteres.";
     } else if (step === 2) {
       const location = validateWizardLocation(regionCode, comunaCode);
       if (!address.trim()) errors.address = "La dirección es obligatoria.";
       else if (Array.from(address).length > 500)
         errors.address = "La dirección no puede superar los 500 caracteres.";
       if (!location.valid) errors.comuna = location.message;
+      if (!isResolved)
+        errors.location =
+          "Ajusta el pin y espera a que se confirme la región y comuna.";
+    } else if (step === 3) {
       if (!isValidAreaM2(areaM2))
         errors.area =
           "La superficie debe estar entre 0,01 y 99.999.999,99 m², con hasta 2 decimales.";
@@ -253,17 +300,15 @@ export function ListingWizard() {
             errors[`attribute:${code}`] = message;
           });
       }
-    } else if (step === 3) {
+    } else if (step === 4) {
       if (basePriceCLP < 1000 || !Number.isSafeInteger(basePriceCLP))
         errors.price =
           "El precio base debe ser un monto entero de al menos 1.000 CLP.";
-      if (
-        Array.from(
-          `Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`,
-        ).length > 250
-      )
+      if (!usageRules.trim())
+        errors.usageRules = "Las reglas de uso son obligatorias.";
+      else if (Array.from(usageRules.trim()).length > 250)
         errors.usageRules =
-          "Las reglas de uso compuestas deben tener entre 1 y 250 caracteres.";
+          "Las reglas de uso no pueden superar 250 caracteres.";
       if (!["hora", "dia", "mes"].includes(rateUnit)) {
         setStepError("Selecciona una unidad de cobro válida.");
         return false;
@@ -281,7 +326,7 @@ export function ListingWizard() {
         return false;
       }
       return true;
-    } else if (step === 4) {
+    } else if (step === 5) {
       let message: string | null = null;
       if (!isValidIanaTimeZone(timeZone)) {
         message =
@@ -357,7 +402,8 @@ export function ListingWizard() {
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
-      const next = Math.min(5, currentStep + 1);
+      const next = returnToConfirmation ? 6 : Math.min(6, currentStep + 1);
+      setReturnToConfirmation(false);
       setCurrentStep(next);
       setMaxVisitedStep((prev) => Math.max(prev, next));
     }
@@ -379,7 +425,7 @@ export function ListingWizard() {
       return;
     }
 
-    for (let step = 1; step <= 4; step += 1) {
+    for (let step = 1; step <= 5; step += 1) {
       if (!validateStep(step)) {
         setCurrentStep(step);
         return;
@@ -390,6 +436,13 @@ export function ListingWizard() {
       setStepError(location.message);
       return;
     }
+    if (!isResolved || pin.latitude === null || pin.longitude === null) {
+      setCurrentStep(2);
+      setStepError(
+        "Ajusta el pin y espera a que se confirme la región y comuna.",
+      );
+      return;
+    }
 
     // Validación final completa
     if (!currentSchema) {
@@ -397,18 +450,21 @@ export function ListingWizard() {
       return;
     }
     const cleanAttributes = cleanAttributesForPayload(dynamicAttributes);
-    const draftPayload: ListingDraftInput = {
+    const draftPayload: ListingCreateInput = {
       category_code: categoryCode,
       title: title.trim(),
       description: description.trim(),
       area_m2: Number(areaM2),
       capacity: Number(capacity),
-      usage_rules: `Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`,
+      usage_rules: usageRules.trim(),
+      cancellation_policy_version: cancellationPolicy,
       rate_unit: rateUnit,
       base_price_clp: Number(basePriceCLP),
-      address: address.trim(),
-      region_code: regionCode || undefined,
-      comuna_code: comunaCode.trim() || undefined,
+      location: {
+        ...pin,
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+      },
       attribute_schema_version: currentSchema.schema_version,
       attributes: cleanAttributes,
     };
@@ -419,6 +475,16 @@ export function ListingWizard() {
       setStepError(
         firstErr ?? "Por favor completa todos los campos requeridos.",
       );
+      return;
+    }
+
+    try {
+      validateLocation(pin);
+    } catch (error) {
+      setStepError(
+        error instanceof Error ? error.message : "Revisa la ubicación.",
+      );
+      setCurrentStep(2);
       return;
     }
 
@@ -443,7 +509,7 @@ export function ListingWizard() {
         throw new DOMException("La sesión cambió.", "AbortError");
       }
 
-      // Configure timezone first, then use its renewed ETag for schedule.
+      // Configure timezone with the create response ETag.
       const createdEtag = created.etag;
       if (!createdEtag) {
         throw new Error("No se pudo verificar la versión del borrador creado.");
@@ -454,6 +520,8 @@ export function ListingWizard() {
         timeZone,
         createdEtag,
       );
+      if (currentScope !== getAccessToken())
+        throw new DOMException("La sesión cambió.", "AbortError");
       if (scheduleEnabled && rateUnit === "hora" && slots.length > 0) {
         await updateWeeklySchedule(
           currentScope,
@@ -502,20 +570,139 @@ export function ListingWizard() {
             Publicar un nuevo espacio
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Completa los 5 pasos para dar de alta tu propiedad en EspaciGo.
+            Completa los 6 pasos para dar de alta tu propiedad en EspaciGo.
           </p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/anfitrion/espacios" className="gap-1.5">
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            Mis espacios
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              setGuideOpen(true);
+              prerequisites.reload();
+            }}
+          >
+            <ListChecks className="size-4 text-primary" aria-hidden="true" />
+            Guía para publicar
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/anfitrion/espacios" className="gap-1.5">
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Mis espacios
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      {/* Indicador de progreso de 5 pasos accesibles */}
+      {/* Guía compacta de requisitos previos para publicar */}
+      {prerequisites.loaded &&
+        !prerequisites.error &&
+        (!prerequisites.kycVerified || (isHost && !prerequisites.mpConnected)) && (
+          <section
+            aria-label="Requisitos previos para publicar"
+            className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-amber-950">
+                  Antes de publicar tu espacio, necesitarás completar estos pasos
+                </h2>
+                <p className="text-xs text-amber-900">
+                  Puedes crear tu borrador ahora, pero para activarlo en el
+                  catálogo deberás confirmar tu identidad, vincular Mercado Pago
+                  y publicar la plantilla de contrato en el editor.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-amber-400 bg-white text-amber-950 hover:bg-amber-100"
+                onClick={() => setGuideOpen(true)}
+              >
+                Ver guía completa
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">1. Identidad (KYC)</span>
+                {prerequisites.kycVerified ? (
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="size-3" aria-hidden="true" />
+                    Listo
+                  </Badge>
+                ) : (
+                  <Link
+                    href={verificationReturnHref("/anfitrion/espacios/nuevo")}
+                    className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    Completar
+                    <ArrowRight className="size-3" aria-hidden="true" />
+                  </Link>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">2. Mercado Pago</span>
+                {prerequisites.mpConnected ? (
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="size-3" aria-hidden="true" />
+                    Listo
+                  </Badge>
+                ) : isHost ? (
+                  <Link
+                    href={mercadoPagoReturnHref("/anfitrion/espacios/nuevo")}
+                    className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    Vincular
+                    <ArrowRight className="size-3" aria-hidden="true" />
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground inline-flex items-center gap-1">
+                    <Lock className="size-3" aria-hidden="true" />
+                    Tras borrador
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">3. Borrador</span>
+                <Badge
+                  variant="outline"
+                  className="border-amber-400 text-amber-800 gap-1"
+                >
+                  <Clock className="size-3" aria-hidden="true" />
+                  En curso
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">4. Contrato</span>
+                <span className="text-muted-foreground inline-flex items-center gap-1">
+                  <Lock className="size-3" aria-hidden="true" />
+                  En editor
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
+
+      <PublishGuideModal
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
+        mode="wizard"
+        isHost={isHost}
+        prerequisites={prerequisites}
+        onRefresh={prerequisites.reload}
+        returnPath="/anfitrion/espacios/nuevo"
+      />
+
+      {/* Indicador de progreso de 6 pasos accesibles */}
       <nav aria-label="Pasos del asistente de publicación">
-        <ol className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs font-medium">
+        <ol className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-xs font-medium">
           {STEPS.map((s) => {
             const isCompleted = s.number < currentStep;
             const isCurrent = s.number === currentStep;
@@ -706,7 +893,7 @@ export function ListingWizard() {
 
               <div className="space-y-2">
                 <Label htmlFor="wizard-description" className="font-semibold">
-                  Resumen o descripción *
+                  Resumen o descripción (opcional)
                 </Label>
                 <textarea
                   id="wizard-description"
@@ -719,7 +906,6 @@ export function ListingWizard() {
                   {...fieldFeedback("description")}
                   placeholder="Describe las comodidades, accesibilidad, iluminación y entorno del espacio..."
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  required
                 />
                 {fieldErrors.description && (
                   <p
@@ -733,507 +919,456 @@ export function ListingWizard() {
                   id="wizard-description-count"
                   className="text-xs text-muted-foreground text-right"
                 >
-                  {Array.from(description.trim()).length}/100 mínimo
+                  {Array.from(description.trim()).length}/500 caracteres
                 </p>
               </div>
             </CardContent>
           </>
         )}
 
-        {/* PASO 2: Ubicación y atributos dinámicos */}
-        {currentStep === 2 && (
+        {/* PASOS 2 y 3: ubicación y atributos */}
+        {(currentStep === 2 || currentStep === 3) && (
           <>
             <CardHeader>
               <CardTitle className="text-xl">
-                Paso 2: Ubicación y características
+                {currentStep === 2 ? "Paso 2: Ubicación" : "Paso 3: Atributos"}
               </CardTitle>
               <CardDescription>
-                Indica la dirección y completa los atributos específicos de{" "}
-                {selectedCatObj?.name || "la categoría"}.
+                {currentStep === 2
+                  ? "Indica la dirección física y coloca el pin del espacio."
+                  : `Completa las dimensiones y características de ${selectedCatObj?.name || "la categoría"}.`}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="wizard-address" className="font-semibold">
-                    Dirección física *
-                  </Label>
-                  <Input
-                    id="wizard-address"
-                    value={address}
-                    onChange={(e) => {
-                      setAddress(e.target.value);
-                      clearFieldError("address");
+              {currentStep === 2 && (
+                <div className="space-y-4">
+                  <CommercialLocationFields
+                    idPrefix="wizard"
+                    location={pin}
+                    onLocationChange={(next) => {
+                      onLocationChange(next);
+                      if (next.address !== address) clearFieldError("address");
                     }}
-                    {...fieldFeedback("address")}
-                    placeholder="Ej: Av. Apoquindo 4500, Oficina 801"
-                    required
+                    onSelectPin={selectPin}
+                    resolution={pinResolution.resolution}
+                    onRestoreAddress={
+                      pinResolution.restoredAddressAvailable
+                        ? pinResolution.restoreAddress
+                        : undefined
+                    }
+                    addressErrorId={
+                      fieldErrors.address ? "wizard-address-error" : undefined
+                    }
+                    addressInvalid={Boolean(fieldErrors.address)}
+                    disabled={isSubmitting}
                   />
+                  {fieldErrors.location && (
+                    <p
+                      id="wizard-location-error"
+                      role="alert"
+                      className="text-sm text-destructive"
+                    >
+                      {fieldErrors.location}
+                    </p>
+                  )}
                   {fieldErrors.address && (
                     <p
                       id="wizard-address-error"
-                      className="text-sm text-red-800"
+                      role="alert"
+                      className="text-sm text-destructive"
                     >
                       {fieldErrors.address}
                     </p>
                   )}
-                  <p
-                    id="wizard-address-count"
-                    className="text-xs text-muted-foreground text-right"
-                  >
-                    {Array.from(address).length}/500
-                  </p>
                 </div>
+              )}
+              {currentStep === 3 && (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="wizard-area" className="font-semibold">
+                        Superficie (m²) *
+                      </Label>
+                      <Input
+                        id="wizard-area"
+                        type="number"
+                        min={0.01}
+                        max={99999999.99}
+                        step={0.01}
+                        value={areaM2}
+                        onChange={(e) => {
+                          setAreaM2(Number(e.target.value));
+                          clearFieldError("area");
+                        }}
+                        {...fieldFeedback("area")}
+                        required
+                      />
+                      {fieldErrors.area && (
+                        <p
+                          id="wizard-area-error"
+                          className="text-sm text-red-800"
+                        >
+                          {fieldErrors.area}
+                        </p>
+                      )}
+                    </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-region" className="font-semibold">
-                    Región
-                  </Label>
-                  <select
-                    id="wizard-region"
-                    value={regionCode}
-                    onChange={(e) => {
-                      setRegionCode(e.target.value);
-                      setComunaCode("");
-                      clearFieldError("region");
-                      clearFieldError("comuna");
-                    }}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <option value="">Selecciona una región</option>
-                    {CHILE_REGIONS.map(({ code, name }) => (
-                      <option key={code} value={code}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-comuna" className="font-semibold">
-                    Comuna
-                  </Label>
-                  <select
-                    id="wizard-comuna"
-                    {...fieldFeedback("comuna")}
-                    value={comunaCode}
-                    disabled={!regionCode}
-                    onChange={(e) => {
-                      setComunaCode(e.target.value);
-                      clearFieldError("comuna");
-                    }}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
-                    aria-describedby={
-                      [
-                        fieldErrors.comuna ? "wizard-comuna-error" : undefined,
-                        regionCode === "12" ? "wizard-comuna-limit" : undefined,
-                      ]
-                        .filter(Boolean)
-                        .join(" ") || undefined
-                    }
-                  >
-                    <option value="">Selecciona una comuna</option>
-                    {getComunasByRegion(regionCode).map(({ code, name }) => (
-                      <option
-                        key={code}
-                        value={code}
-                        disabled={code === "12202"}
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="wizard-capacity"
+                        className="font-semibold"
                       >
-                        {code === "12202"
-                          ? "Antártica — aún no disponible"
-                          : name}
-                      </option>
-                    ))}
-                  </select>
-                  {regionCode === "12" && (
-                    <p
-                      id="wizard-comuna-limit"
-                      className="text-sm text-muted-foreground"
-                    >
-                      Antártica figura en el catálogo, pero el backend actual no
-                      admite esa comuna.
-                    </p>
-                  )}
-                  {fieldErrors.comuna && (
-                    <p
-                      id="wizard-comuna-error"
-                      className="text-sm text-destructive"
-                    >
-                      {fieldErrors.comuna}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-area" className="font-semibold">
-                    Superficie (m²) *
-                  </Label>
-                  <Input
-                    id="wizard-area"
-                    type="number"
-                    min={0.01}
-                    max={99999999.99}
-                    step={0.01}
-                    value={areaM2}
-                    onChange={(e) => {
-                      setAreaM2(Number(e.target.value));
-                      clearFieldError("area");
-                    }}
-                    {...fieldFeedback("area")}
-                    required
-                  />
-                  {fieldErrors.area && (
-                    <p id="wizard-area-error" className="text-sm text-red-800">
-                      {fieldErrors.area}
-                    </p>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-capacity" className="font-semibold">
-                    Capacidad (personas) *
-                  </Label>
-                  <Input
-                    id="wizard-capacity"
-                    type="number"
-                    min={1}
-                    max={2147483647}
-                    step={1}
-                    value={capacity}
-                    onChange={(e) => {
-                      setCapacity(Number(e.target.value));
-                      clearFieldError("capacity");
-                    }}
-                    {...fieldFeedback("capacity")}
-                    required
-                  />
-                  {fieldErrors.capacity && (
-                    <p
-                      id="wizard-capacity-error"
-                      className="text-sm text-red-800"
-                    >
-                      {fieldErrors.capacity}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Atributos dinámicos del CategoryProfileSchema */}
-              <div className="pt-4 border-t border-border space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-foreground">
-                    Atributos del perfil ({selectedCatObj?.name || categoryCode}
-                    )
-                  </h2>
-                  {currentSchema && (
-                    <Badge variant="outline" className="text-xs font-mono">
-                      v{currentSchema.schema_version}
-                    </Badge>
-                  )}
-                </div>
-
-                {loadingSchema && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                    <Loader2
-                      className="size-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                    <span>
-                      Cargando esquema de atributos desde el backend...
-                    </span>
+                        Capacidad (personas) *
+                      </Label>
+                      <Input
+                        id="wizard-capacity"
+                        type="number"
+                        min={1}
+                        max={2147483647}
+                        step={1}
+                        value={capacity}
+                        onChange={(e) => {
+                          setCapacity(Number(e.target.value));
+                          clearFieldError("capacity");
+                        }}
+                        {...fieldFeedback("capacity")}
+                        required
+                      />
+                      {fieldErrors.capacity && (
+                        <p
+                          id="wizard-capacity-error"
+                          className="text-sm text-red-800"
+                        >
+                          {fieldErrors.capacity}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                )}
 
-                {schemaFailed && (
-                  <div
-                    role="alert"
-                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
-                  >
-                    <span>
-                      No se pudo cargar el perfil de esta categoría. Vuelve a
-                      intentarlo antes de completar sus atributos.
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setSchemaLoadError(null);
-                        setSchemaRetryToken((current) => current + 1);
-                      }}
-                    >
-                      Reintentar perfil
-                    </Button>
-                  </div>
-                )}
+                  {/* Atributos dinámicos del CategoryProfileSchema */}
+                  <div className="pt-4 border-t border-border space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-base font-semibold text-foreground">
+                        Atributos del perfil (
+                        {selectedCatObj?.name || categoryCode})
+                      </h2>
+                      {currentSchema && (
+                        <Badge variant="outline" className="text-xs font-mono">
+                          v{currentSchema.schema_version}
+                        </Badge>
+                      )}
+                    </div>
 
-                {!loadingSchema &&
-                currentSchema?.attributes &&
-                currentSchema.attributes.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border">
-                    {currentSchema.attributes.map((def) => {
-                      const label = formatAttributeLabel(
-                        def.code,
-                        currentSchema,
-                      );
-                      const attrVal = dynamicAttributes[def.code];
-                      const fieldId = `attr-${def.code}`;
+                    {loadingSchema && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                        <Loader2
+                          className="size-4 animate-spin"
+                          aria-hidden="true"
+                        />
+                        <span>
+                          Cargando esquema de atributos desde el backend...
+                        </span>
+                      </div>
+                    )}
 
-                      if (def.type === "boolean") {
-                        return (
-                          <div
-                            key={def.code}
-                            className="flex items-center justify-between p-3 rounded-lg bg-background border"
-                          >
-                            <Label
-                              htmlFor={fieldId}
-                              className="text-sm cursor-pointer"
-                            >
-                              {label} {def.required && "*"}
-                            </Label>
-                            <input
-                              id={fieldId}
-                              type="checkbox"
-                              checked={Boolean(attrVal)}
-                              onChange={(e) => {
-                                handleAttributeChange(
-                                  def.code,
-                                  e.target.checked,
-                                );
-                                clearFieldError(`attribute:${def.code}`);
-                              }}
-                              aria-invalid={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? true
-                                  : undefined
-                              }
-                              aria-describedby={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? `wizard-attribute-${def.code}-error`
-                                  : undefined
-                              }
-                              className="size-4 rounded text-primary focus:ring-primary"
-                            />
-                          </div>
-                        );
-                      }
+                    {schemaFailed && (
+                      <div
+                        role="alert"
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+                      >
+                        <span>
+                          No se pudo cargar el perfil de esta categoría. Vuelve
+                          a intentarlo antes de completar sus atributos.
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setSchemaLoadError(null);
+                            setSchemaRetryToken((current) => current + 1);
+                          }}
+                        >
+                          Reintentar perfil
+                        </Button>
+                      </div>
+                    )}
 
-                      if (def.type === "integer" || def.type === "number") {
-                        return (
-                          <div key={def.code} className="space-y-1.5">
-                            <Label
-                              htmlFor={fieldId}
-                              className="text-xs font-semibold"
-                            >
-                              {label} {def.unit ? `(${def.unit})` : ""}{" "}
-                              {def.required && "*"}
-                            </Label>
-                            <Input
-                              id={fieldId}
-                              type="number"
-                              min={def.minimum}
-                              max={def.maximum}
-                              step={
-                                def.step ?? (def.type === "integer" ? 1 : 0.1)
-                              }
-                              value={
-                                attrVal !== undefined ? String(attrVal) : ""
-                              }
-                              onChange={(e) => {
-                                handleAttributeChange(
-                                  def.code,
-                                  e.target.value === ""
-                                    ? undefined
-                                    : Number(e.target.value),
-                                );
-                                clearFieldError(`attribute:${def.code}`);
-                              }}
-                              aria-invalid={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? true
-                                  : undefined
-                              }
-                              aria-describedby={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? `wizard-attribute-${def.code}-error`
-                                  : undefined
-                              }
-                              placeholder={
-                                def.description || `Ingrese ${label}`
-                              }
-                            />
-                            {fieldErrors[`attribute:${def.code}`] && (
-                              <p
-                                id={`wizard-attribute-${def.code}-error`}
-                                className="text-sm text-red-800"
+                    {!loadingSchema &&
+                    currentSchema?.attributes &&
+                    currentSchema.attributes.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-xl border">
+                        {currentSchema.attributes.map((def) => {
+                          const label = formatAttributeLabel(
+                            def.code,
+                            currentSchema,
+                          );
+                          const attrVal = dynamicAttributes[def.code];
+                          const fieldId = `attr-${def.code}`;
+
+                          if (def.type === "boolean") {
+                            return (
+                              <div
+                                key={def.code}
+                                className="flex items-center justify-between p-3 rounded-lg bg-background border"
                               >
-                                {fieldErrors[`attribute:${def.code}`]}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }
+                                <Label
+                                  htmlFor={fieldId}
+                                  className="text-sm cursor-pointer"
+                                >
+                                  {label} {def.required && "*"}
+                                </Label>
+                                <input
+                                  id={fieldId}
+                                  type="checkbox"
+                                  checked={Boolean(attrVal)}
+                                  onChange={(e) => {
+                                    handleAttributeChange(
+                                      def.code,
+                                      e.target.checked,
+                                    );
+                                    clearFieldError(`attribute:${def.code}`);
+                                  }}
+                                  aria-invalid={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? true
+                                      : undefined
+                                  }
+                                  aria-describedby={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? `wizard-attribute-${def.code}-error`
+                                      : undefined
+                                  }
+                                  className="size-4 rounded text-primary focus:ring-primary"
+                                />
+                              </div>
+                            );
+                          }
 
-                      if (def.type === "enum_list" && def.options) {
-                        const options = def.options;
-                        const selected = Array.isArray(attrVal)
-                          ? attrVal.filter(
-                              (value): value is string =>
-                                typeof value === "string" &&
-                                options.includes(value),
-                            )
-                          : [];
-                        return (
-                          <fieldset
-                            key={def.code}
-                            tabIndex={-1}
-                            aria-invalid={
-                              fieldErrors[`attribute:${def.code}`]
-                                ? true
-                                : undefined
-                            }
-                            aria-describedby={
-                              fieldErrors[`attribute:${def.code}`]
-                                ? `wizard-attribute-${def.code}-error`
-                                : undefined
-                            }
-                            className="space-y-2 rounded-lg border bg-background p-3"
-                          >
-                            <legend className="px-1 text-xs font-semibold">
-                              {label} {def.required && "*"}
-                            </legend>
-                            <div className="space-y-2">
-                              {def.options.map((option, optionIndex) => {
-                                const optionId = `${fieldId}-option-${optionIndex}`;
-                                return (
-                                  <div
-                                    key={option}
-                                    className="flex items-center gap-2"
+                          if (def.type === "integer" || def.type === "number") {
+                            return (
+                              <div key={def.code} className="space-y-1.5">
+                                <Label
+                                  htmlFor={fieldId}
+                                  className="text-xs font-semibold"
+                                >
+                                  {label} {def.unit ? `(${def.unit})` : ""}{" "}
+                                  {def.required && "*"}
+                                </Label>
+                                <Input
+                                  id={fieldId}
+                                  type="number"
+                                  min={def.minimum}
+                                  max={def.maximum}
+                                  step={
+                                    def.step ??
+                                    (def.type === "integer" ? 1 : 0.1)
+                                  }
+                                  value={
+                                    attrVal !== undefined ? String(attrVal) : ""
+                                  }
+                                  onChange={(e) => {
+                                    handleAttributeChange(
+                                      def.code,
+                                      e.target.value === ""
+                                        ? undefined
+                                        : Number(e.target.value),
+                                    );
+                                    clearFieldError(`attribute:${def.code}`);
+                                  }}
+                                  aria-invalid={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? true
+                                      : undefined
+                                  }
+                                  aria-describedby={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? `wizard-attribute-${def.code}-error`
+                                      : undefined
+                                  }
+                                  placeholder={
+                                    def.description || `Ingrese ${label}`
+                                  }
+                                />
+                                {fieldErrors[`attribute:${def.code}`] && (
+                                  <p
+                                    id={`wizard-attribute-${def.code}-error`}
+                                    className="text-sm text-red-800"
                                   >
-                                    <input
-                                      id={optionId}
-                                      type="checkbox"
-                                      checked={selected.includes(option)}
-                                      aria-invalid={
-                                        fieldErrors[`attribute:${def.code}`]
-                                          ? true
-                                          : undefined
-                                      }
-                                      aria-describedby={
-                                        fieldErrors[`attribute:${def.code}`]
-                                          ? `wizard-attribute-${def.code}-error`
-                                          : undefined
-                                      }
-                                      onChange={(event) => {
-                                        const next = event.target.checked
-                                          ? [...selected, option]
-                                          : selected.filter(
-                                              (value) => value !== option,
+                                    {fieldErrors[`attribute:${def.code}`]}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          }
+
+                          if (def.type === "enum_list" && def.options) {
+                            const options = def.options;
+                            const selected = Array.isArray(attrVal)
+                              ? attrVal.filter(
+                                  (value): value is string =>
+                                    typeof value === "string" &&
+                                    options.includes(value),
+                                )
+                              : [];
+                            return (
+                              <fieldset
+                                key={def.code}
+                                tabIndex={-1}
+                                aria-invalid={
+                                  fieldErrors[`attribute:${def.code}`]
+                                    ? true
+                                    : undefined
+                                }
+                                aria-describedby={
+                                  fieldErrors[`attribute:${def.code}`]
+                                    ? `wizard-attribute-${def.code}-error`
+                                    : undefined
+                                }
+                                className="space-y-2 rounded-lg border bg-background p-3"
+                              >
+                                <legend className="px-1 text-xs font-semibold">
+                                  {label} {def.required && "*"}
+                                </legend>
+                                <div className="space-y-2">
+                                  {def.options.map((option, optionIndex) => {
+                                    const optionId = `${fieldId}-option-${optionIndex}`;
+                                    return (
+                                      <div
+                                        key={option}
+                                        className="flex items-center gap-2"
+                                      >
+                                        <input
+                                          id={optionId}
+                                          type="checkbox"
+                                          checked={selected.includes(option)}
+                                          aria-invalid={
+                                            fieldErrors[`attribute:${def.code}`]
+                                              ? true
+                                              : undefined
+                                          }
+                                          aria-describedby={
+                                            fieldErrors[`attribute:${def.code}`]
+                                              ? `wizard-attribute-${def.code}-error`
+                                              : undefined
+                                          }
+                                          onChange={(event) => {
+                                            const next = event.target.checked
+                                              ? [...selected, option]
+                                              : selected.filter(
+                                                  (value) => value !== option,
+                                                );
+                                            const selectedSet = new Set(next);
+                                            handleAttributeChange(
+                                              def.code,
+                                              options.filter((value) =>
+                                                selectedSet.has(value),
+                                              ),
                                             );
-                                        const selectedSet = new Set(next);
-                                        handleAttributeChange(
-                                          def.code,
-                                          options.filter((value) =>
-                                            selectedSet.has(value),
-                                          ),
-                                        );
-                                        clearFieldError(
-                                          `attribute:${def.code}`,
-                                        );
-                                      }}
-                                      className="size-4 rounded text-primary focus:ring-primary"
-                                    />
-                                    <Label
-                                      htmlFor={optionId}
-                                      className="cursor-pointer text-sm"
-                                    >
-                                      {formatAttributeValue(option)}
-                                    </Label>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            {fieldErrors[`attribute:${def.code}`] && (
-                              <p
-                                id={`wizard-attribute-${def.code}-error`}
-                                className="text-sm text-red-800"
-                              >
-                                {fieldErrors[`attribute:${def.code}`]}
-                              </p>
-                            )}
-                          </fieldset>
-                        );
-                      }
+                                            clearFieldError(
+                                              `attribute:${def.code}`,
+                                            );
+                                          }}
+                                          className="size-4 rounded text-primary focus:ring-primary"
+                                        />
+                                        <Label
+                                          htmlFor={optionId}
+                                          className="cursor-pointer text-sm"
+                                        >
+                                          {formatAttributeValue(option)}
+                                        </Label>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                                {fieldErrors[`attribute:${def.code}`] && (
+                                  <p
+                                    id={`wizard-attribute-${def.code}-error`}
+                                    className="text-sm text-red-800"
+                                  >
+                                    {fieldErrors[`attribute:${def.code}`]}
+                                  </p>
+                                )}
+                              </fieldset>
+                            );
+                          }
 
-                      if (def.type === "enum" && def.options) {
-                        return (
-                          <div key={def.code} className="space-y-1.5">
-                            <Label
-                              htmlFor={fieldId}
-                              className="text-xs font-semibold"
-                            >
-                              {label} {def.required && "*"}
-                            </Label>
-                            <select
-                              id={fieldId}
-                              aria-required={def.required || undefined}
-                              value={typeof attrVal === "string" ? attrVal : ""}
-                              onChange={(e) => {
-                                handleAttributeChange(def.code, e.target.value);
-                                clearFieldError(`attribute:${def.code}`);
-                              }}
-                              aria-invalid={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? true
-                                  : undefined
-                              }
-                              aria-describedby={
-                                fieldErrors[`attribute:${def.code}`]
-                                  ? `wizard-attribute-${def.code}-error`
-                                  : undefined
-                              }
-                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                            >
-                              <option value="">-- Selecciona --</option>
-                              {def.options.map((opt) => (
-                                <option key={opt} value={opt}>
-                                  {formatAttributeValue(opt)}
-                                </option>
-                              ))}
-                            </select>
-                            {fieldErrors[`attribute:${def.code}`] && (
-                              <p
-                                id={`wizard-attribute-${def.code}-error`}
-                                className="text-sm text-red-800"
-                              >
-                                {fieldErrors[`attribute:${def.code}`]}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }
+                          if (def.type === "enum" && def.options) {
+                            return (
+                              <div key={def.code} className="space-y-1.5">
+                                <Label
+                                  htmlFor={fieldId}
+                                  className="text-xs font-semibold"
+                                >
+                                  {label} {def.required && "*"}
+                                </Label>
+                                <select
+                                  id={fieldId}
+                                  aria-required={def.required || undefined}
+                                  value={
+                                    typeof attrVal === "string" ? attrVal : ""
+                                  }
+                                  onChange={(e) => {
+                                    handleAttributeChange(
+                                      def.code,
+                                      e.target.value,
+                                    );
+                                    clearFieldError(`attribute:${def.code}`);
+                                  }}
+                                  aria-invalid={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? true
+                                      : undefined
+                                  }
+                                  aria-describedby={
+                                    fieldErrors[`attribute:${def.code}`]
+                                      ? `wizard-attribute-${def.code}-error`
+                                      : undefined
+                                  }
+                                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                >
+                                  <option value="">-- Selecciona --</option>
+                                  {def.options.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {formatAttributeValue(opt)}
+                                    </option>
+                                  ))}
+                                </select>
+                                {fieldErrors[`attribute:${def.code}`] && (
+                                  <p
+                                    id={`wizard-attribute-${def.code}-error`}
+                                    className="text-sm text-red-800"
+                                  >
+                                    {fieldErrors[`attribute:${def.code}`]}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          }
 
-                      return null;
-                    })}
+                          return null;
+                        })}
+                      </div>
+                    ) : (
+                      !loadingSchema && (
+                        <p className="text-xs text-muted-foreground italic">
+                          No hay atributos dinámicos adicionales requeridos para
+                          esta categoría.
+                        </p>
+                      )
+                    )}
                   </div>
-                ) : (
-                  !loadingSchema && (
-                    <p className="text-xs text-muted-foreground italic">
-                      No hay atributos dinámicos adicionales requeridos para
-                      esta categoría.
-                    </p>
-                  )
-                )}
-              </div>
+                </div>
+              )}
             </CardContent>
           </>
         )}
 
-        {/* PASO 3: Tarifas iniciales y reglas */}
-        {currentStep === 3 && (
+        {/* PASO 4: Tarifas iniciales y reglas */}
+        {currentStep === 4 && (
           <>
             <CardHeader>
               <CardTitle className="text-xl">
-                Paso 3: Tarifas iniciales y condiciones
+                Paso 4: Tarifas iniciales y condiciones
               </CardTitle>
               <CardDescription>
                 Establece el precio base en pesos chilenos (CLP) y las políticas
@@ -1316,19 +1451,28 @@ export function ListingWizard() {
                   <select
                     id="wizard-cancellation"
                     value={cancellationPolicy}
-                    onChange={(e) => setCancellationPolicy(e.target.value)}
+                    onChange={(e) => {
+                      const version = cancellationPolicyVersion(e.target.value);
+                      if (version) setCancellationPolicy(version);
+                    }}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
-                    <option value="flexible">
-                      Flexible (reembolso total hasta 24h antes)
-                    </option>
-                    <option value="moderada">
-                      Moderada (reembolso 50% hasta 48h antes)
-                    </option>
-                    <option value="estricta">
-                      Estricta (sin reembolso tras confirmación)
-                    </option>
+                    {cancellationPolicies.map((policy) => (
+                      <option key={policy.version} value={policy.version}>
+                        {policy.label}
+                      </option>
+                    ))}
                   </select>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    aria-live="polite"
+                  >
+                    {
+                      cancellationPolicies.find(
+                        (policy) => policy.version === cancellationPolicy,
+                      )?.summary
+                    }
+                  </p>
                 </div>
               </div>
 
@@ -1361,24 +1505,19 @@ export function ListingWizard() {
                   className="text-xs text-muted-foreground text-right"
                   aria-live="polite"
                 >
-                  {
-                    Array.from(
-                      `Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`,
-                    ).length
-                  }
-                  /250 caracteres compuestos
+                  {Array.from(usageRules.trim()).length}/250 caracteres
                 </p>
               </div>
             </CardContent>
           </>
         )}
 
-        {/* PASO 4: Disponibilidad semanal */}
-        {currentStep === 4 && (
+        {/* PASO 5: Disponibilidad semanal */}
+        {currentStep === 5 && (
           <>
             <CardHeader>
               <CardTitle className="text-xl">
-                Paso 4: Disponibilidad semanal y zona horaria
+                Paso 5: Disponibilidad semanal y zona horaria
               </CardTitle>
               <CardDescription>
                 El horario semanal describe el funcionamiento habitual del
@@ -1495,7 +1634,16 @@ export function ListingWizard() {
                   </div>
                 </div>
               )}
-              <div className="pt-4 border-t border-border">
+              <div className="space-y-3 pt-4 border-t border-border">
+                <div>
+                  <h2 className="text-base font-semibold">
+                    Vista previa del calendario
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Selecciona fechas para agregar excepciones o bloqueos y
+                    revisa cómo quedará la disponibilidad.
+                  </p>
+                </div>
                 <HostAvailabilityCalendar
                   rateUnit={rateUnit}
                   basePriceCLP={basePriceCLP}
@@ -1535,12 +1683,12 @@ export function ListingWizard() {
           </>
         )}
 
-        {/* PASO 5: Vista previa y confirmación */}
-        {currentStep === 5 && (
+        {/* PASO 6: Vista previa y confirmación */}
+        {currentStep === 6 && (
           <>
             <CardHeader>
               <CardTitle className="text-xl">
-                Paso 5: Resumen y confirmación de alta
+                Paso 6: Resumen y confirmación de alta
               </CardTitle>
               <CardDescription>
                 Revisa tus datos antes de crear el borrador privado. Después
@@ -1548,6 +1696,29 @@ export function ListingWizard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <div className="flex flex-wrap gap-2" aria-label="Editar sección">
+                {[
+                  [1, "Tipo y resumen"],
+                  [2, "Ubicación"],
+                  [3, "Atributos"],
+                  [4, "Tarifas y reglas"],
+                  [5, "Disponibilidad"],
+                ].map(([step, label]) => (
+                  <Button
+                    key={step}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setStepError(null);
+                      setReturnToConfirmation(true);
+                      setCurrentStep(Number(step));
+                    }}
+                  >
+                    Editar {label}
+                  </Button>
+                ))}
+              </div>
               <div className="rounded-xl border bg-muted/20 p-5 space-y-4 text-sm">
                 <div className="flex items-start justify-between gap-4 border-b pb-3">
                   <div>
@@ -1595,11 +1766,28 @@ export function ListingWizard() {
                   </div>
                   <div>
                     <span className="text-muted-foreground font-semibold">
-                      Cancelación y Normas:
+                      Política de cancelación:
                     </span>
                     <p className="text-foreground mt-0.5">
-                      Política {cancellationPolicy}. {usageRules}
+                      {
+                        cancellationPolicies.find(
+                          (policy) => policy.version === cancellationPolicy,
+                        )?.label
+                      }
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        cancellationPolicies.find(
+                          (policy) => policy.version === cancellationPolicy,
+                        )?.summary
+                      }
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground font-semibold">
+                      Reglas de uso:
+                    </span>
+                    <p className="text-foreground mt-0.5">{usageRules}</p>
                   </div>
                   <div>
                     <span className="text-muted-foreground font-semibold">
@@ -1680,13 +1868,14 @@ export function ListingWizard() {
             <div />
           )}
 
-          {currentStep < 5 ? (
+          {currentStep < 6 ? (
             <Button
               type="button"
               onClick={handleNext}
               disabled={
                 isSubmitting ||
-                (currentStep === 2 && Boolean(categoryCode) && !currentSchema)
+                (currentStep === 2 && !isResolved) ||
+                (currentStep === 3 && Boolean(categoryCode) && !currentSchema)
               }
               className="gap-1.5 font-semibold"
             >

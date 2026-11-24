@@ -6,6 +6,7 @@ import {
   Building2,
   PlusCircle,
   CalendarCheck,
+  FileText,
   User,
   WalletCards,
 } from "lucide-react";
@@ -24,10 +25,12 @@ export function HostNavigation() {
 
   const isNuevo = pathname.includes("/espacios/nuevo");
   const isEditar = pathname.includes("/editar");
+  const isContratos = pathname.includes("/anfitrion/contratos");
   const isReservas = pathname.includes("/anfitrion/reservas");
   const isPayments = pathname === "/anfitrion/mercado-pago";
   const isListado =
     (pathname === "/anfitrion/espacios" || pathname === "/anfitrion") &&
+    !isContratos &&
     !isReservas &&
     !isPayments;
 
@@ -62,6 +65,14 @@ export function HostNavigation() {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbPage>Editar Espacio</BreadcrumbPage>
+              </BreadcrumbItem>
+            </>
+          )}
+          {isContratos && (
+            <>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Contratos</BreadcrumbPage>
               </BreadcrumbItem>
             </>
           )}
@@ -103,7 +114,7 @@ export function HostNavigation() {
           className={cn(
             "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
             isListado
-              ? "border-primary text-primary bg-muted/40 font-semibold"
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
               : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
           )}
         >
@@ -112,12 +123,26 @@ export function HostNavigation() {
         </Link>
 
         <Link
+          href="/anfitrion/contratos"
+          aria-current={isContratos ? "page" : undefined}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+            isContratos
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+          )}
+        >
+          <FileText className="size-4" aria-hidden="true" />
+          <span>Contratos</span>
+        </Link>
+
+        <Link
           href="/anfitrion/reservas"
           aria-current={isReservas ? "page" : undefined}
           className={cn(
             "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
             isReservas
-              ? "border-primary text-primary bg-muted/40 font-semibold"
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
               : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
           )}
         >
@@ -131,7 +156,7 @@ export function HostNavigation() {
           className={cn(
             "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
             isPayments
-              ? "border-primary text-primary bg-muted/40 font-semibold"
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
               : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
           )}
         >
@@ -145,7 +170,7 @@ export function HostNavigation() {
           className={cn(
             "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
             isNuevo
-              ? "border-primary text-primary bg-muted/40 font-semibold"
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
               : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
           )}
         >
