@@ -276,35 +276,17 @@ GRANT espacigo_schema_owner TO espacigo_migrator_login WITH SET OPTION;
 SQL
 ```
 
-   > **Importante sobre las migraciones (`V99`):** el migrador genérico (`./scripts/local-dev.sh migrate`) bloquea a propósito `V000099` (`V99 requires the dedicated E1 operation`), por lo que **no se puede migrar desde `0` en una base vacía**. Pide al equipo un dump base (`espacigo_base.dump`) y restáuralo en el contenedor:
+   > **Base unificada (`V000001__baseline.sql`):** ya no necesitas restaurar ningún `.dump` manual. Con los roles base creados, el migrador aplica `V000001__baseline.sql` directamente desde cero.
 
-```bash
-docker cp ~/espacigo_base.dump espacigo_localbackend_20261024-database-1:/tmp/espacigo_base.dump
-docker exec -e PGPASSWORD="$ADMIN_PASS" espacigo_localbackend_20261024-database-1 \
-  pg_restore -U espacigo_admin -d espacigo_aws_local --clean --if-exists --no-owner --no-acl /tmp/espacigo_base.dump
-```
-
-   *(Es normal si `pg_restore` reporta algún aviso menor en tablas de ensayo como `reserva_ensayo_*`).*
-
-   Inmediatamente después de restaurar con `--no-owner --no-acl`, otorga los permisos explícitos a `espacigo_runtime` (si faltan, el login mostrará `"No pudimos verificar documentos completos y vigentes"` y `permission denied for table version_terminos`):
-
-```bash
-docker exec -i -e PGPASSWORD="$ADMIN_PASS" espacigo_localbackend_20261024-database-1 \
-  psql -v ON_ERROR_STOP=1 -U espacigo_admin -d espacigo_aws_local <<'SQL'
-GRANT USAGE ON SCHEMA public TO espacigo_runtime;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO espacigo_runtime;
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO espacigo_runtime;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
-SQL
-```
-
-4. **Ejecuta el bootstrap completo y verifica el entorno:**
-   En Docker Desktop sobre Windows 11, exporta `ESPACIGO_LOCAL_DB_HOST=127.0.0.1` y `ESPACIGO_LOCAL_DB_PORT=5432` (porque las IPs internas `172.x.x.x` de los contenedores no son accesibles desde WSL2). `bootstrap` crea los 5 buckets S3, parámetros SSM (`/espacigo/local/`), Log Groups, `migrator-setup`, `frontend/.env.local` y el contenedor **Mailpit**:
+4. **Ejecuta el bootstrap, habilita DDL, migra desde cero y verifica el entorno:**
+   En Docker Desktop sobre Windows 11, exporta `ESPACIGO_LOCAL_DB_HOST=127.0.0.1` y `ESPACIGO_LOCAL_DB_PORT=5432` (porque las IPs internas `172.x.x.x` de los contenedores no son accesibles desde WSL2):
 
 ```bash
 export ESPACIGO_LOCAL_DB_HOST=127.0.0.1
 export ESPACIGO_LOCAL_DB_PORT=5432
 ./scripts/local-dev.sh bootstrap
+./scripts/local-dev.sh migrator-enable-ddl
+./scripts/local-dev.sh migrate
 ./scripts/local-dev.sh status
 ```
 
