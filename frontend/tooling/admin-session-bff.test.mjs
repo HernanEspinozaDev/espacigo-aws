@@ -72,7 +72,10 @@ test("espacigo_admin_session cookie is isolated from commercial session cookie",
   assert.ok(cookie.includes("SameSite=Lax"));
   assert.ok(cookie.includes("Path=/"));
 
-  assert.equal(parseAdminSessionCookie(`${ADMIN_SESSION_COOKIE_NAME}=${token}`), token);
+  assert.equal(
+    parseAdminSessionCookie(`${ADMIN_SESSION_COOKIE_NAME}=${token}`),
+    token,
+  );
   assert.equal(
     parseAdminSessionCookie(`${SESSION_COOKIE_NAME}=${token}`),
     null,
@@ -146,7 +149,10 @@ test("AdminFacade dedicated admin session handles MFA challenge and 428 step-up"
   };
 
   const facade = new AdminFacade(mockPort);
-  const startRes = await facade.startAdminSession("staff@espacigo.cl", "secret");
+  const startRes = await facade.startAdminSession(
+    "staff@espacigo.cl",
+    "secret",
+  );
   assert.equal(startRes?.status, "mfa_required");
   assert.equal(facade.getSnapshot().adminSessionStatus, "mfa_required");
 

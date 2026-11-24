@@ -21,7 +21,7 @@ export async function generateMetadata({
   const query = parseCatalogQuery(raw);
   const hasRawAttributes = Boolean(
     raw.attribute &&
-      (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
+    (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
   );
   const filtered =
     hasRawAttributes ||

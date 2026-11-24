@@ -210,7 +210,9 @@ export function buildClearSessionCookies(): [string, string] {
   return [cookie1, cookie2];
 }
 
-export function parseAdminSessionCookie(cookieHeader: string | null): string | null {
+export function parseAdminSessionCookie(
+  cookieHeader: string | null,
+): string | null {
   if (!cookieHeader) return null;
   let rawToken: string | null = null;
   let tokenCount = 0;
@@ -246,7 +248,10 @@ export function buildAdminSessionCookie(
   if (expiresAtIso && rfc3339Timestamp.test(expiresAtIso)) {
     const expiresMs = Date.parse(expiresAtIso);
     if (!Number.isNaN(expiresMs)) {
-      const maxAgeSeconds = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
+      const maxAgeSeconds = Math.max(
+        0,
+        Math.floor((expiresMs - Date.now()) / 1000),
+      );
       parts.push(`Expires=${new Date(expiresMs).toUTCString()}`);
       parts.push(`Max-Age=${maxAgeSeconds}`);
     }

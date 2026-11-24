@@ -39,7 +39,7 @@ export async function generateMetadata({
   const title = category ? categoryLabel(category) : "Categoría";
   const hasRawAttributes = Boolean(
     raw.attribute &&
-      (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
+    (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
   );
   return {
     title: `${title} en arriendo`,

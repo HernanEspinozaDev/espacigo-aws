@@ -115,7 +115,8 @@ export async function ExplorePage({
       {introSlot}
       <header className="mb-4 sm:mb-6">
         <h1 className="text-2xl font-semibold tracking-tight sm:text-4xl">
-          {titleOverride ?? (isMap ? "Mapa de arriendos" : "Explorar arriendos")}
+          {titleOverride ??
+            (isMap ? "Mapa de arriendos" : "Explorar arriendos")}
         </h1>
         <PublicSearchForm
           compact

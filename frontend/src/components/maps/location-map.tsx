@@ -173,7 +173,10 @@ export function LocationMap(props: LocationMapProps) {
         Math.abs(current.lat - props.camera.center[1]) > 0.000001 ||
         Math.abs(instance.getZoom() - props.camera.zoom) > 0.001
       )
-        instance.jumpTo({ center: props.camera.center, zoom: props.camera.zoom });
+        instance.jumpTo({
+          center: props.camera.center,
+          zoom: props.camera.zoom,
+        });
     } else if (
       west !== undefined &&
       south !== undefined &&
@@ -193,7 +196,17 @@ export function LocationMap(props: LocationMapProps) {
     } else {
       instance.jumpTo({ center: [longitude, latitude], zoom: props.zoom });
     }
-  }, [ready, latitude, longitude, props.zoom, props.camera, west, south, east, north]);
+  }, [
+    ready,
+    latitude,
+    longitude,
+    props.zoom,
+    props.camera,
+    west,
+    south,
+    east,
+    north,
+  ]);
 
   useEffect(() => {
     const instance = renderer.current;

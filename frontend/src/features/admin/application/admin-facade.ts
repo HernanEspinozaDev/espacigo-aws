@@ -2060,10 +2060,7 @@ export class AdminFacade {
       );
     } catch (err) {
       if (!this.#isSessionCurrent(scope)) return;
-      this.#handleError(
-        err,
-        "No pudimos cerrar la vista asistida.",
-      );
+      this.#handleError(err, "No pudimos cerrar la vista asistida.");
       throw err;
     } finally {
       if (this.#isSessionCurrent(scope)) {

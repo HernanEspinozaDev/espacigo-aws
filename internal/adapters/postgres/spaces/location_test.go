@@ -56,10 +56,11 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 			*d[3].(*string) = "13101"
 			*d[6].(*string) = tx.source
 			*d[7].(*string) = tx.precision
-			*d[9].(*int64) = int64(tx.writes)
-			*d[10].(*time.Time) = tx.now
+			*d[8].(*string) = "exact"
+			*d[10].(*int64) = int64(tx.writes)
+			*d[11].(*time.Time) = tx.now
 			if tx.writes > 0 {
-				*d[10].(*time.Time) = tx.now.Add(time.Microsecond)
+				*d[11].(*time.Time) = tx.now.Add(time.Microsecond)
 			}
 		default:
 			return errors.New("unexpected query")
@@ -69,7 +70,7 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 }
 func (tx *commercialLocationTx) Exec(_ context.Context, q string, args ...any) (pgconn.CommandTag, error) {
 	if strings.Contains(q, "SET ubicacion_pin_origen") {
-		if len(args) != 3 || args[0] != monthReadSpaceID || tx.writes != 1 {
+		if len(args) != 6 || args[0] != monthReadSpaceID || tx.writes != 1 {
 			return pgconn.CommandTag{}, errors.New("metadata must follow the guarded location write")
 		}
 		tx.provenanceWrites++

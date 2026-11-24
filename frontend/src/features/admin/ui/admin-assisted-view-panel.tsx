@@ -154,7 +154,10 @@ function SummaryAndDiagnosticsSection({
 }) {
   return (
     <div className="space-y-6">
-      <section aria-labelledby="assisted-diagnostics-heading" className="space-y-3">
+      <section
+        aria-labelledby="assisted-diagnostics-heading"
+        className="space-y-3"
+      >
         <h3
           id="assisted-diagnostics-heading"
           className="flex items-center gap-2 text-lg font-semibold"
@@ -197,7 +200,9 @@ function SummaryAndDiagnosticsSection({
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">Verificación contacto</dt>
+            <dt className="text-xs text-muted-foreground">
+              Verificación contacto
+            </dt>
             <dd className="mt-1 flex flex-wrap gap-1.5">
               <Badge variant={summary.email_verified ? "secondary" : "outline"}>
                 Email: {summary.email_verified ? "Verificado" : "Pendiente"}
@@ -270,10 +275,10 @@ function PublishGuideAndMercadoPagoSection({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Estado de enlace</dt>
-              <dd className="mt-1 font-medium">
-                {mp.connection_state || "—"}
-              </dd>
+              <dt className="text-xs text-muted-foreground">
+                Estado de enlace
+              </dt>
+              <dd className="mt-1 font-medium">{mp.connection_state || "—"}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Modo</dt>
@@ -286,7 +291,9 @@ function PublishGuideAndMercadoPagoSection({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Última actualización</dt>
+              <dt className="text-xs text-muted-foreground">
+                Última actualización
+              </dt>
               <dd className="mt-1 text-xs tabular-nums text-muted-foreground">
                 {formatDateTime(mp.updated_at || mp.connected_at) || "—"}
               </dd>
@@ -375,7 +382,8 @@ function SpacesSection({
                   </span>
                 )}
                 <span>
-                  Ubicación: {space.location_confirmed ? "Confirmada" : "Pendiente"}
+                  Ubicación:{" "}
+                  {space.location_confirmed ? "Confirmada" : "Pendiente"}
                 </span>
                 <span>Contrato v{space.contract_published_version}</span>
               </div>
@@ -469,7 +477,10 @@ function ReservationsSection({
   reservations: readonly AdminAssistedViewReservationItem[];
 }) {
   return (
-    <section aria-labelledby="assisted-reservations-heading" className="space-y-3">
+    <section
+      aria-labelledby="assisted-reservations-heading"
+      className="space-y-3"
+    >
       <h3
         id="assisted-reservations-heading"
         className="flex items-center gap-2 text-lg font-semibold"
@@ -596,7 +607,8 @@ type ProjectionState =
   | { status: "error"; message: string };
 
 export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
-  const { snapshot, hasAdminCapability, getAssistedViewProjection } = useAdmin();
+  const { snapshot, hasAdminCapability, getAssistedViewProjection } =
+    useAdmin();
   const activeGrant =
     snapshot.assistedViewGrant?.account_id === accountId
       ? snapshot.assistedViewGrant
@@ -706,7 +718,8 @@ export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
         </h2>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>
-            Caso: <strong className="text-foreground">{activeGrant.case_id}</strong>
+            Caso:{" "}
+            <strong className="text-foreground">{activeGrant.case_id}</strong>
           </span>
           <span>
             Motivo:{" "}

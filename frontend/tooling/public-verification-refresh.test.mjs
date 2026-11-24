@@ -100,6 +100,7 @@ const { goPublicCatalogAdapter: adapter } = await compile(
 const { PublicVerificationBadges: Badges } = await compile(
   "src/features/public-catalog/ui/public-verification-badges.tsx",
   "badges.mjs",
+  [['"lucide-react"', JSON.stringify(import.meta.resolve("lucide-react"))]],
 );
 const fixture = {
   space_id: "11111111-1111-4111-8111-111111111111",
@@ -150,12 +151,10 @@ test("catalog and detail refresh remove old verification flags without retaining
     ]) {
       flags = { identity_verified: true, space_verified: true };
       const initial = render((await load()).verification);
-      assert.match(initial, /Identidad verificada/);
-      assert.match(initial, /Antecedentes del espacio revisados/);
+      assert.match(initial, /Espacio verificado/);
+      assert.doesNotMatch(initial, /Identidad verificada/);
       flags = { identity_verified: true, space_verified: false };
-      const independent = render((await load()).verification);
-      assert.match(independent, /Identidad verificada/);
-      assert.doesNotMatch(independent, /Antecedentes del espacio revisados/);
+      assert.equal(render((await load()).verification), "");
       flags = undefined;
       assert.equal(render((await load()).verification), "");
       flags = { identity_verified: false, space_verified: true };
@@ -662,7 +661,7 @@ test("map adapter strips nested private data and retains exact CLP without conve
   }
 });
 
-test("map facade exhausts its own pages and preserves filters independently of grid cursor", async () => {
+test("map facade requests a single bounded page and preserves filters independently of grid cursor", async () => {
   const { createPublicCatalogService } = await compile(
     "src/features/public-catalog/application/catalog-service.ts",
     "catalog-service.mjs",
@@ -675,8 +674,8 @@ test("map facade exhausts its own pages and preserves filters independently of g
       return {
         ok: true,
         value: {
-          items: [{ space_id: query.cursor ? "second" : "first" }],
-          ...(query.cursor ? {} : { next_cursor: "map-next" }),
+          items: [{ space_id: "first" }],
+          next_cursor: "map-next",
         },
       };
     },
@@ -687,17 +686,19 @@ test("map facade exhausts its own pages and preserves filters independently of g
     bbox: "-71,-34,-70,-33",
   });
   assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
   assert.deepEqual(
     result.value.items.map((item) => item.space_id),
-    ["first", "second"],
+    ["first"],
   );
-  assert.equal(result.value.truncated, false);
+  assert.equal(result.value.truncated, true);
+  assert.equal(result.value.has_more, true);
   assert.equal(calls[0].cursor, undefined);
-  assert.equal(calls[1].cursor, "map-next");
-  assert.equal(calls[1].bbox, "-71,-34,-70,-33");
+  assert.equal(calls[0].page_size, 250);
+  assert.equal(calls[0].bbox, "-71,-34,-70,-33");
 });
 
-test("map facade stops loading at the marker cap and signals truncation", async () => {
+test("map facade caps returned markers at 250 and signals truncation", async () => {
   const { createPublicCatalogService } = await compile(
     "src/features/public-catalog/application/catalog-service.ts",
     "catalog-service.mjs",
@@ -710,19 +711,20 @@ test("map facade stops loading at the marker cap and signals truncation", async 
       return {
         ok: true,
         value: {
-          items: Array.from({ length: 48 }, (_, index) => ({
+          items: Array.from({ length: 300 }, (_, index) => ({
             space_id: `${pages}-${index}`,
           })),
-          next_cursor: String(pages),
+          has_more: true,
         },
       };
     },
   });
   const result = await service.mapMarkers({ attribute: [] });
   assert.equal(result.ok, true);
-  assert.equal(pages, 10);
-  assert.equal(result.value.items.length, 480);
+  assert.equal(pages, 1);
+  assert.equal(result.value.items.length, 250);
   assert.equal(result.value.truncated, true);
+  assert.equal(result.value.has_more, true);
 });
 
 test.after(async () => rm(temporary, { recursive: true, force: true }));

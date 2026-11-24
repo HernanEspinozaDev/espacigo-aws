@@ -264,7 +264,12 @@ function AuthenticatedAccountVerificationCard({
                   </Button>
                 ) : null}
                 {showDeclarationLink ? (
-                  <Button asChild size="sm" variant="outline" className="gap-1.5">
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                  >
                     <Link href="/mi-cuenta/verificaciones">
                       Ver estado
                       <ArrowRight className="size-4" aria-hidden="true" />

@@ -68,7 +68,9 @@ export function AdminSensitiveEmailControl({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValidAdminReason(reason)) {
-      setLocalError("El motivo es obligatorio y debe tener al menos 5 caracteres.");
+      setLocalError(
+        "El motivo es obligatorio y debe tener al menos 5 caracteres.",
+      );
       return;
     }
     setSubmitting(true);
@@ -142,7 +144,10 @@ export function AdminSensitiveEmailControl({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="size-5 text-amber-600" aria-hidden="true" />
+              <ShieldAlert
+                className="size-5 text-amber-600"
+                aria-hidden="true"
+              />
               <span>Acceso auditado a correo</span>
             </DialogTitle>
             <DialogDescription>

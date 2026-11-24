@@ -378,11 +378,7 @@ export interface AdminDamageClaimResolutionInput {
 }
 
 export type AdminSessionStatus =
-  | "unknown"
-  | "checking"
-  | "anonymous"
-  | "mfa_required"
-  | "authenticated";
+  "unknown" | "checking" | "anonymous" | "mfa_required" | "authenticated";
 
 export interface AdminSessionData {
   readonly account_id: string;
@@ -685,11 +681,7 @@ export type GlobalAdminPrivacyRequestType =
   | "bloqueo";
 
 export type GlobalAdminPrivacyRequestStatus =
-  | "pendiente"
-  | "en_revision"
-  | "aprobada"
-  | "rechazada"
-  | "completada";
+  "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
 
 export interface GlobalAdminPrivacyRequest {
   readonly id: string;
@@ -728,16 +720,10 @@ export type GlobalAdminSupportTicketCategory =
   | (string & {});
 
 export type GlobalAdminSupportTicketPriority =
-  | "baja"
-  | "media"
-  | "alta"
-  | "critica";
+  "baja" | "media" | "alta" | "critica";
 
 export type GlobalAdminSupportTicketStatus =
-  | "abierto"
-  | "en_progreso"
-  | "resuelto"
-  | "cerrado";
+  "abierto" | "en_progreso" | "resuelto" | "cerrado";
 
 export interface GlobalAdminSupportTicket {
   readonly id: string;
@@ -770,20 +756,12 @@ export interface GlobalAdminSupportTicketCreateInput {
 }
 
 export type GlobalAdminApprovalActionType =
-  | "refund_request"
-  | "privacy_export"
-  | "staff_role_grant";
+  "refund_request" | "privacy_export" | "staff_role_grant";
 
 export type GlobalAdminApprovalStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "cancelled";
+  "pending" | "approved" | "rejected" | "cancelled";
 
-export type GlobalAdminApprovalDecision =
-  | "approved"
-  | "rejected"
-  | "cancelled";
+export type GlobalAdminApprovalDecision = "approved" | "rejected" | "cancelled";
 
 export interface GlobalAdminApproval {
   readonly id: string;

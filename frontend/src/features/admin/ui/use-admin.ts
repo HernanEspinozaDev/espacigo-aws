@@ -839,7 +839,8 @@ export function useAdmin(): AdminView {
       accountId: string,
       input: AdminSensitiveAccessInput,
       signal?: AbortSignal,
-    ) => adminFacade.requestGlobalAccountSensitiveAccess(accountId, input, signal),
+    ) =>
+      adminFacade.requestGlobalAccountSensitiveAccess(accountId, input, signal),
     [],
   );
 

@@ -270,8 +270,13 @@ test("CTAs de oferta informan la guía de publicación y llevan al ingreso o cre
     page.getByRole("tab", { name: /Para Arrendadores/i }),
   ).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("main").getByRole("link", { name: /Publicar gratis como arrendador/i }),
-  ).toHaveAttribute("href", "/acceso?return_to=%2Fanfitrion%2Fespacios%2Fnuevo");
+    page
+      .getByRole("main")
+      .getByRole("link", { name: /Publicar gratis como arrendador/i }),
+  ).toHaveAttribute(
+    "href",
+    "/acceso?return_to=%2Fanfitrion%2Fespacios%2Fnuevo",
+  );
 });
 
 test("rutas legacy conservan query compatible y slugs de fixtures dan 404", async ({

@@ -66,7 +66,9 @@ export class OpenApiAdminAdapter implements AdminPort {
   // Dedicated Admin Session
   // -----------------------------------------------------
 
-  async getAdminSession(signal?: AbortSignal): Promise<AdminSessionData | null> {
+  async getAdminSession(
+    signal?: AbortSignal,
+  ): Promise<AdminSessionData | null> {
     const result = await apiClient.GET("/admin/session", { signal });
     if (result.response?.status === 401) return null;
     if (!result.response.ok) {

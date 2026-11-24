@@ -122,7 +122,10 @@ export default async function Home() {
                 href="/explorar/mapa?category_code=inmuebles"
                 className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:border-[var(--brand-accent)]"
               >
-                <MapPin className="size-4 text-[var(--brand-accent)]" aria-hidden="true" />
+                <MapPin
+                  className="size-4 text-[var(--brand-accent)]"
+                  aria-hidden="true"
+                />
                 Ver en mapa
               </Link>
               <Link
