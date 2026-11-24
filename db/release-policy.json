@@ -254,6 +254,64 @@
       "automatic": false,
       "requires_schema_owner": ["public.espacio", "public.cotizacion_arriendo_comercial"],
       "reason": "Adds cancellation policy selection and immutable quote snapshots. Review legacy fallback, historical terms and contract binding before release."
+    },
+    "V000133__user_in_app_notifications.sql": {
+      "checksum": "62b262efcc3063c82947a8e7926fbb60f05dad843ec96b2780d7f17e6ff8af39",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds in-app notifications table for contract signature and rental lifecycle alerts."
+    },
+    "V000134__fes_reinforced_signatures_and_otp.sql": {
+      "checksum": "f50a7c970c50c76fc225421b0aab46e9b12df6b12d621745bd2354ca70a8672a",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.contrato_solicitud_comercial", "public.contrato_firma_comercial", "public.contrato_documento_comercial"],
+      "reason": "Adds OTP signature challenge table and reinforced FES/FEA evidence columns."
+    },
+    "V000135__commercial_location_pin_provenance.sql": {
+      "checksum": "2bb4059ba7a3ffbfbca3092f746fc9a2a97713460a745d507858f563003d780e",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Adds optional manual or geocoded pin provenance without backfill. The guard clears stale metadata on legacy location edits; review ownership and location revision behavior before release."
+    },
+    "V000136__public_location_visibility.sql": {
+      "checksum": "06186a37bee4906718729a2eee7334596b23a7de7e45cec7e570d02f58548a27",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Adds public location visibility ('exact' | 'approximate') and deterministic public coordinates on public.espacio."
+    },
+    "V000137__commercial_auto_authorization_activation.sql": {
+      "checksum": "ec3763145581376a37b4e34bc8b478a221a72e5738281d5715d17f98c715fa05",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.autorizacion_arriendo_comercial_evento", "public.contrato_firma_comercial"],
+      "reason": "Allows repeated auto_confirmed audit events on commercial authorization history and auto_authorization method on landlord mandated signatures."
+    },
+    "V000138__commercial_auto_authorization_otp.sql": {
+      "checksum": "26bed2a5accb3caa3235ff2af6b8e2db84c2c4a0507a068e57ed1cfd949df2b0",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds email OTP challenge table for landlord commercial auto-authorization activation."
+    },
+    "V000139__admin_staff_sessions_and_sensitive_access.sql": {
+      "checksum": "1745ab69021263b6a025cdcb591474e361497a83a0c63eb69ded85021fdf3ebb",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds dedicated admin staff sessions, MFA challenges, and audited sensitive-access grants."
+    },
+    "V000140__admin_assisted_client_view.sql": {
+      "checksum": "30f13e2f7fafd4ca74934a848f885fe3b2f640cd1b10709ef57162b742f7dcdc",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds time-bounded, audited read-only assisted client view grants for global administrators."
+    },
+    "V000141__admin_specialized_ops_and_approvals.sql": {
+      "checksum": "2d03d8015de7f2fee6a81fba4c144c82a21e59ed6e1a25910f3eff0aa21e7c95",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds administrative support tickets, privacy rights requests, and dual-control approval workflows."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."
