@@ -8,7 +8,6 @@ import (
 	"net/url"
 
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ import (
 
 const earlyInsertOptIn = "TEST_RENTALFLOW_POSTGRES_ISOLATED"
 
-// earlyInsertPostgresFixture owns an isolated V1..V61 + exact V99 schema.
+// earlyInsertPostgresFixture owns an isolated V000001 baseline schema.
 // Reuse it for adapter tests without duplicating authority or cleanup setup.
 func earlyInsertPostgresFixture(t *testing.T) (context.Context, *url.URL) {
 	t.Helper()
@@ -54,7 +53,7 @@ func earlyInsertPostgresFixture(t *testing.T) (context.Context, *url.URL) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roleNames := []string{"espacigo_schema_owner", "espacigo_runtime"}
+	roleNames := []string{"espacigo_schema_owner", "espacigo_runtime", "espacigo_privacy_cleanup_worker", "espacigo_gadm_bootstrap"}
 	for _, role := range roleNames {
 		var exists bool
 		if err := roles.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=$1)`, role).Scan(&exists); err != nil {
@@ -99,149 +98,23 @@ func earlyInsertPostgresFixture(t *testing.T) (context.Context, *url.URL) {
 	})
 	dbURL := *adminConfig
 	dbURL.Path = "/" + dbName
-	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
+	extConn, err := pgx.Connect(ctx, dbURL.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	prefix := t.TempDir()
-	var prefixCount int
-	for _, m := range migrations {
-		if m.Version > 61 {
-			break
-		}
-		if err := os.WriteFile(filepath.Join(prefix, m.Name), m.SQL, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		prefixCount++
-	}
-	if prefixCount != 61 {
-		t.Fatalf("expected exactly 61 baseline migrations, got %d", prefixCount)
-	}
-	if _, err := migrator.Run(ctx, dbURL.String(), prefix); err != nil {
-		t.Fatalf("apply synthetic migration prefix 1..61: %v", err)
-	}
-
-	setup, err := pgx.Connect(ctx, dbURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = setup.Exec(ctx, `GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;
-GRANT REFERENCES (id) ON TABLE public.usuario, public.espacio TO espacigo_schema_owner;
-GRANT SELECT, INSERT ON TABLE public.ocupacion TO espacigo_runtime`)
-	if err != nil {
-		_ = setup.Close(ctx)
-		t.Fatalf("grant exact fixture prerequisites: %v", err)
-	}
-	if err := setup.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	var migration *migrator.Migration
-	for i := range migrations {
-		if migrations[i].Version == 99 {
-			migration = &migrations[i]
-			break
+	for _, ext := range []string{"unaccent", "postgis", "btree_gist", "pgcrypto"} {
+		if _, err := extConn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{ext}.Sanitize()+" SCHEMA public"); err != nil {
+			_ = extConn.Close(context.Background())
+			t.Fatalf("create extension %s: %v", ext, err)
 		}
 	}
-	if migration == nil || migration.Name != "V000099__early_rental_manual_contract.sql" {
-		t.Fatal("canonical V99 migration is unavailable")
-	}
-	ddl, err := pgx.Connect(ctx, dbURL.String())
-	if err != nil {
+	if err := extConn.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	txDDL, err := ddl.Begin(ctx)
-	if err != nil {
-		_ = ddl.Close(ctx)
-		t.Fatal(err)
-	}
-	if _, err := txDDL.Exec(ctx, string(migration.SQL)); err != nil {
-		_ = txDDL.Rollback(ctx)
-		_ = ddl.Close(ctx)
-		t.Fatalf("execute canonical V99 bytes in isolated fixture: %v", err)
-	}
-	if err := txDDL.Commit(ctx); err != nil {
-		_ = ddl.Close(ctx)
-		t.Fatalf("commit canonical V99 DDL: %v", err)
-	}
-	if err := ddl.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
-	verify, err := pgx.Connect(ctx, dbURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, q := range []string{
-		`REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner`,
-		`REVOKE REFERENCES (id) ON TABLE public.usuario, public.espacio FROM espacigo_schema_owner`,
-	} {
-		if _, err := verify.Exec(ctx, q); err != nil {
-			_ = verify.Close(ctx)
-			t.Fatalf("revoke temporary fixture authority: %v", err)
-		}
-	}
-	var create, userRef, spaceRef bool
-	if err := verify.QueryRow(ctx, `SELECT has_schema_privilege('espacigo_schema_owner','public','CREATE'),has_column_privilege('espacigo_schema_owner','public.usuario','id','REFERENCES'),has_column_privilege('espacigo_schema_owner','public.espacio','id','REFERENCES')`).Scan(&create, &userRef, &spaceRef); err != nil {
-		_ = verify.Close(ctx)
-		t.Fatal(err)
-	}
-	if create || userRef || spaceRef {
-		_ = verify.Close(ctx)
-		t.Fatalf("temporary DDL grants remain: CREATE=%v user REFERENCES=%v space REFERENCES=%v", create, userRef, spaceRef)
-	}
-	if err := verify.Close(ctx); err != nil {
-		t.Fatal(err)
+	if _, err := migrator.Run(ctx, dbURL.String(), "../../../../db/migrations"); err != nil {
+		t.Fatalf("apply baseline migrations: %v", err)
 	}
 	return ctx, &dbURL
-}
-
-// applyCommercialHoldReadSchemaFixture applies the exact canonical commercial
-// quote and Checkout Pro hold DDL required by snapshot readers. These adapter
-// tests intentionally keep their legacy V1..V61 + V99 data fixture; applying
-// V97/V111 bytes gives the reader's referenced relations their production
-// shape without pretending the fixture is a full migration-chain test.
-func applyCommercialHoldReadSchemaFixture(t *testing.T, ctx context.Context, databaseURL string, migrations []migrator.Migration) {
-	t.Helper()
-	for _, version := range []int64{97, 111, 116, 117, 132} {
-		var migration *migrator.Migration
-		for i := range migrations {
-			if migrations[i].Version == version {
-				migration = &migrations[i]
-				break
-			}
-		}
-		if migration == nil {
-			t.Fatalf("canonical V%d migration is unavailable", version)
-		}
-		conn, err := pgx.Connect(ctx, databaseURL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tx, err := conn.Begin(ctx)
-		if err != nil {
-			_ = conn.Close(ctx)
-			t.Fatal(err)
-		}
-		if _, err := tx.Exec(ctx, string(migration.SQL)); err != nil {
-			_ = tx.Rollback(ctx)
-			_ = conn.Close(ctx)
-			t.Fatalf("apply exact canonical V%d commercial hold schema: %v", version, err)
-		}
-		if version == 111 {
-			if _, err := tx.Exec(ctx, `GRANT SELECT ON public.checkout_preferencia_comercial, public.cotizacion_arriendo_comercial TO espacigo_runtime`); err != nil {
-				_ = tx.Rollback(ctx)
-				_ = conn.Close(ctx)
-				t.Fatalf("grant fixture-only commercial hold read privileges: %v", err)
-			}
-		}
-		if err := tx.Commit(ctx); err != nil {
-			_ = conn.Close(ctx)
-			t.Fatalf("commit exact canonical V%d fixture schema: %v", version, err)
-		}
-		if err := conn.Close(ctx); err != nil {
-			t.Fatal(err)
-		}
-	}
 }
 
 func TestPostgresEarlyRentalInitialInsert(t *testing.T) {
