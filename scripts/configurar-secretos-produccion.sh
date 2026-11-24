@@ -1,18 +1,91 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Carga interactivamente los secretos de produccion hacia AWS SSM Parameter Store
-# (sin endpoint VPC de Secrets Manager para ahorrar costos) y AWS Secrets Manager
-# (migrator y Mercado Pago) usando el perfil de produccion.
+# Carga secretos de produccion hacia AWS SSM Parameter Store (sin VPC endpoint
+# de Secrets Manager para ahorrar costos) y AWS Secrets Manager (migrator y
+# Mercado Pago) usando el perfil de produccion.
 #
-# Uso:
-#   aws login --profile espacigo-prod
-#   ./scripts/configurar-secretos-produccion.sh
+# Modos de uso:
+#   1) Generar plantilla local segura (.local/secrets/produccion.env, fuera de Git):
+#      ./scripts/configurar-secretos-produccion.sh --init-template
+#
+#   2) Subir los secretos rellenados desde ese archivo a AWS:
+#      aws login --profile espacigo-prod
+#      ./scripts/configurar-secretos-produccion.sh --from-file .local/secrets/produccion.env
+#
+#   3) Modo interactivo:
+#      aws login --profile espacigo-prod
+#      ./scripts/configurar-secretos-produccion.sh
 
 PROFILE="${ESPACIGO_PROD_PROFILE:-espacigo-prod}"
 REGION="${ESPACIGO_PROD_REGION:-us-east-2}"
 ENVIRONMENT="${ESPACIGO_ENVIRONMENT:-prod}"
 ORIGIN="${ESPACIGO_FRONTEND_ORIGIN:-https://espacigo.testingpage.store}"
+
+MODE="interactive"
+ENV_FILE=""
+DEFAULT_TEMPLATE=".local/secrets/produccion.env"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --init-template)
+      MODE="init"
+      if [[ $# -gt 1 && "${2:-}" != --* ]]; then
+        ENV_FILE="$2"
+        shift 2
+      else
+        ENV_FILE="$DEFAULT_TEMPLATE"
+        shift
+      fi
+      ;;
+    --from-file)
+      MODE="file"
+      ENV_FILE="${2:?Falta ruta del archivo de secretos}"
+      shift 2
+      ;;
+    *)
+      echo "Uso: $0 [--init-template [ruta]] [--from-file <ruta>]" >&2
+      exit 2
+      ;;
+  esac
+done
+
+GEN_CURSOR_KEY="$(openssl rand -hex 32)"
+GEN_TOTP_KEY="$(openssl rand -base64 32)"
+GEN_TOTP_JSON="{\"active_key_id\":\"k1\",\"keys\":{\"k1\":\"${GEN_TOTP_KEY}\"}}"
+GEN_MP_ENC_KEY="$(openssl rand -base64 32)"
+
+if [[ "$MODE" == "init" ]]; then
+  mkdir -p "$(dirname "$ENV_FILE")"
+  chmod 700 "$(dirname "$ENV_FILE")" 2>/dev/null || true
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "Ya existe ${ENV_FILE}; no se sobrescribe para proteger tus secretos."
+    exit 0
+  fi
+  umask 077
+  cat > "$ENV_FILE" <<EOF
+# Secretos de produccion EspaciGo (archivo local en .local/, fuera de Git)
+# Rellena los campos vacios y luego ejecuta:
+#   ./scripts/configurar-secretos-produccion.sh --from-file ${ENV_FILE}
+
+DB_API_PASSWORD=""
+DB_MIGRATOR_PASSWORD=""
+SMTP_PASSWORD=""
+
+# Mercado Pago Produccion
+MP_CLIENT_ID=""
+MP_CLIENT_SECRET=""
+MP_WEBHOOK_SECRET=""
+
+# Llaves criptograficas (autogeneradas; puedes conservarlas)
+CURSOR_KEY="${GEN_CURSOR_KEY}"
+TOTP_KEYRING_JSON='${GEN_TOTP_JSON}'
+MP_TOKEN_ENCRYPTION_KEY="${GEN_MP_ENC_KEY}"
+EOF
+  chmod 600 "$ENV_FILE"
+  echo "Plantilla creada (chmod 600): ${ENV_FILE}"
+  exit 0
+fi
 
 # Aislamiento estricto respecto al aws-emulator local.
 unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 AWS_ENDPOINT_URL_SSM AWS_CA_BUNDLE
@@ -85,40 +158,56 @@ upsert_sm_secret() {
   printf '%s' "$arn"
 }
 
-GEN_CURSOR_KEY="$(openssl rand -hex 32)"
-GEN_TOTP_KEY="$(openssl rand -base64 32)"
-GEN_TOTP_JSON="{\"active_key_id\":\"k1\",\"keys\":{\"k1\":\"${GEN_TOTP_KEY}\"}}"
-GEN_MP_ENC_KEY="$(openssl rand -base64 32)"
+if [[ "$MODE" == "file" ]]; then
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "ERROR: No existe el archivo '${ENV_FILE}'." >&2
+    exit 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  CURSOR_KEY="${CURSOR_KEY:-$GEN_CURSOR_KEY}"
+  TOTP_KEYRING_JSON="${TOTP_KEYRING_JSON:-$GEN_TOTP_JSON}"
+  MP_TOKEN_ENCRYPTION_KEY="${MP_TOKEN_ENCRYPTION_KEY:-$GEN_MP_ENC_KEY}"
+  for var in DB_API_PASSWORD DB_MIGRATOR_PASSWORD SMTP_PASSWORD MP_CLIENT_ID MP_CLIENT_SECRET MP_WEBHOOK_SECRET; do
+    if [[ -z "${!var:-}" ]]; then
+      echo "ERROR: Falta completar '${var}' en ${ENV_FILE}." >&2
+      exit 1
+    fi
+  done
+else
+  echo "--- 1. Parametros SSM para ECS API (ahorro sin VPC endpoint de Secrets Manager) ---"
+  DB_API_PASSWORD="$(prompt_secret "Password de base de datos (espacigo_api_login)")"
+  CURSOR_KEY="$(prompt_secret "PUBLIC_CATALOG_ECS_CURSOR_KEY (hex 64 chars)" "$GEN_CURSOR_KEY")"
+  SMTP_PASSWORD="$(prompt_secret "Password SMTP de produccion (AUTH_SMTP_ECS_PASSWORD)")"
+  TOTP_KEYRING_JSON="$(prompt_secret "TOTP_KEYRING_JSON" "$GEN_TOTP_JSON")"
 
-echo "--- 1. Parametros SSM para ECS API (ahorro sin VPC endpoint de Secrets Manager) ---"
-DB_API_PASS="$(prompt_secret "Password de base de datos (espacigo_api_login)")"
-CURSOR_KEY="$(prompt_secret "PUBLIC_CATALOG_ECS_CURSOR_KEY (hex 64 chars)" "$GEN_CURSOR_KEY")"
-SMTP_PASS="$(prompt_secret "Password SMTP de produccion (AUTH_SMTP_ECS_PASSWORD)")"
-TOTP_JSON="$(prompt_secret "TOTP_KEYRING_JSON" "$GEN_TOTP_JSON")"
+  echo
+  echo "--- 2. Secrets Manager: Migrator DB (para CodeBuild / ECS dbmigrate) ---"
+  DB_MIGRATOR_PASSWORD="$(prompt_secret "Password de migraciones (espacigo_migrator_login)")"
 
-upsert_ssm_secure "/espacigo/${ENVIRONMENT}/database/api_password" "$DB_API_PASS" "Database API runtime password"
+  echo
+  echo "--- 3. Secrets Manager: Mercado Pago Produccion ---"
+  read -rp "MERCADOPAGO_CLIENT_ID (App ID de produccion): " MP_CLIENT_ID
+  while [[ -z "$MP_CLIENT_ID" ]]; do
+    read -rp "MERCADOPAGO_CLIENT_ID (App ID de produccion): " MP_CLIENT_ID
+  done
+  MP_CLIENT_SECRET="$(prompt_secret "MERCADOPAGO_CLIENT_SECRET (produccion)")"
+  MP_WEBHOOK_SECRET="$(prompt_secret "MERCADOPAGO_WEBHOOK_SECRET (firma secreta webhooks)")"
+  MP_TOKEN_ENCRYPTION_KEY="$(prompt_secret "MERCADOPAGO_TOKEN_ENCRYPTION_KEY (Base64 32 bytes)" "$GEN_MP_ENC_KEY")"
+fi
+
+upsert_ssm_secure "/espacigo/${ENVIRONMENT}/database/api_password" "$DB_API_PASSWORD" "Database API runtime password"
 upsert_ssm_secure "/espacigo/${ENVIRONMENT}/database/cursor_key" "$CURSOR_KEY" "Public catalog cursor HMAC key"
-upsert_ssm_secure "/espacigo/${ENVIRONMENT}/auth/smtp_password" "$SMTP_PASS" "SMTP password for transactional auth emails"
-upsert_ssm_secure "/espacigo/${ENVIRONMENT}/auth/totp_keyring" "$TOTP_JSON" "TOTP AES keyring JSON"
+upsert_ssm_secure "/espacigo/${ENVIRONMENT}/auth/smtp_password" "$SMTP_PASSWORD" "SMTP password for transactional auth emails"
+upsert_ssm_secure "/espacigo/${ENVIRONMENT}/auth/totp_keyring" "$TOTP_KEYRING_JSON" "TOTP AES keyring JSON"
 
-echo
-echo "--- 2. Secrets Manager: Migrator DB (para CodeBuild / ECS dbmigrate) ---"
-DB_MIGRATOR_PASS="$(prompt_secret "Password de migraciones (espacigo_migrator_login)")"
-MIGRATOR_JSON="$(python3 -c 'import json,sys; print(json.dumps({"password": sys.argv[1]}))' "$DB_MIGRATOR_PASS")"
+MIGRATOR_JSON="$(python3 -c 'import json,sys; print(json.dumps({"password": sys.argv[1]}))' "$DB_MIGRATOR_PASSWORD")"
 MIGRATOR_ARN="$(upsert_sm_secret "espacigo/${ENVIRONMENT}/database/migrator" "$MIGRATOR_JSON" "Database migrator login password")"
 echo "OK Secrets Manager: ${MIGRATOR_ARN}"
 
-echo
-echo "--- 3. Secrets Manager: Mercado Pago Produccion ---"
-read -rp "MERCADOPAGO_CLIENT_ID (App ID de produccion): " MP_CLIENT_ID
-while [[ -z "$MP_CLIENT_ID" ]]; do
-  read -rp "MERCADOPAGO_CLIENT_ID (App ID de produccion): " MP_CLIENT_ID
-done
-MP_CLIENT_SECRET="$(prompt_secret "MERCADOPAGO_CLIENT_SECRET (produccion)")"
-MP_WEBHOOK_SECRET="$(prompt_secret "MERCADOPAGO_WEBHOOK_SECRET (firma secreta webhooks)")"
-MP_ENC_KEY="$(prompt_secret "MERCADOPAGO_TOKEN_ENCRYPTION_KEY (Base64 32 bytes)" "$GEN_MP_ENC_KEY")"
-
-MP_JSON="$(python3 -c 'import json,sys; print(json.dumps({"client_id":sys.argv[1],"client_secret":sys.argv[2],"token_encryption_key":sys.argv[3],"webhook_secret":sys.argv[4]}))' "$MP_CLIENT_ID" "$MP_CLIENT_SECRET" "$MP_ENC_KEY" "$MP_WEBHOOK_SECRET")"
+MP_JSON="$(python3 -c 'import json,sys; print(json.dumps({"client_id":sys.argv[1],"client_secret":sys.argv[2],"token_encryption_key":sys.argv[3],"webhook_secret":sys.argv[4]}))' "$MP_CLIENT_ID" "$MP_CLIENT_SECRET" "$MP_TOKEN_ENCRYPTION_KEY" "$MP_WEBHOOK_SECRET")"
 MP_ARN="$(upsert_sm_secret "espacigo/${ENVIRONMENT}/payments/mercadopago" "$MP_JSON" "Mercado Pago Chile production OAuth and webhook secrets")"
 echo "OK Secrets Manager: ${MP_ARN}"
 
