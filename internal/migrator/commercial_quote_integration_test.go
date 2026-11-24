@@ -364,7 +364,7 @@ func assertCommercialQuotePersistenceWithExistingRuntimeACL(t *testing.T, ctx co
 	globalAdminPrice := "230000"
 	globalAdminCorrelationID := uuid.NewString()
 	assertCommercialQuoteWriterWaitsForSharedLock(t, ctx, adminURL, runtime, repo, ownerID, renterID, spaceID, monthlyListing, monthlyInterval, now,
-		"adminglobal.Service.UpdatePublication", `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8 FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, 230000,
+		"adminglobal.Service.UpdatePublication", `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8,COALESCE(region_codigo,''),COALESCE(comuna_codigo,'') FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, 230000,
 		func(ctx context.Context, writerPool *pgxpool.Pool) error {
 			service, err := adminglobal.New(writerPool, func() time.Time { return now })
 			if err != nil {
