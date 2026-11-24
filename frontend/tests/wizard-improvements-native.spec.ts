@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import { expect, test, type Page } from "@playwright/test";
 import {
   chmod,
@@ -287,15 +288,11 @@ for (const unit of ["hora", "dia", "mes"] as const) {
     await page.locator("#wizard-description").fill(description);
     await page.getByRole("button", { name: "Siguiente" }).click();
 
-    await page.locator("#wizard-region").selectOption("13");
-    await expect(page.locator("#wizard-comuna")).toBeEnabled();
-    await expect(
-      page.locator("#wizard-comuna option").filter({ hasText: /^Santiago$/ }),
-    ).toHaveCount(1);
-    await page.locator("#wizard-comuna").selectOption("13101");
+    await chooseWizardLocation(page, "13101");
     await page
       .locator("#wizard-address")
       .fill("Dirección sintética de ensayo 100");
+    await page.getByRole("button", { name: "Siguiente" }).click();
     await page.locator("#wizard-area").fill("40");
     await page.locator("#wizard-capacity").fill("2");
     for (const attribute of profile.attributes.filter(
@@ -342,7 +339,7 @@ for (const unit of ["hora", "dia", "mes"] as const) {
       await page.getByLabel("Habilitar horario semanal").check();
     }
     await page.getByRole("button", { name: "Siguiente" }).click();
-    await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Paso 6:/ })).toBeVisible();
     await page
       .getByRole("navigation", { name: "Pasos del asistente de publicación" })
       .getByRole("button", { name: "Disponibilidad", exact: true })

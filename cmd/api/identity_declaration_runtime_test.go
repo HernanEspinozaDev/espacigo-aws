@@ -181,21 +181,21 @@ func TestValidateIdentityDeclarationNativeLedgerMatchesSource(t *testing.T) {
 		mutate func([]migrator.Migration, []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry)
 	}{
 		{"missing version", func(m []migrator.Migration, h []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry) {
-			return m, h[:84]
+			return m, h[:0]
 		}},
 		{"extra version", func(m []migrator.Migration, h []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry) {
 			return m, append(h, migrator.HistoryEntry{Version: identityDeclarationNativeLedgerVersion + 1})
 		}},
 		{"version gap", func(m []migrator.Migration, h []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry) {
-			h[1].Version = 3
+			h[0].Version = 3
 			return m, h
 		}},
 		{"renamed migration", func(m []migrator.Migration, h []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry) {
-			h[2].Name += ".renamed"
+			h[0].Name += ".renamed"
 			return m, h
 		}},
 		{"checksum drift", func(m []migrator.Migration, h []migrator.HistoryEntry) ([]migrator.Migration, []migrator.HistoryEntry) {
-			h[3].Checksum = strings.Repeat("0", 64)
+			h[0].Checksum = strings.Repeat("0", 64)
 			return m, h
 		}},
 	} {
@@ -558,7 +558,7 @@ const identityDeclarationNativeV94Checksum = "a4ee15a45ab352527e93c00e82763056b5
 const identityDeclarationNativeV95Checksum = "351a9bbdbd890e34b3b5db46ecffa971d49b1f5d4519d9bf7f2b1eae1e897275"
 const identityDeclarationNativeV96Checksum = "a206e74995db47112c6b382c33ffab5badcab2ec9b9859af0fbd018478cc7ca5"
 const identityDeclarationNativePeerDSN = "postgresql://postgres@/espacigo_dms_stage_20261020?host=/var/run/postgresql&port=5432"
-const identityDeclarationNativeLedgerVersion = 96
+const identityDeclarationNativeLedgerVersion = 1
 
 func identityDeclarationIntentJournalPath(t *testing.T) string {
 	t.Helper()

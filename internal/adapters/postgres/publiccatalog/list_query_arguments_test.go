@@ -17,6 +17,7 @@ func TestListAdapterBindsFilterCursorAndTypedAttributeArguments(t *testing.T) {
 	minUnit, maxUnit := int64(1000), int64(5000)
 	minTotal, maxTotal := int64(2000), int64(10000)
 	minArea, minHeight, maxHeight, usage := "10.5", "1.25", "3.5", "privada"
+	minCapacity := 4
 	lastTotal := int64(7500)
 	cursor := &publiccatalog.Cursor{LastEstimatedTotalCLP: &lastTotal, LastSpaceID: "11111111-1111-4111-8111-111111111111"}
 	filters := publiccatalog.Filters{
@@ -28,7 +29,7 @@ func TestListAdapterBindsFilterCursorAndTypedAttributeArguments(t *testing.T) {
 			"equipo": {Type: "enum_list", Values: []string{"wifi", "proyector"}},
 			"uso":    {Type: "enum", Value: &usage},
 		},
-		StartAt: &start, EndAt: &end, MinTotalCLP: &minTotal, MaxTotalCLP: &maxTotal, Sort: "estimated_total_asc",
+		StartAt: &start, EndAt: &end, MinTotalCLP: &minTotal, MaxTotalCLP: &maxTotal, MinCapacity: &minCapacity, Sort: "estimated_total_asc",
 	}
 	pool := &coverSourcePool{row: []any{
 		"11111111-1111-4111-8111-111111111111", "oficina", "Oficina", "Sala", "Sala sintética", float64(20), "hora", int64(2500), "CLP", 1, "sala",
@@ -36,7 +37,7 @@ func TestListAdapterBindsFilterCursorAndTypedAttributeArguments(t *testing.T) {
 		sql.NullString{String: "13", Valid: true}, sql.NullString{String: "Metropolitana", Valid: true},
 		sql.NullString{String: "13101", Valid: true}, sql.NullString{String: "Santiago", Valid: true},
 		sql.NullString{String: "22222222-2222-4222-8222-222222222222", Valid: true},
-		sql.NullString{String: "media", Valid: true}, sql.NullInt64{Int64: 7500, Valid: true}, float64(0.5), true, false,
+		sql.NullString{String: "media", Valid: true}, sql.NullInt64{Int64: 7500, Valid: true}, float64(0.5), true, false, []byte(nil),
 	}}
 	repo := &Repository{pool: pool}
 
@@ -52,6 +53,7 @@ func TestListAdapterBindsFilterCursorAndTypedAttributeArguments(t *testing.T) {
 	wantArgs := []any{
 		"oficina", "hora", &minUnit, &maxUnit, "sala", "13", "13101", minArea, 3,
 		[]byte(`{"proyector":false,"wifi":true}`), start, end, &minTotal, &maxTotal,
+		&minCapacity,
 		lastTotal, cursor.LastSpaceID,
 		"altura", minHeight, maxHeight, "equipo", []string{"wifi", "proyector"}, "uso", usage, 11,
 	}
@@ -73,13 +75,13 @@ func TestListAdapterBuildsCursorPredicatesAndArgumentsForSorts(t *testing.T) {
 		name, sort, predicate, order string
 		cursorArgs                   []any
 	}{
-		{name: "unit price ascending", sort: "unit_price_asc", predicate: `AND (precio_base_clp,space_id::uuid) > ($15::bigint,$16::uuid)`, order: `ORDER BY precio_base_clp,space_id::uuid`, cursorArgs: []any{lastPrice, spaceID}},
-		{name: "unit price descending", sort: "unit_price_desc", predicate: `AND (precio_base_clp,space_id::uuid) < ($15::bigint,$16::uuid)`, order: `ORDER BY precio_base_clp DESC,space_id::uuid DESC`, cursorArgs: []any{lastPrice, spaceID}},
-		{name: "estimated total descending", sort: "estimated_total_desc", predicate: `AND (estimated_total < $15::bigint OR (estimated_total=$15::bigint AND space_id::uuid>$16::uuid) OR estimated_total IS NULL)`, order: `ORDER BY estimated_total DESC NULLS LAST,space_id::uuid`, cursorArgs: []any{estimatedTotal, spaceID}},
-		{name: "relevance", sort: "relevance", predicate: `AND (relevance_rank < $15::real OR (relevance_rank=$15::real AND space_id::uuid>$16::uuid))`, order: `ORDER BY relevance_rank DESC,space_id::uuid`, cursorArgs: []any{lastRank, spaceID}},
-		{name: "title ascending", sort: "title_asc", predicate: `AND (title_key COLLATE "C",space_id::uuid) > ($15::text COLLATE "C",$16::uuid)`, order: `ORDER BY title_key COLLATE "C",space_id::uuid`, cursorArgs: []any{lastTitle, spaceID}},
-		{name: "title descending", sort: "title_desc", predicate: `AND (title_key COLLATE "C",space_id::uuid) < ($15::text COLLATE "C",$16::uuid)`, order: `ORDER BY title_key COLLATE "C" DESC,space_id::uuid DESC`, cursorArgs: []any{lastTitle, spaceID}},
-		{name: "default category and title", predicate: `AND (category_order,title_key COLLATE "C",space_id::uuid) > ($15::smallint,$16::text COLLATE "C",$17::uuid)`, order: `ORDER BY category_order,title_key COLLATE "C",space_id::uuid`, cursorArgs: []any{lastCategory, lastTitle, spaceID}},
+		{name: "unit price ascending", sort: "unit_price_asc", predicate: `AND (precio_base_clp,space_id::uuid) > ($16::bigint,$17::uuid)`, order: `ORDER BY precio_base_clp,space_id::uuid`, cursorArgs: []any{lastPrice, spaceID}},
+		{name: "unit price descending", sort: "unit_price_desc", predicate: `AND (precio_base_clp,space_id::uuid) < ($16::bigint,$17::uuid)`, order: `ORDER BY precio_base_clp DESC,space_id::uuid DESC`, cursorArgs: []any{lastPrice, spaceID}},
+		{name: "estimated total descending", sort: "estimated_total_desc", predicate: `AND (estimated_total < $16::bigint OR (estimated_total=$16::bigint AND space_id::uuid>$17::uuid) OR estimated_total IS NULL)`, order: `ORDER BY estimated_total DESC NULLS LAST,space_id::uuid`, cursorArgs: []any{estimatedTotal, spaceID}},
+		{name: "relevance", sort: "relevance", predicate: `AND (relevance_rank < $16::real OR (relevance_rank=$16::real AND space_id::uuid>$17::uuid))`, order: `ORDER BY relevance_rank DESC,space_id::uuid`, cursorArgs: []any{lastRank, spaceID}},
+		{name: "title ascending", sort: "title_asc", predicate: `AND (title_key COLLATE "C",space_id::uuid) > ($16::text COLLATE "C",$17::uuid)`, order: `ORDER BY title_key COLLATE "C",space_id::uuid`, cursorArgs: []any{lastTitle, spaceID}},
+		{name: "title descending", sort: "title_desc", predicate: `AND (title_key COLLATE "C",space_id::uuid) < ($16::text COLLATE "C",$17::uuid)`, order: `ORDER BY title_key COLLATE "C" DESC,space_id::uuid DESC`, cursorArgs: []any{lastTitle, spaceID}},
+		{name: "default category and title", predicate: `AND (category_order,title_key COLLATE "C",space_id::uuid) > ($16::smallint,$17::text COLLATE "C",$18::uuid)`, order: `ORDER BY category_order,title_key COLLATE "C",space_id::uuid`, cursorArgs: []any{lastCategory, lastTitle, spaceID}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -93,7 +95,7 @@ func TestListAdapterBuildsCursorPredicatesAndArgumentsForSorts(t *testing.T) {
 			}
 			cursorEnd := len(pool.args) - 1
 			cursorStart := cursorEnd - len(tc.cursorArgs)
-			if cursorStart < 14 || !reflect.DeepEqual(pool.args[cursorStart:cursorEnd], tc.cursorArgs) || pool.args[cursorEnd] != 7 {
+			if cursorStart < 15 || !reflect.DeepEqual(pool.args[cursorStart:cursorEnd], tc.cursorArgs) || pool.args[cursorEnd] != 7 {
 				t.Fatalf("query args=%#v, cursor args=%#v limit=7", pool.args, tc.cursorArgs)
 			}
 		})
@@ -104,7 +106,7 @@ func TestListAdapterBuildsCursorPredicatesAndArgumentsForSorts(t *testing.T) {
 	if _, err := repo.List(context.Background(), publiccatalog.Filters{Sort: "estimated_total_asc"}, &publiccatalog.Cursor{LastSpaceID: spaceID}, 7); err != nil {
 		t.Fatalf("List() with nil last estimate: %v", err)
 	}
-	if !strings.Contains(pool.query, `AND estimated_total IS NULL AND space_id::uuid > $15::uuid`) || !reflect.DeepEqual(pool.args[14:], []any{spaceID, 7}) {
+	if !strings.Contains(pool.query, `AND estimated_total IS NULL AND space_id::uuid > $16::uuid`) || !reflect.DeepEqual(pool.args[15:], []any{spaceID, 7}) {
 		t.Fatalf("nil-estimate cursor query=%q args=%#v", pool.query, pool.args)
 	}
 }
@@ -114,7 +116,7 @@ func listCursorFixtureRow() []any {
 		"11111111-1111-4111-8111-111111111111", "oficina", "Oficina", "Sala", "Sala sintética", float64(20), "hora", int64(2500), "CLP", 1, "sala",
 		sql.NullString{String: "America/Santiago", Valid: true},
 		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullString{Valid: false},
-		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullInt64{Valid: false}, float64(0), true, false,
+		sql.NullString{Valid: false}, sql.NullString{Valid: false}, sql.NullInt64{Valid: false}, float64(0), true, false, []byte(nil),
 	}
 }
 

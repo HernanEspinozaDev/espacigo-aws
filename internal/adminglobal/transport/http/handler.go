@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,10 +22,16 @@ type CapabilityAuthenticator interface {
 	AuthorizeCapability(context.Context, identity.Secret, identity.Capability, identity.ActivityKind) (identity.Principal, error)
 }
 
+type accountResourceReader interface {
+	ListAccountResources(context.Context, string, string, string, string, string, int) (adminglobal.AccountResourcePage, error)
+	GetAccountResource(context.Context, string, string, string, string, string) (map[string]any, error)
+}
+
 type Handler struct {
-	auth    CapabilityAuthenticator
-	service *adminglobal.Service
-	origins map[string]bool
+	auth      CapabilityAuthenticator
+	service   *adminglobal.Service
+	resources accountResourceReader
+	origins   map[string]bool
 }
 
 func NewHandler(auth CapabilityAuthenticator, service *adminglobal.Service, origins []string) http.Handler {
@@ -32,7 +39,11 @@ func NewHandler(auth CapabilityAuthenticator, service *adminglobal.Service, orig
 	for _, origin := range origins {
 		allowed[origin] = true
 	}
-	return &Handler{auth: auth, service: service, origins: allowed}
+	var resources accountResourceReader
+	if service != nil {
+		resources = service
+	}
+	return &Handler{auth: auth, service: service, resources: resources, origins: allowed}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,17 +64,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, PUT, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, PUT, POST, DELETE, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if h.auth == nil || h.service == nil {
+	if h.auth == nil || (h.service == nil && h.resources == nil) {
 		writeError(w, 404, "not_found", requestID)
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	if h.serveSpecializedOps(w, r, path, requestID) {
+		return
+	}
+	if h.serveAssistedView(w, r, path, requestID) {
+		return
+	}
 	if h.serveAccountMutation(w, r, path, requestID) {
 		return
 	}
@@ -210,13 +227,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 422, "invalid_request", requestID)
 			return
 		}
-		value, err := h.service.LookupAccount(r.Context(), principal.AccountID, strings.TrimPrefix(path, base), requestID)
+		var value adminglobal.AccountSummary
+		var err error
+		target := strings.TrimPrefix(path, base)
+		if len(reveal) > 0 {
+			if !slices.Contains(principal.Capabilities, identity.CapabilityAccountsEmailReveal) {
+				writeError(w, http.StatusForbidden, "forbidden", requestID)
+				return
+			}
+			if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+				writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+				return
+			}
+			value, err = h.service.RevealAccountEmail(r.Context(), principal.AccountID, target, requestID)
+		} else {
+			value, err = h.service.LookupAccount(r.Context(), principal.AccountID, target, requestID)
+		}
 		if err != nil {
 			replyError(w, err, requestID)
 			return
-		}
-		if len(reveal) == 0 || value.State == "desidentificado" {
-			value.Email = identity.MaskEmail(value.Email)
 		}
 		w.Header().Set("Cache-Control", "private, no-store")
 		writeJSON(w, http.StatusOK, map[string]any{"data": value})
@@ -294,6 +323,15 @@ func (h *Handler) servePublicationGallery(w http.ResponseWriter, r *http.Request
 	return true
 }
 
+func isValidAccountResourceKind(kind string) bool {
+	switch kind {
+	case "reservations", "incidents", "commercial_reservations", "commercial_contracts", "commercial_payments":
+		return true
+	default:
+		return false
+	}
+}
+
 func (h *Handler) serveAccountResources(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
 	const prefix = "/api/v1/admin/global/accounts/"
 	if !strings.HasPrefix(path, prefix) || r.Method != http.MethodGet {
@@ -303,7 +341,7 @@ func (h *Handler) serveAccountResources(w http.ResponseWriter, r *http.Request, 
 	if len(parts) != 3 && len(parts) != 4 {
 		return false
 	}
-	if parts[0] == "" || parts[1] != "resources" || (parts[2] != "reservations" && parts[2] != "incidents") {
+	if parts[0] == "" || parts[1] != "resources" || !isValidAccountResourceKind(parts[2]) {
 		return false
 	}
 	principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
@@ -315,7 +353,7 @@ func (h *Handler) serveAccountResources(w http.ResponseWriter, r *http.Request, 
 			writeError(w, 422, "invalid_request", requestID)
 			return true
 		}
-		value, err := h.service.GetAccountResource(r.Context(), principal.AccountID, parts[0], parts[3], requestID, parts[2])
+		value, err := h.resources.GetAccountResource(r.Context(), principal.AccountID, parts[0], parts[3], requestID, parts[2])
 		if err != nil {
 			replyError(w, err, requestID)
 			return true
@@ -338,7 +376,7 @@ func (h *Handler) serveAccountResources(w http.ResponseWriter, r *http.Request, 
 		}
 		pageSize = value
 	}
-	value, err := h.service.ListAccountResources(r.Context(), principal.AccountID, parts[0], requestID, parts[2], r.URL.Query().Get("cursor"), pageSize)
+	value, err := h.resources.ListAccountResources(r.Context(), principal.AccountID, parts[0], requestID, parts[2], r.URL.Query().Get("cursor"), pageSize)
 	if err != nil {
 		replyError(w, err, requestID)
 		return true
@@ -518,6 +556,10 @@ func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, p
 	}
 	var capability identity.Capability
 	switch {
+	case len(parts) == 2 && parts[1] == "sensitive-access" && r.Method == http.MethodPost:
+		return h.serveSensitiveAccess(w, r, parts[0], requestID)
+	case len(parts) == 2 && parts[1] == "assisted-view" && r.Method == http.MethodPost:
+		return h.serveStartAssistedView(w, r, parts[0], requestID)
 	case len(parts) == 2 && parts[1] == "profile" && r.Method == http.MethodPatch:
 		capability = identity.CapabilityAccountsUpdate
 	case len(parts) == 3 && parts[1] == "roles" && r.Method == http.MethodPut:
@@ -619,6 +661,138 @@ func (h *Handler) serveAccountMutation(w http.ResponseWriter, r *http.Request, p
 	}
 	writeJSON(w, 200, map[string]any{"data": value})
 	return true
+}
+
+func (h *Handler) serveSensitiveAccess(w http.ResponseWriter, r *http.Request, targetID, requestID string) bool {
+	principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
+	if !ok {
+		return true
+	}
+	if !slices.Contains(principal.Capabilities, identity.CapabilityAccountsEmailReveal) {
+		writeError(w, http.StatusForbidden, "forbidden", requestID)
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	var input struct {
+		Field  string `json:"field"`
+		Reason string `json:"reason"`
+		CaseID string `json:"case_id"`
+		Scope  string `json:"scope"`
+	}
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, http.StatusBadRequest, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.GrantSensitiveAccess(r.Context(), adminglobal.SensitiveAccessInput{
+		ActorID:        principal.AccountID,
+		TargetID:       targetID,
+		AdminSessionID: principal.SessionID,
+		CorrelationID:  requestID,
+		Field:          input.Field,
+		Reason:         input.Reason,
+		CaseID:         input.CaseID,
+		Scope:          input.Scope,
+	})
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusOK, map[string]any{"data": value})
+	return true
+}
+
+func (h *Handler) serveStartAssistedView(w http.ResponseWriter, r *http.Request, targetID, requestID string) bool {
+	principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
+	if !ok {
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	var input struct {
+		Role   string `json:"role"`
+		CaseID string `json:"case_id"`
+		Reason string `json:"reason"`
+	}
+	if !decodeManagementBody(w, r, &input) {
+		writeError(w, http.StatusBadRequest, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.StartAssistedView(r.Context(), adminglobal.AssistedViewStartInput{
+		ActorID:        principal.AccountID,
+		TargetID:       targetID,
+		AdminSessionID: principal.SessionID,
+		CorrelationID:  requestID,
+		Role:           input.Role,
+		CaseID:         input.CaseID,
+		Reason:         input.Reason,
+	})
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	w.Header().Set("Cache-Control", "private, no-store")
+	writeJSON(w, http.StatusCreated, map[string]any{"data": value})
+	return true
+}
+
+func (h *Handler) serveAssistedView(w http.ResponseWriter, r *http.Request, path, requestID string) bool {
+	const base = "/api/v1/admin/global/assisted-view/"
+	if !strings.HasPrefix(path, base) {
+		return false
+	}
+	parts := strings.Split(strings.TrimPrefix(path, base), "/")
+	if len(parts) == 2 && parts[0] != "" && parts[1] == "projection" {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", requestID)
+			return true
+		}
+		principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
+		if !ok {
+			return true
+		}
+		value, err := h.service.GetAssistedViewProjection(r.Context(), adminglobal.AssistedViewProjectionInput{
+			GrantID:        parts[0],
+			ActorID:        principal.AccountID,
+			AdminSessionID: principal.SessionID,
+			CorrelationID:  requestID,
+		})
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		w.Header().Set("Cache-Control", "private, no-store")
+		writeJSON(w, http.StatusOK, map[string]any{"data": value})
+		return true
+	}
+	if len(parts) == 1 && parts[0] != "" {
+		if r.Method != http.MethodDelete {
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", requestID)
+			return true
+		}
+		principal, ok := h.authorize(w, r, identity.CapabilityAccountsRead, requestID)
+		if !ok {
+			return true
+		}
+		err := h.service.CloseAssistedView(r.Context(), adminglobal.AssistedViewCloseInput{
+			GrantID:        parts[0],
+			ActorID:        principal.AccountID,
+			AdminSessionID: principal.SessionID,
+			CorrelationID:  requestID,
+		})
+		if err != nil {
+			replyError(w, err, requestID)
+			return true
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	return false
 }
 
 const recentAuthenticationTTL = 10 * time.Minute
@@ -757,8 +931,12 @@ func bearer(value string) string {
 
 func replyError(w http.ResponseWriter, err error, requestID string) {
 	switch {
+	case errors.Is(err, adminglobal.ErrSensitiveAccessInvalid), errors.Is(err, adminglobal.ErrAssistedViewInvalid):
+		writeError(w, 400, "invalid_request", requestID)
 	case errors.Is(err, adminglobal.ErrInvalid):
 		writeError(w, 422, "invalid_request", requestID)
+	case errors.Is(err, adminglobal.ErrSelfApprovalForbidden):
+		writeError(w, 403, "self_approval_forbidden", requestID)
 	case errors.Is(err, adminglobal.ErrForbidden):
 		writeError(w, 403, "forbidden", requestID)
 	case errors.Is(err, adminglobal.ErrNotFound):

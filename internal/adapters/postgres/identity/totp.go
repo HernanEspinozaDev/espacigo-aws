@@ -18,7 +18,7 @@ func (r *IdentityRepository) GetTOTP(ctx context.Context, accountID string) (*id
 		return nil, 0, errors.New("repository uninitialized")
 	}
 
-	const query = `
+	query := `
 SELECT
     account_id::text,
     secret_ciphertext,
@@ -32,6 +32,9 @@ SELECT
 FROM public.cuenta_totp
 WHERE account_id = $1
 `
+	if r.tx != nil {
+		query += " FOR UPDATE"
+	}
 	var (
 		rec               identity.AccountTOTPRecord
 		keyVersion        *string
@@ -167,11 +170,15 @@ func (r *IdentityRepository) UpdateTOTPLastVerifiedStep(ctx context.Context, acc
 UPDATE public.cuenta_totp
 SET last_verified_step = $2,
     updated_at = now()
-WHERE account_id = $1
+WHERE account_id = $1 AND enabled_at IS NOT NULL
+    AND (last_verified_step IS NULL OR last_verified_step < $2)
 `
-	_, err := dbtx.Exec(ctx, query, accountID, verifiedStep)
+	tag, err := dbtx.Exec(ctx, query, accountID, verifiedStep)
 	if err != nil {
 		return mapError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return identity.ErrTOTPReplayDetected
 	}
 	return nil
 }

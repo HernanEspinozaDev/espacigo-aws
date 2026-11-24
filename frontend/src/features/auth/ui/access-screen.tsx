@@ -30,6 +30,8 @@ export function AccessScreen() {
   const { snapshot, login, checkSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authenticatorRequired, setAuthenticatorRequired] = useState(false);
+  const [authenticatorCode, setAuthenticatorCode] = useState("");
   const [pending, setPending] = useState(false);
 
   const [message, setMessage] = useState("");
@@ -74,7 +76,14 @@ export function AccessScreen() {
       setRetryUntil(null);
       setPending(true);
       try {
-        const confirmed = await login({ email, password });
+        const confirmed = await login({
+          email,
+          password,
+          ...(authenticatorRequired && {
+            authenticator_code: authenticatorCode,
+          }),
+        });
+        setAuthenticatorCode("");
         setPassword("");
         if (confirmed) {
           setEmail("");
@@ -95,7 +104,13 @@ export function AccessScreen() {
           setPending(false);
         }
       } catch (error) {
-        setPassword("");
+        const needsCode =
+          error instanceof ApiError &&
+          (error.code === "authenticator_required" ||
+            error.code === "authenticator_invalid");
+        if (!needsCode) setPassword("");
+        setAuthenticatorCode("");
+        setAuthenticatorRequired(needsCode);
         setMessage(authErrorMessage(error));
         if (error instanceof ApiError && error.status === 429) {
           const seconds = retryAfterSeconds(error.retryAfter);
@@ -104,7 +119,15 @@ export function AccessScreen() {
         setPending(false);
       }
     },
-    [email, login, password, returnTo, router],
+    [
+      authenticatorCode,
+      authenticatorRequired,
+      email,
+      login,
+      password,
+      returnTo,
+      router,
+    ],
   );
 
   return (
@@ -146,7 +169,11 @@ export function AccessScreen() {
                   type="email"
                   autoComplete="email"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setAuthenticatorRequired(false);
+                    setAuthenticatorCode("");
+                  }}
                   disabled={pending}
                   required
                   aria-describedby="email-help"
@@ -165,6 +192,25 @@ export function AccessScreen() {
               onChange={setPassword}
               disabled={pending}
             />
+            {authenticatorRequired && (
+              <div className="space-y-2">
+                <Label htmlFor="authenticator-code">
+                  Código de autenticación o de respaldo
+                </Label>
+                <Input
+                  id="authenticator-code"
+                  name="authenticator-code"
+                  autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={32}
+                  value={authenticatorCode}
+                  onChange={(event) => setAuthenticatorCode(event.target.value)}
+                  disabled={pending}
+                  required
+                />
+              </div>
+            )}
             <div className="flex justify-end">
               <Link
                 href="/recuperar-acceso"

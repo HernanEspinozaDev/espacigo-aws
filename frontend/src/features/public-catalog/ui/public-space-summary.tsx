@@ -45,11 +45,11 @@ export function PublicSpaceSummary({
       <header className="space-y-3">
         <Link
           href={`/categorias/${encodeURIComponent(space.category_code)}`}
-          className="inline-flex min-h-11 min-w-0 items-center text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground [overflow-wrap:anywhere] hover:text-foreground"
+          className="inline-flex min-h-11 min-w-0 items-center text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent)] [overflow-wrap:anywhere] hover:text-primary"
         >
           {space.category_name}
         </Link>
-        <h1 className="text-3xl font-medium tracking-tight text-foreground">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
           {title}
         </h1>
         <PublicVerificationBadges verification={space.verification} />
@@ -68,10 +68,10 @@ export function PublicSpaceSummary({
       </header>
       <section
         aria-label="Tarifa publicada"
-        className="rounded-2xl border border-border p-5"
+        className="rounded-2xl border border-border bg-[var(--brand-surface-subtle)]/70 p-5"
       >
         <div className="flex flex-wrap items-baseline gap-2">
-          <span className="text-2xl font-semibold">
+          <span className="text-2xl font-semibold tabular-nums text-foreground sm:text-3xl">
             {price ?? "Tarifa no disponible"}
           </span>
           {price ? (

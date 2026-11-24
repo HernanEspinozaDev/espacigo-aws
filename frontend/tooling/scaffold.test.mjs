@@ -38,6 +38,10 @@ test("the single Next application identifies EspaciGo and supports Spanish navig
 test("marketplace routes use the Go public catalog without local listing fixtures", async () => {
   const home = await read("src/app/(marketplace)/page.tsx");
   const explore = await read("src/app/(marketplace)/explorar/page.tsx");
+  const exploreMap = await read("src/app/(marketplace)/explorar/mapa/page.tsx");
+  const exploreResults = await read(
+    "src/app/(marketplace)/explorar/_explore-page.tsx",
+  );
   const detail = await read("src/app/(marketplace)/espacios/[id]/page.tsx");
   const grid = await read("src/components/sections/product-grid.tsx");
   const source = await collectSource(path.join(root, "src"));
@@ -45,12 +49,17 @@ test("marketplace routes use the Go public catalog without local listing fixture
     "Hero",
     "ProductGrid",
     "CategoryRail",
-    "OwnerCallout",
+    "PlatformFeaturesSection",
+    "HowItWorksPreview",
+    "MercadoPagoSecuritySection",
   ]) {
     assert.match(home, new RegExp(templateSection));
   }
   assert.match(home, /publicCatalog\.spaces/);
-  assert.match(explore, /spacesFromParams/);
+  assert.match(explore, /view="grid"/);
+  assert.match(exploreMap, /view="map"/);
+  assert.match(exploreResults, /publicCatalog\.spaces/);
+  assert.match(exploreResults, /publicCatalog\.mapMarkers/);
   assert.match(detail, /publicCatalog\.space/);
   assert.match(detail, /(?:PublicSpaceMarketplaceGallery|MediaGallery)/);
   assert.match(grid, /PublicCatalogCard/);
@@ -84,7 +93,7 @@ test("SaaS Starter pages are present; auth uses its API facade and pricing stays
   const legacyLogin = await read("src/app/(auth)/login/page.tsx");
   const pricing = await read("src/app/(workspace)/pricing/page.tsx");
   assert.match(login, /useAuth/);
-  assert.match(login, /await login\(\{ email, password \}\)/);
+  assert.match(login, /await login\(\{\s*email,\s*password,/);
   assert.doesNotMatch(login, /\bfetch\s*\(/);
   assert.match(canonicalAccess, /<AccessScreen\s*\/>/);
   assert.match(legacyLogin, /<AccessScreen\s*\/>/);

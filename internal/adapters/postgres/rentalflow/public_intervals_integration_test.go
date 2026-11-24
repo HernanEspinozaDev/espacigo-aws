@@ -10,9 +10,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/earlyrental"
-	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -55,32 +53,6 @@ func TestPostgresPublicIntervalsUsesWeeklyScheduleAndOccupancy(t *testing.T) {
 		t.Skip("TEST_RENTALFLOW_POSTGRES_ISOLATED=1 is required for disposable PostgreSQL integration")
 	}
 	ctx, dbURL := earlyInsertPostgresFixture(t)
-	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var calendarMigration *migrator.Migration
-	for i := range migrations {
-		if migrations[i].Version == 98 {
-			calendarMigration = &migrations[i]
-			break
-		}
-	}
-	if calendarMigration == nil {
-		t.Fatal("V98 space inventory and calendar migration is required")
-	}
-	calendarDB, err := pgx.Connect(ctx, dbURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := calendarDB.Exec(ctx, string(calendarMigration.SQL)); err != nil {
-		_ = calendarDB.Close(ctx)
-		t.Fatalf("apply V98 calendar tables to disposable repository fixture: %v", err)
-	}
-	if err := calendarDB.Close(ctx); err != nil {
-		t.Fatal(err)
-	}
-	applyCommercialHoldReadSchemaFixture(t, ctx, dbURL.String(), migrations)
 	pool, err := pgxpool.New(ctx, dbURL.String())
 	if err != nil {
 		t.Fatal(err)

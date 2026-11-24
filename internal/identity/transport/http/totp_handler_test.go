@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
 
@@ -26,7 +27,7 @@ func setupTOTPTestHandler(now time.Time) (http.Handler, *mockAuthRepo, string, s
 	}
 	repo.accounts[account.ID] = account
 
-	credGen := &testCredGen{}
+	credGen := credentials.Generator{}
 	service, err := identity.NewAuthenticationService(repo, testHasher{}, dummyMailer{}, dummyLimiter{}, credGen, func() time.Time { return now })
 	if err != nil {
 		panic(err)
@@ -224,5 +225,68 @@ func TestTOTP_HTTP_Flow(t *testing.T) {
 		if status.Enabled || status.RemainingBackupCodes != 0 {
 			t.Fatalf("expected disabled status, got %+v", status)
 		}
+	}
+}
+
+func TestTOTPLoginRejectsReplaysAndConsumesBackupOnce(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	handler, repo, accountID, _ := setupTOTPTestHandler(now)
+	h := handler.(*Handler)
+	h.service.SetTOTPLoginEnabled(true)
+
+	account := repo.accounts[accountID]
+	enabled := now.Add(-time.Hour)
+	secret, err := identity.GenerateTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kr, err := identity.NewTOTPKeyring("v1", map[string][]byte{"v1": make([]byte, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version, ciphertext, err := kr.Seal(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.totpRecords[accountID] = &identity.AccountTOTPRecord{
+		EnabledAt: &enabled, KeyVersion: &version, SecretCiphertext: ciphertext,
+	}
+	repo.backupCodes[accountID] = map[string]bool{
+		identity.HashBackupCode("ABCD-EFGH"): true,
+	}
+
+	login := func(code string) *httptest.ResponseRecorder {
+		body, err := json.Marshal(map[string]string{
+			"email": account.Email, "password": string(account.PasswordHash),
+			"authenticator_code": code,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		return rec
+	}
+
+	expectedSessions := len(repo.sessions)
+	missing := login("")
+	if missing.Code != http.StatusForbidden || !strings.Contains(missing.Body.String(), "authenticator_required") || len(repo.sessions) != expectedSessions {
+		t.Fatalf("login without code: status %d, body %s", missing.Code, missing.Body.String())
+	}
+	code := identity.GenerateTOTPCode(secret, now.Unix()/30, 6)
+	if valid := login(code); valid.Code != http.StatusOK || len(repo.sessions) != expectedSessions+1 {
+		t.Fatalf("login with current TOTP: status %d", valid.Code)
+	}
+	if repeated := login(code); repeated.Code != http.StatusForbidden || len(repo.sessions) != expectedSessions+1 {
+		t.Fatalf("login with repeated TOTP: status %d, body %s", repeated.Code, repeated.Body.String())
+	}
+	if valid := login("ABCD-EFGH"); valid.Code != http.StatusOK || len(repo.sessions) != expectedSessions+2 {
+		t.Fatalf("login with backup: status %d", valid.Code)
+	}
+	reused := login("ABCD-EFGH")
+	if reused.Code != http.StatusForbidden || !strings.Contains(reused.Body.String(), "authenticator_invalid") || len(repo.sessions) != expectedSessions+2 {
+		t.Fatalf("login with used backup: status %d, body %s", reused.Code, reused.Body.String())
 	}
 }

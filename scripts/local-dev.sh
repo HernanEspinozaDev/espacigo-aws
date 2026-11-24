@@ -7,6 +7,7 @@ DB_CONTAINER="espacigo_localbackend_20261024-database-1"
 DB_NAME="espacigo_aws_local"
 DB_HOST="172.24.0.3"
 DB_PORT="5432"
+MIGRATOR_PASSWORD_FILE="${REPO_ROOT}/.local/secrets/migrator_password"
 
 ensure_env() {
   if [[ -f "$EMULATOR_ENV" ]]; then
@@ -15,6 +16,13 @@ ensure_env() {
   else
     echo "ERROR: aws-emulator env not found at $EMULATOR_ENV" >&2
     exit 1
+  fi
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
   fi
 }
 
@@ -70,13 +78,14 @@ cmd_status() {
 
 cmd_bootstrap() {
   echo "=== [EspaciGo AWS] Aprovisionando Stack Local en aws-emulator ==="
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
+  fi
   bash "${REPO_ROOT}/scripts/local-aws-bootstrap.sh"
-  
-  echo "Aplicando configuración IaC con Terraform..."
-  (
-    cd "${REPO_ROOT}/infra/terraform/environments/local-emulator"
-    terraform apply -auto-approve
-  )
 
   # Asegurar permisos ACL de runtime y soporte S3 en PostgreSQL
   echo "Asegurando permisos para espacigo_runtime y soporte S3 en PostgreSQL..."
@@ -102,6 +111,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo
 EOF
   fi
 
+  cmd_migrator_setup
+
   # Asegurar Mailpit para captura de correos
   if ! curl -fsS "http://127.0.0.1:8025/api/v1/info" >/dev/null 2>&1; then
     docker rm -f espacigo-mailpit >/dev/null 2>&1 || true
@@ -115,9 +126,144 @@ API_BACKEND_BASE_URL=http://127.0.0.1:8080/api/v1
 FRONTEND_PUBLIC_ORIGIN=http://127.0.0.1:3000
 PORT=3000
 ENV
+  if [[ -n "${NEXT_PUBLIC_AMAZON_LOCATION_REGION:-}" && -n "${NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY:-}" ]]; then
+    printf '%s\n' \
+      "NEXT_PUBLIC_AMAZON_LOCATION_REGION=${NEXT_PUBLIC_AMAZON_LOCATION_REGION}" \
+      "NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY=${NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY}" \
+      >> "${REPO_ROOT}/frontend/.env.local"
+  fi
 
   echo "=== Bootstrap completado exitosamente ==="
 }
+
+local_migration_host() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER"
+}
+
+cmd_migrator_setup() {
+  local host password
+  host="$(local_migration_host)"
+  docker exec -i "$DB_CONTAINER" sh -ec '
+    PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+  ' sh "$DB_NAME" <<'SQL'
+DO $setup$
+BEGIN
+    IF current_database() <> 'espacigo_aws_local' OR session_user <> 'espacigo_admin' THEN
+        RAISE EXCEPTION 'Unexpected local migration target';
+    END IF;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    CREATE EXTENSION IF NOT EXISTS btree_gist;
+    CREATE EXTENSION IF NOT EXISTS unaccent;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_runtime') THEN
+        CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_api_login') THEN
+        CREATE ROLE espacigo_api_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_migrator_login') THEN
+        CREATE ROLE espacigo_migrator_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_schema_owner') THEN
+        CREATE ROLE espacigo_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_document_verification_fn') THEN
+        CREATE ROLE espacigo_document_verification_fn NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_privacy_cleanup_worker') THEN
+        CREATE ROLE espacigo_privacy_cleanup_worker NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_privacy_worker_login') THEN
+        CREATE ROLE espacigo_privacy_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_auth_members
+        WHERE member = 'espacigo_api_login'::regrole AND roleid = 'espacigo_runtime'::regrole
+    ) THEN
+        GRANT espacigo_runtime TO espacigo_api_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END IF;
+    IF (SELECT count(*) FROM pg_roles
+        WHERE rolname IN ('espacigo_migrator_login', 'espacigo_schema_owner')
+          AND rolcanlogin = (rolname = 'espacigo_migrator_login')
+          AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls OR rolinherit)) <> 2 THEN
+        RAISE EXCEPTION 'Unexpected local migration roles';
+    END IF;
+    IF (SELECT count(*) FROM pg_auth_members
+        WHERE member = 'espacigo_migrator_login'::regrole) > 1
+        OR EXISTS (SELECT 1 FROM pg_auth_members
+                   WHERE member = 'espacigo_migrator_login'::regrole
+                     AND (roleid <> 'espacigo_schema_owner'::regrole
+                          OR admin_option OR inherit_option OR NOT set_option)) THEN
+        RAISE EXCEPTION 'Unexpected local migration memberships';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = 'espacigo_migrator_login'::regrole) THEN
+        GRANT espacigo_schema_owner TO espacigo_migrator_login
+            WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END IF;
+END
+$setup$;
+SQL
+  python3 - "$MIGRATOR_PASSWORD_FILE" <<'PYTHON'
+import os
+import secrets
+import stat
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+except FileExistsError:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
+        raise SystemExit("El archivo de contraseña local debe ser privado, regular y pertenecer al operador")
+else:
+    with os.fdopen(fd, "w") as file:
+        file.write(secrets.token_urlsafe(48) + "\n")
+PYTHON
+  password="$(cat "$MIGRATOR_PASSWORD_FILE")"
+  if [[ ! "$password" =~ ^[A-Za-z0-9_-]{64}$ ]]; then
+    echo "ERROR: formato inesperado en la credencial local del migrador." >&2
+    return 1
+  fi
+  if ! PGPASSWORD="$password" psql -h "$host" -p "$DB_PORT" -XqAtw -U espacigo_migrator_login \
+    -d "$DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then
+    printf '\\password espacigo_migrator_login\n%s\n%s\n' "$password" "$password" |
+      docker exec -i "$DB_CONTAINER" sh -ec '
+        PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+      ' sh "$DB_NAME"
+  fi
+  local identity
+  identity="$(PGPASSWORD="$password" psql -h "$host" -p "$DB_PORT" -XqAtw -v ON_ERROR_STOP=1 \
+    -U espacigo_migrator_login -d "$DB_NAME" -c 'SET ROLE espacigo_schema_owner; SELECT session_user, current_user')"
+  [[ "$identity" == 'espacigo_migrator_login|espacigo_schema_owner' ]]
+  echo "Login local verificado: $identity"
+}
+
+cmd_migrator_enable_ddl() {
+  docker exec -i "$DB_CONTAINER" sh -ec '
+    PGPASSWORD="$(cat /run/secrets/db_admin_password)" exec psql -h 127.0.0.1 -Xq -v ON_ERROR_STOP=1 -U espacigo_admin -d "$1"
+  ' sh "$DB_NAME" < "${REPO_ROOT}/db/bootstrap/migration-owner.sql"
+  echo "DDL habilitado para el propietario de migraciones en PostgreSQL local."
+}
+
+cmd_migrations() (
+  local host passfile
+  host="$(local_migration_host)"
+  if [[ ! -r "$MIGRATOR_PASSWORD_FILE" ]]; then
+    echo "ERROR: ejecuta migrator-setup para preparar la credencial local." >&2
+    return 1
+  fi
+  umask 077
+  passfile="$(mktemp "${REPO_ROOT}/.local/secrets/migrator.XXXXXX")"
+  trap 'rm -f -- "$passfile"' EXIT
+  printf '%s:%s:%s:%s:%s\n' "$host" "$DB_PORT" "$DB_NAME" espacigo_migrator_login \
+    "$(cat "$MIGRATOR_PASSWORD_FILE")" > "$passfile"
+  cd "$REPO_ROOT"
+  env -u PGPASSWORD -u PGSERVICE -u PGSERVICEFILE -u PGOPTIONS -u PGHOSTADDR \
+    PGPASSFILE="$passfile" DATABASE_CONNECTION_MODE=direct DATABASE_PASSWORD_FILE='' \
+    DATABASE_URL="postgres://espacigo_migrator_login@$host:$DB_PORT/$DB_NAME?sslmode=disable" \
+    DATABASE_SET_ROLE=espacigo_schema_owner go run ./cmd/dbmigrate "$@"
+)
 
 cmd_test() {
   echo "=== [EspaciGo AWS] Ejecutando Pruebas de Calidad e Integración ==="
@@ -139,13 +285,35 @@ cmd_test() {
 }
 
 cmd_api() {
+  local api_db_host api_db_port
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
+  local commune_boundaries="${REPO_ROOT}/.local/geo/dpa_2023_communes.bin.gz"
+  if [[ -z "${ESPACIGO_COMMUNE_BOUNDARIES_FILE:-}" && -r "$commune_boundaries" ]]; then
+    export ESPACIGO_COMMUNE_BOUNDARIES_FILE="$commune_boundaries"
+  fi
+  if [[ "${ESPACIGO_LOCAL_ONLY:-0}" == 1 ]]; then
+    export MERCADOPAGO_CHECKOUT_ENABLED=0
+    export MERCADOPAGO_WALLET_PURCHASE_ENABLED=0
+    export MERCADOPAGO_PAYMENTS_API_ENABLED=0
+    export MERCADOPAGO_WEBHOOK_ENABLED=0
+  fi
+  export ENVIRONMENT=development
+  load_mercadopago_oauth_env
 
   # Base de datos
   export DATABASE_CONNECTION_MODE="direct"
-  export DATABASE_HOST="${ESPACIGO_LOCAL_DB_HOST:-$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER")}"
-  export DATABASE_PORT="$DB_PORT"
+  api_db_host="${ESPACIGO_LOCAL_DB_HOST:-$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$DB_CONTAINER")}"
+  api_db_port="$DB_PORT"
+  if [[ -n "${ESPACIGO_LOCAL_DB_PORT:-}" ]]; then
+    if [[ "$api_db_host" != "127.0.0.1" || ! "$ESPACIGO_LOCAL_DB_PORT" =~ ^[0-9]{1,5}$ ]] || (( 10#$ESPACIGO_LOCAL_DB_PORT < 1 || 10#$ESPACIGO_LOCAL_DB_PORT > 65535 )); then
+      echo "ERROR: ESPACIGO_LOCAL_DB_PORT requires ESPACIGO_LOCAL_DB_HOST=127.0.0.1 and a valid TCP port." >&2
+      return 1
+    fi
+    api_db_port="$ESPACIGO_LOCAL_DB_PORT"
+  fi
+  export DATABASE_HOST="$api_db_host"
+  export DATABASE_PORT="$api_db_port"
   export DATABASE_NAME="$DB_NAME"
   export DATABASE_USER="espacigo_api_login"
   export DATABASE_SET_ROLE="espacigo_runtime"
@@ -154,10 +322,23 @@ cmd_api() {
 
   # Parámetros runtime de aplicación
   export HTTP_ADDR="${HTTP_ADDR:-127.0.0.1:8080}"
-  export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
-  export CORS_ALLOWED_ORIGINS="http://127.0.0.1:3000,http://localhost:3000"
+  export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
+  export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}"
   export LOCAL_AUTH_PROTOTYPE="1"
-  export LOCAL_BOOKING_TRIAL="1"
+  case "${COMMERCIAL_RENTAL_FLOW_ENABLED:-0}" in
+    1)
+      export COMMERCIAL_RENTAL_FLOW_ENABLED="1"
+      export LOCAL_BOOKING_TRIAL="0"
+      ;;
+    0|"")
+      unset COMMERCIAL_RENTAL_FLOW_ENABLED
+      export LOCAL_BOOKING_TRIAL="1"
+      ;;
+    *)
+      echo "ERROR: COMMERCIAL_RENTAL_FLOW_ENABLED must be 0 or 1." >&2
+      return 1
+      ;;
+  esac
   export LOCAL_VERIFICATION_IP_LIMIT="100"
   export LOCAL_SMTP_ADDR="127.0.0.1:1025"
 
@@ -178,6 +359,7 @@ cmd_api() {
   export LOCAL_PAYMENT_WEBHOOK_SECRET_FILE="${REPO_ROOT}/.local/secrets/local_payment_webhook_secret"
   export IDENTITY_DECLARATION_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json"
   export IDENTITY_RUT_HMAC_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-rut-hmac-keyring.json"
+  export CONTRACT_PROPOSAL_KEYRING_FILE="${CONTRACT_PROPOSAL_KEYRING_FILE:-${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json}"
 
   (
     cd "$REPO_ROOT"
@@ -185,14 +367,59 @@ cmd_api() {
   )
 }
 
+load_mercadopago_oauth_env() {
+  local file="${REPO_ROOT}/.local/secrets/mercadopago-test.env" line key value mode owner
+  [[ -e "$file" ]] || return 0
+  if [[ -L "$file" || ! -f "$file" || ! -r "$file" ]]; then
+    echo "ERROR: Mercado Pago config must be a readable regular file." >&2
+    return 1
+  fi
+  mode="$(stat -c '%a' "$file")"
+  owner="$(stat -c '%u' "$file")"
+  if [[ "$mode" != "600" || "$owner" != "$(id -u)" ]]; then
+    echo "ERROR: Mercado Pago config must be owned by the current user with mode 600." >&2
+    return 1
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || { echo "ERROR: Invalid Mercado Pago config line." >&2; return 1; }
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$key" in
+      MERCADOPAGO_TEST_ACCESS_TOKEN|MERCADOPAGO_CLIENT_ID|MERCADOPAGO_CLIENT_SECRET|MERCADOPAGO_OAUTH_REDIRECT_URI|MERCADOPAGO_TOKEN_ENCRYPTION_KEY|MERCADOPAGO_TEST_MODE|MERCADOPAGO_WEBHOOK_SECRET_FILE) ;;
+      *) echo "ERROR: Unsupported key in Mercado Pago config." >&2; return 1 ;;
+    esac
+    [[ "$value" != *$'\r'* ]] || { echo "ERROR: Invalid Mercado Pago config value." >&2; return 1; }
+    export "$key=$value"
+  done < "$file"
+  if [[ -n "${MERCADOPAGO_CLIENT_ID:-}" || -n "${MERCADOPAGO_CLIENT_SECRET:-}" || -n "${MERCADOPAGO_OAUTH_REDIRECT_URI:-}" || -n "${MERCADOPAGO_TOKEN_ENCRYPTION_KEY:-}" ]]; then
+    export MERCADOPAGO_TEST_MODE="${MERCADOPAGO_TEST_MODE:-true}"
+  fi
+}
+
 cmd_web() {
-  echo "=== [EspaciGo AWS] Iniciando Frontend Next.js en http://127.0.0.1:3000 ==="
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
+  fi
+  echo "=== [EspaciGo AWS] Iniciando Frontend Next.js; abrir en ${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000} ==="
   export API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1"
-  export FRONTEND_PUBLIC_ORIGIN="http://127.0.0.1:3000"
+  export ENVIRONMENT=development
+  export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
   export PORT="3000"
   (
     cd "${REPO_ROOT}/frontend"
-    npm run dev -- -p 3000
+    if command -v pnpm >/dev/null 2>&1; then
+      pnpm dev -p 3000
+    elif command -v corepack >/dev/null 2>&1; then
+      corepack pnpm dev -p 3000
+    else
+      echo "ERROR: pnpm no está disponible en PATH (packageManager fijado en frontend/package.json)." >&2
+      return 127
+    fi
   )
 }
 
@@ -203,6 +430,10 @@ Uso: $0 <comando>
 Comandos disponibles:
   status     Verifica el estado del emulador AWS, PostgreSQL, Mailpit y componentes locales.
   bootstrap  Aprovisiona los buckets S3, parámetros SSM, logs IAM, roles y Mailpit.
+  migrator-setup  Prepara y comprueba el login local dedicado a migraciones.
+  migrator-enable-ddl  Habilita el DDL del rol local después de V100.
+  migrate-plan    Muestra migraciones locales aplicadas y pendientes.
+  migrate         Aplica migraciones locales con el login dedicado.
   test       Ejecuta los tests de Go (S3/cifrado) y tests del frontend Next.js.
   api        Inicia la API Go con todas las variables de entorno necesarias para registro y login.
   web        Inicia el frontend Next.js conectado al backend Go local.
@@ -213,6 +444,10 @@ EOF
 case "${1:-}" in
   status) cmd_status ;;
   bootstrap) cmd_bootstrap ;;
+  migrator-setup) cmd_migrator_setup ;;
+  migrator-enable-ddl) cmd_migrator_enable_ddl ;;
+  migrate-plan) cmd_migrations -plan-only ;;
+  migrate) cmd_migrations ;;
   test) cmd_test ;;
   api) cmd_api ;;
   web) cmd_web ;;

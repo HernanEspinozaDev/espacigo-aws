@@ -304,20 +304,25 @@ func TestBuildRuntimeACLContractAcceptsCheckedInMigrationHistory(t *testing.T) {
 	if len(contract) == 0 {
 		t.Fatal("checked-in migration history produced an empty runtime ACL contract")
 	}
-	var dynamicConditionRecorded, sourceGrantorRecorded bool
+	var schemaUsageGranted, auditUpdateRevoked, auditDeleteRevoked bool
 	for key, grant := range contract {
 		if key.Grantee == "espacigo_runtime" && grant.GrantOption {
 			t.Fatalf("checked-in runtime ACL unexpectedly delegates grants on %s %s %s", key.ObjectKind, key.Object, key.Privilege)
 		}
-		if key.Grantee == "espacigo_runtime" && key.ObjectKind == "FUNCTION" &&
-			key.Object == "public.purge_unreferenced_local_publication_rates(uuid)" && grant.Granted {
-			_, dynamicConditionRecorded = grant.Conditions["role-exists:espacigo_runtime"]
-			dynamicConditionRecorded = dynamicConditionRecorded && grant.DynamicSQL
-			_, sourceGrantorRecorded = grant.Grantors[runtimeACLGrantorObjectOwner]
+		if key.Grantee == "espacigo_runtime" && key.ObjectKind == "SCHEMA" && key.Object == "public" && key.Privilege == "USAGE" && grant.Granted {
+			schemaUsageGranted = true
+		}
+		if key.Grantee == "espacigo_runtime" && key.ObjectKind == "TABLE" && key.Object == "public.evento_auditoria_local" {
+			if key.Privilege == "UPDATE" && !grant.Granted {
+				auditUpdateRevoked = true
+			}
+			if key.Privilege == "DELETE" && !grant.Granted {
+				auditDeleteRevoked = true
+			}
 		}
 	}
-	if !dynamicConditionRecorded || !sourceGrantorRecorded {
-		t.Fatalf("source-derived ACL contract omitted dynamic/condition/grantor metadata: dynamic_condition=%t grantor=%t", dynamicConditionRecorded, sourceGrantorRecorded)
+	if !schemaUsageGranted || !auditUpdateRevoked || !auditDeleteRevoked {
+		t.Fatalf("source-derived ACL contract omitted baseline expectations: schema_usage=%t audit_update_revoked=%t audit_delete_revoked=%t", schemaUsageGranted, auditUpdateRevoked, auditDeleteRevoked)
 	}
 }
 

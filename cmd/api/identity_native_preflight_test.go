@@ -38,20 +38,20 @@ func validateNativeIdentityPreflight(raw []byte, source []migrator.Migration, ve
 		return errors.New("native identity preflight target or read-only identity mismatch")
 	}
 	if version == nativeIdentityPreflightAnySupportedVersion {
-		if len(report.Ledger) < 89 || len(report.Ledger) > nativeIdentityPreflightVersion {
-			return errors.New("native identity preflight requires an exact reviewed V89 through V96 ledger")
+		if len(report.Ledger) < 1 || len(report.Ledger) > nativeIdentityPreflightVersion {
+			return errors.New("native identity preflight requires an exact reviewed V1 baseline ledger")
 		}
 		version = len(report.Ledger)
 	}
-	if version < 89 || version > nativeIdentityPreflightVersion || len(source) < version || len(report.Ledger) != version {
-		return errors.New("native identity preflight requires an exact reviewed V89 through V96 ledger")
+	if version < 1 || version > nativeIdentityPreflightVersion || len(source) < version || len(report.Ledger) != version {
+		return errors.New("native identity preflight requires an exact reviewed V1 baseline ledger")
 	}
 	for i, h := range report.Ledger {
 		if h.Version != int64(i+1) || source[i].Version != h.Version || source[i].Name != h.Name || source[i].Checksum != h.Checksum {
 			return errors.New("native identity preflight ledger differs from source")
 		}
 	}
-	finalChecksum := "93671b484f3118c697eebc4654f4b32325cce4231582b488f2e1a8d9b7fece9c"
+	finalChecksum := "8c2c452556ca4dcb7da6ab1870cdcbd706164d12544825fd030a9cccff359a64"
 	if version == 90 {
 		finalChecksum = "23bbacde2cf992f912926f84945c701422b097598e698b2e8f38158b61622592"
 	} else if version == 91 {
@@ -269,7 +269,7 @@ func TestNativeIdentityPreflightRejectsUntrustedTargetAndLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, version := range []int{89, 90, 91, 92, 93, 94, 95, 96} {
+	for _, version := range []int{1} {
 		history := make([]migrator.HistoryEntry, version)
 		for i := range history {
 			history[i] = migrator.HistoryEntry{Version: source[i].Version, Name: source[i].Name, Checksum: source[i].Checksum}
@@ -289,10 +289,10 @@ func TestNativeIdentityPreflightRejectsUntrustedTargetAndLedger(t *testing.T) {
 		if err := validateNativeIdentityPreflight(encode(valid), source, 0); err != nil {
 			t.Fatalf("supported-current-tail preflight rejected exact V%d ledger: %v", version, err)
 		}
-		if version == 90 {
-			valid["ledger"] = history[:89]
+		if version == 1 {
+			valid["ledger"] = history[:0]
 			if validateNativeIdentityPreflight(encode(valid), source, version) == nil {
-				t.Fatal("V89 preflight accepted for a V90 target")
+				t.Fatal("empty preflight accepted for a V1 target")
 			}
 			valid["ledger"] = history
 		}

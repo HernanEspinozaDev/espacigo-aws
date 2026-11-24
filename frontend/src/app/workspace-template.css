@@ -13,7 +13,7 @@
   --muted: var(--brand-surface-subtle);
   --muted-foreground: var(--brand-muted);
   --accent: var(--brand-primary-soft);
-  --accent-foreground: var(--brand-primary-active);
+  --accent-foreground: var(--brand-primary-soft-ink);
   --destructive: var(--brand-error);
   --border: var(--brand-border);
   --input: var(--brand-control-border);
@@ -29,7 +29,7 @@
   --sidebar-primary: var(--brand-primary);
   --sidebar-primary-foreground: var(--brand-surface);
   --sidebar-accent: var(--brand-primary-soft);
-  --sidebar-accent-foreground: var(--brand-primary-active);
+  --sidebar-accent-foreground: var(--brand-primary-soft-ink);
   --sidebar-border: var(--brand-border);
   --sidebar-ring: var(--brand-focus);
   min-height: 100vh;

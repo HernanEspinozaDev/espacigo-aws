@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+func intPointer(v int) *int { return &v }
+
 func TestListRejectsCursorWhenBoundFiltersChange(t *testing.T) {
 	start := time.Date(2030, time.January, 2, 13, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
@@ -55,6 +57,7 @@ func TestListRejectsCursorWhenBoundFiltersChange(t *testing.T) {
 			},
 		},
 		{name: "minimum area", setup: func(filters *Filters) { filters.MinAreaM2 = "10" }, mutate: func(filters *Filters) { filters.MinAreaM2 = "12" }},
+		{name: "minimum capacity", setup: func(filters *Filters) { filters.MinCapacity = intPointer(4) }, mutate: func(filters *Filters) { filters.MinCapacity = intPointer(6) }},
 		{
 			name: "commune",
 			setup: func(filters *Filters) {

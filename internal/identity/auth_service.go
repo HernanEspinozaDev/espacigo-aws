@@ -47,17 +47,22 @@ func (e *LoginBlockedError) Error() string {
 }
 
 type AuthenticationService struct {
-	repo        AuthenticationRepository
-	passwords   PasswordHasher
-	mailer      AuthenticationMailer
-	ipLimiter   VerificationIPLimiter
-	credentials CredentialGenerator
-	now         func() time.Time
-	totpKeyring *TOTPKeyring
+	repo             AuthenticationRepository
+	passwords        PasswordHasher
+	mailer           AuthenticationMailer
+	ipLimiter        VerificationIPLimiter
+	credentials      CredentialGenerator
+	now              func() time.Time
+	totpKeyring      *TOTPKeyring
+	totpLoginEnabled bool
 }
 
 func (s *AuthenticationService) SetTOTPKeyring(kr *TOTPKeyring) {
 	s.totpKeyring = kr
+}
+
+func (s *AuthenticationService) SetTOTPLoginEnabled(enabled bool) {
+	s.totpLoginEnabled = enabled
 }
 
 func NewAuthenticationService(repo AuthenticationRepository, passwords PasswordHasher, mailer AuthenticationMailer, limiter VerificationIPLimiter, credentials CredentialGenerator, now func() time.Time) (*AuthenticationService, error) {
@@ -764,11 +769,12 @@ func (s *AuthenticationService) RunCredentialNoticeWorker(ctx context.Context, i
 }
 
 type LoginInput struct {
-	Email         string
-	Password      Secret
-	ClientSummary string
-	UserAgent     string
-	IP            string
+	Email             string
+	Password          Secret
+	AuthenticatorCode Secret
+	ClientSummary     string
+	UserAgent         string
+	IP                string
 }
 type LoginResult struct {
 	AccountID      string
@@ -812,7 +818,7 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 		if err != nil {
 			return err
 		}
-		if !correct {
+		failAttempt := func(rejection error) error {
 			attempts++
 			if attempts >= 5 {
 				until := now.Add(loginBlockDuration)
@@ -823,13 +829,28 @@ func (s *AuthenticationService) Login(ctx context.Context, input LoginInput) (Lo
 				}
 				denied = &LoginBlockedError{until}
 			} else {
-				denied = ErrCredentials
+				denied = rejection
 			}
 			return tx.SaveLoginState(ctx, account.ID, state, attempts, blocked)
+		}
+		if !correct {
+			return failAttempt(ErrCredentials)
 		}
 		if state == AccountEmailPending {
 			denied = ErrEmailUnverified
 			return nil
+		}
+		if s.totpLoginEnabled {
+			err := s.verifyLoginTOTP(ctx, tx, account.ID, string(input.AuthenticatorCode), now)
+			switch {
+			case errors.Is(err, ErrLoginTOTPRequired):
+				denied = err
+				return nil
+			case errors.Is(err, ErrTOTPInvalidCode), errors.Is(err, ErrTOTPReplayDetected):
+				return failAttempt(ErrTOTPInvalidCode)
+			case err != nil:
+				return err
+			}
 		}
 		roles, err := tx.Roles(ctx, account.ID)
 		if err != nil {

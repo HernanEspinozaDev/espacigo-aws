@@ -32,10 +32,12 @@ type VerificationStatusView =
 
 interface AccountVerificationCardProps {
   readonly showDeclarationLink?: boolean;
+  readonly returnTo?: string | null;
 }
 
 export function AccountVerificationCard({
   showDeclarationLink = true,
+  returnTo = null,
 }: AccountVerificationCardProps) {
   const { snapshot: authSnapshot } = useAuth();
 
@@ -56,14 +58,17 @@ export function AccountVerificationCard({
     <AuthenticatedAccountVerificationCard
       key={sessionKey}
       showDeclarationLink={showDeclarationLink}
+      returnTo={returnTo}
     />
   );
 }
 
 function AuthenticatedAccountVerificationCard({
   showDeclarationLink,
+  returnTo,
 }: {
   readonly showDeclarationLink: boolean;
+  readonly returnTo: string | null;
 }) {
   const [status, setStatus] = useState<VerificationStatusView>({
     kind: "loading",
@@ -249,14 +254,29 @@ function AuthenticatedAccountVerificationCard({
                   espacios.
                 </span>
               </div>
-              {showDeclarationLink ? (
-                <Button asChild size="sm" variant="outline" className="gap-1.5">
-                  <Link href="/mi-cuenta/verificaciones">
-                    Ver estado
-                    <ArrowRight className="size-4" aria-hidden="true" />
-                  </Link>
-                </Button>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {returnTo ? (
+                  <Button asChild size="sm" className="gap-1.5">
+                    <Link href={returnTo}>
+                      Volver a publicar espacio
+                      <ArrowRight className="size-4" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                ) : null}
+                {showDeclarationLink ? (
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                  >
+                    <Link href="/mi-cuenta/verificaciones">
+                      Ver estado
+                      <ArrowRight className="size-4" aria-hidden="true" />
+                    </Link>
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

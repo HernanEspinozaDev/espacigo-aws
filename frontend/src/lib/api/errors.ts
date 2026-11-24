@@ -103,6 +103,10 @@ export function authErrorMessage(error: unknown): string {
     case "email_not_verified":
     case "email_unverified":
       return "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.";
+    case "authenticator_required":
+      return "Ingresa el código de tu aplicación de autenticación o un código de respaldo.";
+    case "authenticator_invalid":
+      return "El código no es válido o ya fue utilizado. Prueba con un código nuevo.";
     case "login_blocked":
       return "El acceso está bloqueado temporalmente. Intenta más tarde.";
     case "rate_limited":

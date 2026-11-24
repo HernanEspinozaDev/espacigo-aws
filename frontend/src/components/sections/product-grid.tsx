@@ -1,3 +1,4 @@
+import { MapPin } from "lucide-react";
 import Link from "next/link";
 import type { PublicSpace } from "@/features/public-catalog/domain/types";
 import { PublicCatalogCard } from "@/features/public-catalog/ui/public-catalog-card";
@@ -8,31 +9,49 @@ export type ProductGridProps = {
   spaces: readonly PublicSpace[];
   showViewAll?: boolean;
   viewAllHref?: string;
+  mapHref?: string;
 };
 
 export function ProductGrid({
-  title = "Publicaciones del catálogo",
+  title = "Descubre espacios",
   description = "Publicaciones que la API pública de EspaciGo entrega como elegibles.",
   spaces,
   showViewAll = true,
   viewAllHref = "/explorar",
+  mapHref,
 }: ProductGridProps) {
   return (
-    <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
-      <div className="mb-10 flex items-end justify-between gap-6">
+    <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8">
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-medium text-foreground sm:text-3xl">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
             {title}
           </h2>
           <p className="mt-2 max-w-2xl text-muted-foreground">{description}</p>
         </div>
-        {showViewAll ? (
-          <Link
-            href={viewAllHref}
-            className="hidden min-h-11 items-center gap-1 whitespace-nowrap text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
-          >
-            Ver catálogo <span aria-hidden="true">→</span>
-          </Link>
+        {showViewAll || mapHref ? (
+          <div className="hidden items-center gap-4 sm:inline-flex">
+            {mapHref ? (
+              <Link
+                href={mapHref}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:border-[var(--brand-accent)] hover:bg-[var(--brand-primary-soft)]/50"
+              >
+                <MapPin
+                  className="size-4 text-[var(--brand-accent)]"
+                  aria-hidden="true"
+                />
+                Ver en mapa
+              </Link>
+            ) : null}
+            {showViewAll ? (
+              <Link
+                href={viewAllHref}
+                className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
+              >
+                Ver todos <span aria-hidden="true">→</span>
+              </Link>
+            ) : null}
+          </div>
         ) : null}
       </div>
       {spaces.length ? (
@@ -56,7 +75,7 @@ export function ProductGrid({
             href={viewAllHref}
             className="inline-flex min-h-11 items-center gap-1 text-sm font-medium hover:underline"
           >
-            Ver catálogo <span aria-hidden="true">→</span>
+            Ver todos <span aria-hidden="true">→</span>
           </Link>
         </div>
       ) : null}

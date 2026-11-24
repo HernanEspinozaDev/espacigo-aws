@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AccountVerificationCard } from "@/features/account/ui/account-verification-card";
+import { safeHostReturnPath } from "@/features/host-listings/domain/publish-guide";
 
 export const metadata: Metadata = {
   title: "Verificación de Cuenta | Mi Cuenta | EspaciGo",
@@ -11,7 +12,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function VerificacionesPage() {
+export default async function VerificacionesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ return_to?: string | string[] }>;
+}) {
+  const { return_to } = await searchParams;
+  const returnTo = safeHostReturnPath(return_to);
   return (
     <div className="space-y-8">
       <div className="border-b border-border/60 pb-5">
@@ -24,7 +31,10 @@ export default function VerificacionesPage() {
         </p>
       </div>
 
-      <AccountVerificationCard showDeclarationLink={false} />
+      <AccountVerificationCard
+        showDeclarationLink={false}
+        returnTo={returnTo}
+      />
     </div>
   );
 }

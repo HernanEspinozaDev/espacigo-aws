@@ -4,6 +4,7 @@ export type AdminRole =
 export type AdminCapability =
   | "accounts.list"
   | "accounts.read"
+  | "accounts.email.reveal"
   | "accounts.update"
   | "accounts.block"
   | "accounts.roles"
@@ -16,7 +17,22 @@ export type AdminCapability =
   | "kpi.read"
   | "audit.read"
   | "audit.export"
-  | "legacy.administration";
+  | "legacy.administration"
+  | "payments.read"
+  | "payments.reconcile"
+  | "payments.refund.request"
+  | "payments.refund.approve"
+  | "reservations.read"
+  | "contracts.read"
+  | "kyc.case.read"
+  | "kyc.review"
+  | "privacy.requests.manage"
+  | "privacy.export.approve"
+  | "support.tickets.read"
+  | "support.tickets.manage"
+  | "approvals.read"
+  | "approvals.request"
+  | "approvals.decide";
 
 export type AdminSection =
   | "overview"
@@ -31,7 +47,11 @@ export type AdminSection =
   | "spaces"
   | "reports"
   | "reservations"
-  | "damage_claims";
+  | "damage_claims"
+  | "finance"
+  | "privacy"
+  | "approvals"
+  | "support";
 
 export interface GlobalAdminMe {
   readonly account_id: string;
@@ -91,6 +111,46 @@ export interface GlobalAdminAccountQuery {
   readonly state?: GlobalAdminAccountState;
   readonly cursor?: string;
   readonly page_size?: number;
+}
+
+export type GlobalAdminAccountResourceKind =
+  | "reservations"
+  | "incidents"
+  | "commercial_reservations"
+  | "commercial_contracts"
+  | "commercial_payments";
+
+export interface GlobalAdminAccountResource {
+  readonly id: string;
+  readonly kind: GlobalAdminAccountResourceKind;
+  readonly state: string;
+  readonly occurred_at: string;
+  readonly reservation_id?: string;
+  readonly participant_role?: string;
+  readonly data_origin?: "commercial" | "trial";
+  readonly test_mode?: boolean | null;
+  readonly role_in_record?: string;
+  readonly amount_clp?: number | null;
+  readonly total_charged_clp?: number | null;
+  readonly currency?: string;
+  readonly space_id?: string;
+  readonly space_title?: string;
+  readonly provider_payment_id?: string;
+  readonly provider_status?: string;
+  readonly document_status?: string;
+  readonly related_ids?: Readonly<Record<string, string>>;
+}
+
+export interface GlobalAdminAccountResourceQuery {
+  readonly page_size?: number;
+  readonly cursor?: string;
+}
+
+export interface GlobalAdminAccountResourcePage {
+  readonly items: readonly GlobalAdminAccountResource[];
+  readonly next_cursor: string;
+  readonly matching_total: number;
+  readonly generated_at: string;
 }
 
 export type GlobalAdminPublicationState =
@@ -315,4 +375,430 @@ export interface AdminDamageClaimResolutionInput {
   readonly decision: "aceptado" | "rechazado" | "parcial";
   readonly resolution_notes: string;
   readonly approved_amount_clp?: number;
+}
+
+export type AdminSessionStatus =
+  "unknown" | "checking" | "anonymous" | "mfa_required" | "authenticated";
+
+export interface AdminSessionData {
+  readonly account_id: string;
+  readonly audience: string;
+  readonly roles: readonly AdminRole[];
+  readonly capabilities: readonly AdminCapability[];
+  readonly mfa_verified_at: string | null;
+  readonly recent_auth_expires_at: string | null;
+  readonly expires_at: string;
+}
+
+export interface AdminSessionStartResponse {
+  readonly status: "mfa_required" | "authenticated";
+  readonly challenge_id?: string;
+  readonly methods?: readonly string[];
+  readonly expires_at: string;
+  readonly account_id?: string;
+  readonly audience?: string;
+  readonly roles?: readonly AdminRole[];
+  readonly capabilities?: readonly AdminCapability[];
+  readonly mfa_verified_at?: string | null;
+  readonly recent_auth_expires_at?: string | null;
+}
+
+export interface AdminMfaChallenge {
+  readonly challenge_id: string;
+  readonly methods: readonly string[];
+  readonly expires_at: string;
+}
+
+export type AdminSensitiveAccessScope = "account_email" | "account_summary";
+
+export interface AdminSensitiveAccessInput {
+  readonly field: "email";
+  readonly reason: string;
+  readonly case_id?: string;
+  readonly scope?: AdminSensitiveAccessScope;
+}
+
+export interface AdminSensitiveAccessResult {
+  readonly account_id: string;
+  readonly field: "email";
+  readonly value: string;
+  readonly masked_value: string;
+  readonly scope: AdminSensitiveAccessScope;
+  readonly reason: string;
+  readonly case_id?: string;
+  readonly expires_at: string;
+  readonly audit_event_id?: string;
+}
+
+export type AdminAssistedViewRole = "arrendador" | "arrendatario";
+
+export interface AdminAssistedViewStartInput {
+  readonly role: AdminAssistedViewRole;
+  readonly case_id: string;
+  readonly reason: string;
+}
+
+export interface AdminAssistedViewGrant {
+  readonly grant_id: string;
+  readonly account_id: string;
+  readonly actor_account_id: string;
+  readonly role: AdminAssistedViewRole;
+  readonly case_id: string;
+  readonly reason: string;
+  readonly read_only: true;
+  readonly expires_at: string;
+  readonly created_at?: string;
+  readonly audit_event_id?: string;
+}
+
+export interface AdminAssistedViewAccountSummary {
+  readonly account_id: string;
+  readonly state: string;
+  readonly email_verified: boolean;
+  readonly phone_verified: boolean;
+  readonly kyc_status: string;
+  readonly kyc_rejection_reason?: string;
+  readonly roles: readonly string[];
+  readonly admin_blocked: boolean;
+}
+
+export type AdminAssistedViewDiagnosticSeverity = "error" | "warning" | "info";
+
+export interface AdminAssistedViewDiagnostic {
+  readonly code: string;
+  readonly severity: AdminAssistedViewDiagnosticSeverity;
+  readonly area: string;
+  readonly title: string;
+  readonly detail: string;
+}
+
+export interface AdminAssistedViewPublishStep {
+  readonly step: number;
+  readonly key: string;
+  readonly title: string;
+  readonly status: string;
+  readonly detail: string;
+}
+
+export interface AdminAssistedViewPublishGuide {
+  readonly kyc_status: string;
+  readonly draft_status: string;
+  readonly mercadopago_status: string;
+  readonly contract_status: string;
+  readonly steps: readonly AdminAssistedViewPublishStep[];
+}
+
+export interface AdminAssistedViewMercadoPagoConnection {
+  readonly connected: boolean;
+  readonly connection_state?: string;
+  readonly live_mode?: boolean;
+  readonly connected_at?: string;
+  readonly updated_at?: string;
+}
+
+export interface AdminAssistedViewSpaceItem {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+  readonly modality?: string;
+  readonly price_clp?: number | null;
+  readonly max_capacity?: number | null;
+  readonly area_m2?: number | null;
+  readonly time_zone?: string;
+  readonly location_confirmed: boolean;
+  readonly contract_published_version: number;
+  readonly publish_blockers: readonly string[];
+}
+
+export interface AdminAssistedViewReservationItem {
+  readonly id: string;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly status: string;
+  readonly modality?: string;
+  readonly subtotal_clp?: number | null;
+  readonly start_at: string;
+  readonly end_at: string;
+  readonly payment_expires_at?: string | null;
+  readonly created_at: string;
+}
+
+export interface AdminAssistedViewContractItem {
+  readonly id: string;
+  readonly proposal_id?: string | null;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly status: string;
+  readonly signing_mode?: string;
+  readonly document_status?: string;
+  readonly subtotal_clp?: number | null;
+  readonly created_at: string;
+}
+
+export interface AdminAssistedViewPaymentItem {
+  readonly id: string;
+  readonly reservation_id?: string | null;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly status: string;
+  readonly checkout_method: string;
+  readonly test_mode: boolean;
+  readonly total_charged_clp: number;
+  readonly provider_payment_status?: string;
+  readonly reconciliation_reason?: string;
+  readonly created_at: string;
+}
+
+export interface AdminAssistedViewProjection {
+  readonly grant_id: string;
+  readonly account_id: string;
+  readonly actor_account_id: string;
+  readonly role: AdminAssistedViewRole;
+  readonly case_id: string;
+  readonly expires_at: string;
+  readonly read_only: true;
+  readonly account_summary: AdminAssistedViewAccountSummary;
+  readonly diagnostics: readonly AdminAssistedViewDiagnostic[];
+  readonly publish_guide?: AdminAssistedViewPublishGuide | null;
+  readonly mercadopago_connection?: AdminAssistedViewMercadoPagoConnection | null;
+  readonly spaces: readonly AdminAssistedViewSpaceItem[];
+  readonly reservations: readonly AdminAssistedViewReservationItem[];
+  readonly contracts: readonly AdminAssistedViewContractItem[];
+  readonly payments: readonly AdminAssistedViewPaymentItem[];
+}
+
+// Phase 4: Specialized Operations
+
+export interface GlobalAdminPayment {
+  readonly id: string;
+  readonly quote_id: string;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly renter_id: string;
+  readonly host_id: string;
+  readonly status: string;
+  readonly checkout_method: string;
+  readonly test_mode: boolean;
+  readonly base_clp: number;
+  readonly commission_clp: number;
+  readonly iva_clp: number;
+  readonly buyer_fee_clp: number;
+  readonly total_charged_clp: number;
+  readonly provider_payment_id: string;
+  readonly provider_payment_status: string;
+  readonly reconciliation_reason: string;
+  readonly payment_verified_at?: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GlobalAdminPaymentQuery {
+  readonly status?: string;
+  readonly test_mode?: boolean;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminReservation {
+  readonly id: string;
+  readonly checkout_operation_id: string;
+  readonly quote_id: string;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly renter_id: string;
+  readonly host_id: string;
+  readonly status: string;
+  readonly modality: string;
+  readonly unit_price_clp: number;
+  readonly units: number;
+  readonly subtotal_clp: number;
+  readonly currency: string;
+  readonly start_at: string;
+  readonly end_at: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GlobalAdminReservationQuery {
+  readonly status?: string;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminContract {
+  readonly id: string;
+  readonly proposal_id: string;
+  readonly quote_id: string;
+  readonly space_id: string;
+  readonly space_title: string;
+  readonly owner_id: string;
+  readonly renter_id: string;
+  readonly status: string;
+  readonly signing_mode: string;
+  readonly proposal_version: number;
+  readonly subtotal_clp: number;
+  readonly currency: string;
+  readonly document_status: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GlobalAdminContractQuery {
+  readonly status?: string;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminKycCase {
+  readonly id: string;
+  readonly account_id: string;
+  readonly environment: string;
+  readonly status: string;
+  readonly id_country: string;
+  readonly decision_status: string;
+  readonly rejection_reason: string;
+  readonly verified_at?: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GlobalAdminKycCaseQuery {
+  readonly status?: string;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export type GlobalAdminPrivacyRequestType =
+  | "acceso"
+  | "rectificacion"
+  | "supresion"
+  | "oposicion"
+  | "portabilidad"
+  | "bloqueo";
+
+export type GlobalAdminPrivacyRequestStatus =
+  "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
+
+export interface GlobalAdminPrivacyRequest {
+  readonly id: string;
+  readonly account_id: string;
+  readonly right_type: GlobalAdminPrivacyRequestType;
+  readonly status: GlobalAdminPrivacyRequestStatus;
+  readonly reason: string;
+  readonly case_ref: string;
+  readonly requested_by?: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly resolved_at?: string | null;
+}
+
+export interface GlobalAdminPrivacyRequestQuery {
+  readonly status?: GlobalAdminPrivacyRequestStatus;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminPrivacyRequestCreateInput {
+  readonly account_id: string;
+  readonly right_type: GlobalAdminPrivacyRequestType;
+  readonly reason: string;
+  readonly case_ref?: string;
+}
+
+export type GlobalAdminSupportTicketCategory =
+  | "pago"
+  | "reserva"
+  | "contrato"
+  | "kyc"
+  | "privacidad"
+  | "cuenta"
+  | (string & {});
+
+export type GlobalAdminSupportTicketPriority =
+  "baja" | "media" | "alta" | "critica";
+
+export type GlobalAdminSupportTicketStatus =
+  "abierto" | "en_progreso" | "resuelto" | "cerrado";
+
+export interface GlobalAdminSupportTicket {
+  readonly id: string;
+  readonly account_id?: string;
+  readonly assigned_to_id?: string;
+  readonly category: GlobalAdminSupportTicketCategory;
+  readonly priority: GlobalAdminSupportTicketPriority;
+  readonly status: GlobalAdminSupportTicketStatus;
+  readonly subject: string;
+  readonly case_ref: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export interface GlobalAdminSupportTicketQuery {
+  readonly status?: GlobalAdminSupportTicketStatus;
+  readonly priority?: GlobalAdminSupportTicketPriority;
+  readonly account_id?: string;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminSupportTicketCreateInput {
+  readonly account_id?: string;
+  readonly assigned_to_id?: string;
+  readonly category: GlobalAdminSupportTicketCategory;
+  readonly priority: GlobalAdminSupportTicketPriority;
+  readonly subject: string;
+  readonly case_ref?: string;
+}
+
+export type GlobalAdminApprovalActionType =
+  "refund_request" | "privacy_export" | "staff_role_grant";
+
+export type GlobalAdminApprovalStatus =
+  "pending" | "approved" | "rejected" | "cancelled";
+
+export type GlobalAdminApprovalDecision = "approved" | "rejected" | "cancelled";
+
+export interface GlobalAdminApproval {
+  readonly id: string;
+  readonly action_type: GlobalAdminApprovalActionType;
+  readonly resource_type: string;
+  readonly resource_id: string;
+  readonly requester_id: string;
+  readonly approver_id?: string | null;
+  readonly status: GlobalAdminApprovalStatus;
+  readonly reason: string;
+  readonly decision_reason: string;
+  readonly payload?: Readonly<Record<string, unknown>>;
+  readonly idempotency_key: string;
+  readonly version: number;
+  readonly created_at: string;
+  readonly decided_at?: string | null;
+  readonly expires_at: string;
+}
+
+export interface GlobalAdminApprovalQuery {
+  readonly status?: GlobalAdminApprovalStatus;
+  readonly action_type?: GlobalAdminApprovalActionType;
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+export interface GlobalAdminApprovalCreateInput {
+  readonly action_type: GlobalAdminApprovalActionType;
+  readonly resource_type: string;
+  readonly resource_id: string;
+  readonly reason: string;
+  readonly idempotency_key?: string;
+  readonly payload?: Readonly<Record<string, unknown>>;
+}
+
+export interface GlobalAdminApprovalDecisionInput {
+  readonly decision: GlobalAdminApprovalDecision;
+  readonly decision_reason: string;
+  readonly expected_version: number;
 }

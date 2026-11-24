@@ -359,7 +359,7 @@ func (s *AuthenticationService) RemoveTrustedContact(ctx context.Context, accoun
 	}, nil
 }
 
-// GetSecurityMethodsSummary computes the real-time status of all 7 verification methods.
+// GetSecurityMethodsSummary reports enrollment status for the available verification methods.
 func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, accountID string) (SecurityMethodsSummaryResponse, error) {
 	if accountID == "" {
 		return SecurityMethodsSummaryResponse{}, ErrNotFound
@@ -370,6 +370,9 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 
 	// 2. Email: verified if active account email exists
 	email, err := s.repo.ActiveAccountEmail(ctx, accountID)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return SecurityMethodsSummaryResponse{}, err
+	}
 	emailActive := err == nil && email != ""
 	emailStatus := EmailMethodStatus{
 		Enabled: emailActive,
@@ -380,7 +383,10 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 
 	// 3. Phone: verified from cuenta_verificacion_telefono
 	phoneRec, err := s.repo.GetPhoneVerification(ctx, accountID)
-	phoneActive := err == nil && phoneRec != nil && phoneRec.VerifiedAt != nil
+	if err != nil {
+		return SecurityMethodsSummaryResponse{}, err
+	}
+	phoneActive := phoneRec != nil && phoneRec.VerifiedAt != nil
 	phoneStatus := PhoneMethodStatus{
 		Enabled: phoneActive,
 	}
@@ -390,17 +396,20 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 
 	// 4. TOTP: enabled from cuenta_totp
 	totpRec, _, err := s.repo.GetTOTP(ctx, accountID)
-	totpActive := err == nil && totpRec != nil && totpRec.EnabledAt != nil
+	if err != nil {
+		return SecurityMethodsSummaryResponse{}, err
+	}
+	totpActive := totpRec != nil && totpRec.EnabledAt != nil
 	totpStatus := TOTPMethodStatus{
 		Enabled: totpActive,
 	}
 
 	// 5. Passkeys: registered credentials from cuenta_passkey
 	passkeys, err := s.repo.ListPasskeys(ctx, accountID)
-	passkeysCount := 0
-	if err == nil {
-		passkeysCount = len(passkeys)
+	if err != nil {
+		return SecurityMethodsSummaryResponse{}, err
 	}
+	passkeysCount := len(passkeys)
 	passkeysActive := passkeysCount > 0
 	passkeysStatus := PasskeysMethodStatus{
 		Enabled: passkeysActive,
@@ -409,7 +418,10 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 
 	// 6. QR Device: paired device from cuenta_qr_dispositivo
 	qrRec, err := s.repo.GetQRDevice(ctx, accountID)
-	qrActive := err == nil && qrRec != nil && qrRec.EnabledAt != nil
+	if err != nil {
+		return SecurityMethodsSummaryResponse{}, err
+	}
+	qrActive := qrRec != nil && qrRec.EnabledAt != nil
 	qrStatus := QRMethodStatus{
 		Enabled: qrActive,
 	}
@@ -438,18 +450,15 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 	if qrActive {
 		activeCount++
 	}
-	if facialActive {
-		activeCount++
-	}
 
 	// Protected: password + email + at least 1 additional method
-	hasAdditional := phoneActive || totpActive || passkeysActive || qrActive || facialActive
+	hasAdditional := phoneActive || totpActive || passkeysActive || qrActive
 	protected := emailActive && hasAdditional
 
 	return SecurityMethodsSummaryResponse{
 		Protected:   protected,
 		ActiveCount: activeCount,
-		TotalCount:  7,
+		TotalCount:  6,
 		Methods: SecurityMethodsDetails{
 			Password:  passwordStatus,
 			Email:     emailStatus,

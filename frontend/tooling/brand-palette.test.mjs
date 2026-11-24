@@ -73,8 +73,11 @@ function nonColorSignature(css) {
 }
 
 test("brand palette defines the requested primary and canvas for existing Next scopes", () => {
-  assert.match(brand, /--brand-primary:\s*#a44731\s*;/i);
-  assert.match(brand, /--brand-canvas:\s*#fbf7f2\s*;/i);
+  assert.match(brand, /--brand-primary:\s*#c54b18\s*;/i);
+  assert.match(brand, /--brand-canvas:\s*#ffffff\s*;/i);
+  assert.match(brand, /--brand-primary-soft:\s*#fff1e8\s*;/i);
+  assert.match(brand, /--brand-primary-soft-ink:\s*#9b3610\s*;/i);
+  assert.match(brand, /--brand-accent:\s*#e76f35\s*;/i);
   for (const file of ["globals.css", "workspace-template.css"]) {
     assert.match(source(file), /--primary:\s*var\(--brand-primary\)/);
     assert.match(source(file), /--background:\s*var\(--brand-canvas\)/);

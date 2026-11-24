@@ -1,18 +1,44 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { adminFacade } from "../admin-runtime";
 import type { AdminSnapshot } from "../application/admin-facade";
-import { authFacade } from "@/features/auth/auth-runtime";
 import { canAccessSection, hasCapability } from "../domain/admin-rules";
 import type {
+  AdminAssistedViewGrant,
+  AdminAssistedViewProjection,
+  AdminAssistedViewStartInput,
   AdminCapability,
   AdminDamageClaimResolutionInput,
   AdminRole,
   AdminSection,
+  AdminSensitiveAccessInput,
+  AdminSensitiveAccessResult,
+  AdminSessionStartResponse,
   AuditEventsQuery,
   GlobalAdminAccountQuery,
+  GlobalAdminAccountResourceKind,
+  GlobalAdminAccountResourcePage,
+  GlobalAdminAccountResourceQuery,
   GlobalAdminPublicationQuery,
+  GlobalAdminPayment,
+  GlobalAdminPaymentQuery,
+  GlobalAdminReservation,
+  GlobalAdminReservationQuery,
+  GlobalAdminContract,
+  GlobalAdminContractQuery,
+  GlobalAdminKycCase,
+  GlobalAdminKycCaseQuery,
+  GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestQuery,
+  GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminSupportTicket,
+  GlobalAdminSupportTicketQuery,
+  GlobalAdminSupportTicketCreateInput,
+  GlobalAdminApproval,
+  GlobalAdminApprovalQuery,
+  GlobalAdminApprovalCreateInput,
+  GlobalAdminApprovalDecisionInput,
 } from "../domain/types";
 
 export interface AdminView {
@@ -37,6 +63,12 @@ export interface AdminView {
   ): Promise<string>;
   loadAccounts(query?: GlobalAdminAccountQuery): Promise<void>;
   selectGlobalAccount(accountId: string): Promise<void>;
+  listGlobalAccountResources(
+    accountId: string,
+    kind: GlobalAdminAccountResourceKind,
+    query?: GlobalAdminAccountResourceQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminAccountResourcePage>;
   updateGlobalAccountProfile(
     accountId: string,
     input: {
@@ -198,6 +230,79 @@ export interface AdminView {
     input: AdminDamageClaimResolutionInput,
   ): Promise<boolean>;
 
+  // Dedicated admin session
+  checkAdminSession(): Promise<boolean>;
+  startAdminSession(
+    email: string,
+    password: string,
+  ): Promise<AdminSessionStartResponse | null>;
+  verifyAdminSessionMfa(code: string, challengeId?: string): Promise<boolean>;
+  logoutAdminSession(): Promise<void>;
+  openMfaStepUp(): void;
+  closeMfaStepUp(): void;
+  requestGlobalAccountSensitiveAccess(
+    accountId: string,
+    input: AdminSensitiveAccessInput,
+    signal?: AbortSignal,
+  ): Promise<AdminSensitiveAccessResult | null>;
+  startAssistedView(
+    accountId: string,
+    input: AdminAssistedViewStartInput,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewGrant | null>;
+  getAssistedViewProjection(
+    grantId: string,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewProjection | null>;
+  closeAssistedView(grantId?: string, signal?: AbortSignal): Promise<void>;
+
+  // Phase 4: Specialized Operations
+  listGlobalPayments(
+    query?: GlobalAdminPaymentQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPayment[]; next_cursor?: string }>;
+  listGlobalReservations(
+    query?: GlobalAdminReservationQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminReservation[]; next_cursor?: string }>;
+  listGlobalContracts(
+    query?: GlobalAdminContractQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminContract[]; next_cursor?: string }>;
+  listGlobalKycCases(
+    query?: GlobalAdminKycCaseQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminKycCase[]; next_cursor?: string }>;
+  listGlobalPrivacyRequests(
+    query?: GlobalAdminPrivacyRequestQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }>;
+  createGlobalPrivacyRequest(
+    input: GlobalAdminPrivacyRequestCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+  listGlobalSupportTickets(
+    query?: GlobalAdminSupportTicketQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminSupportTicket[]; next_cursor?: string }>;
+  createGlobalSupportTicket(
+    input: GlobalAdminSupportTicketCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminSupportTicket>;
+  listGlobalApprovals(
+    query?: GlobalAdminApprovalQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminApproval[]; next_cursor?: string }>;
+  createGlobalApproval(
+    input: GlobalAdminApprovalCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval>;
+  decideGlobalApproval(
+    approvalId: string,
+    input: GlobalAdminApprovalDecisionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval>;
+
   // Memory & error gates
   clearError(): void;
   clearFeedback(): void;
@@ -210,22 +315,27 @@ export function useAdmin(): AdminView {
     adminFacade.getSnapshot,
     adminFacade.getServerSnapshot,
   );
-  const authSnapshot = useSyncExternalStore(
-    authFacade.subscribe,
-    authFacade.getSnapshot,
-    authFacade.getServerSnapshot,
-  );
+
+  useEffect(() => {
+    if (snapshot.adminSessionStatus === "unknown") {
+      void adminFacade.checkAdminSession();
+    }
+  }, [snapshot.adminSessionStatus]);
 
   // Only one role shown in UI per session
   const activeRole: AdminRole | null = ((): AdminRole | null => {
-    if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+    if (
+      snapshot.adminSessionStatus !== "authenticated" ||
+      !snapshot.adminSession?.account_id
+    ) {
       return null;
     }
     const me =
-      snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+      snapshot.me && snapshot.me.account_id === snapshot.adminSession.account_id
         ? snapshot.me
         : null;
-    const roles = (me?.roles ?? authSnapshot.roles) as readonly AdminRole[];
+    const roles = (me?.roles ??
+      snapshot.adminSession.roles) as readonly AdminRole[];
     if (roles.includes("administrador_global")) return "administrador_global";
     if (roles.includes("administrador")) return "administrador";
     if (roles.includes("arrendador")) return "arrendador";
@@ -235,47 +345,56 @@ export function useAdmin(): AdminView {
 
   const canAccess = useCallback(
     (section: AdminSection): boolean => {
-      if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+      if (
+        snapshot.adminSessionStatus !== "authenticated" ||
+        !snapshot.adminSession?.account_id
+      ) {
         return false;
       }
       const me =
-        snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+        snapshot.me &&
+        snapshot.me.account_id === snapshot.adminSession.account_id
           ? snapshot.me
           : null;
       const capabilities = (me?.capabilities ??
-        authSnapshot.capabilities) as readonly AdminCapability[];
-      const roles = (me?.roles ?? authSnapshot.roles) as readonly AdminRole[];
+        snapshot.adminSession.capabilities) as readonly AdminCapability[];
+      const roles = (me?.roles ??
+        snapshot.adminSession.roles) as readonly AdminRole[];
       return canAccessSection(capabilities, section, roles);
     },
-    [snapshot.me, authSnapshot],
+    [snapshot.me, snapshot.adminSessionStatus, snapshot.adminSession],
   );
 
   const hasAdminCapability = useCallback(
     (capability: AdminCapability): boolean => {
-      if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+      if (
+        snapshot.adminSessionStatus !== "authenticated" ||
+        !snapshot.adminSession?.account_id
+      ) {
         return false;
       }
       const me =
-        snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+        snapshot.me &&
+        snapshot.me.account_id === snapshot.adminSession.account_id
           ? snapshot.me
           : null;
       const capabilities = (me?.capabilities ??
-        authSnapshot.capabilities) as readonly AdminCapability[];
+        snapshot.adminSession.capabilities) as readonly AdminCapability[];
       return hasCapability(capabilities, capability);
     },
-    [snapshot.me, authSnapshot],
+    [snapshot.me, snapshot.adminSessionStatus, snapshot.adminSession],
   );
 
   const loadGlobalMe = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadGlobalMe();
   }, []);
 
   const loadOverview = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadOverview();
   }, []);
@@ -283,7 +402,7 @@ export function useAdmin(): AdminView {
   const loadKPIs = useCallback(
     async (query: { from: string; until: string; time_zone: string }) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return;
       await adminFacade.loadKPIs(query);
     },
@@ -293,7 +412,7 @@ export function useAdmin(): AdminView {
   const loadGlobalAccounts = useCallback(
     async (query?: GlobalAdminAccountQuery) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return;
       await adminFacade.loadGlobalAccounts(query);
     },
@@ -302,10 +421,20 @@ export function useAdmin(): AdminView {
 
   const selectGlobalAccount = useCallback(async (accountId: string) => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.selectGlobalAccount(accountId);
   }, []);
+
+  const listGlobalAccountResources = useCallback(
+    async (
+      accountId: string,
+      kind: GlobalAdminAccountResourceKind,
+      query?: GlobalAdminAccountResourceQuery,
+      signal?: AbortSignal,
+    ) => adminFacade.listGlobalAccountResources(accountId, kind, query, signal),
+    [],
+  );
 
   const updateGlobalAccountProfile = useCallback(
     async (
@@ -319,7 +448,7 @@ export function useAdmin(): AdminView {
       },
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.updateGlobalAccountProfile(accountId, input);
     },
@@ -335,7 +464,7 @@ export function useAdmin(): AdminView {
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalAccountRole(accountId, role, granted, reason);
     },
@@ -352,7 +481,7 @@ export function useAdmin(): AdminView {
         | "retirada_acceso",
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalLegacyAdminRole(accountId, granted, reason);
     },
@@ -366,7 +495,7 @@ export function useAdmin(): AdminView {
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.revokeGlobalAccountSessions(accountId, reason);
     },
@@ -376,7 +505,7 @@ export function useAdmin(): AdminView {
   const setGlobalAccountBlocked = useCallback(
     async (accountId: string, blocked: boolean, reason: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalAccountBlocked(accountId, blocked, reason);
     },
@@ -386,7 +515,7 @@ export function useAdmin(): AdminView {
   const blockAccount = useCallback(
     async (accountId: string, reason: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalAccountBlocked(accountId, true, reason);
     },
@@ -396,7 +525,7 @@ export function useAdmin(): AdminView {
   const unblockAccount = useCallback(
     async (accountId: string, reason: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalAccountBlocked(accountId, false, reason);
     },
@@ -406,7 +535,7 @@ export function useAdmin(): AdminView {
   const loadGlobalPublications = useCallback(
     async (query?: GlobalAdminPublicationQuery) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return;
       await adminFacade.loadGlobalPublications(query);
     },
@@ -424,7 +553,7 @@ export function useAdmin(): AdminView {
       },
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.setGlobalPublicationState(publicationId, input);
     },
@@ -441,7 +570,7 @@ export function useAdmin(): AdminView {
       },
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.retireGlobalPublication(publicationId, input);
     },
@@ -450,7 +579,7 @@ export function useAdmin(): AdminView {
 
   const loadGlobalAuditEvents = useCallback(async (query: AuditEventsQuery) => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadGlobalAuditEvents(query);
   }, []);
@@ -458,7 +587,7 @@ export function useAdmin(): AdminView {
   const exportGlobalAuditEvents = useCallback(
     async (query: AuditEventsQuery) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return null;
       return adminFacade.exportGlobalAuditEvents(query);
     },
@@ -467,14 +596,14 @@ export function useAdmin(): AdminView {
 
   const loadVerifications = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadVerifications();
   }, []);
 
   const loadRejectedVerifications = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadRejectedVerifications();
   }, []);
@@ -482,7 +611,7 @@ export function useAdmin(): AdminView {
   const reviewVerification = useCallback(
     async (id: string, decision: "aprobar" | "rechazar", reason?: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.reviewVerification(id, decision, reason);
     },
@@ -496,7 +625,7 @@ export function useAdmin(): AdminView {
         "aprobacion_fixture_incorrecta" | "revision_fixture_actualizada",
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.revokeVerification(id, reason_code);
     },
@@ -505,7 +634,7 @@ export function useAdmin(): AdminView {
 
   const loadDisputes = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadDisputes();
   }, []);
@@ -516,7 +645,7 @@ export function useAdmin(): AdminView {
       reason_code: "ensayo_finalizado" | "registro_erroneo" | "duplicada",
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.closeDispute(disputeId, reason_code);
     },
@@ -525,7 +654,7 @@ export function useAdmin(): AdminView {
 
   const loadReviewReports = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadReviewReports();
   }, []);
@@ -542,7 +671,7 @@ export function useAdmin(): AdminView {
       correlation_id?: string,
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.moderateReviewReport(
         reportId,
@@ -556,7 +685,7 @@ export function useAdmin(): AdminView {
 
   const loadNotices = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadNotices();
   }, []);
@@ -568,7 +697,7 @@ export function useAdmin(): AdminView {
       correlation_id?: string,
     ) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.reopenNotice(noticeId, reason_code, correlation_id);
     },
@@ -577,7 +706,7 @@ export function useAdmin(): AdminView {
 
   const loadLocalAccount = useCallback(async (accountId: string) => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadLocalAccount(accountId);
   }, []);
@@ -585,7 +714,7 @@ export function useAdmin(): AdminView {
   const blockLocalAccount = useCallback(
     async (accountId: string, reason: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.blockLocalAccount(accountId, reason);
     },
@@ -595,7 +724,7 @@ export function useAdmin(): AdminView {
   const unblockLocalAccount = useCallback(
     async (accountId: string, reason: string) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.unblockLocalAccount(accountId, reason);
     },
@@ -604,7 +733,7 @@ export function useAdmin(): AdminView {
 
   const loadPublishedSpaces = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadPublishedSpaces();
   }, []);
@@ -612,7 +741,7 @@ export function useAdmin(): AdminView {
   const loadReports = useCallback(
     async (query: { from: string; until: string; timezone: string }) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return;
       await adminFacade.loadReports(query);
     },
@@ -629,7 +758,7 @@ export function useAdmin(): AdminView {
       cursor?: string;
     }) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return;
       await adminFacade.loadLocalReservations(query);
     },
@@ -638,21 +767,21 @@ export function useAdmin(): AdminView {
 
   const loadLocalReservation = useCallback(async (reservationId: string) => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadLocalReservation(reservationId);
   }, []);
 
   const loadDamageClaims = useCallback(async () => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadDamageClaims();
   }, []);
 
   const loadDamageClaim = useCallback(async (claimId: string) => {
     const isConfirmedSession =
-      authFacade.getSnapshot().status === "authenticated";
+      adminFacade.getSnapshot().adminSessionStatus === "authenticated";
     if (!isConfirmedSession) return;
     await adminFacade.loadDamageClaim(claimId);
   }, []);
@@ -660,7 +789,7 @@ export function useAdmin(): AdminView {
   const resolveDamageClaim = useCallback(
     async (claimId: string, input: AdminDamageClaimResolutionInput) => {
       const isConfirmedSession =
-        authFacade.getSnapshot().status === "authenticated";
+        adminFacade.getSnapshot().adminSessionStatus === "authenticated";
       if (!isConfirmedSession) return false;
       return adminFacade.resolveDamageClaim(claimId, input);
     },
@@ -674,6 +803,136 @@ export function useAdmin(): AdminView {
   const purgePrivateData = useCallback(() => {
     adminFacade.purgePrivateData();
   }, []);
+
+  const checkAdminSession = useCallback(
+    () => adminFacade.checkAdminSession(),
+    [],
+  );
+
+  const startAdminSession = useCallback(
+    (email: string, password: string) =>
+      adminFacade.startAdminSession(email, password),
+    [],
+  );
+
+  const verifyAdminSessionMfa = useCallback(
+    (code: string, challengeId?: string) =>
+      adminFacade.verifyAdminSessionMfa(code, challengeId),
+    [],
+  );
+
+  const logoutAdminSession = useCallback(
+    () => adminFacade.logoutAdminSession(),
+    [],
+  );
+
+  const openMfaStepUp = useCallback(() => {
+    adminFacade.openMfaStepUp();
+  }, []);
+
+  const closeMfaStepUp = useCallback(() => {
+    adminFacade.closeMfaStepUp();
+  }, []);
+
+  const requestGlobalAccountSensitiveAccess = useCallback(
+    (
+      accountId: string,
+      input: AdminSensitiveAccessInput,
+      signal?: AbortSignal,
+    ) =>
+      adminFacade.requestGlobalAccountSensitiveAccess(accountId, input, signal),
+    [],
+  );
+
+  const startAssistedView = useCallback(
+    (
+      accountId: string,
+      input: AdminAssistedViewStartInput,
+      signal?: AbortSignal,
+    ) => adminFacade.startAssistedView(accountId, input, signal),
+    [],
+  );
+
+  const getAssistedViewProjection = useCallback(
+    (grantId: string, signal?: AbortSignal) =>
+      adminFacade.getAssistedViewProjection(grantId, signal),
+    [],
+  );
+
+  const closeAssistedView = useCallback(
+    (grantId?: string, signal?: AbortSignal) =>
+      adminFacade.closeAssistedView(grantId, signal),
+    [],
+  );
+
+  const listGlobalPayments = useCallback(
+    (query?: GlobalAdminPaymentQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalPayments(query, signal),
+    [],
+  );
+
+  const listGlobalReservations = useCallback(
+    (query?: GlobalAdminReservationQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalReservations(query, signal),
+    [],
+  );
+
+  const listGlobalContracts = useCallback(
+    (query?: GlobalAdminContractQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalContracts(query, signal),
+    [],
+  );
+
+  const listGlobalKycCases = useCallback(
+    (query?: GlobalAdminKycCaseQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalKycCases(query, signal),
+    [],
+  );
+
+  const listGlobalPrivacyRequests = useCallback(
+    (query?: GlobalAdminPrivacyRequestQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalPrivacyRequests(query, signal),
+    [],
+  );
+
+  const createGlobalPrivacyRequest = useCallback(
+    (input: GlobalAdminPrivacyRequestCreateInput, signal?: AbortSignal) =>
+      adminFacade.createGlobalPrivacyRequest(input, signal),
+    [],
+  );
+
+  const listGlobalSupportTickets = useCallback(
+    (query?: GlobalAdminSupportTicketQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalSupportTickets(query, signal),
+    [],
+  );
+
+  const createGlobalSupportTicket = useCallback(
+    (input: GlobalAdminSupportTicketCreateInput, signal?: AbortSignal) =>
+      adminFacade.createGlobalSupportTicket(input, signal),
+    [],
+  );
+
+  const listGlobalApprovals = useCallback(
+    (query?: GlobalAdminApprovalQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalApprovals(query, signal),
+    [],
+  );
+
+  const createGlobalApproval = useCallback(
+    (input: GlobalAdminApprovalCreateInput, signal?: AbortSignal) =>
+      adminFacade.createGlobalApproval(input, signal),
+    [],
+  );
+
+  const decideGlobalApproval = useCallback(
+    (
+      approvalId: string,
+      input: GlobalAdminApprovalDecisionInput,
+      signal?: AbortSignal,
+    ) => adminFacade.decideGlobalApproval(approvalId, input, signal),
+    [],
+  );
 
   return {
     snapshot,
@@ -690,6 +949,7 @@ export function useAdmin(): AdminView {
       adminFacade.revealGlobalAccountEmail(accountId, signal),
     loadAccounts: loadGlobalAccounts,
     selectGlobalAccount,
+    listGlobalAccountResources,
     updateGlobalAccountProfile,
     setGlobalAccountRole,
     updateAccountRole: setGlobalAccountRole,
@@ -732,6 +992,29 @@ export function useAdmin(): AdminView {
     loadLocalDamageClaims: loadDamageClaims,
     loadDamageClaim,
     resolveDamageClaim,
+
+    checkAdminSession,
+    startAdminSession,
+    verifyAdminSessionMfa,
+    logoutAdminSession,
+    openMfaStepUp,
+    closeMfaStepUp,
+    requestGlobalAccountSensitiveAccess,
+    startAssistedView,
+    getAssistedViewProjection,
+    closeAssistedView,
+
+    listGlobalPayments,
+    listGlobalReservations,
+    listGlobalContracts,
+    listGlobalKycCases,
+    listGlobalPrivacyRequests,
+    createGlobalPrivacyRequest,
+    listGlobalSupportTickets,
+    createGlobalSupportTicket,
+    listGlobalApprovals,
+    createGlobalApproval,
+    decideGlobalApproval,
 
     clearError,
     clearFeedback: clearError,

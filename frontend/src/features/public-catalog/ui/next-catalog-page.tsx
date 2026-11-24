@@ -16,11 +16,11 @@ export function NextCatalogPage({
   return (
     <nav
       aria-label="Paginación del catálogo"
-      className="mt-12 flex justify-center"
+      className="mt-10 flex justify-center px-1 sm:mt-12"
     >
       <Link
         href={`${href}?${params.toString()}`}
-        className="inline-flex min-h-12 items-center rounded-full border border-border px-6 text-sm font-medium transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex min-h-12 w-full items-center justify-center rounded-full border border-border px-6 text-sm font-medium transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto"
       >
         Ver más publicaciones
       </Link>

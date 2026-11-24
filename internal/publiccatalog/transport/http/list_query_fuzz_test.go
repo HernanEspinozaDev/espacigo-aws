@@ -29,6 +29,7 @@ func FuzzPublicListQueryRejectsInvalidSyntaxBeforeRepository(f *testing.F) {
 		"sort": true, "page_size": true, "cursor": true, "q": true, "region_code": true,
 		"comuna_code": true, "min_area_m2": true, "attribute": true, "start_at": true,
 		"end_at": true, "min_total_clp": true, "max_total_clp": true,
+		"bbox": true, "latitude": true, "longitude": true, "radius_km": true,
 	}
 	f.Fuzz(func(t *testing.T, rawQuery string) {
 		repo := &pageSizeRepository{}

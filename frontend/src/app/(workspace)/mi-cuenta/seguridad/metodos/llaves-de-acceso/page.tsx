@@ -1,13 +1,10 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowLeft,
   CheckCircle2,
-  ChevronRight,
   Fingerprint,
   Info,
   Key,
@@ -23,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SecurityMethodHeader } from "@/features/account/ui/security-method-header";
 import { usePasskeys } from "@/features/account/ui/use-passkeys";
 
 function formatFullDate(isoDate?: string | null): string {
@@ -90,67 +88,13 @@ export default function LlavesDeAccesoPage() {
     await deletePasskey(passkeyId);
   };
 
-  const isActive = passkeys.length > 0;
-
   return (
     <div className="space-y-8">
-      {/* Breadcrumb */}
-      <nav
-        aria-label="Ruta de navegación"
-        className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap"
-      >
-        <Link
-          href="/mi-cuenta"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Mi perfil
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <Link
-          href="/mi-cuenta/seguridad"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Seguridad
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <Link
-          href="/mi-cuenta/seguridad/metodos"
-          className="hover:text-primary transition-colors font-medium"
-        >
-          Métodos de verificación
-        </Link>
-        <ChevronRight className="size-3.5" />
-        <span className="text-foreground font-semibold">Llaves de acceso</span>
-      </nav>
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-border">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/mi-cuenta/seguridad/metodos"
-              className="size-8 rounded-full flex items-center justify-center hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Volver a métodos de verificación"
-            >
-              <ArrowLeft className="size-4" />
-            </Link>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
-              <span>Llaves de acceso</span>
-              {isActive && (
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
-                  <CheckCircle2 className="size-3.5" />
-                  Activa
-                </span>
-              )}
-            </h1>
-          </div>
-          <p className="text-sm text-muted-foreground max-w-2xl pl-11">
-            Inicia sesión rápidamente con tu huella dactilar, reconocimiento
-            facial (Touch ID, Face ID, Windows Hello) o llaves físicas de
-            seguridad FIDO2.
-          </p>
-        </div>
-      </div>
+      <SecurityMethodHeader
+        title="Llaves de acceso"
+        description="Registra y administra llaves con la huella, el rostro o el PIN de tu dispositivo."
+        overview
+      />
 
       {/* Notificación de éxito */}
       {notification && (
@@ -427,11 +371,11 @@ export default function LlavesDeAccesoPage() {
           <div className="bg-muted/40 border border-border/60 rounded-xl p-4 space-y-1.5">
             <div className="flex items-center gap-2 text-foreground font-semibold text-xs sm:text-sm">
               <Fingerprint className="size-4 text-primary" />
-              <span>Cero contraseñas</span>
+              <span>Verificación del dispositivo</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Inicia sesión con tu biometría o el PIN de tu pantalla de bloqueo
-              en menos de dos segundos.
+              Registra una llave con tu biometría o el PIN de tu pantalla de
+              bloqueo .
             </p>
           </div>
 

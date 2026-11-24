@@ -1,20 +1,14 @@
+import { CheckCircle2, PlusCircle } from "lucide-react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
-import { hasCatalogFilters } from "@/features/public-catalog/domain/query-state";
-import { parseCatalogQuery } from "@/features/public-catalog/domain/query-state";
-import type {
-  PublicCategoryFilter,
-  RawCatalogParams,
-} from "@/features/public-catalog/domain/types";
-import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
-import { CatalogFilters } from "@/features/public-catalog/ui/catalog-filters";
-import { CatalogSortControls } from "@/features/public-catalog/ui/catalog-sort-controls";
+import { ExplorePage } from "@/app/(marketplace)/explorar/_explore-page";
+import { getCategoryGuide } from "@/features/public-catalog/domain/category-guides";
 import {
-  CatalogUnavailable,
-  EmptyCatalog,
-} from "@/features/public-catalog/ui/catalog-states";
-import { PublicCatalogGrid } from "@/features/public-catalog/ui/catalog-sections";
-import { PublicSearchForm } from "@/features/public-catalog/ui/public-search-form";
+  hasCatalogFilters,
+  parseCatalogQuery,
+} from "@/features/public-catalog/domain/query-state";
+import type { RawCatalogParams } from "@/features/public-catalog/domain/types";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +17,8 @@ export async function generateMetadata({
 }: {
   searchParams: Promise<RawCatalogParams>;
 }): Promise<Metadata> {
-  const query = parseCatalogQuery(await searchParams);
   const raw = await searchParams;
+  const query = parseCatalogQuery(raw);
   const hasRawAttributes = Boolean(
     raw.attribute &&
     (Array.isArray(raw.attribute) ? raw.attribute.length : raw.attribute),
@@ -33,9 +27,9 @@ export async function generateMetadata({
     hasRawAttributes ||
     hasCatalogFilters({ ...query, category_code: undefined });
   return {
-    title: "Arriendos de casas, departamentos y cabañas",
+    title: "Arriendos residenciales · Casas, departamentos y cabañas",
     description:
-      "Explora publicaciones residenciales públicas de casas, departamentos, habitaciones, cabañas y casas de veraneo en EspaciGo.",
+      "Explora arriendos residenciales en EspaciGo en cuadrícula o mapa con filtros por comuna, cercanía y presupuesto.",
     alternates: { canonical: "/arriendos" },
     robots: filtered
       ? { index: false, follow: true }
@@ -48,22 +42,19 @@ export default async function ResidentialRentalsPage({
 }: {
   searchParams: Promise<RawCatalogParams>;
 }) {
-  const raw = await searchParams;
-  const [categoriesResult, locationsResult] = await Promise.all([
-    publicCatalog.categories(),
-    publicCatalog.locations({ limit: 400 }),
-  ]);
-  if (
-    categoriesResult.ok &&
-    !categoriesResult.value.items.some(
-      (category) => category.code === "inmuebles",
-    )
-  ) {
-    return (
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+  const guide = getCategoryGuide("inmuebles");
+
+  return (
+    <ExplorePage
+      searchParams={searchParams}
+      view="grid"
+      lockedCategoryCode="inmuebles"
+      actionPathOverride="/arriendos"
+      titleOverride="Arriendos residenciales"
+      breadcrumb={
         <nav
           aria-label="Breadcrumb"
-          className="mb-7 text-sm text-muted-foreground"
+          className="mb-5 text-sm text-muted-foreground"
         >
           <Link href="/" className="hover:text-foreground">
             Inicio
@@ -71,131 +62,57 @@ export default async function ResidentialRentalsPage({
           <span aria-hidden="true"> / </span>
           <span aria-current="page">Arriendos residenciales</span>
         </nav>
-        <h1 className="text-4xl font-medium tracking-tight">
-          Arriendos residenciales
-        </h1>
-        <p className="mt-4 max-w-2xl text-muted-foreground">
-          La categoría residencial no está activa en el catálogo público actual.
-        </p>
-      </section>
-    );
-  }
-  if (!categoriesResult.ok) {
-    return (
-      <section className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-        <CatalogUnavailable
-          title="No pudimos verificar la categoría residencial"
-          retryHref="/arriendos"
-        />
-      </section>
-    );
-  }
-
-  const [profileResult] = await Promise.all([
-    publicCatalog.categoryFilters("inmuebles"),
-  ]);
-  let categoryFilters: readonly PublicCategoryFilter[] = [];
-  const profileUnavailable =
-    !profileResult.ok && profileResult.error.status !== 404;
-  if (profileResult.ok) categoryFilters = profileResult.value.items;
-  const { query, result } = await publicCatalog.spacesFromParams(
-    { ...raw, category_code: "inmuebles" },
-    categoryFilters,
-  );
-  const locations = locationsResult.ok ? locationsResult.value.items : [];
-
-  return (
-    <section className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 sm:pt-12 lg:px-8">
-      <nav
-        aria-label="Breadcrumb"
-        className="mb-7 text-sm text-muted-foreground"
-      >
-        <Link href="/" className="hover:text-foreground">
-          Inicio
-        </Link>
-        <span aria-hidden="true"> / </span>
-        <span aria-current="page">Arriendos residenciales</span>
-      </nav>
-      <header className="mb-9 max-w-4xl border-b border-border pb-9">
-        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          Categoría inmuebles conectada al catálogo público
-        </p>
-        <h1 className="mt-3 text-4xl font-medium tracking-tight sm:text-5xl">
-          Arrienda una casa
-        </h1>
-        <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-          Busca casas, departamentos, habitaciones, estudios, cabañas y casas de
-          veraneo. Solo aparecen publicaciones que Go habilita para consulta
-          pública; la categoría no garantiza que exista inventario.
-        </p>
-        <PublicSearchForm initialQuery={query.q ?? ""} />
-      </header>
-      <div className="grid gap-8 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10">
-        <CatalogFilters
-          actionPath="/arriendos"
-          categories={categoriesResult.value.items}
-          locations={locations}
-          filters={categoryFilters}
-          query={query}
-          fixedCategoryCode="inmuebles"
-        />
-        <div className="min-w-0">
-          <div className="mb-7 flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">
-              Publicaciones residenciales públicas
+      }
+      introSlot={
+        <div className="mb-6 grid items-center gap-6 rounded-2xl border border-border bg-[var(--brand-surface-subtle)] p-5 sm:p-6 lg:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="inline-flex items-center rounded-full bg-[var(--brand-primary-soft)] px-3 py-0.5 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-primary-soft-ink)]">
+              Categoría activa · Arriendos residenciales
             </p>
-            <CatalogSortControls actionPath="/arriendos" query={query} />
-          </div>
-          {!locationsResult.ok || profileUnavailable ? (
-            <p
-              role="status"
-              className="mb-5 rounded-xl border border-border p-4 text-sm text-muted-foreground"
-            >
-              Algunos filtros no están disponibles temporalmente; el catálogo
-              residencial se consulta igualmente en Go.
+            <p className="mt-3 text-base leading-relaxed text-foreground">
+              {guide.description}
             </p>
-          ) : null}
-          {!result.ok ? (
-            result.error.kind === "invalid" ? (
-              <section role="alert" className="border-y border-border py-12">
-                <h2 className="text-2xl font-medium">
-                  No pudimos aplicar esos filtros
-                </h2>
-                <p className="mt-3 text-muted-foreground">
-                  Restablece los filtros y vuelve a intentarlo.
-                </p>
-                <Link
-                  href="/arriendos"
-                  className="mt-6 inline-flex min-h-11 items-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {guide.examples.map((ex) => (
+                <li
+                  key={ex}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground"
                 >
-                  Restablecer filtros
-                </Link>
-              </section>
-            ) : (
-              <CatalogUnavailable
-                title="No pudimos cargar los arriendos residenciales"
-                retryHref="/arriendos"
-              />
-            )
-          ) : result.value.items.length ? (
-            <PublicCatalogGrid
-              spaces={result.value.items}
-              query={query}
-              nextCursor={result.value.next_cursor}
-              actionPath="/arriendos"
-              emptyTitle="No hay más publicaciones residenciales"
-              emptyDescription="No se recibieron más resultados para este cursor."
-              ownerCta
+                  <CheckCircle2
+                    className="size-3 text-[var(--brand-success)]"
+                    aria-hidden="true"
+                  />
+                  {ex}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href="/acceso?return_to=%2Fanfitrion%2Fespacios%2Fnuevo"
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-primary px-4 text-xs font-medium text-primary-foreground transition-colors hover:bg-[var(--brand-primary-hover)]"
+              >
+                <PlusCircle className="size-3.5" aria-hidden="true" />
+                Publicar propiedad gratis
+              </Link>
+              <Link
+                href="/explorar"
+                className="inline-flex min-h-9 items-center rounded-full border border-border bg-background px-4 text-xs font-medium text-foreground hover:bg-secondary"
+              >
+                Explorar todas las categorías
+              </Link>
+            </div>
+          </div>
+          <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border border-border bg-background">
+            <Image
+              src={guide.image}
+              alt={guide.imageAlt}
+              fill
+              sizes="(max-width: 1024px) 100vw, 35vw"
+              className="object-cover"
             />
-          ) : (
-            <EmptyCatalog
-              title="Aún no hay publicaciones residenciales"
-              description="La categoría inmuebles está activa, pero ahora no hay anuncios públicos elegibles para mostrar. La oferta puede incluir casas, departamentos, habitaciones, cabañas y casas de veraneo."
-              ownerCta
-            />
-          )}
+          </div>
         </div>
-      </div>
-    </section>
+      }
+    />
   );
 }
