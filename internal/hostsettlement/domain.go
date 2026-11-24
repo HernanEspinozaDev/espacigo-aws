@@ -105,7 +105,7 @@ func RecordedAmounts(gross, base, commission, vat, fee int64) (Amounts, string, 
 		return a, "no_commission_applied", nil, nil, nil
 	}
 	expected, err := checkoutpro.CalculateAmounts(base)
-	if err == nil && expected.CommissionCLP == commission && expected.VATCLP == vat && expected.MarketplaceFeeCLP == fee {
+	if err == nil && expected.CommissionCLP == commission && expected.VATCLP == vat && expected.CommissionCLP+expected.VATCLP == fee {
 		rate, vatRate := 3, 19
 		return a, "three_percent_plus_vat", &rate, &vatRate, nil
 	}
