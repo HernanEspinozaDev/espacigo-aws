@@ -17,6 +17,13 @@ ensure_env() {
     echo "ERROR: aws-emulator env not found at $EMULATOR_ENV" >&2
     exit 1
   fi
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
+  fi
 }
 
 cmd_status() {
@@ -71,6 +78,13 @@ cmd_status() {
 
 cmd_bootstrap() {
   echo "=== [EspaciGo AWS] Aprovisionando Stack Local en aws-emulator ==="
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
+  fi
   bash "${REPO_ROOT}/scripts/local-aws-bootstrap.sh"
 
   # Asegurar permisos ACL de runtime y soporte S3 en PostgreSQL
@@ -112,6 +126,12 @@ API_BACKEND_BASE_URL=http://127.0.0.1:8080/api/v1
 FRONTEND_PUBLIC_ORIGIN=http://127.0.0.1:3000
 PORT=3000
 ENV
+  if [[ -n "${NEXT_PUBLIC_AMAZON_LOCATION_REGION:-}" && -n "${NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY:-}" ]]; then
+    printf '%s\n' \
+      "NEXT_PUBLIC_AMAZON_LOCATION_REGION=${NEXT_PUBLIC_AMAZON_LOCATION_REGION}" \
+      "NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY=${NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY}" \
+      >> "${REPO_ROOT}/frontend/.env.local"
+  fi
 
   echo "=== Bootstrap completado exitosamente ==="
 }
@@ -238,6 +258,16 @@ cmd_api() {
   local api_db_host api_db_port
   echo "=== [EspaciGo AWS] Iniciando Servidor API Go en http://127.0.0.1:8080 ==="
   ensure_env
+  local commune_boundaries="${REPO_ROOT}/.local/geo/dpa_2023_communes.bin.gz"
+  if [[ -z "${ESPACIGO_COMMUNE_BOUNDARIES_FILE:-}" && -r "$commune_boundaries" ]]; then
+    export ESPACIGO_COMMUNE_BOUNDARIES_FILE="$commune_boundaries"
+  fi
+  if [[ "${ESPACIGO_LOCAL_ONLY:-0}" == 1 ]]; then
+    export MERCADOPAGO_CHECKOUT_ENABLED=0
+    export MERCADOPAGO_WALLET_PURCHASE_ENABLED=0
+    export MERCADOPAGO_PAYMENTS_API_ENABLED=0
+    export MERCADOPAGO_WEBHOOK_ENABLED=0
+  fi
   export ENVIRONMENT=development
   load_mercadopago_oauth_env
 
@@ -299,6 +329,7 @@ cmd_api() {
   export LOCAL_PAYMENT_WEBHOOK_SECRET_FILE="${REPO_ROOT}/.local/secrets/local_payment_webhook_secret"
   export IDENTITY_DECLARATION_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json"
   export IDENTITY_RUT_HMAC_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-rut-hmac-keyring.json"
+  export CONTRACT_PROPOSAL_KEYRING_FILE="${CONTRACT_PROPOSAL_KEYRING_FILE:-${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json}"
 
   (
     cd "$REPO_ROOT"
@@ -337,6 +368,13 @@ load_mercadopago_oauth_env() {
 }
 
 cmd_web() {
+  local location_pilot_env="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+  if [[ -r "$location_pilot_env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$location_pilot_env"
+    set +a
+  fi
   echo "=== [EspaciGo AWS] Iniciando Frontend Next.js; abrir en ${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000} ==="
   export API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1"
   export ENVIRONMENT=development

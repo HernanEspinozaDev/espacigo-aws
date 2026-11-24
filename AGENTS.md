@@ -22,6 +22,10 @@ Crea y mantén la rama `codex/marketplace/feature/pagos-1-modulo-pagos` a partir
 
 Consulta la [guía de Mercado Pago Chile](docs/operations/mercado-pago-chile.md) para preparar el entorno de prueba.
 
+### Contrato de API y Scalar
+
+Al crear, cambiar o retirar una operación HTTP o su contrato en cualquier módulo de EspaciGo, aplica [la skill de API y Scalar](.agents/skills/espacigo-scalar-api/SKILL.md) en la misma entrega. Actualiza `planning/openapi.yaml`, regenera desde `frontend/` con `pnpm api:generate` y verifica con `pnpm api:check`. Comprueba que la operación figure en la vista completa de Scalar local y que su documentación refleje el montaje, el entorno y los permisos reales.
+
 ### Alcance de una promoción a `main`
 
 - En una entrega de aplicación, promueve el código compartido y las migraciones aprobadas. Los cambios de `scripts/local-dev.sh`, `scripts/local-aws-bootstrap.sh`, `scripts/iniciar-local.sh`, la configuración del emulador, Mailpit y los datos de demostración se quedan en `desarrollo-local`.

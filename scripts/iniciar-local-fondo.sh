@@ -11,6 +11,12 @@ DB_CONTAINER="espacigo_localbackend_20261024-database-1"
 DB_PORT="15432"
 DB_NAME="espacigo_aws_local"
 PUBLIC_ORIGIN="https://prueba-mercadopago.testingpage.store"
+LOCAL_ONLY="${ESPACIGO_LOCAL_ONLY:-0}"
+if [[ "$LOCAL_ONLY" == 1 ]]; then
+  APP_ORIGIN="http://127.0.0.1:3000"
+else
+  APP_ORIGIN="$PUBLIC_ORIGIN"
+fi
 API_HEALTH="http://127.0.0.1:8080/health/ready"
 WEB_HEALTH="http://127.0.0.1:3000/api/ready"
 
@@ -144,13 +150,14 @@ ensure_db_forward
 
 start_service API 8080 "$API_HEALTH" api.log \
   HTTP_ADDR=127.0.0.1:8080 \
-  FRONTEND_PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
-  CORS_ALLOWED_ORIGINS="$PUBLIC_ORIGIN,http://127.0.0.1:3000,http://localhost:3000" \
+  FRONTEND_PUBLIC_ORIGIN="$APP_ORIGIN" \
+  CORS_ALLOWED_ORIGINS="$APP_ORIGIN,http://127.0.0.1:3000,http://localhost:3000" \
   COMMERCIAL_RENTAL_FLOW_ENABLED=1 \
+  COMMERCIAL_CONTRACTS_ENABLED="${COMMERCIAL_CONTRACTS_ENABLED:-1}" \
   MERCADOPAGO_CHECKOUT_ENABLED="${MERCADOPAGO_CHECKOUT_ENABLED:-0}" \
   MERCADOPAGO_WEBHOOK_ENABLED="${MERCADOPAGO_WEBHOOK_ENABLED:-0}" \
   MERCADOPAGO_PAYMENTS_API_ENABLED="${MERCADOPAGO_PAYMENTS_API_ENABLED:-0}" \
-  MERCADOPAGO_RETURN_ORIGIN="${MERCADOPAGO_RETURN_ORIGIN:-$PUBLIC_ORIGIN}" \
+  MERCADOPAGO_RETURN_ORIGIN="${MERCADOPAGO_RETURN_ORIGIN:-$APP_ORIGIN}" \
   MERCADOPAGO_TEST_MODE=true \
   ESPACIGO_LOCAL_DB_HOST=127.0.0.1 \
   ESPACIGO_LOCAL_DB_PORT="$DB_PORT" \
@@ -163,7 +170,7 @@ if [[ -n "${ESPACIGO_NEXT_STANDALONE_DIR:-}" ]]; then
     exit 1
   fi
   start_service Web 3000 "$WEB_HEALTH" web.log \
-    FRONTEND_PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
+    FRONTEND_PUBLIC_ORIGIN="$APP_ORIGIN" \
     API_BACKEND_BASE_URL="http://127.0.0.1:8080/api/v1" \
     HOSTNAME=127.0.0.1 \
     PORT=3000 \
@@ -176,10 +183,14 @@ else
     -- "${LOCAL_DEV}" web
 fi
 
-if http_ready "${PUBLIC_ORIGIN}/api/ready"; then
-  echo "Cloudflare tunnel: HTTPS público responde correctamente."
+if [[ "$LOCAL_ONLY" != 1 ]]; then
+  if http_ready "${PUBLIC_ORIGIN}/api/ready"; then
+    echo "Cloudflare tunnel: HTTPS público responde correctamente."
+  else
+    echo "Cloudflare tunnel: no verificado; API y Web locales siguen activos. No iniciaré ni reemplazaré túneles." >&2
+  fi
 else
-  echo "Cloudflare tunnel: no verificado; API y Web locales siguen activos. No iniciaré ni reemplazaré túneles." >&2
+  echo "Modo local-only: no consulté ni inicié el túnel de Cloudflare."
 fi
 
 if curl --cacert "${HOME}/.aws/emulator/9297/ca.pem" --silent --fail --max-time 2 https://127.0.0.1:9297/__admin/health >/dev/null 2>&1; then
@@ -193,4 +204,4 @@ else
   echo "Mailpit: no responde; no iniciaré ni reemplazaré el contenedor." >&2
 fi
 
-echo "Listo. Web: ${PUBLIC_ORIGIN} (local http://127.0.0.1:3000) | API: http://127.0.0.1:8080"
+echo "Listo. Web: ${APP_ORIGIN} | API: http://127.0.0.1:8080"
