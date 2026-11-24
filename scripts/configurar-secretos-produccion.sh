@@ -50,6 +50,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+GEN_DB_API_PASS="$(openssl rand -base64 24 | tr -d '/+=')"
+GEN_DB_MIGRATOR_PASS="$(openssl rand -base64 24 | tr -d '/+=')"
 GEN_CURSOR_KEY="$(openssl rand -hex 32)"
 GEN_TOTP_KEY="$(openssl rand -base64 32)"
 GEN_TOTP_JSON="{\"active_key_id\":\"k1\",\"keys\":{\"k1\":\"${GEN_TOTP_KEY}\"}}"
@@ -65,19 +67,19 @@ if [[ "$MODE" == "init" ]]; then
   umask 077
   cat > "$ENV_FILE" <<EOF
 # Secretos de produccion EspaciGo (archivo local en .local/, fuera de Git)
-# Rellena los campos vacios y luego ejecuta:
-#   ./scripts/configurar-secretos-produccion.sh --from-file ${ENV_FILE}
+# Solo necesitas completar tus 3 credenciales de Mercado Pago Produccion.
+# (Si dejas SMTP_PASSWORD vacio, el script intentara leerlo desde espacigo/${ENVIRONMENT}/auth/smtp-* en Secrets Manager.)
 
-DB_API_PASSWORD=""
-DB_MIGRATOR_PASSWORD=""
-SMTP_PASSWORD=""
-
-# Mercado Pago Produccion
 MP_CLIENT_ID=""
 MP_CLIENT_SECRET=""
 MP_WEBHOOK_SECRET=""
 
-# Llaves criptograficas (autogeneradas; puedes conservarlas)
+# Opcional: si ya existe en AWS Secrets Manager, dejalo vacio para copiarlo automaticamente
+SMTP_PASSWORD=""
+
+# Autogeneradas para la nueva BD RDS y llaves criptograficas (puedes conservarlas)
+DB_API_PASSWORD="${GEN_DB_API_PASS}"
+DB_MIGRATOR_PASSWORD="${GEN_DB_MIGRATOR_PASS}"
 CURSOR_KEY="${GEN_CURSOR_KEY}"
 TOTP_KEYRING_JSON='${GEN_TOTP_JSON}'
 MP_TOKEN_ENCRYPTION_KEY="${GEN_MP_ENC_KEY}"
@@ -120,6 +122,21 @@ prompt_secret() {
     done
   fi
   printf '%s' "$val"
+}
+
+fetch_existing_smtp_from_sm() {
+  local secret_id
+  secret_id="$(aws_prod secretsmanager list-secrets \
+    --filters "Key=name,Values=espacigo/${ENVIRONMENT}/auth/smtp" \
+    --query 'SecretList[0].ARN' \
+    --output text 2>/dev/null || true)"
+  if [[ -n "$secret_id" && "$secret_id" != "None" ]]; then
+    local raw
+    raw="$(aws_prod secretsmanager get-secret-value --secret-id "$secret_id" --query 'SecretString' --output text 2>/dev/null || true)"
+    if [[ -n "$raw" ]]; then
+      python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("password",""))' "$raw" 2>/dev/null || true
+    fi
+  fi
 }
 
 upsert_ssm_secure() {
@@ -167,10 +184,23 @@ if [[ "$MODE" == "file" ]]; then
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+  DB_API_PASSWORD="${DB_API_PASSWORD:-$GEN_DB_API_PASS}"
+  DB_MIGRATOR_PASSWORD="${DB_MIGRATOR_PASSWORD:-$GEN_DB_MIGRATOR_PASS}"
   CURSOR_KEY="${CURSOR_KEY:-$GEN_CURSOR_KEY}"
   TOTP_KEYRING_JSON="${TOTP_KEYRING_JSON:-$GEN_TOTP_JSON}"
   MP_TOKEN_ENCRYPTION_KEY="${MP_TOKEN_ENCRYPTION_KEY:-$GEN_MP_ENC_KEY}"
-  for var in DB_API_PASSWORD DB_MIGRATOR_PASSWORD SMTP_PASSWORD MP_CLIENT_ID MP_CLIENT_SECRET MP_WEBHOOK_SECRET; do
+
+  if [[ -z "${SMTP_PASSWORD:-}" ]]; then
+    echo "Buscando SMTP_PASSWORD existente en Secrets Manager (espacigo/${ENVIRONMENT}/auth/smtp*)..."
+    SMTP_PASSWORD="$(fetch_existing_smtp_from_sm)"
+    if [[ -z "$SMTP_PASSWORD" ]]; then
+      echo "ERROR: No se encontro SMTP_PASSWORD en Secrets Manager y esta vacio en ${ENV_FILE}." >&2
+      exit 1
+    fi
+    echo "OK: SMTP_PASSWORD recuperado desde Secrets Manager."
+  fi
+
+  for var in MP_CLIENT_ID MP_CLIENT_SECRET MP_WEBHOOK_SECRET; do
     if [[ -z "${!var:-}" ]]; then
       echo "ERROR: Falta completar '${var}' en ${ENV_FILE}." >&2
       exit 1
@@ -178,14 +208,14 @@ if [[ "$MODE" == "file" ]]; then
   done
 else
   echo "--- 1. Parametros SSM para ECS API (ahorro sin VPC endpoint de Secrets Manager) ---"
-  DB_API_PASSWORD="$(prompt_secret "Password de base de datos (espacigo_api_login)")"
+  DB_API_PASSWORD="$(prompt_secret "Password de base de datos (espacigo_api_login)" "$GEN_DB_API_PASS")"
   CURSOR_KEY="$(prompt_secret "PUBLIC_CATALOG_ECS_CURSOR_KEY (hex 64 chars)" "$GEN_CURSOR_KEY")"
-  SMTP_PASSWORD="$(prompt_secret "Password SMTP de produccion (AUTH_SMTP_ECS_PASSWORD)")"
+  SMTP_PASSWORD="$(prompt_secret "Password SMTP de produccion (Enter para intentar leer de Secrets Manager)" "$(fetch_existing_smtp_from_sm)")"
   TOTP_KEYRING_JSON="$(prompt_secret "TOTP_KEYRING_JSON" "$GEN_TOTP_JSON")"
 
   echo
   echo "--- 2. Secrets Manager: Migrator DB (para CodeBuild / ECS dbmigrate) ---"
-  DB_MIGRATOR_PASSWORD="$(prompt_secret "Password de migraciones (espacigo_migrator_login)")"
+  DB_MIGRATOR_PASSWORD="$(prompt_secret "Password de migraciones (espacigo_migrator_login)" "$GEN_DB_MIGRATOR_PASS")"
 
   echo
   echo "--- 3. Secrets Manager: Mercado Pago Produccion ---"
