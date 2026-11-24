@@ -1,4 +1,5 @@
 import type { CancellationPolicyVersion } from "./cancellation-policy";
+import type { LocationInput } from "./commercial-location";
 
 import type { components } from "@/lib/api/generated/openapi";
 
@@ -83,12 +84,23 @@ export interface ListingDraftInput {
   cancellation_policy_version?: CancellationPolicyVersion;
   rate_unit: RateUnit;
   base_price_clp: number;
-  address: string;
+  /** Legacy update endpoint accepts these optional match-only fields. */
+  address?: string;
   region_code?: string;
   comuna_code?: string;
   attribute_schema_version?: number;
   attributes?: Record<string, unknown>;
 }
+
+export type ListingCreateInput = Omit<
+  ListingDraftInput,
+  "address" | "region_code" | "comuna_code"
+> & {
+  location: Omit<LocationInput, "latitude" | "longitude"> & {
+    latitude: number;
+    longitude: number;
+  };
+};
 
 export interface ContentUpdateInput {
   title?: string;

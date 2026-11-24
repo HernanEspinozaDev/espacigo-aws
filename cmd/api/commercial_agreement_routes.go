@@ -25,6 +25,7 @@ func mountCommercialAgreementRoutes(trackedWorkers *trackedWorkerGroup, mux *htt
 	if err != nil {
 		return nil, err
 	}
+	service.ConfigureOTP(repo, sender, true)
 	notices, err := commercialagreement.NewNoticeDispatcher(repo, sender, time.Now)
 	if err != nil {
 		return nil, err

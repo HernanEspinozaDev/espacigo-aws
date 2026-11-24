@@ -55,7 +55,7 @@ func LockCommercialAgreementInterval(ctx context.Context, tx pgx.Tx, quoteID, sp
 // its original discovery expiry does not bound a separately signed request.
 func RetainCommercialAgreementInterval(ctx context.Context, tx pgx.Tx, input CommercialAgreementHoldInput, now time.Time) (CommercialAgreementHold, error) {
 	q := input.Quote
-	if ctx == nil || tx == nil || now.IsZero() || !validUUIDText(input.RequestID) || !validUUIDText(q.ID) || !validUUIDText(q.SpaceID) || !validUUIDText(q.OwnerID) || !validUUIDText(q.RenterID) || q.OwnerID == q.RenterID || input.LocationRevision < 1 || q.Units < 1 || q.Units > math.MaxInt32 || q.UnitPriceCLP < 1 || q.Units > math.MaxInt64/q.UnitPriceCLP || q.SubtotalCLP != q.Units*q.UnitPriceCLP || q.Currency != "CLP" || !q.StartAt.After(now) || !q.EndAt.After(q.StartAt) {
+	if ctx == nil || tx == nil || now.IsZero() || !validUUIDText(input.RequestID) || !validUUIDText(q.ID) || !validUUIDText(q.SpaceID) || !validUUIDText(q.OwnerID) || !validUUIDText(q.RenterID) || q.OwnerID == q.RenterID || input.LocationRevision < 0 || q.Units < 1 || q.Units > math.MaxInt32 || q.UnitPriceCLP < 1 || q.Units > math.MaxInt64/q.UnitPriceCLP || q.SubtotalCLP != q.Units*q.UnitPriceCLP || q.Currency != "CLP" || !q.StartAt.After(now) || !q.EndAt.After(q.StartAt) {
 		return CommercialAgreementHold{}, rentalflow.ErrInvalid
 	}
 	if err := LockCommercialAgreementInterval(ctx, tx, q.ID, q.SpaceID); err != nil {
@@ -91,21 +91,45 @@ func RetainCommercialAgreementInterval(ctx context.Context, tx pgx.Tx, input Com
 		return CommercialAgreementHold{}, rentalflow.ErrConflict
 	}
 	listing := rentalflow.Listing{ID: q.SpaceID, OwnerID: q.OwnerID, State: "activa", Title: q.SpaceTitle, RateUnit: q.RateUnit, UnitPriceCLP: q.UnitPriceCLP, Currency: q.Currency, RateVersion: q.RateVersion, TimeZone: q.TimeZone}
+	var quoteIntervals []rentalflow.QuoteInterval
+	ivRows, ivErr := tx.Query(ctx, `SELECT inicio, termino, unidades FROM public.cotizacion_arriendo_tramo WHERE cotizacion_id=$1 ORDER BY orden`, q.ID)
+	if ivErr != nil {
+		return CommercialAgreementHold{}, ivErr
+	}
+	for ivRows.Next() {
+		var iv rentalflow.QuoteInterval
+		if scanErr := ivRows.Scan(&iv.StartAt, &iv.EndAt, &iv.Units); scanErr != nil {
+			ivRows.Close()
+			return CommercialAgreementHold{}, scanErr
+		}
+		quoteIntervals = append(quoteIntervals, iv)
+	}
+	if ivRows.Err() != nil {
+		ivRows.Close()
+		return CommercialAgreementHold{}, ivRows.Err()
+	}
+	ivRows.Close()
+	if len(quoteIntervals) == 0 {
+		quoteIntervals = []rentalflow.QuoteInterval{{StartAt: q.StartAt, EndAt: q.EndAt, Units: q.Units}}
+	}
 	// Reuse checkout's complete candidate authority, including DST-safe weekly
 	// periods, legacy calendar overrides, active occupancies and reconciliation.
-	intervals, err := (&Repository{db: tx, now: func() time.Time { return now }}).PublicIntervals(ctx, listing, q.StartAt.In(zone).Format("2006-01-02"), int(q.Units))
-	if err != nil {
-		return CommercialAgreementHold{}, err
-	}
-	available := false
-	for _, candidate := range intervals {
-		if candidate.StartAt.Equal(q.StartAt) && candidate.EndAt.Equal(q.EndAt) {
-			available = true
-			break
+	repo := &Repository{db: tx, now: func() time.Time { return now }}
+	for _, iv := range quoteIntervals {
+		intervals, err := repo.PublicIntervals(ctx, listing, iv.StartAt.In(zone).Format("2006-01-02"), int(iv.Units))
+		if err != nil {
+			return CommercialAgreementHold{}, err
 		}
-	}
-	if !available {
-		return CommercialAgreementHold{}, rentalflow.ErrConflict
+		available := false
+		for _, candidate := range intervals {
+			if candidate.StartAt.Equal(iv.StartAt) && candidate.EndAt.Equal(iv.EndAt) {
+				available = true
+				break
+			}
+		}
+		if !available {
+			return CommercialAgreementHold{}, rentalflow.ErrConflict
+		}
 	}
 	expires := now.Add(CommercialAgreementPaymentHoldLifetime).UTC()
 	if q.StartAt.Before(expires) {

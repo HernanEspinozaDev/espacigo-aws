@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
-import { serializeCatalogQuery } from "../domain/query-state";
+import { serializeCatalogApiQuery } from "../domain/query-state";
 import type {
   CatalogFailure,
   CatalogQuery,
@@ -251,6 +251,9 @@ function publicLocation(
     address: location.address,
     latitude: location.latitude,
     longitude: location.longitude,
+    ...(location.visibility === "exact" || location.visibility === "approximate"
+      ? { visibility: location.visibility }
+      : {}),
   };
 }
 function locationProjection(details: Record<string, unknown>) {
@@ -430,13 +433,17 @@ function safeCode(value: unknown): string | undefined {
   return undefined;
 }
 
-async function requestJson<T>(path: string): Promise<CatalogResult<T>> {
+async function requestJson<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<CatalogResult<T>> {
   try {
     const base = getApiBackendBaseUrl();
     const url = new URL(
       `${base.pathname.replace(/\/$/, "")}${path}`,
       base.origin,
     );
+    const timeoutSignal = AbortSignal.timeout(15_000);
     const response = await fetch(url, {
       method: "GET",
       headers: {
@@ -444,7 +451,7 @@ async function requestJson<T>(path: string): Promise<CatalogResult<T>> {
       },
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
     });
     if (!response.ok) {
       let code: string | undefined;
@@ -485,77 +492,125 @@ function pathWithQuery(path: string, query: URLSearchParams): string {
   return suffix ? `${path}?${suffix}` : path;
 }
 
+function parseMapPageResult(
+  result: CatalogResult<components["schemas"]["PublicSpaceMapPage"]>,
+): CatalogResult<components["schemas"]["PublicSpaceMapPage"]> {
+  if (!result.ok) return result;
+  const page = publicRecord(result.value);
+  if (!page || !Array.isArray(page.items)) return malformedCatalogResponse();
+  const items: components["schemas"]["PublicSpaceMapMarker"][] = [];
+  for (const raw of page.items) {
+    const item = publicRecord(raw);
+    const location = publicLocation(item?.location);
+    if (
+      !item ||
+      !location ||
+      typeof item.space_id !== "string" ||
+      typeof item.title !== "string" ||
+      item.currency !== "CLP" ||
+      !(
+        item.rate_unit === "hora" ||
+        item.rate_unit === "dia" ||
+        item.rate_unit === "mes"
+      ) ||
+      !(
+        typeof item.base_price_clp === "string" ||
+        typeof item.base_price_clp === "number"
+      )
+    )
+      return malformedCatalogResponse();
+    const distance =
+      typeof item.distance_km === "number" &&
+      Number.isFinite(item.distance_km) &&
+      item.distance_km >= 0
+        ? item.distance_km
+        : undefined;
+    const estimatedTotal =
+      typeof item.estimated_total_clp === "number" ||
+      typeof item.estimated_total_clp === "string"
+        ? item.estimated_total_clp
+        : undefined;
+    items.push({
+      space_id: item.space_id,
+      title: item.title,
+      base_price_clp: item.base_price_clp,
+      currency: "CLP",
+      rate_unit: item.rate_unit,
+      location,
+      ...(estimatedTotal !== undefined
+        ? { estimated_total_clp: estimatedTotal }
+        : {}),
+      ...(typeof item.comuna_name === "string"
+        ? { comuna_name: item.comuna_name }
+        : {}),
+      ...(distance !== undefined ? { distance_km: distance } : {}),
+      ...(typeof item.cover_image_id === "string"
+        ? { cover_image_id: item.cover_image_id }
+        : {}),
+      ...(typeof item.cover_url === "string"
+        ? { cover_url: item.cover_url }
+        : {}),
+    });
+  }
+  if (
+    page.next_cursor !== undefined &&
+    (typeof page.next_cursor !== "string" || page.next_cursor.length > 4096)
+  )
+    return malformedCatalogResponse();
+  const hasMore =
+    typeof page.has_more === "boolean"
+      ? page.has_more
+      : Boolean(page.next_cursor);
+  const totalCount =
+    typeof page.total_count === "number" &&
+    Number.isInteger(page.total_count) &&
+    page.total_count >= 0
+      ? page.total_count
+      : items.length;
+  return {
+    ok: true,
+    value: {
+      items,
+      has_more: hasMore,
+      total_count: totalCount,
+      ...(typeof page.next_cursor === "string"
+        ? { next_cursor: page.next_cursor }
+        : {}),
+    },
+  };
+}
+
 export const goPublicCatalogAdapter: PublicCatalogPort = {
-  listMapMarkers(query: CatalogQuery) {
+  listMapMarkers(query: CatalogQuery, signal?: AbortSignal) {
     return requestJson<components["schemas"]["PublicSpaceMapPage"]>(
-      pathWithQuery("/public/spaces/map", serializeCatalogQuery(query)),
-    ).then(
-      (result): CatalogResult<components["schemas"]["PublicSpaceMapPage"]> => {
-        if (!result.ok) return result;
-        const page = publicRecord(result.value);
-        if (!page || !Array.isArray(page.items))
-          return malformedCatalogResponse();
-        const items: components["schemas"]["PublicSpaceMapMarker"][] = [];
-        for (const raw of page.items) {
-          const item = publicRecord(raw);
-          const location = publicLocation(item?.location);
-          if (
-            !item ||
-            !location ||
-            typeof item.space_id !== "string" ||
-            typeof item.title !== "string" ||
-            item.currency !== "CLP" ||
-            !(
-              item.rate_unit === "hora" ||
-              item.rate_unit === "dia" ||
-              item.rate_unit === "mes"
-            ) ||
-            !(
-              typeof item.base_price_clp === "string" ||
-              typeof item.base_price_clp === "number"
-            )
-          )
-            return malformedCatalogResponse();
-          const distance =
-            typeof item.distance_km === "number" &&
-            Number.isFinite(item.distance_km) &&
-            item.distance_km >= 0
-              ? item.distance_km
-              : undefined;
-          items.push({
-            space_id: item.space_id,
-            title: item.title,
-            base_price_clp: item.base_price_clp,
-            currency: "CLP",
-            rate_unit: item.rate_unit,
-            location,
-            ...(distance !== undefined ? { distance_km: distance } : {}),
-            ...(typeof item.cover_image_id === "string"
-              ? { cover_image_id: item.cover_image_id }
-              : {}),
-          });
-        }
-        if (
-          page.next_cursor !== undefined &&
-          (typeof page.next_cursor !== "string" ||
-            page.next_cursor.length > 4096)
-        )
-          return malformedCatalogResponse();
-        return {
-          ok: true,
-          value: {
-            items,
-            ...(typeof page.next_cursor === "string"
-              ? { next_cursor: page.next_cursor }
-              : {}),
-          },
-        };
-      },
-    );
+      pathWithQuery("/public/spaces/map", serializeCatalogApiQuery(query)),
+      signal,
+    ).then(parseMapPageResult);
+  },
+  listNearbyMarkers(query, signal) {
+    const params = serializeCatalogApiQuery({
+      ...query,
+      areaMode: undefined,
+      bbox: undefined,
+      region_code: undefined,
+      comuna_code: undefined,
+      radius_km: undefined,
+      sort: undefined,
+      cursor: undefined,
+    });
+    params.set("latitude", query.latitude);
+    params.set("longitude", query.longitude);
+    if (query.exclude_bbox) params.set("exclude_bbox", query.exclude_bbox);
+    if (query.exclude_radius_km)
+      params.set("exclude_radius_km", query.exclude_radius_km);
+    return requestJson<components["schemas"]["PublicSpaceMapPage"]>(
+      pathWithQuery("/public/spaces/nearby", params),
+      signal,
+    ).then(parseMapPageResult);
   },
   listSpaces(query: CatalogQuery) {
     return requestJson<components["schemas"]["PublicSpacePage"]>(
-      pathWithQuery("/public/spaces", serializeCatalogQuery(query)),
+      pathWithQuery("/public/spaces", serializeCatalogApiQuery(query)),
     ).then((result): CatalogResult<PublicSpacePage> => {
       if (!result.ok) return result;
       const page = publicRecord(result.value);

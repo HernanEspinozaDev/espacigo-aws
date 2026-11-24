@@ -8,46 +8,34 @@ import { ApiError } from "@/lib/api/errors";
 import { CheckoutProButton } from "@/features/rental-checkout/ui/checkout-pro-button";
 import { commercialAgreements } from "../infrastructure/agreements-runtime";
 import {
+  agreementErrorMessage,
   agreementStateLabel,
   canPayAgreement,
+  isQuoteRefreshErrorCode,
+  nextSigningIdempotencyKey,
+  shouldClearSigningIdempotencyKey,
   type AgreementRead,
   type ContractProposal,
 } from "../domain/agreements";
-import { ContractProposalTerms, contractDate } from "./contract-proposal-terms";
+import { Clock3, FileText } from "lucide-react";
+import { contractDate } from "./contract-proposal-terms";
+import { ContractPdfModal } from "./contract-pdf-modal";
+import { FesOtpSigningStep } from "./fes-otp-signing-step";
+
+export {
+  agreementErrorMessage,
+  nextSigningIdempotencyKey,
+  shouldClearSigningIdempotencyKey,
+};
 
 interface Props {
   quoteId?: string;
   agreementId?: string;
   checkoutApiEnabled: boolean;
   walletPurchaseEnabled: boolean;
-}
-export function agreementErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    if (error.status === 401 || error.status === 403)
-      return "Inicia sesión con la cuenta que participa en esta solicitud.";
-    switch (error.code) {
-      case "identity_required":
-      case "identity_verification_required":
-        return "Ambas partes necesitan una verificación de identidad vigente para firmar.";
-      case "space_location_confirmation_required":
-        return "El anfitrión debe confirmar la ubicación del espacio antes de preparar el contrato.";
-      case "contract_template_required":
-        return "El anfitrión debe publicar una plantilla de contrato para este espacio.";
-      case "contract_terms_changed":
-      case "proposal_changed":
-        return "Las condiciones cambiaron. Solicita una nueva cotización y revisa el acuerdo actualizado.";
-      case "request_expired":
-        return "La solicitud venció. Vuelve a cotizar para enviar un nuevo acuerdo.";
-      case "contract_terms_unavailable":
-      case "contract_evidence_unavailable":
-        return "Los contratos no están disponibles en este momento. No se habilitó ningún pago.";
-      case "precondition_failed":
-        return "La solicitud cambió en otra sesión. Actualiza su estado antes de continuar.";
-    }
-    if (error.status === 404)
-      return "La cotización o la solicitud ya no están disponibles para esta cuenta.";
-  }
-  return "No pudimos confirmar la operación. Actualiza el estado antes de continuar o reintenta el envío.";
+  onAgreementStateChange?: (state: string | null) => void;
+  forceCloseModal?: boolean;
+  onRefreshQuote?: () => void;
 }
 export function RenterAgreementPanel(props: Props) {
   const { snapshot, accessToken, getAccessToken } = useAuth();
@@ -75,24 +63,35 @@ export function RenterAgreementPanel(props: Props) {
   );
 }
 
+function formatPaymentCountdown(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function AgreementPanel({
   quoteId,
   agreementId,
-  checkoutApiEnabled,
-  walletPurchaseEnabled,
+  onAgreementStateChange,
+  forceCloseModal = false,
+  onRefreshQuote,
   isCurrent,
 }: Props & { isCurrent(): boolean }) {
   const [read, setRead] = useState<AgreementRead | null>(null);
   const [proposal, setProposal] = useState<ContractProposal | null>(null);
+  const [pdfOpen, setPdfOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState("");
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const alive = useRef(true);
   const key = useRef<string | null>(null);
+  const lastChallengeIdRef = useRef<string | null>(null);
   const allowed = () => alive.current && isCurrent();
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<boolean> => {
     let id = agreementId;
     if (!id && quoteId) {
       const items = await commercialAgreements.list("renter");
@@ -101,18 +100,24 @@ function AgreementPanel({
     if (id) {
       const loaded = await commercialAgreements.resume(id);
       if (alive.current && isCurrent()) {
+        setNow(Date.now());
         setRead(loaded);
         setProposal(loaded.proposal);
         setConsent(false);
       }
+      return true;
     }
+    return false;
   }, [agreementId, quoteId, isCurrent]);
   useEffect(() => {
     alive.current = true;
     let active = true;
     load()
       .catch((e: unknown) => {
-        if (active && isCurrent()) setError(agreementErrorMessage(e));
+        if (active && isCurrent()) {
+          setError(agreementErrorMessage(e));
+          setErrorCode(e instanceof ApiError ? e.code : null);
+        }
       })
       .finally(() => {
         if (active && isCurrent()) setLoading(false);
@@ -126,21 +131,98 @@ function AgreementPanel({
       window.clearInterval(timer);
     };
   }, [load, isCurrent]);
-  const action = async (operation: () => Promise<void>) => {
+  const action = async (operation: () => Promise<unknown>) => {
     if (loading || busy || !allowed()) return;
     setBusy(true);
     setError("");
+    setErrorCode(null);
     try {
       await operation();
     } catch (e) {
-      if (allowed()) setError(agreementErrorMessage(e));
+      if (allowed()) {
+        setError(agreementErrorMessage(e));
+        setErrorCode(e instanceof ApiError ? e.code : null);
+      }
     } finally {
       if (allowed()) setBusy(false);
     }
   };
+  const quoteConflict = isQuoteRefreshErrorCode(errorCode);
+  const refreshQuoteOrProposal = () =>
+    void action(async () => {
+      const foundExisting = await load();
+      if (foundExisting || !quoteId) {
+        if (allowed()) {
+          key.current = null;
+          lastChallengeIdRef.current = null;
+        }
+        return;
+      }
+      try {
+        const refreshed = await commercialAgreements.proposal(quoteId);
+        if (allowed()) {
+          setProposal(refreshed);
+          setConsent(false);
+          key.current = null;
+          lastChallengeIdRef.current = null;
+        }
+      } catch (e) {
+        if (
+          onRefreshQuote &&
+          e instanceof ApiError &&
+          (e.code === "request_expired" ||
+            e.code === "agreement_conflict" ||
+            e.status === 404)
+        ) {
+          if (allowed()) {
+            setPdfOpen(false);
+            onRefreshQuote();
+          }
+          return;
+        }
+        throw e;
+      }
+    });
   const ready = read !== null && canPayAgreement(read.agreement, now) && !error;
   const pending = read?.agreement.state === "pending_landlord";
   const deadline = read?.agreement.payment_expires_at;
+  const paymentCountdownActive =
+    read?.agreement.state === "ready_for_payment" &&
+    typeof deadline === "string" &&
+    Date.parse(deadline) > now;
+  useEffect(() => {
+    onAgreementStateChange?.(read?.agreement.state ?? null);
+  }, [read?.agreement.state, onAgreementStateChange]);
+  const modalOpen = pdfOpen && !forceCloseModal;
+  useEffect(() => {
+    if (!pending) return;
+    const sync = () => {
+      if (
+        document.visibilityState === "visible" &&
+        alive.current &&
+        isCurrent()
+      ) {
+        void load().catch(() => {});
+      }
+    };
+    const intervalId = window.setInterval(sync, 10_000);
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", sync);
+    };
+  }, [pending, load, isCurrent]);
+  useEffect(() => {
+    if (!paymentCountdownActive) return;
+    const intervalId = window.setInterval(() => {
+      if (alive.current && isCurrent()) {
+        setNow(Date.now());
+      }
+    }, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [paymentCountdownActive, isCurrent]);
   const terminal =
     read && ["rejected", "withdrawn", "expired"].includes(read.agreement.state);
   return (
@@ -160,7 +242,7 @@ function AgreementPanel({
         </Link>
       </div>
       {loading && <p role="status">Comprobando tus solicitudes…</p>}
-      {error && (
+      {!modalOpen && error && (
         <p role="alert" className="text-sm text-red-800">
           {error}
         </p>
@@ -169,11 +251,12 @@ function AgreementPanel({
         <>
           <p className="text-sm">
             Revisa las reglas, el precio y el horario. Tu firma envía la
-            solicitud al anfitrión; el pago se habilita después de su firma y de
-            confirmar la disponibilidad.
+            solicitud al arrendador; el pago se habilita después de su firma y
+            de confirmar la disponibilidad.
           </p>
           <Button
             type="button"
+            className="w-full"
             disabled={busy || !quoteId}
             onClick={() =>
               void action(async () => {
@@ -183,64 +266,148 @@ function AgreementPanel({
                   setProposal(loaded);
                   setConsent(false);
                   key.current = null;
+                  lastChallengeIdRef.current = null;
+                  setPdfOpen(true);
                 }
               })
             }
           >
-            Revisar contrato
+            <FileText className="size-4" aria-hidden="true" />
+            <span>
+              {busy ? "Cargando contrato…" : "Revisar y firmar contrato"}
+            </span>
           </Button>
         </>
       )}
       {proposal && (
-        <>
-          <details open={!read} className="rounded-lg border border-border p-4">
-            <summary className="cursor-pointer font-medium">
-              Condiciones de la propuesta · versión {proposal.version}
-            </summary>
-            <div className="mt-4">
-              <ContractProposalTerms proposal={proposal} />
-            </div>
-          </details>
-          {!read && (
-            <div className="space-y-3">
-              <label className="flex items-start gap-3 text-sm">
-                <input
-                  className="mt-1 size-4"
-                  type="checkbox"
-                  disabled={busy}
-                  checked={consent}
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                <span>
-                  He leído y acepto las condiciones de esta propuesta, versión{" "}
-                  {proposal.version}, y autorizo registrar mi firma y enviar la
-                  solicitud al anfitrión.
-                </span>
-              </label>
-              <Button
-                type="button"
-                disabled={!consent || busy || loading}
-                onClick={() =>
-                  void action(async () => {
-                    if (!consent) return;
-                    key.current ??= crypto.randomUUID();
-                    const sent = await commercialAgreements.send(
-                      proposal,
-                      key.current,
-                    );
-                    if (allowed()) {
-                      setRead(sent);
-                      setConsent(false);
-                    }
-                  })
-                }
-              >
-                {busy ? "Enviando solicitud…" : "Firmar y enviar solicitud"}
-              </Button>
-            </div>
-          )}
-        </>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/20 p-3">
+          <div className="text-sm">
+            <p className="font-medium">
+              Propuesta de contrato · versión {proposal.version}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {read
+                ? agreementStateLabel(read.agreement.state)
+                : "Lista para revisar y firmar"}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={read ? "outline" : "default"}
+            onClick={() => setPdfOpen(true)}
+          >
+            <FileText className="size-4" aria-hidden="true" />
+            <span>{read ? "Ver contrato PDF" : "Abrir y firmar contrato"}</span>
+          </Button>
+        </div>
       )}
+      <ContractPdfModal
+        open={modalOpen}
+        onClose={() => setPdfOpen(false)}
+        proposal={proposal}
+        agreement={read?.agreement}
+        title="Contrato de arriendo"
+        footer={
+          proposal && !read ? (
+            <div className="space-y-3">
+              {error && (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+                >
+                  <p className="flex-1">{error}</p>
+                  {quoteConflict && quoteId && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || loading}
+                      onClick={refreshQuoteOrProposal}
+                    >
+                      {busy ? "Actualizando…" : "Actualizar cotización"}
+                    </Button>
+                  )}
+                </div>
+              )}
+              <FesOtpSigningStep
+                key={`${proposal.id}:${proposal.sha256}`}
+                proposalId={proposal.id}
+                snapshotSha256={proposal.sha256}
+                role="arrendatario"
+                consent={consent}
+                onConsentChange={setConsent}
+                consentText={`He leído y acepto las condiciones de esta propuesta, versión ${proposal.version}, y autorizo registrar mi firma electrónica (FES) y enviar la solicitud al arrendador.`}
+                busy={busy}
+                disabled={loading}
+                submitLabel="Confirmar y firmar (FES)"
+                onRequestCode={() => {
+                  setError("");
+                  setErrorCode(null);
+                }}
+                onSubmit={async (otp) => {
+                  await action(async () => {
+                    const nextKey = nextSigningIdempotencyKey(
+                      key.current,
+                      lastChallengeIdRef.current,
+                      otp.challengeId,
+                    );
+                    key.current = nextKey.idempotencyKey;
+                    lastChallengeIdRef.current = nextKey.challengeId;
+                    try {
+                      const sent = await commercialAgreements.send(
+                        proposal,
+                        key.current,
+                        otp,
+                      );
+                      if (allowed()) {
+                        key.current = null;
+                        lastChallengeIdRef.current = null;
+                        setNow(Date.now());
+                        setRead(sent);
+                        setConsent(false);
+                        setPdfOpen(false);
+                      }
+                    } catch (e) {
+                      if (shouldClearSigningIdempotencyKey(e)) {
+                        key.current = null;
+                        lastChallengeIdRef.current = null;
+                      }
+                      throw e;
+                    }
+                  });
+                }}
+                extraActions={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setPdfOpen(false)}
+                  >
+                    Cerrar
+                  </Button>
+                }
+              />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {error && (
+                <p role="alert" className="text-sm text-red-800">
+                  {error}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPdfOpen(false)}
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          )
+        }
+      />
       {read && (
         <div className="space-y-3">
           <p role="status" className="font-semibold">
@@ -322,32 +489,56 @@ function AgreementPanel({
               disponible.
             </p>
           )}
-          {ready &&
-            deadline &&
-            (checkoutApiEnabled || walletPurchaseEnabled ? (
-              <Link
-                data-mp-checkout-cta="checkout-options"
-                className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#a44731] px-5 py-3 font-semibold text-white"
-                href={`/reservas/checkout/opciones/${encodeURIComponent(read.agreement.quote_id)}`}
+          {ready && deadline && (
+            <div className="space-y-3">
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 tabular-nums dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
               >
-                Ir a pagar
-              </Link>
-            ) : (
+                <Clock3 className="size-4 shrink-0" aria-hidden="true" />
+                <span>
+                  Tiempo restante para pagar:{" "}
+                  {formatPaymentCountdown(Date.parse(deadline) - now)} (vence a
+                  las{" "}
+                  {contractDate(
+                    deadline,
+                    proposal?.time_zone ?? "America/Santiago",
+                  )}
+                  )
+                </span>
+              </div>
               <CheckoutProButton
                 quoteId={read.agreement.quote_id}
                 expiresAt={deadline}
               />
-            ))}
+            </div>
+          )}
         </div>
       )}
-      {!loading && !busy && !read && error && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void action(load)}
-        >
-          Actualizar estado
-        </Button>
+      {!loading && !busy && !read && !modalOpen && error && (
+        <div className="flex flex-wrap gap-3">
+          {quoteConflict && quoteId && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={refreshQuoteOrProposal}
+            >
+              Actualizar cotización
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void action(async () => {
+                await load();
+              })
+            }
+          >
+            Actualizar estado
+          </Button>
+        </div>
       )}
     </section>
   );

@@ -4,8 +4,37 @@ export type CommercialAuthorization =
   components["schemas"]["CommercialAuthorizationGrant"];
 export type CommercialAuthorizationEvent =
   components["schemas"]["CommercialAuthorizationEvent"];
-export type AuthorizationActivation =
-  components["schemas"]["CommercialAuthorizationActivation"];
+export type CommercialAuthorizationResult =
+  components["schemas"]["CommercialAuthorizationResult"];
+export type CommercialAuthorizationOTPChallenge =
+  components["schemas"]["CommercialAuthorizationOTPChallengeResult"];
+export interface ActivateCommercialAuthorizationInput {
+  template_version: number;
+  consent: boolean;
+  otp_challenge_id: string;
+  otp_code: string;
+}
+export type AuthorizationActivation = ActivateCommercialAuthorizationInput;
+
+const AUTHORIZATION_EVENT_ACTIONS = new Set<
+  CommercialAuthorizationEvent["action"]
+>(["activated", "revoked", "auto_confirmed"]);
+
+export function isCommercialAuthorizationEvent(
+  value: unknown,
+): value is CommercialAuthorizationEvent {
+  if (!value || typeof value !== "object") return false;
+  const item = value as CommercialAuthorizationEvent;
+  return (
+    typeof item.grant_id === "string" &&
+    typeof item.space_id === "string" &&
+    typeof item.actor_id === "string" &&
+    AUTHORIZATION_EVENT_ACTIONS.has(item.action) &&
+    typeof item.reason === "string" &&
+    typeof item.occurred_at === "string" &&
+    Number.isFinite(Date.parse(item.occurred_at))
+  );
+}
 
 export function isCommercialAuthorization(
   value: unknown,
@@ -28,8 +57,19 @@ export function isCommercialAuthorization(
   );
 }
 
-export function validAuthorizationAmount(value: string): number | null {
-  if (!/^[1-9][0-9]{0,8}$/.test(value)) return null;
-  const amount = Number(value);
-  return Number.isSafeInteger(amount) && amount <= 100_000_000 ? amount : null;
+export function isCommercialAuthorizationOTPChallenge(
+  value: unknown,
+): value is CommercialAuthorizationOTPChallenge {
+  if (!value || typeof value !== "object") return false;
+  const item = value as CommercialAuthorizationOTPChallenge;
+  return (
+    typeof item.challenge_id === "string" &&
+    item.challenge_id.length > 0 &&
+    typeof item.channel === "string" &&
+    item.channel.length > 0 &&
+    typeof item.expires_at === "string" &&
+    Number.isFinite(Date.parse(item.expires_at)) &&
+    typeof item.masked_email === "string" &&
+    item.masked_email.length > 0
+  );
 }

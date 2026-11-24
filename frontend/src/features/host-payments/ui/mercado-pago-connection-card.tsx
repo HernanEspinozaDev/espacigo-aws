@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
+  ArrowRight,
   CheckCircle2,
   CircleDollarSign,
   ExternalLink,
@@ -19,7 +21,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/workspace/ui/card";
+import { safeHostReturnPath } from "@/features/host-listings/domain/publish-guide";
 import { useMercadoPago } from "./use-mercado-pago";
+
+const MP_RETURN_STORAGE_KEY = "espacigo:mp-return-to";
 
 const callbackMessages: Record<
   string,
@@ -53,21 +58,53 @@ const callbackMessages: Record<
 
 export function MercadoPagoConnectionCard({
   callback,
+  returnTo = null,
 }: {
   callback: string | null;
+  returnTo?: string | null;
 }) {
   const { auth, snapshot, startAuthorization, reload } = useMercadoPago();
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState(false);
+  const [storedReturnTo] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return safeHostReturnPath(
+        window.sessionStorage.getItem(MP_RETURN_STORAGE_KEY),
+      );
+    } catch {
+      return null;
+    }
+  });
   const notice = callback ? callbackMessages[callback] : undefined;
   const connection = snapshot.connection;
   const isHost =
     auth.status === "authenticated" && auth.roles.includes("arrendador");
+  const resolvedReturnTo = safeHostReturnPath(returnTo) ?? storedReturnTo;
+
+  useEffect(() => {
+    try {
+      const safeProp = safeHostReturnPath(returnTo);
+      if (safeProp) {
+        window.sessionStorage.setItem(MP_RETURN_STORAGE_KEY, safeProp);
+      }
+    } catch {
+      // Ignore storage failures
+    }
+  }, [returnTo]);
 
   async function connect() {
     setStartError(false);
     setStarting(true);
     try {
+      const safeProp = safeHostReturnPath(returnTo);
+      if (safeProp) {
+        try {
+          window.sessionStorage.setItem(MP_RETURN_STORAGE_KEY, safeProp);
+        } catch {
+          // Ignore storage failures
+        }
+      }
       await startAuthorization();
     } catch {
       setStartError(true);
@@ -159,25 +196,45 @@ export function MercadoPagoConnectionCard({
               <p className="font-medium">Tu cuenta está vinculada</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 Mercado Pago autorizó a EspaciGo para gestionar los pagos de tus
-                reservas.
+                reservas. Una vez vinculada, ya puedes crear y publicar tus
+                espacios.
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={connect}
-              disabled={starting || !connection.authorizationAvailable}
-            >
-              {starting ? (
-                <Loader2
-                  className="mr-2 size-4 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <RefreshCw className="mr-2 size-4" aria-hidden="true" />
-              )}
-              Volver a autorizar
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {resolvedReturnTo ? (
+                <Button asChild>
+                  <Link
+                    href={resolvedReturnTo}
+                    onClick={() => {
+                      try {
+                        window.sessionStorage.removeItem(MP_RETURN_STORAGE_KEY);
+                      } catch {
+                        // Ignore
+                      }
+                    }}
+                  >
+                    Volver a publicar espacio
+                    <ArrowRight className="ml-2 size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={connect}
+                disabled={starting || !connection.authorizationAvailable}
+              >
+                {starting ? (
+                  <Loader2
+                    className="mr-2 size-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <RefreshCw className="mr-2 size-4" aria-hidden="true" />
+                )}
+                Volver a autorizar
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-4 rounded-lg border border-dashed p-4 sm:flex-row sm:items-center sm:justify-between">

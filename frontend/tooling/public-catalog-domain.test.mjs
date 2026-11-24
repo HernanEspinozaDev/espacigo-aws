@@ -159,7 +159,15 @@ test("rejects ambiguous duplicate attributes and clears cursor after filter chan
 
 test("enforces sort context, exact CLP bounds, and offset-aware RFC3339 intervals", () => {
   const unqualified = queryModule.parseCatalogQuery({ sort: "unit_price_asc" });
-  assert.equal(unqualified.sort, undefined);
+  assert.equal(unqualified.sort, "unit_price_asc");
+  assert.equal(unqualified.rate_unit, "hora");
+  const total = queryModule.parseCatalogQuery({
+    sort: "unit_price_desc",
+    start_at: "2026-11-02T09:00:00-03:00",
+    end_at: "2026-11-02T11:00:00-03:00",
+  });
+  assert.equal(total.sort, "estimated_total_desc");
+  assert.equal(total.rate_unit, undefined);
   const qualified = queryModule.parseCatalogQuery({
     rate_unit: "mes",
     sort: "unit_price_asc",
@@ -284,6 +292,72 @@ test("geographic query preserves shared filters and only enables distance orderi
       radius_km: "201",
     }).latitude,
     undefined,
+  );
+});
+
+test("applies only the requested area and keeps capacity and unrelated filters", () => {
+  const params = {
+    region: "13",
+    comuna: "13101",
+    lat: "-33.45",
+    lng: "-70.66",
+    radius: "10",
+    bbox: "-71,-34,-70,-33",
+    category: "oficina",
+    min_capacity: "4",
+    min_price: "10000",
+    from: "2026-07-02T09:00:00-04:00",
+    to: "2026-07-02T11:00:00-04:00",
+    cursor: "older-query-cursor",
+  };
+  const admin = queryModule.parseCatalogQuery({ ...params, areaMode: "admin" });
+  assert.equal(admin.comuna_code, "13101");
+  assert.equal(admin.latitude, undefined);
+  assert.equal(admin.bbox, undefined);
+  assert.equal(admin.cursor, undefined);
+  assert.equal(admin.min_capacity, "4");
+  assert.equal(admin.rate_unit, "hora");
+  assert.equal(admin.min_unit_price_clp, "10000");
+  assert.equal(admin.category_code, "oficina");
+  assert.equal(admin.start_at, params.from);
+  assert.equal(
+    queryModule.serializeCatalogQuery(admin).get("areaMode"),
+    "admin",
+  );
+  assert.equal(
+    queryModule.serializeCatalogApiQuery(admin).has("areaMode"),
+    false,
+  );
+
+  const bbox = queryModule.parseCatalogQuery(params);
+  assert.equal(bbox.areaMode, "bbox");
+  assert.equal(bbox.region_code, undefined);
+  assert.equal(bbox.latitude, undefined);
+  const radius = queryModule.parseCatalogQuery({
+    ...params,
+    bbox: ",-34,-70,-33",
+  });
+  assert.equal(radius.areaMode, "radius");
+  assert.equal(radius.comuna_code, undefined);
+  const cleared = queryModule.withoutCatalogArea({
+    ...radius,
+    sort: "distance_asc",
+  });
+  assert.equal(cleared.min_capacity, "4");
+  assert.equal(cleared.latitude, undefined);
+  assert.equal(cleared.sort, undefined);
+});
+
+test("accepts only positive integer minimum capacity within PostgreSQL integer range", () => {
+  for (const value of ["0", "-2", "1.5", "1e2", "2147483648", ["1", "2"]]) {
+    assert.equal(
+      queryModule.parseCatalogQuery({ min_capacity: value }).min_capacity,
+      undefined,
+    );
+  }
+  assert.equal(
+    queryModule.parseCatalogQuery({ min_capacity: "2147483647" }).min_capacity,
+    "2147483647",
   );
 });
 

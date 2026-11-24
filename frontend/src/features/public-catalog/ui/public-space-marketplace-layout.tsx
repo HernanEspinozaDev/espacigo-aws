@@ -66,28 +66,26 @@ export function PublicSpaceMarketplaceLayout({
 
   return (
     <>
-      <div className="pb-36 lg:pb-0">
-        <div className="min-w-0">{gallery}</div>
-        <div className="mt-8 grid min-w-0 items-start gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
-          <div className="min-w-0 space-y-6">
-            {summary}
-            {summaryAside ?? (
-              <PublicSpaceBookingCta
-                selection={selection}
-                basePriceCLP={basePriceCLP ?? null}
-                rateUnit={rateUnit}
-                onChooseDates={handleChooseDates}
-              />
-            )}
-          </div>
-          <div
-            id="disponibilidad"
-            ref={calendarRef}
-            className="min-w-0 scroll-mt-24"
-          >
-            {availabilityElement}
-          </div>
+      <div className="pb-36 lg:grid lg:grid-cols-12 lg:items-start lg:gap-6 lg:pb-0 xl:gap-8">
+        <div className="min-w-0 lg:col-span-4 space-y-6">
+          {summary}
+          {summaryAside ?? (
+            <PublicSpaceBookingCta
+              selection={selection}
+              basePriceCLP={basePriceCLP ?? null}
+              rateUnit={rateUnit}
+              onChooseDates={handleChooseDates}
+            />
+          )}
         </div>
+        <div
+          id="disponibilidad"
+          ref={calendarRef}
+          className="mt-8 min-w-0 scroll-mt-24 lg:col-span-4 lg:mt-0"
+        >
+          {availabilityElement}
+        </div>
+        <div className="mt-8 min-w-0 lg:col-span-4 lg:mt-0">{gallery}</div>
       </div>
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--brand-border)] bg-background/95 px-3 py-2 backdrop-blur shadow-lg lg:hidden">
         <PublicSpaceBookingCta

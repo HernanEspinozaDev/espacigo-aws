@@ -8,6 +8,12 @@ export function listingErrorMessage(error: unknown): string {
 
   if (error.code === "location_confirmation_required")
     return "Confirma la dirección y el pin en Dirección y mapa del espacio. Después vuelve a Publicar sin salir del editor.";
+  if (error.code === "identity_verification_required")
+    return "Debes confirmar tu identidad (KYC) antes de publicar un espacio.";
+  if (error.code === "mercadopago_connection_required")
+    return "Debes vincular tu cuenta de Mercado Pago antes de publicar un espacio.";
+  if (error.code === "contract_template_required")
+    return "Debes configurar y publicar la plantilla de contrato del espacio antes de publicarlo.";
 
   switch (error.status) {
     case 401:

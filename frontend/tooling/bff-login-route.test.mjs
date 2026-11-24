@@ -613,3 +613,39 @@ test("triggers rollback and returns 502 without cookies when session confirmatio
     },
   );
 });
+
+test("forwards the authenticator code and does not set cookies for an unresolved challenge", async () => {
+  let received;
+  await withUpstreamServer(
+    (req, res) => {
+      const chunks = [];
+      req.on("data", (chunk) => chunks.push(chunk));
+      req.on("end", () => {
+        received = JSON.parse(Buffer.concat(chunks));
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { code: "authenticator_invalid" } }));
+      });
+    },
+    async () => {
+      const payload = {
+        email: "bff-authenticator@example.invalid",
+        password: "SyntheticBff!123",
+        authenticator_code: "123456",
+      };
+      const req = new Request("http://127.0.0.1:4201/api/backend/auth/login", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:4201",
+          origin: "https://127.0.0.1:4201",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const res = await POST(req);
+      assert.equal(res.status, 403);
+      assert.equal((await res.json()).error.code, "authenticator_invalid");
+      assert.equal(res.headers.get("set-cookie"), null);
+      assert.deepEqual(received, payload);
+    },
+  );
+});

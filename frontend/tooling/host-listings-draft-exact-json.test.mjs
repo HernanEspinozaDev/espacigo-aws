@@ -114,9 +114,20 @@ test("createDraft and updateDraft serialize exact optional fields and preserve v
       comuna_code: undefined,
       attribute_schema_version: undefined,
     };
-    await adapter.createDraft(absent);
+    const { address, ...content } = base;
+    const location = {
+      address,
+      region_code: "13",
+      comuna_code: "13101",
+      latitude: -33.45,
+      longitude: -70.66,
+      public_confirmed: false,
+      source: "manual",
+    };
+    const created = await adapter.createDraft({ ...content, location });
     let body = JSON.parse(globalThis.__draftWire);
-    for (const key of optionalKeys)
+    assert.deepEqual(body.location, location);
+    for (const key of [...optionalKeys, "address"])
       assert.equal(
         Object.hasOwn(body, key),
         false,
@@ -124,26 +135,7 @@ test("createDraft and updateDraft serialize exact optional fields and preserve v
       );
     assert.deepEqual(body.attributes, { enabled: false, count: 0 });
     assert.equal(body.base_price_clp, 5001);
-    assert.equal(
-      (
-        await adapter.createDraft({
-          ...base,
-          region_code: "13",
-          comuna_code: "13101",
-          attribute_schema_version: 1,
-        })
-      ).etag,
-      etag,
-    );
-    body = JSON.parse(globalThis.__draftWire);
-    assert.deepEqual(
-      Object.fromEntries(optionalKeys.map((key) => [key, body[key]])),
-      {
-        region_code: "13",
-        comuna_code: "13101",
-        attribute_schema_version: 1,
-      },
-    );
+    assert.equal(created.etag, etag);
 
     const updated = await adapter.updateDraft(id, absent, etag);
     assert.equal(globalThis.__draftOptions.params.header["If-Match"], etag);

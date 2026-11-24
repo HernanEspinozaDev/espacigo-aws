@@ -31,10 +31,24 @@ var areaPattern = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$`)
 var attributeDecimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 
 type Service struct {
-	repo       Repository
-	key        []byte
-	imageStore PublicImageStore
-	mediaStore media.ObjectStore
+	repo                 Repository
+	key                  []byte
+	imageStore           PublicImageStore
+	mediaStore           media.ObjectStore
+	destinationSuggester DestinationSuggester
+	nearbyPOILookup      NearbyPOILookup
+}
+
+func (s *Service) SetDestinationSuggester(suggester DestinationSuggester) {
+	if s != nil {
+		s.destinationSuggester = suggester
+	}
+}
+
+func (s *Service) SetNearbyPOILookup(lookup NearbyPOILookup) {
+	if s != nil {
+		s.nearbyPOILookup = lookup
+	}
 }
 
 // New derives a purpose-specific cursor key from a stable local application
@@ -432,10 +446,17 @@ func validate(filters *Filters) error {
 	if err := validateGeo(*filters); err != nil {
 		return err
 	}
+	maxPageSize := MaxPageSize
+	if filters.MapOnly {
+		maxPageSize = MaxMapPageSize
+		if filters.PageSize == 0 && !filters.PageSizeSet {
+			filters.PageSize = MaxMapPageSize
+		}
+	}
 	if filters.PageSize == 0 && !filters.PageSizeSet {
 		filters.PageSize = DefaultPageSize
 	}
-	if filters.PageSize < 1 || filters.PageSize > MaxPageSize {
+	if filters.PageSize < 1 || filters.PageSize > maxPageSize {
 		return ErrInvalid
 	}
 	if filters.Sort == "" {
@@ -456,6 +477,12 @@ func validate(filters *Filters) error {
 		}
 	}
 	if filters.MinAreaM2 != "" && (!areaPattern.MatchString(filters.MinAreaM2) || strings.TrimLeft(strings.ReplaceAll(filters.MinAreaM2, ".", ""), "0") == "") {
+		return ErrInvalid
+	}
+	if filters.MinCapacity != nil && (*filters.MinCapacity < 1 || int64(*filters.MinCapacity) > math.MaxInt32) {
+		return ErrInvalid
+	}
+	if (filters.Bounds != nil || filters.Proximity != nil) && (filters.RegionCode != "" || filters.CommuneCode != "") {
 		return ErrInvalid
 	}
 	if filters.RegionCode != "" && !validRegionCode(filters.RegionCode) {
@@ -558,6 +585,7 @@ func filtersFingerprint(filters Filters) string {
 		Region           string                        `json:"region"`
 		Commune          string                        `json:"commune"`
 		MinArea          string                        `json:"min_area"`
+		MinCapacity      *int                          `json:"min_capacity,omitempty"`
 		Attributes       map[string]bool               `json:"attributes"`
 		TypedAttributes  map[string]AttributePredicate `json:"typed_attributes"`
 		AttributeVersion int                           `json:"attribute_version"`
@@ -566,7 +594,7 @@ func filtersFingerprint(filters Filters) string {
 		MinTotal         *int64                        `json:"min_total"`
 		MaxTotal         *int64                        `json:"max_total"`
 	}{filters.Bounds, filters.Proximity, filters.MapOnly, filters.CategoryCode, filters.RateUnit, filters.MinUnitPriceCLP, filters.MaxUnitPriceCLP, filters.Sort, filters.PageSize,
-		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
+		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.MinCapacity, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
 		filters.StartAt, filters.EndAt, filters.MinTotalCLP, filters.MaxTotalCLP}
 	raw, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(raw)

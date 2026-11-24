@@ -1,4 +1,4 @@
-import { ApiProtocolError } from "@/lib/api/errors";
+import { ApiError, ApiProtocolError } from "@/lib/api/errors";
 import type { components } from "@/lib/api/generated/openapi";
 import { validContractSections } from "@/features/host-listings/domain/contract-template";
 
@@ -25,7 +25,11 @@ const amount = (v: unknown) =>
 
 export function parseProposal(
   value: unknown,
-  expected: { quoteId?: string; proposalId?: string } = {},
+  expected: {
+    quoteId?: string;
+    proposalId?: string;
+    allowRevealedParties?: boolean;
+  } = {},
 ): ContractProposal {
   if (
     !record(value) ||
@@ -84,12 +88,26 @@ export function parseProposal(
     roles.add(String(p.role));
     if (p.self) {
       selves++;
+      const validRut = expected.allowRevealedParties
+        ? /^(••••[0-9kK]{4}|[0-9.]{6,12}-[0-9kK])$/u.test(String(p.rut))
+        : /^••••[0-9kK]{4}$/u.test(String(p.rut));
       if (
         Object.keys(p).sort().join(",") !== "legal_name,role,rut,self" ||
         typeof p.legal_name !== "string" ||
         !p.legal_name.trim() ||
         typeof p.rut !== "string" ||
-        !/^••••[0-9kK]{4}$/u.test(p.rut)
+        !validRut
+      )
+        throw new ApiProtocolError();
+    } else if (
+      expected.allowRevealedParties &&
+      Object.keys(p).sort().join(",") === "legal_name,role,rut,self"
+    ) {
+      if (
+        typeof p.legal_name !== "string" ||
+        !p.legal_name.trim() ||
+        typeof p.rut !== "string" ||
+        !p.rut.trim()
       )
         throw new ApiProtocolError();
     } else if (Object.keys(p).sort().join(",") !== "role,self")
@@ -178,4 +196,79 @@ export function agreementStateLabel(
     withdrawn: "Solicitud retirada",
     expired: "Solicitud vencida",
   }[state];
+}
+
+const QUOTE_REFRESH_ERROR_CODES = new Set([
+  "agreement_conflict",
+  "request_expired",
+  "proposal_changed",
+  "contract_terms_changed",
+]);
+
+export function isQuoteRefreshErrorCode(code: string | null): boolean {
+  return code !== null && QUOTE_REFRESH_ERROR_CODES.has(code);
+}
+
+export function shouldClearSigningIdempotencyKey(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 400 || error.status === 409 || error.status === 422)
+  );
+}
+
+export function nextSigningIdempotencyKey(
+  currentKey: string | null,
+  lastChallengeId: string | null,
+  nextChallengeId: string,
+  createKey: () => string = () => crypto.randomUUID(),
+): { idempotencyKey: string; challengeId: string } {
+  if (!currentKey || nextChallengeId !== lastChallengeId) {
+    return { idempotencyKey: createKey(), challengeId: nextChallengeId };
+  }
+  return { idempotencyKey: currentKey, challengeId: nextChallengeId };
+}
+
+export function agreementErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403)
+      return "Inicia sesión con la cuenta que participa en esta solicitud.";
+    switch (error.code) {
+      case "identity_required":
+      case "identity_verification_required":
+        return "Ambas partes necesitan una verificación de identidad vigente para firmar.";
+      case "space_location_confirmation_required":
+        return "El anfitrión debe confirmar la ubicación del espacio antes de preparar el contrato.";
+      case "contract_template_required":
+        return "El anfitrión debe publicar una plantilla de contrato para este espacio.";
+      case "contract_terms_changed":
+      case "proposal_changed":
+        return "Las condiciones cambiaron. Solicita una nueva cotización y revisa el acuerdo actualizado.";
+      case "request_expired":
+        return "La solicitud venció. Vuelve a cotizar para enviar un nuevo acuerdo.";
+      case "contract_terms_unavailable":
+      case "contract_evidence_unavailable":
+        return "Los contratos no están disponibles en este momento. No se habilitó ningún pago.";
+      case "precondition_failed":
+        return "La solicitud cambió en otra sesión. Actualiza su estado antes de continuar.";
+      case "otp_invalid":
+        return "El código de firma es inválido o superó el máximo de intentos. Solicita uno nuevo.";
+      case "otp_expired":
+        return "El código de firma expiró (5 minutos). Solicita un código nuevo.";
+      case "otp_required":
+        return "Ingresa el código de 6 dígitos enviado a tu correo antes de confirmar.";
+      case "agreement_conflict":
+        return "La cotización venció (6 minutos) o cambió el estado de la solicitud. Actualiza la cotización para continuar.";
+      case "idempotency_conflict":
+        return "Ya se procesó un intento previo con este envío. Actualiza el estado o solicita un nuevo código.";
+      case "validation_error":
+        return "Los datos de firma no son válidos. Revisa el código e inténtalo nuevamente.";
+    }
+    if (error.status === 404)
+      return "La cotización o la solicitud ya no están disponibles para esta cuenta.";
+    return "No pudimos confirmar la operación. Actualiza el estado antes de continuar o reintenta el envío.";
+  }
+  if (error instanceof ApiProtocolError) {
+    return "No pudimos confirmar la respuesta del servidor. Actualiza la página o intenta nuevamente.";
+  }
+  return "No pudimos confirmar la operación. Actualiza la página o reintenta el envío.";
 }

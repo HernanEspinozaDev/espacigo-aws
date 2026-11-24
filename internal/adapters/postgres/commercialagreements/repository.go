@@ -12,6 +12,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/commercialagreement"
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialauthorization"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -41,12 +42,12 @@ func New(pool *pgxpool.Pool, gate rentalflow.IdentityGate, now func() time.Time)
 	return &Repository{db: pool, gate: gate, now: now}, nil
 }
 
-const columns = `id::text,propuesta_id::text,cotizacion_id::text,espacio_id::text,propietario_id::text,arrendatario_id::text,propuesta_version,encode(documento_sha256,'hex'),estado,vence_en,pago_vence_en,ocupacion_id::text,revision,creada_en,actualizada_en`
+const columns = `id::text,propuesta_id::text,cotizacion_id::text,espacio_id::text,propietario_id::text,arrendatario_id::text,propuesta_version,encode(documento_sha256,'hex'),estado,vence_en,pago_vence_en,ocupacion_id::text,modalidad_firma,revision,creada_en,actualizada_en`
 
 func scan(row pgx.Row) (domain.Agreement, error) {
 	var a domain.Agreement
 	a.Signatures = []domain.Signature{}
-	err := row.Scan(&a.ID, &a.ProposalID, &a.QuoteID, &a.SpaceID, &a.OwnerID, &a.RenterID, &a.ProposalVersion, &a.SHA256, &a.State, &a.ExpiresAt, &a.PaymentExpiresAt, &a.OccupancyID, &a.Revision, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.ProposalID, &a.QuoteID, &a.SpaceID, &a.OwnerID, &a.RenterID, &a.ProposalVersion, &a.SHA256, &a.State, &a.ExpiresAt, &a.PaymentExpiresAt, &a.OccupancyID, &a.SignatureMode, &a.Revision, &a.CreatedAt, &a.UpdatedAt)
 	return a, mapError(err)
 }
 func mapError(err error) error {
@@ -79,7 +80,7 @@ type rowReader interface {
 }
 
 func signatures(ctx context.Context, db rowReader, a *domain.Agreement) error {
-	rows, err := db.Query(ctx, `SELECT rol,firmada_en,encode(documento_sha256,'hex'),propuesta_version,consentimiento_version FROM public.contrato_firma_comercial WHERE solicitud_id=$1 ORDER BY firmada_en,rol`, a.ID)
+	rows, err := db.Query(ctx, `SELECT rol,firmada_en,encode(documento_sha256,'hex'),propuesta_version,consentimiento_version,tipo_firma,metodo_autenticacion,COALESCE(encode(evidencia_sha256,'hex'),'') FROM public.contrato_firma_comercial WHERE solicitud_id=$1 ORDER BY firmada_en,rol`, a.ID)
 	if err != nil {
 		return err
 	}
@@ -87,7 +88,7 @@ func signatures(ctx context.Context, db rowReader, a *domain.Agreement) error {
 	a.Signatures = []domain.Signature{}
 	for rows.Next() {
 		var s domain.Signature
-		if err = rows.Scan(&s.Role, &s.SignedAt, &s.SHA256, &s.ProposalVersion, &s.ConsentVersion); err != nil {
+		if err = rows.Scan(&s.Role, &s.SignedAt, &s.SHA256, &s.ProposalVersion, &s.ConsentVersion, &s.SignatureType, &s.AuthMethod, &s.EvidenceSHA256); err != nil {
 			return err
 		}
 		a.Signatures = append(a.Signatures, s)
@@ -174,6 +175,7 @@ type source struct {
 	quote            rentalflow.Quote
 	locationRevision int64
 	templateID       string
+	templateVersion  int64
 }
 
 func proposal(ctx context.Context, tx pgx.Tx, id string) (source, error) {
@@ -184,17 +186,18 @@ func proposal(ctx context.Context, tx pgx.Tx, id string) (source, error) {
 		return s, mapError(err)
 	}
 	var terms struct {
-		SpaceTitle  string    `json:"space_title"`
-		RateVersion int64     `json:"rate_version"`
-		RateUnit    string    `json:"rate_unit"`
-		UnitPrice   int64     `json:"unit_price_clp"`
-		Units       int64     `json:"units"`
-		Subtotal    int64     `json:"subtotal_clp"`
-		Currency    string    `json:"currency"`
-		Start       time.Time `json:"start_at"`
-		End         time.Time `json:"end_at"`
-		Zone        string    `json:"time_zone"`
-		Location    struct {
+		SpaceTitle      string    `json:"space_title"`
+		TemplateVersion int64     `json:"template_version"`
+		RateVersion     int64     `json:"rate_version"`
+		RateUnit        string    `json:"rate_unit"`
+		UnitPrice       int64     `json:"unit_price_clp"`
+		Units           int64     `json:"units"`
+		Subtotal        int64     `json:"subtotal_clp"`
+		Currency        string    `json:"currency"`
+		Start           time.Time `json:"start_at"`
+		End             time.Time `json:"end_at"`
+		Zone            string    `json:"time_zone"`
+		Location        struct {
 			Revision int64 `json:"revision"`
 		} `json:"location"`
 	}
@@ -202,8 +205,9 @@ func proposal(ctx context.Context, tx pgx.Tx, id string) (source, error) {
 		return s, err
 	}
 	s.locationRevision = terms.Location.Revision
+	s.templateVersion = terms.TemplateVersion
 	s.quote = rentalflow.Quote{ID: s.agreement.QuoteID, SpaceID: s.agreement.SpaceID, OwnerID: s.agreement.OwnerID, RenterID: s.agreement.RenterID, SpaceTitle: terms.SpaceTitle, RateVersion: terms.RateVersion, RateUnit: terms.RateUnit, UnitPriceCLP: terms.UnitPrice, Units: terms.Units, SubtotalCLP: terms.Subtotal, Currency: terms.Currency, StartAt: terms.Start, EndAt: terms.End, TimeZone: terms.Zone}
-	if s.locationRevision < 1 || s.quote.RateVersion < 1 || s.quote.StartAt.IsZero() || s.quote.SubtotalCLP < 1 {
+	if s.locationRevision < 0 || s.quote.RateVersion < 1 || s.quote.StartAt.IsZero() || s.quote.SubtotalCLP < 1 {
 		return s, domain.ErrConflict
 	}
 	return s, nil
@@ -213,11 +217,24 @@ func hashMatches(actual, expected string) bool {
 	b, e2 := hex.DecodeString(expected)
 	return e1 == nil && e2 == nil && len(a) == 32 && len(b) == 32 && subtle.ConstantTimeCompare(a, b) == 1
 }
-func writeSignature(ctx context.Context, tx pgx.Tx, a domain.Agreement, actor domain.Actor, role string, at time.Time) error {
-	_, err := tx.Exec(ctx, `INSERT INTO public.contrato_firma_comercial(id,solicitud_id,actor_id,sesion_id,rol,propuesta_version,documento_sha256,consentimiento,consentimiento_version,firmada_en) VALUES($1,$2,$3,$4,$5,$6,decode($7,'hex'),true,$8,$9)`, uuid.NewString(), a.ID, actor.ID, actor.SessionID, role, a.ProposalVersion, a.SHA256, domain.ConsentVersion, at)
+func writeSignature(ctx context.Context, tx pgx.Tx, a domain.Agreement, actor domain.Actor, role, authMethod string, challengeID any, at time.Time) error {
+	var ipMasked any
+	if actor.IPMasked != "" {
+		ipMasked = actor.IPMasked
+	}
+	var uaHash any
+	if len(actor.UserAgentHash) == 32 {
+		uaHash = actor.UserAgentHash
+	}
+	evSHA := computeEvidenceSHA256(a, actor, role, authMethod, challengeID, at)
+	_, err := tx.Exec(ctx, `INSERT INTO public.contrato_firma_comercial(id,solicitud_id,actor_id,sesion_id,rol,propuesta_version,documento_sha256,consentimiento,consentimiento_version,firmada_en,tipo_firma,metodo_autenticacion,desafio_otp_id,ip_masked,user_agent_hash,evidencia_sha256) VALUES($1,$2,$3,$4,$5,$6,decode($7,'hex'),true,$8,$9,'FES',$10,$11,$12,$13,$14)`, uuid.NewString(), a.ID, actor.ID, actor.SessionID, role, a.ProposalVersion, a.SHA256, domain.ConsentVersion, at, authMethod, challengeID, ipMasked, uaHash, evSHA)
 	return mapError(err)
 }
 func writeEvent(ctx context.Context, tx pgx.Tx, a domain.Agreement, actor any, kind string, at time.Time) error {
+	return writeEventWithNotice(ctx, tx, a, actor, kind, kind, at)
+}
+
+func writeEventWithNotice(ctx context.Context, tx pgx.Tx, a domain.Agreement, actor any, kind, noticeKind string, at time.Time) error {
 	_, err := tx.Exec(ctx, `INSERT INTO public.contrato_solicitud_evento_comercial(id,solicitud_id,actor_id,tipo,revision,documento_sha256,ocurrida_en) VALUES($1,$2,$3,$4,$5,decode($6,'hex'),$7)`, uuid.NewString(), a.ID, actor, kind, a.Revision, a.SHA256, at)
 	if err != nil {
 		return err
@@ -233,8 +250,42 @@ func writeEvent(ctx context.Context, tx pgx.Tx, a domain.Agreement, actor any, k
 		if err != nil {
 			return err
 		}
+		if err = insertUserNotification(ctx, tx, a, recipient, noticeKind, at); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func insertUserNotification(ctx context.Context, tx pgx.Tx, a domain.Agreement, recipient, kind string, at time.Time) error {
+	title, body, href := notificationDetails(a.ID, recipient == a.OwnerID, kind)
+	if title == "" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING`, uuid.NewString(), recipient, kind, title, body, href, a.ID, at)
+	return err
+}
+
+func notificationDetails(agreementID string, isOwner bool, kind string) (title, body, href string) {
+	switch kind {
+	case "request_created":
+		return "Nueva solicitud de contrato", "Tienes un contrato firmado por el arrendatario esperando tu firma.", "/reservas/contratos?rol=anfitrion&solicitud=" + agreementID
+	case "request_auto_confirmed":
+		return "Solicitud confirmada automáticamente", "Se aplicó tu firma automática acotada; el arrendatario ya puede pagar.", "/reservas/contratos?rol=anfitrion&solicitud=" + agreementID
+	case "landlord_signed":
+		return "Contrato firmado por el anfitrión", "El anfitrión firmó tu solicitud. Ya puedes continuar al pago.", "/reservas/contratos/" + agreementID
+	case "rejected":
+		return "Solicitud de contrato rechazada", "El anfitrión rechazó la solicitud de arriendo.", "/reservas/contratos/" + agreementID
+	case "withdrawn":
+		return "Solicitud de contrato retirada", "El arrendatario retiró su solicitud de contrato.", "/reservas/contratos?rol=anfitrion&solicitud=" + agreementID
+	case "expired":
+		if isOwner {
+			return "Solicitud de contrato vencida", "El plazo de firma para la solicitud de contrato venció.", "/reservas/contratos?rol=anfitrion&solicitud=" + agreementID
+		}
+		return "Solicitud de contrato vencida", "El plazo de la solicitud de contrato venció.", "/reservas/contratos/" + agreementID
+	default:
+		return "", "", ""
+	}
 }
 func complete(ctx context.Context, tx pgx.Tx, a domain.Agreement) (domain.Agreement, error) {
 	if err := signatures(ctx, tx, &a); err != nil {
@@ -255,6 +306,39 @@ func updateState(ctx context.Context, tx pgx.Tx, a *domain.Agreement, state stri
 	}
 	return writeEvent(ctx, tx, *a, actor, kind, at)
 }
+func matchingAutoAuthorization(ctx context.Context, tx pgx.Tx, spaceID, ownerID string, templateVersion, subtotalCLP int64, currency string, at time.Time) (string, error) {
+	if currency != "CLP" || subtotalCLP < 1 || templateVersion < 1 {
+		return "", nil
+	}
+	var grantID string
+	err := tx.QueryRow(ctx, `SELECT a.id::text FROM public.autorizacion_arriendo_comercial a JOIN public.espacio_contrato_borrador d ON d.espacio_id=a.espacio_id WHERE a.espacio_id=$1 AND a.propietario_id=$2 AND a.plantilla_version=$3 AND d.version_publicada=$3 AND a.revocada_en IS NULL AND a.vigente_desde<=$4 AND a.vence_en>$4 AND (a.monto_maximo_clp>=$6 OR a.monto_maximo_clp>=$5) FOR UPDATE OF a LIMIT 1`, spaceID, ownerID, templateVersion, at, subtotalCLP, commercialauthorization.MaxAmountCLP).Scan(&grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return grantID, err
+}
+
+func applyAutoAuthorization(ctx context.Context, tx pgx.Tx, a *domain.Agreement, s source, grantID string, at time.Time) error {
+	hold, err := rentalflowpg.RetainCommercialAgreementInterval(ctx, tx, rentalflowpg.CommercialAgreementHoldInput{
+		RequestID:        a.ID,
+		Quote:            s.quote,
+		LocationRevision: s.locationRevision,
+	}, at)
+	if err != nil {
+		return mapError(err)
+	}
+	if err = writeSignature(ctx, tx, *a, domain.Actor{ID: a.OwnerID, SessionID: grantID}, "arrendador", "auto_authorization", nil, at); err != nil {
+		return err
+	}
+	a.PaymentExpiresAt = &hold.ExpiresAt
+	a.OccupancyID = &hold.OccupancyID
+	if err = updateState(ctx, tx, a, domain.Ready, a.OwnerID, "landlord_signed", at); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.autorizacion_arriendo_comercial_evento(id,autorizacion_id,espacio_id,actor_id,accion,motivo,ocurrida_en) VALUES($1,$2,$3,$4,'auto_confirmed','within_authorized_limits',$5)`, uuid.NewString(), grantID, a.SpaceID, a.OwnerID, at)
+	return mapError(err)
+}
+
 func (r *Repository) Create(ctx context.Context, actor domain.Actor, in domain.CreateInput, key string) (domain.Agreement, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -317,14 +401,36 @@ func (r *Repository) Create(ctx context.Context, actor domain.Actor, in domain.C
 	if s.quote.StartAt.Before(a.ExpiresAt) {
 		a.ExpiresAt = s.quote.StartAt
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.contrato_solicitud_comercial(id,propuesta_id,cotizacion_id,espacio_id,propietario_id,arrendatario_id,propuesta_version,documento_sha256,idempotency_key,fingerprint,estado,vence_en,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,$6,$7,decode($8,'hex'),$9,$10,$11,$12,$13,$13)`, a.ID, a.ProposalID, a.QuoteID, a.SpaceID, a.OwnerID, a.RenterID, a.ProposalVersion, a.SHA256, key, domain.Fingerprint(in), a.State, a.ExpiresAt, at)
+	authMethod, challengeID, err := r.verifyOTPInTx(ctx, tx, actor, a.ProposalID, a.SHA256, "arrendatario", in.OTPChallengeID, in.OTPCode, at)
+	if err != nil {
+		return a, err
+	}
+	mode := domain.ModeFESInternal
+	if in.SignatureMode == domain.ModeFirmaVirtualNotarial || in.SignatureMode == domain.ModeFEAExternal {
+		mode = in.SignatureMode
+	}
+	a.SignatureMode = mode
+	_, err = tx.Exec(ctx, `INSERT INTO public.contrato_solicitud_comercial(id,propuesta_id,cotizacion_id,espacio_id,propietario_id,arrendatario_id,propuesta_version,documento_sha256,idempotency_key,fingerprint,estado,vence_en,modalidad_firma,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,$6,$7,decode($8,'hex'),$9,$10,$11,$12,$13,$14,$14)`, a.ID, a.ProposalID, a.QuoteID, a.SpaceID, a.OwnerID, a.RenterID, a.ProposalVersion, a.SHA256, key, domain.Fingerprint(in), a.State, a.ExpiresAt, mode, at)
 	if err != nil {
 		return a, mapError(err)
 	}
-	if err = writeSignature(ctx, tx, a, actor, "arrendatario", at); err != nil {
+	if err = writeSignature(ctx, tx, a, actor, "arrendatario", authMethod, challengeID, at); err != nil {
 		return a, err
 	}
-	if err = writeEvent(ctx, tx, a, actor.ID, "request_created", at); err != nil {
+	autoGrantID, err := matchingAutoAuthorization(ctx, tx, a.SpaceID, a.OwnerID, s.templateVersion, s.quote.SubtotalCLP, s.quote.Currency, at)
+	if err != nil {
+		return a, err
+	}
+	if autoGrantID == "" {
+		if err = writeEvent(ctx, tx, a, actor.ID, "request_created", at); err != nil {
+			return a, err
+		}
+		return complete(ctx, tx, a)
+	}
+	if err = writeEventWithNotice(ctx, tx, a, actor.ID, "request_created", "request_auto_confirmed", at); err != nil {
+		return a, err
+	}
+	if err = applyAutoAuthorization(ctx, tx, &a, s, autoGrantID, at); err != nil {
 		return a, err
 	}
 	return complete(ctx, tx, a)
@@ -400,7 +506,11 @@ func (r *Repository) Accept(ctx context.Context, actor domain.Actor, id string, 
 	if err != nil {
 		return a, mapError(err)
 	}
-	if err = writeSignature(ctx, tx, a, actor, "arrendador", at); err != nil {
+	authMethod, challengeID, err := r.verifyOTPInTx(ctx, tx, actor, a.ProposalID, a.SHA256, "arrendador", in.OTPChallengeID, in.OTPCode, at)
+	if err != nil {
+		return a, err
+	}
+	if err = writeSignature(ctx, tx, a, actor, "arrendador", authMethod, challengeID, at); err != nil {
 		return a, err
 	}
 	a.PaymentExpiresAt = &hold.ExpiresAt

@@ -53,6 +53,27 @@ func loadCommercialContractAuthorizationForRequest(ctx context.Context, db DB, q
 func (a commercialContractAuthorization) canStart(now time.Time) bool {
 	return a.Bound && a.CurrentLocation && a.State == "ready_for_payment" && a.Active && a.OccupancyType == "retencion_contrato_comercial" && a.ExpiresAt.After(now) && a.OccupancyExpiry.Equal(a.ExpiresAt)
 }
+
+const commercialContractCheckoutSelectSQL = `SELECT id::text,cotizacion_id::text,estado,COALESCE(preference_id,''),COALESCE(init_point,''),vence_en,actualizada_en,fingerprint,base_clp,commission_clp,iva_clp,buyer_commission_clp,buyer_iva_clp,buyer_fee_clp,total_charged_clp,marketplace_fee_clp,test_mode,checkout_method,COALESCE(provider_payment_id,''),COALESCE(solicitud_comercial_id::text,''),COALESCE(contrato_version,0),contrato_sha256 FROM public.checkout_preferencia_comercial`
+
+func scanCommercialContractOp(row pgx.Row) (checkoutpro.Operation, []byte, string, int64, []byte, error) {
+	var op checkoutpro.Operation
+	var oldFingerprint, bindingDigest []byte
+	var requestID string
+	var version int64
+	err := row.Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &oldFingerprint, &op.Amounts.BaseCLP, &op.Amounts.CommissionCLP, &op.Amounts.VATCLP, &op.Amounts.BuyerCommissionCLP, &op.Amounts.BuyerVATCLP, &op.Amounts.BuyerFeeCLP, &op.Amounts.TotalChargedCLP, &op.Amounts.MarketplaceFeeCLP, &op.TestMode, &op.CheckoutMethod, &op.ProviderPaymentID, &requestID, &version, &bindingDigest)
+	return op, oldFingerprint, requestID, version, bindingDigest, err
+}
+
+func (a commercialContractAuthorization) matchesOperation(op checkoutpro.Operation, requestID string, version int64, bindingDigest []byte, now time.Time, requirePendingHold bool) bool {
+	if !a.Bound || a.RequestID != requestID || a.Version != version || !equalBytes(a.Digest, bindingDigest) {
+		return false
+	}
+	if (requirePendingHold || op.Status == "pending") && (!a.Active || a.OccupancyType != "retencion_comercial" || a.State != "ready_for_payment" || !a.CurrentLocation || !a.OccupancyExpiry.Equal(op.ExpiresAt) || !op.ExpiresAt.After(now)) {
+		return false
+	}
+	return true
+}
 func loadCommercialCheckoutQuote(ctx context.Context, db DB, renterID, quoteID string) (checkoutpro.Quote, error) {
 	var q checkoutpro.Quote
 	err := db.QueryRow(ctx, `SELECT id::text,espacio_id::text,propietario_id::text,arrendatario_id::text,titulo_espacio,tarifa_version,modalidad,moneda,precio_unitario_clp,unidades,subtotal_clp,inicio,termino,zona_horaria,vence_en FROM public.cotizacion_arriendo_comercial WHERE id=$1 AND arrendatario_id=$2`, quoteID, renterID).Scan(&q.ID, &q.SpaceID, &q.HostID, &q.RenterID, &q.Title, &q.RateVersion, &q.RateUnit, &q.Currency, &q.UnitPriceCLP, &q.Units, &q.SubtotalCLP, &q.StartAt, &q.EndAt, &q.TimeZone, &q.ExpiresAt)
@@ -95,19 +116,12 @@ func (r *Repository) beginContractCheckout(ctx context.Context, renterID, quoteI
 	if err != nil {
 		return q, checkoutpro.Operation{}, false, err
 	}
-	var op checkoutpro.Operation
-	var oldFingerprint, bindingDigest []byte
-	var requestID string
-	var version int64
-	err = tx.QueryRow(ctx, `SELECT id::text,cotizacion_id::text,estado,COALESCE(preference_id,''),COALESCE(init_point,''),vence_en,actualizada_en,fingerprint,base_clp,commission_clp,iva_clp,marketplace_fee_clp,test_mode,checkout_method,COALESCE(provider_payment_id,''),COALESCE(solicitud_comercial_id::text,''),COALESCE(contrato_version,0),contrato_sha256 FROM public.checkout_preferencia_comercial WHERE arrendatario_id=$1 AND cotizacion_id=$2 AND idempotency_key=$3 FOR UPDATE`, renterID, quoteID, key).Scan(&op.ID, &op.QuoteID, &op.Status, &op.PreferenceID, &op.InitPoint, &op.ExpiresAt, &op.UpdatedAt, &oldFingerprint, &op.Amounts.BaseCLP, &op.Amounts.CommissionCLP, &op.Amounts.VATCLP, &op.Amounts.MarketplaceFeeCLP, &op.TestMode, &op.CheckoutMethod, &op.ProviderPaymentID, &requestID, &version, &bindingDigest)
+	op, oldFingerprint, requestID, version, bindingDigest, err := scanCommercialContractOp(tx.QueryRow(ctx, commercialContractCheckoutSelectSQL+` WHERE arrendatario_id=$1 AND cotizacion_id=$2 AND idempotency_key=$3 FOR UPDATE`, renterID, quoteID, key))
 	if err == nil {
 		if !equalBytes(oldFingerprint, fingerprint) || op.CheckoutMethod != method || op.TestMode != testMode {
 			return q, checkoutpro.Operation{}, false, checkoutpro.ErrIdempotencyConflict
 		}
-		if !a.Bound || a.RequestID != requestID || a.Version != version || !equalBytes(a.Digest, bindingDigest) {
-			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
-		}
-		if op.Status == "pending" && (!a.Active || a.OccupancyType != "retencion_comercial" || a.State != "ready_for_payment" || !a.CurrentLocation || !a.OccupancyExpiry.Equal(op.ExpiresAt) || !op.ExpiresAt.After(now)) {
+		if !a.matchesOperation(op, requestID, version, bindingDigest, now, false) {
 			return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 		}
 		q.ExpiresAt = op.ExpiresAt
@@ -119,6 +133,22 @@ func (r *Repository) beginContractCheckout(ctx context.Context, renterID, quoteI
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return q, checkoutpro.Operation{}, false, err
 	}
+	if a.RequestID != "" {
+		op, _, requestID, version, bindingDigest, err = scanCommercialContractOp(tx.QueryRow(ctx, commercialContractCheckoutSelectSQL+` WHERE solicitud_comercial_id=$1 AND arrendatario_id=$2 AND cotizacion_id=$3 AND estado='pending' AND checkout_method=$4 AND test_mode=$5 AND vence_en>$6 ORDER BY creada_en DESC LIMIT 1 FOR UPDATE`, a.RequestID, renterID, quoteID, method, testMode, now))
+		if err == nil {
+			if !a.matchesOperation(op, requestID, version, bindingDigest, now, true) {
+				return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
+			}
+			q.ExpiresAt = op.ExpiresAt
+			if err = tx.Commit(ctx); err != nil {
+				return q, checkoutpro.Operation{}, false, err
+			}
+			return q, op, false, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return q, checkoutpro.Operation{}, false, err
+		}
+	}
 	if !a.canStart(now) {
 		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 	}
@@ -128,9 +158,9 @@ func (r *Repository) beginContractCheckout(ctx context.Context, renterID, quoteI
 		return q, checkoutpro.Operation{}, false, checkoutpro.ErrConflict
 	}
 	if method == "payments_api" {
-		amounts = checkoutpro.Amounts{BaseCLP: q.SubtotalCLP}
+		amounts = checkoutpro.Amounts{BaseCLP: q.SubtotalCLP, TotalChargedCLP: q.SubtotalCLP}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.checkout_preferencia_comercial(id,cotizacion_id,espacio_id,arrendatario_id,host_id,idempotency_key,fingerprint,estado,base_clp,commission_clp,iva_clp,marketplace_fee_clp,test_mode,vence_en,creada_en,actualizada_en,checkout_method,solicitud_comercial_id,contrato_version,contrato_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,$11,$12,$13,$14,$14,$15,$16,$17,$18)`, operationID, q.ID, q.SpaceID, renterID, q.HostID, key, fingerprint, amounts.BaseCLP, amounts.CommissionCLP, amounts.VATCLP, amounts.MarketplaceFeeCLP, testMode, a.ExpiresAt, now, method, a.RequestID, a.Version, a.Digest)
+	_, err = tx.Exec(ctx, `INSERT INTO public.checkout_preferencia_comercial(id,cotizacion_id,espacio_id,arrendatario_id,host_id,idempotency_key,fingerprint,estado,base_clp,commission_clp,iva_clp,buyer_commission_clp,buyer_iva_clp,buyer_fee_clp,total_charged_clp,marketplace_fee_clp,test_mode,vence_en,creada_en,actualizada_en,checkout_method,solicitud_comercial_id,contrato_version,contrato_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,'pending',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18,$19,$20,$21,$22)`, operationID, q.ID, q.SpaceID, renterID, q.HostID, key, fingerprint, amounts.BaseCLP, amounts.CommissionCLP, amounts.VATCLP, amounts.BuyerCommissionCLP, amounts.BuyerVATCLP, amounts.BuyerFeeCLP, amounts.TotalChargedCLP, amounts.MarketplaceFeeCLP, testMode, a.ExpiresAt, now, method, a.RequestID, a.Version, a.Digest)
 	if err != nil {
 		return q, checkoutpro.Operation{}, false, mapCommercialCheckoutConflict(err)
 	}

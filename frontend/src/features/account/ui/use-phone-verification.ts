@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type AccountPhoneStatus,
+  type PhoneChannel,
+  PhoneVerificationApiError,
   getAccountPhoneStatus,
   sendAccountPhoneCode,
   verifyAccountPhoneCode,
@@ -23,6 +25,7 @@ export function usePhoneVerification() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [retryAt, setRetryAt] = useState<string | null>(null);
 
   const activeResendTargetRef = useRef<string | null>(null);
 
@@ -40,7 +43,7 @@ export function usePhoneVerification() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status?.resend_available_at]);
+  }, [status?.resend_available_at, retryAt]);
 
   const updateResendTarget = useCallback((targetIso?: string | null) => {
     activeResendTargetRef.current = targetIso ?? null;
@@ -51,11 +54,10 @@ export function usePhoneVerification() {
     async (signal?: AbortSignal) => {
       try {
         setIsLoading(true);
+        setError(null);
         const data = await getAccountPhoneStatus(signal);
         setStatus(data);
-        if (data.resend_available_at) {
-          updateResendTarget(data.resend_available_at);
-        }
+        updateResendTarget(data.resend_available_at);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
@@ -106,18 +108,19 @@ export function usePhoneVerification() {
   }, []);
 
   const sendCode = useCallback(
-    async (phone: string): Promise<boolean> => {
+    async (phone: string, channel: PhoneChannel): Promise<boolean> => {
       try {
         setIsSending(true);
         setError(null);
         setSuccess(null);
-        const result = await sendAccountPhoneCode(phone);
+        const result = await sendAccountPhoneCode(phone, undefined, channel);
         updateResendTarget(result.resend_available_at);
         setStatus((prev) => ({
+          available_channels: prev?.available_channels ?? [],
           configured: true,
           verified: false,
           masked_phone: result.masked_phone,
-          verified_at: prev?.verified_at ?? null,
+          verified_at: null,
           pending_verification: true,
           resend_available_at: result.resend_available_at,
         }));
@@ -127,6 +130,13 @@ export function usePhoneVerification() {
         if (err instanceof DOMException && err.name === "AbortError")
           return false;
         if (err instanceof Error && err.name === "AbortError") return false;
+        if (err instanceof PhoneVerificationApiError && err.retryAfterSeconds) {
+          const target = new Date(
+            Date.now() + err.retryAfterSeconds * 1000,
+          ).toISOString();
+          setRetryAt(target);
+          updateResendTarget(target);
+        }
         setError(
           err instanceof Error
             ? err.message
@@ -147,14 +157,15 @@ export function usePhoneVerification() {
         setError(null);
         setSuccess(null);
         const result = await verifyAccountPhoneCode(code);
-        setStatus({
+        setStatus((prev) => ({
+          available_channels: prev?.available_channels ?? [],
           configured: true,
           verified: result.verified,
           masked_phone: result.masked_phone,
           verified_at: result.verified_at,
           pending_verification: false,
           resend_available_at: null,
-        });
+        }));
         updateResendTarget(null);
         setSuccess("Teléfono verificado con éxito.");
         return true;

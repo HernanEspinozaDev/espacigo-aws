@@ -54,7 +54,7 @@ await writeFile(
 );
 await writeFile(
   path.join(temporary, "query.mjs"),
-  'export { serializeCatalogQuery } from "./query-state.mjs";',
+  'export { serializeCatalogApiQuery } from "./query-state.mjs";',
 );
 const verification = await readFile(
   new URL(

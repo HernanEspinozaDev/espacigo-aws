@@ -91,7 +91,7 @@ test("SaaS Starter pages are present; auth uses its API facade and pricing stays
   const legacyLogin = await read("src/app/(auth)/login/page.tsx");
   const pricing = await read("src/app/(workspace)/pricing/page.tsx");
   assert.match(login, /useAuth/);
-  assert.match(login, /await login\(\{ email, password \}\)/);
+  assert.match(login, /await login\(\{\s*email,\s*password,/);
   assert.doesNotMatch(login, /\bfetch\s*\(/);
   assert.match(canonicalAccess, /<AccessScreen\s*\/>/);
   assert.match(legacyLogin, /<AccessScreen\s*\/>/);

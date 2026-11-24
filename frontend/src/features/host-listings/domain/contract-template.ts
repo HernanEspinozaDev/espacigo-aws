@@ -17,19 +17,19 @@ export interface ContractTemplateSource {
 
 export const contractTemplateExamples: ContractSection[] = [
   {
-    key: "uso",
-    title: "Uso permitido",
-    body: "El espacio se usará únicamente para la actividad acordada, respetando su capacidad máxima.",
+    key: "uso_destino",
+    title: "Uso permitido y prohibición de subarriendo",
+    body: "El arrendatario destinará el espacio exclusivamente a la actividad acordada dentro de su capacidad máxima, quedando prohibido subarrendar, ceder o destinar el inmueble a fines ilícitos o distintos a los pactados sin autorización escrita del arrendador.",
   },
   {
-    key: "cuidado",
-    title: "Cuidado y devolución",
-    body: "El espacio y su equipamiento deberán devolverse limpios y en las mismas condiciones de recepción.",
+    key: "cuidado_restitucion",
+    title: "Estado de entrega, cuidado y restitución",
+    body: "El arrendatario recibe el espacio y su equipamiento en buen estado de conservación y aseo, obligándose a restituirlo al término del horario contratado en las mismas condiciones, salvo el desgaste natural por uso legítimo, respondiendo por cualquier daño o deterioro imputable.",
   },
   {
-    key: "convivencia",
-    title: "Convivencia",
-    body: "Se deberán respetar los horarios acordados, las normas de ruido y los espacios compartidos.",
+    key: "convivencia_normas",
+    title: "Horarios, convivencia y seguridad",
+    body: "El arrendatario deberá respetar estrictamente el horario de inicio y término pactado, las normas de ruido, seguridad, aforo del recinto o edificio y el cuidado de los espacios comunes.",
   },
 ];
 

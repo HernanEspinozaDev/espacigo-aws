@@ -1,7 +1,8 @@
 import type {
-  AuthorizationActivation,
+  ActivateCommercialAuthorizationInput,
   CommercialAuthorization,
   CommercialAuthorizationEvent,
+  CommercialAuthorizationOTPChallenge,
 } from "../domain/commercial-authorization";
 
 export interface CommercialAuthorizationPort {
@@ -13,9 +14,13 @@ export interface CommercialAuthorizationPort {
     spaceId: string,
     signal?: AbortSignal,
   ): Promise<CommercialAuthorizationEvent[]>;
+  requestOtpChallenge(
+    spaceId: string,
+    templateVersion: number,
+  ): Promise<CommercialAuthorizationOTPChallenge>;
   activate(
     spaceId: string,
-    input: AuthorizationActivation,
+    input: ActivateCommercialAuthorizationInput,
   ): Promise<CommercialAuthorization>;
   revoke(
     spaceId: string,

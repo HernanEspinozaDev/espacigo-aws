@@ -55,6 +55,25 @@ func RedactedContractParties(actorID string, owner, renter ContractIdentity) []C
 	return parties
 }
 
+// RevealedContractParties returns both parties' full legal names and RUTs once payment is verified.
+func RevealedContractParties(actorID string, owner, renter ContractIdentity) []ContractParty {
+	parties := []ContractParty{
+		{
+			Role:      "arrendador",
+			Self:      canonicalUUID(actorID) == canonicalUUID(owner.SubjectID),
+			LegalName: owner.LegalName,
+			RUT:       owner.RUT,
+		},
+		{
+			Role:      "arrendatario",
+			Self:      canonicalUUID(actorID) == canonicalUUID(renter.SubjectID),
+			LegalName: renter.LegalName,
+			RUT:       renter.RUT,
+		},
+	}
+	return parties
+}
+
 type ContractPreview struct {
 	State         string          `json:"state"`
 	QuoteID       string          `json:"quote_id"`

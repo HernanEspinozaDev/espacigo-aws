@@ -19,6 +19,7 @@ export interface AgreementsPort {
     proposal: ContractProposal,
     idempotencyKey: string,
     signal?: AbortSignal,
+    otp?: { challengeId: string; code: string },
   ): Promise<AgreementRead>;
   withdraw(read: AgreementRead, signal?: AbortSignal): Promise<AgreementRead>;
 }

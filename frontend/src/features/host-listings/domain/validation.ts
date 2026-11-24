@@ -132,10 +132,12 @@ export function validateListingDraftInput(
     errors.rate_unit = "La unidad de cobro debe ser 'hora', 'dia' o 'mes'.";
   }
 
-  if (!input.address || input.address.trim().length === 0) {
-    errors.address = "La dirección es obligatoria.";
-  } else if (Array.from(input.address).length > 500) {
-    errors.address = "La dirección no puede superar los 500 caracteres.";
+  if (input.address !== undefined) {
+    if (!input.address || input.address.trim().length === 0) {
+      errors.address = "La dirección es obligatoria.";
+    } else if (Array.from(input.address).length > 500) {
+      errors.address = "La dirección no puede superar los 500 caracteres.";
+    }
   }
   if (!input.usage_rules || input.usage_rules.trim().length === 0) {
     errors.usage_rules = "Las reglas de uso son obligatorias.";

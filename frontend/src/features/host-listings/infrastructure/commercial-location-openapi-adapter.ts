@@ -28,6 +28,8 @@ export class CommercialLocationOpenApiAdapter implements LocationPort {
     signal?: AbortSignal,
   ): Promise<LocationRead> {
     if (!strongEtag(etag)) throw new ApiProtocolError();
+    if (input.latitude === null || input.longitude === null)
+      throw new ApiProtocolError();
     const result = await apiClient.PUT("/spaces/{spaceId}/location", {
       params: { path: { spaceId }, header: { "If-Match": etag } },
       body: {
@@ -37,6 +39,10 @@ export class CommercialLocationOpenApiAdapter implements LocationPort {
         latitude: input.latitude,
         longitude: input.longitude,
         public_confirmed: input.public_confirmed,
+        ...(input.source ? { source: input.source } : {}),
+        ...(input.source === "geocoded" && input.precision
+          ? { precision: input.precision }
+          : {}),
       },
       bodySerializer: serializeExactJson,
       signal,

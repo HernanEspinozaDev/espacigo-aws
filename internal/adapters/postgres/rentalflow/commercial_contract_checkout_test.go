@@ -16,13 +16,14 @@ type contractCheckoutTx struct {
 	staleAuthorization *commercialContractAuthorization
 	selectedRequestID  string
 	pgx.Tx
-	quote       checkoutpro.Quote
-	auth        commercialContractAuthorization
-	prior       *checkoutpro.Operation
-	fingerprint []byte
-	opBinding   bool
-	commits     int
-	mutations   []string
+	quote         checkoutpro.Quote
+	auth          commercialContractAuthorization
+	prior         *checkoutpro.Operation
+	activePending *checkoutpro.Operation
+	fingerprint   []byte
+	opBinding     bool
+	commits       int
+	mutations     []string
 }
 
 func (f *contractCheckoutTx) Begin(context.Context) (pgx.Tx, error) { return f, nil }
@@ -60,11 +61,14 @@ func (f *contractCheckoutTx) QueryRow(_ context.Context, q string, args ...any) 
 		}
 		return &mockRow{vals: []any{a.RequestID, a.State, a.Version, a.Digest, a.ExpiresAt, a.OccupancyID, a.OccupancyType, a.Active, a.OccupancyExpiry, a.Bound, a.CurrentLocation}}
 	case strings.HasPrefix(q, "SELECT id::text,cotizacion_id::text,estado,"):
-		if f.prior == nil {
+		o := f.prior
+		if strings.Contains(q, "WHERE solicitud_comercial_id=") {
+			o = f.activePending
+		}
+		if o == nil {
 			return &mockRow{err: pgx.ErrNoRows}
 		}
-		o := f.prior
-		return &mockRow{vals: []any{o.ID, o.QuoteID, o.Status, o.PreferenceID, o.InitPoint, o.ExpiresAt, o.UpdatedAt, f.fingerprint, o.Amounts.BaseCLP, o.Amounts.CommissionCLP, o.Amounts.VATCLP, o.Amounts.MarketplaceFeeCLP, o.TestMode, o.CheckoutMethod, o.ProviderPaymentID, f.auth.RequestID, f.auth.Version, f.auth.Digest}}
+		return &mockRow{vals: []any{o.ID, o.QuoteID, o.Status, o.PreferenceID, o.InitPoint, o.ExpiresAt, o.UpdatedAt, f.fingerprint, o.Amounts.BaseCLP, o.Amounts.CommissionCLP, o.Amounts.VATCLP, o.Amounts.BuyerCommissionCLP, o.Amounts.BuyerVATCLP, o.Amounts.BuyerFeeCLP, o.Amounts.TotalChargedCLP, o.Amounts.MarketplaceFeeCLP, o.TestMode, o.CheckoutMethod, o.ProviderPaymentID, f.auth.RequestID, f.auth.Version, f.auth.Digest}}
 	case strings.HasPrefix(q, "SELECT c.cotizacion_id::text,EXISTS"):
 		return &mockRow{vals: []any{f.quote.ID, f.auth.RequestID, f.opBinding}}
 	case strings.HasPrefix(q, "SELECT solicitud_comercial_id="):
@@ -182,5 +186,36 @@ func TestContractReplayLoadsItsExactRequestInsteadOfHistoricalQuoteRequest(t *te
 	_, op, created, err := r.BeginPayment(context.Background(), tx.quote.RenterID, tx.quote.ID, "key", "90000000-0000-4000-8000-000000000009", make([]byte, 32), now)
 	if err != nil || created || op.ID != tx.prior.ID || tx.selectedRequestID != tx.auth.RequestID {
 		t.Fatalf("historical request confused replay: request=%s created=%v err=%v", tx.selectedRequestID, created, err)
+	}
+}
+
+func TestContractCheckoutReusesActivePendingOperationOnNewIdempotencyKey(t *testing.T) {
+	now := time.Date(2030, 1, 2, 9, 0, 0, 0, time.UTC)
+	tx := contractCheckoutFixture(now)
+	tx.auth.OccupancyType = "retencion_comercial"
+	tx.fingerprint = make([]byte, 32)
+	tx.activePending = &checkoutpro.Operation{ID: "80000000-0000-4000-8000-000000000008", QuoteID: tx.quote.ID, Status: "pending", CheckoutMethod: "payments_api", TestMode: true, ExpiresAt: tx.auth.ExpiresAt}
+	r, _ := NewRepository(tx, tx, func() time.Time { return now })
+	r.RequireCommercialContracts(true)
+	q, op, created, err := r.BeginPayment(context.Background(), tx.quote.RenterID, tx.quote.ID, "new-key", "90000000-0000-4000-8000-000000000009", []byte("different-fingerprint-0000000000"), now)
+	if err != nil || created || op.ID != tx.activePending.ID || !q.ExpiresAt.Equal(tx.activePending.ExpiresAt) || tx.commits != 1 {
+		t.Fatalf("expected active pending reuse, got created=%v q=%+v op=%+v commits=%d err=%v", created, q, op, tx.commits, err)
+	}
+	for _, query := range tx.mutations {
+		if strings.HasPrefix(query, "INSERT") || strings.HasPrefix(query, "UPDATE") {
+			t.Fatal("active pending reuse mutated payment")
+		}
+	}
+
+	invalidTx := contractCheckoutFixture(now)
+	invalidTx.auth.OccupancyType = "retencion_comercial"
+	invalidTx.auth.State = "expired"
+	invalidTx.fingerprint = make([]byte, 32)
+	invalidTx.activePending = &checkoutpro.Operation{ID: "80000000-0000-4000-8000-000000000008", QuoteID: invalidTx.quote.ID, Status: "pending", CheckoutMethod: "payments_api", TestMode: true, ExpiresAt: invalidTx.auth.ExpiresAt}
+	rInvalid, _ := NewRepository(invalidTx, invalidTx, func() time.Time { return now })
+	rInvalid.RequireCommercialContracts(true)
+	_, _, created, err = rInvalid.BeginPayment(context.Background(), invalidTx.quote.RenterID, invalidTx.quote.ID, "new-key", "90000000-0000-4000-8000-000000000009", make([]byte, 32), now)
+	if !errors.Is(err, checkoutpro.ErrConflict) || created || invalidTx.commits != 0 {
+		t.Fatalf("expected conflict for invalid hold, got created=%v commits=%d err=%v", created, invalidTx.commits, err)
 	}
 }

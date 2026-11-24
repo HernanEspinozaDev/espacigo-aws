@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const commercialLocationColumns = `id::text,direccion,COALESCE(region_codigo,''),COALESCE(comuna_codigo,''),ubicacion_latitud,ubicacion_longitud,ubicacion_confirmada_en,ubicacion_revision,actualizado_en`
+const commercialLocationColumns = `id::text,direccion,COALESCE(region_codigo,''),COALESCE(comuna_codigo,''),ubicacion_latitud,ubicacion_longitud,COALESCE(ubicacion_pin_origen,''),COALESCE(ubicacion_pin_precision,''),COALESCE(ubicacion_visibilidad,'exact'),ubicacion_confirmada_en,ubicacion_revision,actualizado_en`
 
 // The caller holds the space lock and has already rejected enabled synthetic
 // fixtures. Previously published spaces retain their commercial visibility.
@@ -33,7 +33,7 @@ func requireConfirmedLocationForFirstPublication(ctx context.Context, tx pgx.Tx,
 
 func scanCommercialLocation(row pgx.Row) (spaces.CommercialLocation, error) {
 	var item spaces.CommercialLocation
-	err := row.Scan(&item.SpaceID, &item.Address, &item.RegionCode, &item.CommuneCode, &item.Latitude, &item.Longitude, &item.ConfirmedAt, &item.Revision, &item.UpdatedAt)
+	err := row.Scan(&item.SpaceID, &item.Address, &item.RegionCode, &item.CommuneCode, &item.Latitude, &item.Longitude, &item.Source, &item.Precision, &item.LocationVisibility, &item.ConfirmedAt, &item.Revision, &item.UpdatedAt)
 	item.PublicConfirmed = item.ConfirmedAt != nil
 	return item, mapError(err)
 }
@@ -69,6 +69,20 @@ func (r *Repository) SetOwnLocation(ctx context.Context, owner, id string, expec
  region_codigo=NULLIF($4,''),comuna_codigo=NULLIF($5,''),ubicacion_latitud=$6,ubicacion_longitud=$7,
  ubicacion_confirmada_en=CASE WHEN $8 THEN GREATEST(clock_timestamp(),COALESCE(ubicacion_confirmada_en,'-infinity'::timestamptz)+interval '1 microsecond') ELSE NULL END
  WHERE propietario_id=$1 AND id=$2`, owner, id, in.Address, in.RegionCode, in.CommuneCode, in.Latitude, in.Longitude, in.PublicConfirmed)
+	if err != nil {
+		return spaces.CommercialLocation{}, mapError(err)
+	}
+	visibility := "exact"
+	var publicLat, publicLng *float64
+	if in.LocationVisibility == "approximate" && in.Latitude != nil && in.Longitude != nil {
+		visibility = "approximate"
+		plat, plng := spaces.DeterministicApproximatePoint(id, *in.Latitude, *in.Longitude)
+		publicLat = &plat
+		publicLng = &plng
+	}
+	// The first update lets the location guard invalidate old provenance. A
+	// metadata-only update then records the source of this exact submitted pin.
+	_, err = tx.Exec(ctx, `UPDATE public.espacio SET ubicacion_pin_origen=NULLIF($2,''),ubicacion_pin_precision=NULLIF($3,''),ubicacion_visibilidad=$4,ubicacion_publica_latitud=$5,ubicacion_publica_longitud=$6 WHERE id=$1`, id, in.Source, in.Precision, visibility, publicLat, publicLng)
 	if err != nil {
 		return spaces.CommercialLocation{}, mapError(err)
 	}

@@ -5,4 +5,8 @@ export const commercialLocationService = new CommercialLocationService(
   new CommercialLocationOpenApiAdapter(),
 );
 
-export { searchConfiguredAddress as searchCommercialAddress } from "./infrastructure/commercial-geocoder";
+export {
+  getCommercialCommuneViewport,
+  reverseGeocodeCommercialPin,
+  searchCommercialAddress,
+} from "./infrastructure/commercial-geocoder";

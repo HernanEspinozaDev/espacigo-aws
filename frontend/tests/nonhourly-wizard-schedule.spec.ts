@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import { expect, test } from "@playwright/test";
 import { createBffFixtureState } from "./helpers/bff-fixture";
 import categoryProfiles from "./fixtures/category-profiles-v1.json";
@@ -10,7 +11,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
   }) => {
     const bff = createBffFixtureState();
     const createBodies: Record<string, unknown>[] = [];
-    let locationBody: Record<string, unknown> | null = null;
+    let locationWrites = 0;
     let availabilityBody: Record<string, unknown> | null = null;
     const weeklyRequests: string[] = [];
     const profile = categoryProfiles.profiles.inmuebles;
@@ -78,6 +79,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
             category_name: "Inmuebles",
             state: "borrador",
             ...createBodies.at(-1),
+            ...(createBodies.at(-1)?.location as Record<string, unknown>),
           },
         };
       } else if (
@@ -85,17 +87,10 @@ for (const rateUnit of ["dia", "mes"] as const) {
           "/api/backend/spaces/00000000-0000-4000-8000-000000000121/location" &&
         request.method() === "PUT"
       ) {
-        locationBody = JSON.parse(request.postData() ?? "{}") as Record<
-          string,
-          unknown
-        >;
+        locationWrites++;
         result = {
-          status: 200,
-          headers: { etag: '"wizard-location-v2"' },
-          body: {
-            space_id: "00000000-0000-4000-8000-000000000121",
-            ...locationBody,
-          },
+          status: 500,
+          body: { error: { code: "unexpected_location_write" } },
         };
       } else if (
         path ===
@@ -175,8 +170,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
           : "Descripción sintética suficientemente extensa para completar la creación del inmueble, con información clara sobre su uso y características principales.",
       );
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-    await page.locator("#wizard-region").selectOption("13");
-    await page.locator("#wizard-comuna").selectOption("13101");
+    await chooseWizardLocation(page, "13101", true);
     await page.locator("#wizard-address").fill("Av. de prueba 100, Santiago");
     await page.getByRole("button", { name: "Siguiente" }).click();
     await page.locator("#wizard-area").fill("40");
@@ -225,9 +219,9 @@ for (const rateUnit of ["dia", "mes"] as const) {
       category_code: "inmuebles",
       rate_unit: rateUnit,
       base_price_clp: 5001,
-      comuna_code: "13101",
     });
-    expect(locationBody).toMatchObject({
+    expect(locationWrites).toBe(0);
+    expect(createBody.location).toMatchObject({
       address: "Av. de prueba 100, Santiago",
       region_code: "13",
       comuna_code: "13101",

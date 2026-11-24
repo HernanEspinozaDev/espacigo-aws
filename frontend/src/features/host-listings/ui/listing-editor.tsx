@@ -30,6 +30,9 @@ import {
   Loader2,
   History,
   ExternalLink,
+  ListChecks,
+  ShieldCheck,
+  CreditCard,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -50,6 +53,12 @@ import {
   formatAttributeValue,
 } from "../domain/attribute-formatting";
 import { listingErrorMessage } from "../domain/listing-error-message";
+import {
+  isPublishGateReasonCode,
+  mercadoPagoReturnHref,
+  type PublishGateReasonCode,
+  verificationReturnHref,
+} from "../domain/publish-guide";
 import { timeZoneOptionsForCurrentValue } from "../domain/chile-time-zones";
 import { localDateTimeToUtcISOString } from "../domain/local-date-time";
 import { useHostListings } from "./use-host-listings";
@@ -79,10 +88,16 @@ import { CommercialLocationEditor } from "./commercial-location-editor";
 import { ContractTemplateEditor } from "./contract-template-editor";
 import { CommercialAuthorizationPanel } from "./commercial-authorization-panel";
 import { HostAvailabilityCalendar } from "./host-availability-calendar";
+import {
+  PublishGuideModal,
+  usePublishPrerequisites,
+} from "./publish-guide-modal";
 
 interface ListingEditorProps {
   readonly listingId: string;
   readonly startWithPhotos?: boolean;
+  readonly startWithLocation?: boolean;
+  readonly startWithContract?: boolean;
 }
 
 type TabKey =
@@ -207,6 +222,8 @@ function mapDraftServerFieldErrors(
 export function ListingEditor({
   listingId,
   startWithPhotos = false,
+  startWithLocation = false,
+  startWithContract = false,
 }: ListingEditorProps) {
   const router = useRouter();
   const { accessToken, snapshot: authSnapshot } = useAuth();
@@ -236,11 +253,31 @@ export function ListingEditor({
     deleteListing,
   } = useHostListings();
 
-  const [activeTab, setActiveTab] = useState<TabKey>(
-    startWithPhotos ? "photos" : "info",
+  const initialTab: TabKey = startWithContract
+    ? "contract"
+    : startWithLocation
+      ? "location"
+      : startWithPhotos
+        ? "photos"
+        : "info";
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [locationReview, setLocationReview] = useState(startWithLocation);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideReason, setGuideReason] = useState<PublishGateReasonCode | null>(
+    null,
   );
+  const isHost =
+    authSnapshot.status === "authenticated" &&
+    authSnapshot.roles.includes("arrendador");
+  const prerequisites = usePublishPrerequisites({
+    accessToken:
+      authSnapshot.status === "authenticated" ? accessToken : null,
+    isHost,
+    spaceId: listingId,
+    enabled: authSnapshot.status === "authenticated" && Boolean(accessToken),
+  });
   const [openedTabs, setOpenedTabs] = useState<ReadonlySet<TabKey>>(
-    () => new Set([startWithPhotos ? "photos" : "info"]),
+    () => new Set([initialTab]),
   );
   function openTab(tab: TabKey) {
     setActiveTab(tab);
@@ -286,8 +323,6 @@ export function ListingEditor({
   const [capacity, setCapacity] = useState(1);
   const [areaM2, setAreaM2] = useState(10);
   const [address, setAddress] = useState("");
-  const [comunaCode, setComunaCode] = useState("");
-  const [regionCode, setRegionCode] = useState("13");
   const [usageRules, setUsageRules] = useState("");
   const [policyVersion, setPolicyVersion] =
     useState<CancellationPolicyVersion>();
@@ -422,8 +457,6 @@ export function ListingEditor({
           setCapacity(detail.capacity);
           setAreaM2(detail.area_m2);
           setAddress(detail.address);
-          setComunaCode(detail.comuna_code ?? "");
-          setRegionCode(detail.region_code ?? "13");
           setUsageRules(detail.usage_rules);
           setPolicyVersion(detail.cancellation_policy_version);
           setRateUnit(detail.rate_unit);
@@ -581,9 +614,6 @@ export function ListingEditor({
               usage_rules: currentListing.usage_rules,
               rate_unit: rateUnit,
               base_price_clp: Number(basePrice),
-              address: address.trim(),
-              region_code: regionCode || undefined,
-              comuna_code: comunaCode.trim() || undefined,
               attribute_schema_version: currentListing.attribute_schema_version,
               attributes,
             },
@@ -605,8 +635,6 @@ export function ListingEditor({
               capacity: Number(capacity),
               usage_rules: currentListing.usage_rules,
               base_price_clp: Number(basePrice),
-              region_code: regionCode || undefined,
-              comuna_code: comunaCode.trim() || undefined,
             },
             ifMatch,
           );
@@ -741,9 +769,6 @@ export function ListingEditor({
               capacity: currentListing.capacity,
               rate_unit: currentListing.rate_unit,
               base_price_clp: currentListing.base_price_clp,
-              address: currentListing.address,
-              region_code: currentListing.region_code,
-              comuna_code: currentListing.comuna_code,
               attribute_schema_version: currentListing.attribute_schema_version,
               attributes: { ...currentListing.attributes },
               ...policyAndRules,
@@ -956,7 +981,27 @@ export function ListingEditor({
       setFeedbackError(
         `Requisitos pendientes: ${pubCheck.reasons.join(" · ")}`,
       );
+      setGuideReason(null);
+      setGuideOpen(true);
       return;
+    }
+
+    if (prerequisites.loaded && !prerequisites.error) {
+      if (!prerequisites.kycVerified) {
+        setGuideReason("identity_verification_required");
+        setGuideOpen(true);
+        return;
+      }
+      if (!prerequisites.mpConnected) {
+        setGuideReason("mercadopago_connection_required");
+        setGuideOpen(true);
+        return;
+      }
+      if (prerequisites.contractPublishedVersion < 1) {
+        setGuideReason("contract_template_required");
+        setGuideOpen(true);
+        return;
+      }
     }
 
     startTransition(async () => {
@@ -966,6 +1011,11 @@ export function ListingEditor({
           "¡El espacio ha sido publicado exitosamente y está activo en el catálogo!",
         );
       } catch (err) {
+        if (err instanceof ApiError && isPublishGateReasonCode(err.code)) {
+          setGuideReason(err.code);
+          setGuideOpen(true);
+          prerequisites.reload();
+        }
         setFeedbackError(listingErrorMessage(err));
       }
     });
@@ -1034,6 +1084,29 @@ export function ListingEditor({
   }
 
   const publishCheck = canPublishListing(currentListing);
+  const prerequisitesKnown = prerequisites.loaded && !prerequisites.error;
+  const gatesReady =
+    !prerequisitesKnown ||
+    (prerequisites.kycVerified &&
+      prerequisites.mpConnected &&
+      prerequisites.contractPublishedVersion >= 1);
+  const canPublishNow =
+    publishCheck.eligible &&
+    gatesReady &&
+    !(prerequisites.loading && !prerequisites.loaded);
+  const editorReturnPath = `/anfitrion/espacios/${listingId}/editar`;
+  const missingPublishReasons: string[] = [
+    ...(prerequisitesKnown && !prerequisites.kycVerified
+      ? ["Confirma tu identidad (KYC) antes de publicar."]
+      : []),
+    ...(prerequisitesKnown && !prerequisites.mpConnected
+      ? ["Sincroniza tu cuenta de Mercado Pago."]
+      : []),
+    ...publishCheck.reasons,
+    ...(prerequisitesKnown && prerequisites.contractPublishedVersion < 1
+      ? ["Configura y publica al menos una versión de la plantilla de contrato."]
+      : []),
+  ];
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto pb-12">
@@ -1089,6 +1162,20 @@ export function ListingEditor({
 
         {/* Acciones Globales */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setGuideReason(null);
+              setGuideOpen(true);
+              prerequisites.reload();
+            }}
+            className="gap-1.5"
+          >
+            <ListChecks className="size-4 text-primary" aria-hidden="true" />
+            Guía para publicar
+          </Button>
           {currentListing.state === "borrador" && (
             <>
               <Button
@@ -1098,14 +1185,14 @@ export function ListingEditor({
                   galleryBusy ||
                   returnsUncertainBusy ||
                   isPending ||
-                  !publishCheck.eligible
+                  !canPublishNow
                 }
                 onClick={handleGlobalPublish}
                 className="gap-1.5 font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                 title={
-                  publishCheck.eligible
+                  canPublishNow
                     ? "Publicar espacio"
-                    : publishCheck.reasons.join(", ")
+                    : missingPublishReasons.join(" · ")
                 }
               >
                 <Send className="size-4" aria-hidden="true" />
@@ -1154,10 +1241,15 @@ export function ListingEditor({
                 returnsUncertainBusy ||
                 isPending ||
                 returnsBusy ||
-                !publishCheck.eligible
+                !canPublishNow
               }
               onClick={handleGlobalPublish}
               className="gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white"
+              title={
+                canPublishNow
+                  ? "Republicar espacio"
+                  : missingPublishReasons.join(" · ")
+              }
             >
               <Send className="size-4" aria-hidden="true" />
               Republicar
@@ -1166,23 +1258,99 @@ export function ListingEditor({
         </div>
       </div>
 
-      {/* Requisitos para publicar si está en borrador */}
-      {currentListing.state === "borrador" && !publishCheck.eligible && (
-        <div
-          role="alert"
-          className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 space-y-1.5"
-        >
-          <div className="font-semibold flex items-center gap-2">
-            <AlertCircle className="size-4 text-amber-700" aria-hidden="true" />
-            Requisitos pendientes para poder publicar tu espacio:
+      <PublishGuideModal
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
+        mode="editor"
+        isHost={isHost}
+        prerequisites={prerequisites}
+        onRefresh={prerequisites.reload}
+        returnPath={editorReturnPath}
+        spaceId={listingId}
+        listing={currentListing}
+        triggerReason={guideReason}
+        onOpenContractTab={() => openTab("contract")}
+        onFixDraft={() => openTab("info")}
+      />
+
+      {/* Requisitos para publicar si está en borrador u oculto */}
+      {(currentListing.state === "borrador" ||
+        currentListing.state === "oculta") &&
+        missingPublishReasons.length > 0 && (
+          <div
+            role="alert"
+            className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold flex items-center gap-2 text-sm">
+                <AlertCircle
+                  className="size-4 text-amber-700 shrink-0"
+                  aria-hidden="true"
+                />
+                Requisitos pendientes para poder publicar tu espacio:
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 bg-white border-amber-400 text-amber-950 hover:bg-amber-100 text-xs"
+                onClick={() => {
+                  setGuideReason(null);
+                  setGuideOpen(true);
+                }}
+              >
+                Ver guía paso a paso
+              </Button>
+            </div>
+            <ul className="list-disc list-inside space-y-0.5 text-amber-800 pl-2">
+              {missingPublishReasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+            {prerequisitesKnown && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {!prerequisites.kycVerified && (
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-8 bg-white border-amber-300 text-amber-950 gap-1.5"
+                  >
+                    <Link href={verificationReturnHref(editorReturnPath)}>
+                      <ShieldCheck className="size-3.5" aria-hidden="true" />
+                      Confirmar identidad (KYC)
+                    </Link>
+                  </Button>
+                )}
+                {!prerequisites.mpConnected && (
+                  <Button
+                    asChild
+                    size="sm"
+                    variant="outline"
+                    className="h-8 bg-white border-amber-300 text-amber-950 gap-1.5"
+                  >
+                    <Link href={mercadoPagoReturnHref(editorReturnPath)}>
+                      <CreditCard className="size-3.5" aria-hidden="true" />
+                      Sincronizar Mercado Pago
+                    </Link>
+                  </Button>
+                )}
+                {prerequisites.contractPublishedVersion < 1 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-8 gap-1.5"
+                    onClick={() => openTab("contract")}
+                  >
+                    <FileText className="size-3.5" aria-hidden="true" />
+                    Configurar y publicar contrato
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
-          <ul className="list-disc list-inside space-y-0.5 text-amber-800 pl-2">
-            {publishCheck.reasons.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
 
       {/* Mensajes de Éxito / Error */}
       {feedbackSuccess && (
@@ -1816,18 +1984,26 @@ export function ListingEditor({
         aria-labelledby="tab-location"
         hidden={activeTab !== "location"}
       >
+        {locationReview && (
+          <p
+            role="status"
+            className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950"
+          >
+            Guardamos el borrador. Revisa la comuna y la posición del pin antes
+            de confirmar la ubicación pública.
+          </p>
+        )}
         {openedTabs.has("location") && (
           <CommercialLocationEditor
             key={`${authSnapshot.accountId}:${listingId}`}
             spaceId={listingId}
             onSaved={() => {
+              setLocationReview(false);
               if (accessToken)
                 void selectListing(accessToken, listingId)
                   .then((detail) => {
                     if (detail) {
                       setAddress(detail.address);
-                      setRegionCode(detail.region_code ?? "");
-                      setComunaCode(detail.comuna_code ?? "");
                     }
                   })
                   .catch(() =>
@@ -2490,6 +2666,21 @@ export function ListingEditor({
             <ContractTemplateEditor
               spaceId={listingId}
               sessionScope={sessionScope}
+              onPublishedVersionChange={
+                prerequisites.setContractPublishedVersion
+              }
+              spacePreview={{
+                spaceTitle: title.trim() || "Espacio sin título",
+                address: address.trim() || "Dirección pendiente de confirmar",
+                cancellationPolicyText:
+                  cancellationPolicies.find((p) => p.version === policyVersion)
+                    ?.summary ?? "",
+                rateUnit,
+                basePriceClp:
+                  Number.isFinite(basePrice) && basePrice > 0
+                    ? basePrice
+                    : null,
+              }}
             />
             <CommercialAuthorizationPanel spaceId={listingId} />
           </section>

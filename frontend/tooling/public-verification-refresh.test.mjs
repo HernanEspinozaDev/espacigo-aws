@@ -81,7 +81,7 @@ await compile(
 );
 await writeFile(
   path.join(temporary, "query.mjs"),
-  'export { serializeCatalogQuery } from "./query-state.mjs";',
+  'export { serializeCatalogApiQuery } from "./query-state.mjs";',
 );
 await compile(
   "src/features/public-catalog/domain/verification.ts",
@@ -688,12 +688,41 @@ test("map facade exhausts its own pages and preserves filters independently of g
   });
   assert.equal(result.ok, true);
   assert.deepEqual(
-    result.value.map((item) => item.space_id),
+    result.value.items.map((item) => item.space_id),
     ["first", "second"],
   );
+  assert.equal(result.value.truncated, false);
   assert.equal(calls[0].cursor, undefined);
   assert.equal(calls[1].cursor, "map-next");
   assert.equal(calls[1].bbox, "-71,-34,-70,-33");
+});
+
+test("map facade stops loading at the marker cap and signals truncation", async () => {
+  const { createPublicCatalogService } = await compile(
+    "src/features/public-catalog/application/catalog-service.ts",
+    "catalog-service.mjs",
+    [["../domain/query-state", "./query-state.mjs"]],
+  );
+  let pages = 0;
+  const service = createPublicCatalogService({
+    async listMapMarkers() {
+      pages++;
+      return {
+        ok: true,
+        value: {
+          items: Array.from({ length: 48 }, (_, index) => ({
+            space_id: `${pages}-${index}`,
+          })),
+          next_cursor: String(pages),
+        },
+      };
+    },
+  });
+  const result = await service.mapMarkers({ attribute: [] });
+  assert.equal(result.ok, true);
+  assert.equal(pages, 10);
+  assert.equal(result.value.items.length, 480);
+  assert.equal(result.value.truncated, true);
 });
 
 test.after(async () => rm(temporary, { recursive: true, force: true }));

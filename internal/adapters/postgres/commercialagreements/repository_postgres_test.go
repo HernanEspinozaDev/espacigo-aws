@@ -79,6 +79,7 @@ CREATE TABLE public.bloqueo_cuenta_administrativo_local(cuenta_id uuid PRIMARY K
 CREATE TABLE public.espacio(id uuid PRIMARY KEY,propietario_id uuid NOT NULL REFERENCES public.usuario(id),estado text NOT NULL,zona_horaria text,direccion text,ubicacion_latitud double precision,ubicacion_longitud double precision,ubicacion_confirmada_en timestamptz,ubicacion_revision bigint NOT NULL DEFAULT 1,region_codigo text,comuna_codigo text);
 CREATE TABLE public.tarifa_espacio(espacio_id uuid,version integer,modalidad text,precio_base_clp bigint,moneda text);
 CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY,espacio_id uuid,propietario_id uuid,arrendatario_id uuid,titulo_espacio text,tarifa_version integer,modalidad text,precio_unitario_clp bigint,unidades bigint,subtotal_clp bigint,moneda text,inicio timestamptz,termino timestamptz,zona_horaria text,vence_en timestamptz);
+CREATE TABLE public.cotizacion_arriendo_tramo(id uuid PRIMARY KEY,cotizacion_id uuid,inicio timestamptz,termino timestamptz,unidades bigint,orden integer);
 CREATE TABLE public.checkout_preferencia_comercial(id uuid PRIMARY KEY,cotizacion_id uuid,espacio_id uuid,estado text,vence_en timestamptz);
 CREATE TABLE public.ocupacion(id uuid PRIMARY KEY,espacio_id uuid,intervalo tstzrange NOT NULL,tipo text NOT NULL CONSTRAINT ocupacion_tipo_check CHECK(tipo IN ('bloqueo_manual','retencion','reserva','retencion_temprana','reserva_temprana','retencion_comercial','reserva_comercial')),activo boolean NOT NULL DEFAULT true,expira_en timestamptz,motivo text,reserva_id uuid,arriendo_temprano_id uuid,reserva_arriendo_comercial_id uuid,desactivada_en timestamptz,CONSTRAINT ocupacion_tipo_reserva_ck CHECK(true),EXCLUDE USING gist(espacio_id WITH =,intervalo WITH &&) WHERE(activo));
 CREATE TABLE public.espacio_horario_semanal(espacio_id uuid,activo boolean);
@@ -86,13 +87,22 @@ CREATE TABLE public.espacio_horario_semanal_tramo(espacio_id uuid,dia_iso intege
 CREATE TABLE public.espacio_regla_disponibilidad(espacio_id uuid,dias_operacion smallint[],hora_apertura time,hora_cierre time,estadia_minima integer,estadia_maxima integer);
 CREATE TABLE public.espacio_calendario_override(espacio_id uuid,fecha date,estado text);
 GRANT SELECT,UPDATE ON public.usuario,public.espacio TO espacigo_runtime;
-GRANT SELECT ON public.rol_usuario,public.bloqueo_cuenta_administrativo_local,public.tarifa_espacio,public.checkout_preferencia_comercial,public.espacio_horario_semanal,public.espacio_horario_semanal_tramo,public.espacio_regla_disponibilidad,public.espacio_calendario_override TO espacigo_runtime;
+GRANT SELECT ON public.rol_usuario,public.bloqueo_cuenta_administrativo_local,public.tarifa_espacio,public.cotizacion_arriendo_tramo,public.checkout_preferencia_comercial,public.espacio_horario_semanal,public.espacio_horario_semanal_tramo,public.espacio_regla_disponibilidad,public.espacio_calendario_override TO espacigo_runtime;
 GRANT SELECT,DELETE ON public.cotizacion_arriendo_comercial TO espacigo_runtime;
 GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 	if _, err = setup.Exec(ctx, foundation); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"V000124__commercial_space_contract_templates.sql", "V000125__commercial_contract_proposals.sql", "V000126__commercial_agreement_signatures.sql"} {
+	for _, file := range []string{
+		"V000124__commercial_space_contract_templates.sql",
+		"V000125__commercial_contract_proposals.sql",
+		"V000126__commercial_agreement_signatures.sql",
+		"V000128__commercial_contract_document_jobs.sql",
+		"V000129__commercial_auto_authorization.sql",
+		"V000133__user_in_app_notifications.sql",
+		"V000134__fes_reinforced_signatures_and_otp.sql",
+		"V000137__commercial_auto_authorization_activation.sql",
+	} {
 		blob, e := os.ReadFile("../../../../db/migrations/" + file)
 		if e != nil {
 			t.Fatal(e)
@@ -125,7 +135,7 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 		owner, renter, space, template, quote, proposal, hash string
 		start                                                 time.Time
 	}
-	makeFixture := func(t *testing.T, prior *fixture) fixture {
+	makeFixtureAt := func(t *testing.T, prior *fixture, startOverride *time.Time) fixture {
 		t.Helper()
 		clock.Store(base.UnixNano())
 		f := fixture{owner: uuid.NewString(), renter: uuid.NewString(), space: uuid.NewString(), template: uuid.NewString(), quote: uuid.NewString(), proposal: uuid.NewString(), start: base.Add(48 * time.Hour).Truncate(24 * time.Hour).Add(10 * time.Hour)}
@@ -134,6 +144,9 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 			f.space = prior.space
 			f.template = prior.template
 			f.start = prior.start
+		}
+		if startOverride != nil {
+			f.start = *startOverride
 		}
 		for _, id := range []string{f.owner, f.renter} {
 			if _, e := setup.Exec(ctx, `INSERT INTO public.usuario(id,correo_original) VALUES($1,$2) ON CONFLICT DO NOTHING`, id, id+"@example.test"); e != nil {
@@ -154,6 +167,9 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 			}
 			sections := []contracttemplate.Section{{Key: "uso", Title: "Uso", Body: "Reglas sintéticas."}}
 			blob, _, _ := contracttemplate.CanonicalSections(sections)
+			if _, e := setup.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada) VALUES($1,1,($2::text)::jsonb,1)`, f.space, string(blob)); e != nil {
+				t.Fatal(e)
+			}
 			if _, e := setup.Exec(ctx, `INSERT INTO public.espacio_contrato_version(id,espacio_id,version,revision_origen,texto_canonico,secciones,sha256,publicada_por) VALUES($1,$2,1,1,$3::text,($3::text)::jsonb,sha256(convert_to($3::text,'UTF8')),$4)`, f.template, f.space, string(blob), f.owner); e != nil {
 				t.Fatal(e)
 			}
@@ -169,6 +185,9 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 			t.Fatal(e)
 		}
 		return f
+	}
+	makeFixture := func(t *testing.T, prior *fixture) fixture {
+		return makeFixtureAt(t, prior, nil)
 	}
 	actor := func(id string) domain.Actor { return domain.Actor{ID: id, SessionID: uuid.NewString()} }
 	create := func(t *testing.T, f fixture, key string) domain.Agreement {
@@ -316,6 +335,58 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 		got, e := service.Get(ctx, f.owner, a.ID)
 		if e != nil || got.State != domain.Ready {
 			t.Fatal("request worker altered checkout-owned agreement", got, e)
+		}
+	})
+	t.Run("bounded auto authorization confirms eligible requests directly to ready_for_payment", func(t *testing.T) {
+		f := makeFixture(t, nil)
+		grantID := uuid.NewString()
+		if _, e := setup.Exec(ctx, `INSERT INTO public.autorizacion_arriendo_comercial(id,espacio_id,propietario_id,plantilla_version,monto_maximo_clp,vigente_desde,vence_en,creada_en) VALUES($1,$2,$3,1,10000,$4,$5,$4)`, grantID, f.space, f.owner, base.Add(-10*time.Second), base.Add(24*time.Hour)); e != nil {
+			t.Fatal(e)
+		}
+		a := create(t, f, "auto-1")
+		if a.State != domain.Ready || a.Revision != 2 || a.PaymentExpiresAt == nil || len(a.Signatures) != 2 {
+			t.Fatalf("expected immediate ready_for_payment with 2 signatures, got %+v", a)
+		}
+		var hasLandlordAuto bool
+		for _, sig := range a.Signatures {
+			if sig.Role == "arrendador" && sig.AuthMethod == "auto_authorization" && sig.ConsentVersion == domain.ConsentVersion {
+				hasLandlordAuto = true
+			}
+		}
+		if !hasLandlordAuto {
+			t.Fatalf("missing landlord auto_authorization signature: %+v", a.Signatures)
+		}
+		var holdCount int
+		if e := setup.QueryRow(ctx, `SELECT count(*) FROM public.ocupacion WHERE solicitud_comercial_id=$1 AND tipo='retencion_contrato_comercial' AND activo`, a.ID).Scan(&holdCount); e != nil || holdCount != 1 {
+			t.Fatalf("expected active hold for auto-confirmed request: count=%d err=%v", holdCount, e)
+		}
+		var autoEventCount int
+		if e := setup.QueryRow(ctx, `SELECT count(*) FROM public.autorizacion_arriendo_comercial_evento WHERE autorizacion_id=$1 AND accion='auto_confirmed'`, grantID).Scan(&autoEventCount); e != nil || autoEventCount != 1 {
+			t.Fatalf("expected 1 auto_confirmed event: count=%d err=%v", autoEventCount, e)
+		}
+		// Second non-overlapping request under the same grant must also auto-confirm.
+		s2 := f.start.Add(2 * time.Hour)
+		f2 := makeFixtureAt(t, &f, &s2)
+		a2 := create(t, f2, "auto-2")
+		if a2.State != domain.Ready || len(a2.Signatures) != 2 {
+			t.Fatalf("second auto-confirm failed: %+v", a2)
+		}
+		if e := setup.QueryRow(ctx, `SELECT count(*) FROM public.autorizacion_arriendo_comercial_evento WHERE autorizacion_id=$1 AND accion='auto_confirmed'`, grantID).Scan(&autoEventCount); e != nil || autoEventCount != 2 {
+			t.Fatalf("expected 2 auto_confirmed events: count=%d err=%v", autoEventCount, e)
+		}
+		// Over cap falls back to manual landlord signature (pending_landlord).
+		if _, e := setup.Exec(ctx, `UPDATE public.autorizacion_arriendo_comercial SET revocada_en=$2,revocada_por=$3,motivo_revocacion='owner_request' WHERE id=$1`, grantID, base, f.owner); e != nil {
+			t.Fatal(e)
+		}
+		lowCapID := uuid.NewString()
+		if _, e := setup.Exec(ctx, `INSERT INTO public.autorizacion_arriendo_comercial(id,espacio_id,propietario_id,plantilla_version,monto_maximo_clp,vigente_desde,vence_en,creada_en) VALUES($1,$2,$3,1,9999,$4,$5,$4)`, lowCapID, f.space, f.owner, base.Add(-10*time.Second), base.Add(24*time.Hour)); e != nil {
+			t.Fatal(e)
+		}
+		s3 := f.start.Add(4 * time.Hour)
+		f3 := makeFixtureAt(t, &f, &s3)
+		a3 := create(t, f3, "over-cap")
+		if a3.State != domain.Pending || len(a3.Signatures) != 1 {
+			t.Fatalf("over-cap request should stay pending_landlord, got %+v", a3)
 		}
 	})
 }

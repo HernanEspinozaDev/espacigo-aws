@@ -2,8 +2,15 @@ package commercialauthorizationpg
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
+	"fmt"
+	"math/big"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/commercialauthorization"
@@ -15,9 +22,32 @@ import (
 
 type Repository struct{ pool *pgxpool.Pool }
 
+const (
+	otpTTL         = 5 * time.Minute
+	maxOTPAttempts = 5
+)
+
 var revocationReasonPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{2,63}$`)
 
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
+
+func computeOTPMAC(challengeID, actorID, spaceID string, templateVersion int64, code string) []byte {
+	mac := hmac.New(sha256.New, []byte(challengeID+":"+actorID))
+	mac.Write([]byte(fmt.Sprintf("%s:%d:%s", spaceID, templateVersion, code)))
+	return mac.Sum(nil)
+}
+
+func maskEmail(email string) string {
+	parts := strings.SplitN(strings.TrimSpace(email), "@", 2)
+	if len(parts) != 2 || parts[0] == "" {
+		return "***"
+	}
+	local := parts[0]
+	if len(local) <= 2 {
+		return local[:1] + "***@" + parts[1]
+	}
+	return local[:2] + "***@" + parts[1]
+}
 
 const grantCols = `a.id::text,a.espacio_id::text,a.propietario_id::text,a.plantilla_version,a.monto_maximo_clp,a.vigente_desde,a.vence_en,a.creada_en,a.revocada_en,COALESCE(a.revocada_por::text,''),COALESCE(a.motivo_revocacion,'')`
 
@@ -72,11 +102,99 @@ func (r *Repository) lockOwnerSpace(ctx context.Context, tx pgx.Tx, owner, space
 	return err
 }
 
-func (r *Repository) Activate(ctx context.Context, owner, space string, a commercialauthorization.Activation, now time.Time) (commercialauthorization.Grant, error) {
-	if r == nil || r.pool == nil || ctx == nil || !commercialauthorization.ValidIDs(owner, space) || !commercialauthorization.ValidateActivation(a, now) {
-		return commercialauthorization.Grant{}, commercialauthorization.ErrInvalid
+func (r *Repository) CreateOTPChallenge(ctx context.Context, owner, space string, in commercialauthorization.OTPChallengeInput, now time.Time) (commercialauthorization.OTPChallengeResult, string, string, error) {
+	if r == nil || r.pool == nil || ctx == nil || !commercialauthorization.ValidIDs(owner, space) || in.TemplateVersion < 1 || now.IsZero() {
+		return commercialauthorization.OTPChallengeResult{}, "", "", commercialauthorization.ErrInvalid
 	}
 	owner, space = uuid.MustParse(owner).String(), uuid.MustParse(space).String()
+	var spaceCheck string
+	err := r.pool.QueryRow(ctx, `SELECT e.id::text FROM public.espacio e WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado<>'eliminada'`, space, owner).Scan(&spaceCheck)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return commercialauthorization.OTPChallengeResult{}, "", "", commercialauthorization.ErrNotFound
+	}
+	if err != nil {
+		return commercialauthorization.OTPChallengeResult{}, "", "", err
+	}
+	var published int64
+	err = r.pool.QueryRow(ctx, `SELECT COALESCE(version_publicada, 0) FROM public.espacio_contrato_borrador WHERE espacio_id=$1`, space).Scan(&published)
+	if errors.Is(err, pgx.ErrNoRows) || published != in.TemplateVersion {
+		return commercialauthorization.OTPChallengeResult{}, "", "", commercialauthorization.ErrConflict
+	}
+	if err != nil {
+		return commercialauthorization.OTPChallengeResult{}, "", "", err
+	}
+	var email string
+	err = r.pool.QueryRow(ctx, `SELECT correo_original FROM public.usuario WHERE id=$1 AND estado='activo'`, owner).Scan(&email)
+	if errors.Is(err, pgx.ErrNoRows) || strings.TrimSpace(email) == "" {
+		return commercialauthorization.OTPChallengeResult{}, "", "", commercialauthorization.ErrNotFound
+	}
+	if err != nil {
+		return commercialauthorization.OTPChallengeResult{}, "", "", err
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return commercialauthorization.OTPChallengeResult{}, "", "", err
+	}
+	code := fmt.Sprintf("%06d", n.Int64())
+	challengeID := uuid.NewString()
+	at := now.UTC()
+	expiresAt := at.Add(otpTTL)
+	digest := computeOTPMAC(challengeID, owner, space, in.TemplateVersion, code)
+	_, err = r.pool.Exec(ctx, `INSERT INTO public.autorizacion_firma_desafio_otp(id,espacio_id,actor_id,plantilla_version,canal,codigo_hmac,intentos,expira_en,creada_en) VALUES($1,$2,$3,$4,'email_otp',$5,0,$6,$7)`, challengeID, space, owner, in.TemplateVersion, digest, expiresAt, at)
+	if err != nil {
+		return commercialauthorization.OTPChallengeResult{}, "", "", err
+	}
+	return commercialauthorization.OTPChallengeResult{
+		ChallengeID: challengeID,
+		Channel:     "email_otp",
+		ExpiresAt:   expiresAt,
+		MaskedEmail: maskEmail(email),
+	}, email, code, nil
+}
+
+func (r *Repository) verifyOTPInTx(ctx context.Context, tx pgx.Tx, owner, space string, templateVersion int64, challengeID, code string, now time.Time) error {
+	var dbSpaceID, dbActorID string
+	var dbTemplateVersion int64
+	var storedMAC []byte
+	var attempts int
+	var expiresAt time.Time
+	var verifiedAt *time.Time
+	err := tx.QueryRow(ctx, `SELECT espacio_id::text, actor_id::text, plantilla_version, codigo_hmac, intentos, expira_en, verificado_en FROM public.autorizacion_firma_desafio_otp WHERE id=$1 FOR UPDATE`, challengeID).Scan(&dbSpaceID, &dbActorID, &dbTemplateVersion, &storedMAC, &attempts, &expiresAt, &verifiedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return commercialauthorization.ErrOTPInvalid
+	}
+	if err != nil {
+		return err
+	}
+	if dbActorID != owner || dbSpaceID != space || dbTemplateVersion != templateVersion || verifiedAt != nil {
+		return commercialauthorization.ErrOTPInvalid
+	}
+	at := now.UTC()
+	if !expiresAt.After(at) {
+		return commercialauthorization.ErrOTPExpired
+	}
+	if attempts >= maxOTPAttempts {
+		return commercialauthorization.ErrOTPInvalid
+	}
+	expectedMAC := computeOTPMAC(challengeID, owner, space, templateVersion, code)
+	if subtle.ConstantTimeCompare(storedMAC, expectedMAC) != 1 {
+		_ = tx.Rollback(ctx)
+		_, _ = r.pool.Exec(ctx, `UPDATE public.autorizacion_firma_desafio_otp SET intentos = LEAST(intentos + 1, 5) WHERE id=$1 AND verificado_en IS NULL`, challengeID)
+		return commercialauthorization.ErrOTPInvalid
+	}
+	_, err = tx.Exec(ctx, `UPDATE public.autorizacion_firma_desafio_otp SET verificado_en=$2 WHERE id=$1`, challengeID, at)
+	return err
+}
+
+func (r *Repository) Activate(ctx context.Context, owner, space string, a commercialauthorization.Activation, now time.Time) (commercialauthorization.Grant, error) {
+	if r == nil || r.pool == nil || ctx == nil || !commercialauthorization.ValidIDs(owner, space) || !commercialauthorization.ValidateActivation(a, now) || !a.Consent {
+		return commercialauthorization.Grant{}, commercialauthorization.ErrInvalid
+	}
+	if !commercialauthorization.ValidIDs(a.OTPChallengeID) || !commercialauthorization.ValidOTPCode(a.OTPCode) {
+		return commercialauthorization.Grant{}, commercialauthorization.ErrOTPRequired
+	}
+	owner, space = uuid.MustParse(owner).String(), uuid.MustParse(space).String()
+	challengeID := uuid.MustParse(a.OTPChallengeID).String()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return commercialauthorization.Grant{}, err
@@ -86,11 +204,14 @@ func (r *Repository) Activate(ctx context.Context, owner, space string, a commer
 		return commercialauthorization.Grant{}, err
 	}
 	var published int64
-	err = tx.QueryRow(ctx, `SELECT version_publicada FROM public.espacio_contrato_borrador WHERE espacio_id=$1 FOR UPDATE`, space).Scan(&published)
+	err = tx.QueryRow(ctx, `SELECT COALESCE(version_publicada, 0) FROM public.espacio_contrato_borrador WHERE espacio_id=$1 FOR UPDATE`, space).Scan(&published)
 	if errors.Is(err, pgx.ErrNoRows) || published != a.TemplateVersion {
 		return commercialauthorization.Grant{}, commercialauthorization.ErrConflict
 	}
 	if err != nil {
+		return commercialauthorization.Grant{}, err
+	}
+	if err = r.verifyOTPInTx(ctx, tx, owner, space, a.TemplateVersion, challengeID, a.OTPCode, now); err != nil {
 		return commercialauthorization.Grant{}, err
 	}
 	// Expired authorizations remain visible until renewed or explicitly revoked.

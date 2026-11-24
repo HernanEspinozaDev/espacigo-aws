@@ -45,8 +45,8 @@ test("SessionControls component exports, variants and contract rules", async () 
     "Mi cuenta link must point directly to /mi-cuenta",
   );
   assert.ok(
-    source.includes("Ingresar a EspaciGo"),
-    "Public anonymous variant must show Ingresar a EspaciGo",
+    source.includes("Iniciar sesión"),
+    "Public anonymous variant must show Iniciar sesión",
   );
   assert.ok(
     source.includes("Acceso"),

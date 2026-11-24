@@ -53,7 +53,7 @@ test("rejects incomplete, malformed, and region-mismatched codes", () => {
   }
 });
 
-test("wizard uses accessible location selects and does not promise idempotency", async () => {
+test("wizard uses labeled map-derived location outputs and does not promise idempotency", async () => {
   const ui = await readFile(
     fileURLToPath(
       new URL(
@@ -63,8 +63,22 @@ test("wizard uses accessible location selects and does not promise idempotency",
     ),
     "utf8",
   );
-  assert.match(ui, /id="wizard-region"/);
-  assert.match(ui, /id="wizard-comuna"/);
-  assert.match(ui, /\{\.\.\.fieldFeedback\("comuna"\)\}/);
+  const fields = await readFile(
+    new URL(
+      "../src/features/host-listings/ui/commercial-location-fields.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  assert.match(ui, /<CommercialLocationFields\s+idPrefix="wizard"/);
+  assert.match(ui, /onSelectPin=\{selectPin\}/);
+  for (const field of ["region", "comuna"]) {
+    const id = "`$" + "{fieldId}-" + field + "`";
+    assert.ok(fields.includes(`htmlFor={${id}}`));
+    assert.ok(
+      fields.includes(`<output
+            id={${id}}`),
+    );
+  }
   assert.doesNotMatch(ui, /clave de idempotencia|idempotencia única UUIDv4/i);
 });

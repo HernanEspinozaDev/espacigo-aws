@@ -33,9 +33,13 @@ export class AgreementsService {
       return { ...read, proposal };
     });
   }
-  send(proposal: ContractProposal, idempotencyKey: string) {
+  send(
+    proposal: ContractProposal,
+    idempotencyKey: string,
+    otp?: { challengeId: string; code: string },
+  ) {
     return this.authenticated((signal) =>
-      this.port.send(proposal, idempotencyKey, signal),
+      this.port.send(proposal, idempotencyKey, signal, otp),
     );
   }
   withdraw(read: AgreementRead) {

@@ -378,6 +378,16 @@ export const gatewayOperations = [
   },
   {
     method: "POST",
+    path: "/admin/global/accounts/{accountID}/assisted-view",
+    operationId: "startGlobalAdminAccountAssistedView",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
     path: "/admin/global/accounts/{accountID}/block",
     operationId: "setGlobalAdminAccountBlocked",
     query: [],
@@ -447,12 +457,89 @@ export const gatewayOperations = [
   },
   {
     method: "POST",
+    path: "/admin/global/accounts/{accountID}/sensitive-access",
+    operationId: "requestGlobalAdminAccountSensitiveAccess",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
     path: "/admin/global/accounts/{accountID}/sessions/revoke",
     operationId: "revokeGlobalAdminAccountSessions",
     query: [],
     headers: [],
     bearer: true,
     requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/approvals",
+    operationId: "listGlobalAdminApprovals",
+    query: [
+      {
+        name: "action_type",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/global/approvals",
+    operationId: "createGlobalAdminApproval",
+    query: [],
+    headers: ["idempotency-key"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/global/approvals/{approvalID}/decisions",
+    operationId: "decideGlobalAdminApproval",
+    query: [],
+    headers: ["idempotency-key"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "DELETE",
+    path: "/admin/global/assisted-view/{grantID}",
+    operationId: "closeGlobalAdminAssistedView",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/assisted-view/{grantID}/projection",
+    operationId: "getGlobalAdminAssistedViewProjection",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
     responseMediaTypes: ["application/json"],
   },
   {
@@ -579,6 +666,33 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/admin/global/contracts",
+    operationId: "listGlobalAdminContracts",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/admin/global/kpis",
     operationId: "getGlobalAdminKPIs",
     query: [
@@ -592,6 +706,33 @@ export const gatewayOperations = [
       },
       {
         name: "until",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/kyc-cases",
+    operationId: "listGlobalAdminKycCases",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
         allowRepeated: false,
       },
     ],
@@ -618,6 +759,74 @@ export const gatewayOperations = [
     headers: [],
     bearer: true,
     requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/payments",
+    operationId: "listGlobalAdminPayments",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+      {
+        name: "test_mode",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/privacy-requests",
+    operationId: "listGlobalAdminPrivacyRequests",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/global/privacy-requests",
+    operationId: "createGlobalAdminPrivacyRequest",
+    query: [],
+    headers: ["idempotency-key"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
   },
   {
@@ -755,6 +964,74 @@ export const gatewayOperations = [
     operationId: "changeGlobalAdminPublicationState",
     query: [],
     headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/reservations",
+    operationId: "listGlobalAdminReservations",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/global/support-tickets",
+    operationId: "listGlobalAdminSupportTickets",
+    query: [
+      {
+        name: "account_id",
+        allowRepeated: false,
+      },
+      {
+        name: "cursor",
+        allowRepeated: false,
+      },
+      {
+        name: "page_size",
+        allowRepeated: false,
+      },
+      {
+        name: "priority",
+        allowRepeated: false,
+      },
+      {
+        name: "status",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/global/support-tickets",
+    operationId: "createGlobalAdminSupportTicket",
+    query: [],
+    headers: ["idempotency-key"],
     bearer: true,
     requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
@@ -1090,6 +1367,46 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "DELETE",
+    path: "/admin/session",
+    operationId: "deleteAdminSession",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/admin/session",
+    operationId: "getAdminSession",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/session/mfa",
+    operationId: "verifyAdminSessionMfa",
+    query: [],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/admin/session/start",
+    operationId: "startAdminSession",
+    query: [],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "GET",
     path: "/admin/verifications",
     operationId: "listPendingVerifications",
@@ -1330,6 +1647,16 @@ export const gatewayOperations = [
     operationId: "signCommercialAgreementAsLandlord",
     query: [],
     headers: ["if-match"],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/commercial-agreements/otp-challenge",
+    operationId: "createCommercialAgreementOTPChallenge",
+    query: [],
+    headers: [],
     bearer: true,
     requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
@@ -2508,6 +2835,36 @@ export const gatewayOperations = [
     responseMediaTypes: [],
   },
   {
+    method: "GET",
+    path: "/notifications",
+    operationId: "listNotifications",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/notifications/{notificationID}/read",
+    operationId: "markNotificationRead",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/notifications/read-all",
+    operationId: "markAllNotificationsRead",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "DELETE",
     path: "/payout-account",
     operationId: "revokeOwnSyntheticPayoutAccount",
@@ -2659,6 +3016,25 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/public/destinations/suggest",
+    operationId: "suggestPublicDestinations",
+    query: [
+      {
+        name: "limit",
+        allowRepeated: false,
+      },
+      {
+        name: "q",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/public/locations",
     operationId: "listPublicLocations",
     query: [
@@ -2747,6 +3123,10 @@ export const gatewayOperations = [
       },
       {
         name: "min_area_m2",
+        allowRepeated: false,
+      },
+      {
+        name: "min_capacity",
         allowRepeated: false,
       },
       {
@@ -2848,6 +3228,16 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/public/spaces/{spaceID}/nearby-pois",
+    operationId: "getPublicSpaceNearbyPOIs",
+    query: [],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/public/spaces/map",
     operationId: "listPublicSpaceMapMarkers",
     query: [
@@ -2896,6 +3286,10 @@ export const gatewayOperations = [
         allowRepeated: false,
       },
       {
+        name: "min_capacity",
+        allowRepeated: false,
+      },
+      {
         name: "min_total_clp",
         allowRepeated: false,
       },
@@ -2925,6 +3319,81 @@ export const gatewayOperations = [
       },
       {
         name: "sort",
+        allowRepeated: false,
+      },
+      {
+        name: "start_at",
+        allowRepeated: false,
+      },
+    ],
+    headers: [],
+    bearer: false,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/public/spaces/nearby",
+    operationId: "listPublicSpaceNearbyMarkers",
+    query: [
+      {
+        name: "attribute",
+        allowRepeated: true,
+      },
+      {
+        name: "category_code",
+        allowRepeated: false,
+      },
+      {
+        name: "end_at",
+        allowRepeated: false,
+      },
+      {
+        name: "exclude_bbox",
+        allowRepeated: false,
+      },
+      {
+        name: "exclude_radius_km",
+        allowRepeated: false,
+      },
+      {
+        name: "latitude",
+        allowRepeated: false,
+      },
+      {
+        name: "longitude",
+        allowRepeated: false,
+      },
+      {
+        name: "max_total_clp",
+        allowRepeated: false,
+      },
+      {
+        name: "max_unit_price_clp",
+        allowRepeated: false,
+      },
+      {
+        name: "min_area_m2",
+        allowRepeated: false,
+      },
+      {
+        name: "min_capacity",
+        allowRepeated: false,
+      },
+      {
+        name: "min_total_clp",
+        allowRepeated: false,
+      },
+      {
+        name: "min_unit_price_clp",
+        allowRepeated: false,
+      },
+      {
+        name: "q",
+        allowRepeated: false,
+      },
+      {
+        name: "rate_unit",
         allowRepeated: false,
       },
       {
@@ -3253,6 +3722,16 @@ export const gatewayOperations = [
     headers: [],
     bearer: true,
     requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/spaces/{spaceId}/commercial-authorization/otp-challenge",
+    operationId: "createCommercialAuthorizationOTPChallenge",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
   },
   {
@@ -3611,6 +4090,36 @@ export const gatewayOperations = [
     headers: [],
     bearer: true,
     requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
+    path: "/spaces/location/communes/{communeCode}",
+    operationId: "getSpaceLocationCommuneBounds",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/spaces/location/geocode",
+    operationId: "geocodeSpaceAddress",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/spaces/location/reverse-geocode",
+    operationId: "reverseGeocodeSpacePin",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
   },
   {

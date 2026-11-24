@@ -17,10 +17,16 @@ export function catalogSortOptions(query: CatalogQuery) {
     ...(query.latitude !== undefined
       ? [{ value: "distance_asc", label: "Más cercanos" } as const]
       : []),
-    ...(query.rate_unit
+    ...(query.rate_unit || !query.start_at || !query.end_at
       ? ([
-          { value: "unit_price_asc", label: "Menor tarifa" },
-          { value: "unit_price_desc", label: "Mayor tarifa" },
+          {
+            value: "unit_price_asc",
+            label: query.rate_unit ? "Menor tarifa" : "Menor tarifa por hora",
+          },
+          {
+            value: "unit_price_desc",
+            label: query.rate_unit ? "Mayor tarifa" : "Mayor tarifa por hora",
+          },
         ] as const)
       : []),
     ...(query.q
@@ -36,7 +42,14 @@ export function catalogSortOptions(query: CatalogQuery) {
 }
 
 function sortHref(actionPath: string, query: CatalogQuery, sort: CatalogSort) {
-  const next = { ...query, sort, cursor: undefined };
+  const next = {
+    ...query,
+    sort,
+    ...(sort.startsWith("unit_price_") && !query.rate_unit
+      ? { rate_unit: "hora" as const }
+      : {}),
+    cursor: undefined,
+  };
   const params = serializeCatalogQuery(next);
   return params.size ? `${actionPath}?${params.toString()}` : actionPath;
 }
@@ -44,9 +57,11 @@ function sortHref(actionPath: string, query: CatalogQuery, sort: CatalogSort) {
 export function CatalogSortControls({
   actionPath,
   query,
+  compact = false,
 }: {
   actionPath: string;
   query: CatalogQuery;
+  compact?: boolean;
 }) {
   const router = useRouter();
   const options = catalogSortOptions(query);
@@ -56,12 +71,18 @@ export function CatalogSortControls({
 
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+      <span
+        className={
+          compact
+            ? "sr-only"
+            : "text-xs uppercase tracking-[0.18em] text-muted-foreground"
+        }
+      >
         Ordenar
       </span>
       <nav
         aria-label="Ordenar publicaciones"
-        className="hidden flex-wrap gap-4 sm:flex"
+        className={compact ? "hidden" : "hidden flex-wrap gap-4 sm:flex"}
       >
         {options.map((option) => (
           <Link
@@ -74,7 +95,7 @@ export function CatalogSortControls({
           </Link>
         ))}
       </nav>
-      <label className="sm:hidden">
+      <label className={compact ? "block" : "sm:hidden"}>
         <span className="sr-only">Ordenar publicaciones</span>
         <select
           value={current}
@@ -86,7 +107,7 @@ export function CatalogSortControls({
               },
             )
           }
-          className="h-11 rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={`h-11 border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${compact ? "max-w-36 rounded-full sm:max-w-none" : "rounded-lg"}`}
         >
           {options.map((option) => (
             <option key={option.value} value={option.value}>

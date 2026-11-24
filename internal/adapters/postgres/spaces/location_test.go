@@ -23,8 +23,10 @@ type commercialLocationTx struct {
 	pgx.Tx
 	now                       time.Time
 	blocked, fixture, missing bool
-	updateErr                 error
+	updateErr, provenanceErr  error
 	writes, commits, bumps    int
+	provenanceWrites          int
+	source, precision         string
 }
 
 func (tx *commercialLocationTx) Rollback(context.Context) error { return nil }
@@ -52,10 +54,12 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 			*d[1].(*string) = "Prueba 123"
 			*d[2].(*string) = "13"
 			*d[3].(*string) = "13101"
-			*d[7].(*int64) = int64(tx.writes)
-			*d[8].(*time.Time) = tx.now
+			*d[6].(*string) = tx.source
+			*d[7].(*string) = tx.precision
+			*d[9].(*int64) = int64(tx.writes)
+			*d[10].(*time.Time) = tx.now
 			if tx.writes > 0 {
-				*d[8].(*time.Time) = tx.now.Add(time.Microsecond)
+				*d[10].(*time.Time) = tx.now.Add(time.Microsecond)
 			}
 		default:
 			return errors.New("unexpected query")
@@ -63,7 +67,16 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 		return nil
 	})
 }
-func (tx *commercialLocationTx) Exec(_ context.Context, q string, _ ...any) (pgconn.CommandTag, error) {
+func (tx *commercialLocationTx) Exec(_ context.Context, q string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(q, "SET ubicacion_pin_origen") {
+		if len(args) != 3 || args[0] != monthReadSpaceID || tx.writes != 1 {
+			return pgconn.CommandTag{}, errors.New("metadata must follow the guarded location write")
+		}
+		tx.provenanceWrites++
+		tx.source = args[1].(string)
+		tx.precision = args[2].(string)
+		return pgconn.NewCommandTag("UPDATE 1"), tx.provenanceErr
+	}
 	if !strings.Contains(q, "pg_advisory_xact_lock") {
 		tx.writes++
 		return pgconn.NewCommandTag("UPDATE 1"), tx.updateErr
@@ -82,6 +95,7 @@ func TestCommercialLocationTransactionGuards(t *testing.T) {
 		{name: "blocked owner", setup: func(tx *commercialLocationTx) { tx.blocked = true }, want: spaces.ErrPublicationConflict},
 		{name: "enabled demo", setup: func(tx *commercialLocationTx) { tx.fixture = true }, want: spaces.ErrEnabledFixture},
 		{name: "invalid administrative FK", setup: func(tx *commercialLocationTx) { tx.updateErr = &pgconn.PgError{Code: "23503"} }, want: spaces.ErrInvalid},
+		{name: "metadata failure", setup: func(tx *commercialLocationTx) { tx.provenanceErr = &pgconn.PgError{Code: "23514"} }, want: spaces.ErrInvalid},
 		{name: "successful replacement"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -94,7 +108,10 @@ func TestCommercialLocationTransactionGuards(t *testing.T) {
 			if tc.stale {
 				expected = expected.Add(-time.Second)
 			}
-			_, err := repo.SetOwnLocation(context.Background(), calendarOwnerID, monthReadSpaceID, expected, spaces.LocationInput{Address: "Prueba 123"})
+			lat, lon := -33.45, -70.66
+			saved, err := repo.SetOwnLocation(context.Background(), calendarOwnerID, monthReadSpaceID, expected, spaces.LocationInput{
+				Address: "Prueba 123", Latitude: &lat, Longitude: &lon, Source: "geocoded", Precision: "approximate",
+			})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("err=%v want %v", err, tc.want)
 			}
@@ -102,7 +119,7 @@ func TestCommercialLocationTransactionGuards(t *testing.T) {
 				if tx.commits != 0 || tx.bumps != 0 {
 					t.Fatalf("failed transaction committed/bumped: %+v", tx)
 				}
-			} else if tx.commits != 1 || tx.bumps != 1 || tx.writes != 1 {
+			} else if tx.commits != 1 || tx.bumps != 1 || tx.writes != 1 || tx.provenanceWrites != 1 || saved.Source != "geocoded" || saved.Precision != "approximate" {
 				t.Fatalf("non-atomic location replacement: %+v", tx)
 			}
 		})

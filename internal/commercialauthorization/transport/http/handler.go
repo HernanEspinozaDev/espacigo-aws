@@ -19,20 +19,24 @@ import (
 type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
+type Sender interface {
+	SendLocalBookingNotice(context.Context, string, string, string) error
+}
 type Handler struct {
 	auth      Authenticator
 	repo      commercialauthorization.Repository
 	proposals interface {
 		Get(context.Context, string, string) (commercialproposal.Record, error)
 	}
+	sender  Sender
 	origins map[string]bool
 	now     func() time.Time
 }
 
 func New(auth Authenticator, repo commercialauthorization.Repository, proposals interface {
 	Get(context.Context, string, string) (commercialproposal.Record, error)
-}, origins []string, now func() time.Time) http.Handler {
-	h := &Handler{auth: auth, repo: repo, proposals: proposals, origins: map[string]bool{}, now: now}
+}, sender Sender, origins []string, now func() time.Time) http.Handler {
+	h := &Handler{auth: auth, repo: repo, proposals: proposals, sender: sender, origins: map[string]bool{}, now: now}
 	if h.now == nil {
 		h.now = time.Now
 	}
@@ -72,7 +76,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		allowed = "GET, OPTIONS"
 	}
 	switch action {
-	case "current", "history", "activate", "revoke", "evaluate":
+	case "current", "history", "activate", "revoke", "evaluate", "otp-challenge":
 	default:
 		fail(w, 404, "not_found")
 		return
@@ -110,7 +114,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			replyErr(w, e)
 			return
 		}
-		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": false})
+		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": true})
 	case "history":
 		events, e := h.repo.History(r.Context(), p.AccountID, space)
 		if e != nil {
@@ -118,9 +122,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply(w, map[string]any{"items": events, "human_signature_recorded": false})
+	case "otp-challenge":
+		var b struct {
+			TemplateVersion int64 `json:"template_version"`
+		}
+		if !decode(w, r, &b) {
+			return
+		}
+		if b.TemplateVersion < 1 {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		if h.sender == nil {
+			fail(w, 500, "internal_error")
+			return
+		}
+		res, email, code, e := h.repo.CreateOTPChallenge(r.Context(), p.AccountID, space, commercialauthorization.OTPChallengeInput{TemplateVersion: b.TemplateVersion}, now)
+		if e != nil {
+			replyErr(w, e)
+			return
+		}
+		subject := "Código para activar firma automática en EspaciGo"
+		body := "Tu código de verificación para activar la firma automática del contrato es: " + code + ". Expira en 5 minutos. No lo compartas con nadie."
+		if sendErr := h.sender.SendLocalBookingNotice(r.Context(), email, subject, body); sendErr != nil {
+			fail(w, 500, "internal_error")
+			return
+		}
+		reply(w, res)
 	case "activate":
 		var b struct {
 			TemplateVersion int64     `json:"template_version"`
+			Consent         bool      `json:"consent"`
+			OTPChallengeID  string    `json:"otp_challenge_id"`
+			OTPCode         string    `json:"otp_code"`
 			MaxAmountCLP    int64     `json:"max_amount_clp"`
 			ValidFrom       time.Time `json:"valid_from"`
 			ExpiresAt       time.Time `json:"expires_at"`
@@ -128,12 +162,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !decode(w, r, &b) {
 			return
 		}
-		g, e := h.repo.Activate(r.Context(), p.AccountID, space, commercialauthorization.Activation{TemplateVersion: b.TemplateVersion, MaxAmountCLP: b.MaxAmountCLP, ValidFrom: b.ValidFrom, ExpiresAt: b.ExpiresAt}, now)
+		if !b.Consent {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		if b.MaxAmountCLP <= 0 {
+			b.MaxAmountCLP = commercialauthorization.MaxAmountCLP
+		}
+		if b.ValidFrom.IsZero() && b.ExpiresAt.IsZero() {
+			b.ValidFrom = now
+			b.ExpiresAt = now.Add(commercialauthorization.MaxValidity)
+		}
+		act := commercialauthorization.Activation{
+			TemplateVersion: b.TemplateVersion,
+			MaxAmountCLP:    b.MaxAmountCLP,
+			ValidFrom:       b.ValidFrom,
+			ExpiresAt:       b.ExpiresAt,
+			Consent:         b.Consent,
+			OTPChallengeID:  b.OTPChallengeID,
+			OTPCode:         b.OTPCode,
+		}
+		if !commercialauthorization.ValidateActivation(act, now) {
+			fail(w, 422, "invalid_request")
+			return
+		}
+		if !commercialauthorization.ValidIDs(b.OTPChallengeID) || !commercialauthorization.ValidOTPCode(b.OTPCode) {
+			replyErr(w, commercialauthorization.ErrOTPRequired)
+			return
+		}
+		g, e := h.repo.Activate(r.Context(), p.AccountID, space, act, now)
 		if e != nil {
 			replyErr(w, e)
 			return
 		}
-		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": false, "notice": "La autorización acotada no constituye una firma humana; la reserva automática permanece deshabilitada hasta revisión jurídica."})
+		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": true, "notice": "Firma automática acotada activa: las nuevas solicitudes que cumplan estos límites y usen la plantilla publicada se confirmarán automáticamente y pasarán directo al pago."})
 	case "revoke":
 		var b struct {
 			AuthorizationID string `json:"authorization_id"`
@@ -151,7 +213,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			replyErr(w, e)
 			return
 		}
-		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": false})
+		reply(w, map[string]any{"authorization": g, "human_signature_recorded": false, "commercial_activation_enabled": true})
 	case "evaluate":
 		var b struct {
 			ProposalID string `json:"proposal_id"`
@@ -174,7 +236,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		decision := commercialauthorization.Evaluate(g, proposal.Terms, now)
-		reply(w, map[string]any{"decision": decision, "manual_review_required": true, "human_signature_recorded": false, "commercial_activation_enabled": false})
+		reply(w, map[string]any{
+			"decision":                      decision,
+			"manual_review_required":        !decision.Eligible,
+			"human_signature_recorded":      decision.Eligible,
+			"commercial_activation_enabled": true,
+		})
 	}
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -209,6 +276,12 @@ func replyErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, commercialauthorization.ErrInvalid):
 		fail(w, 422, "invalid_request")
+	case errors.Is(err, commercialauthorization.ErrOTPRequired):
+		fail(w, 422, "otp_required")
+	case errors.Is(err, commercialauthorization.ErrOTPInvalid):
+		fail(w, 409, "otp_invalid")
+	case errors.Is(err, commercialauthorization.ErrOTPExpired):
+		fail(w, 409, "otp_expired")
 	case errors.Is(err, commercialauthorization.ErrNotFound):
 		fail(w, 404, "not_found")
 	case errors.Is(err, commercialauthorization.ErrConflict):

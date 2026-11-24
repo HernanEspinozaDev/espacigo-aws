@@ -2,10 +2,12 @@ package commercialagreementhttp
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -71,7 +73,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	tail := strings.TrimPrefix(r.URL.Path, prefix)
 	parts := strings.Split(strings.TrimPrefix(tail, "/"), "/")
 	resourceID, action := "", ""
-	if tail != "" {
+	isOTPChallenge := tail == "/otp-challenge"
+	if tail != "" && !isOTPChallenge {
 		if len(parts) > 2 || !domain.ValidID(parts[0]) {
 			failure(w, 404, "not_found")
 			return
@@ -86,7 +89,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	allowed := "GET, POST, OPTIONS"
-	if resourceID != "" {
+	if isOTPChallenge {
+		allowed = "POST, OPTIONS"
+	} else if resourceID != "" {
 		allowed = "GET, OPTIONS"
 		if action != "" {
 			allowed = "PUT, OPTIONS"
@@ -103,7 +108,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	required := identity.Role("")
-	if r.Method == http.MethodPost {
+	if r.Method == http.MethodPost && !isOTPChallenge {
 		required = identity.RoleTenant
 	}
 	if action == "landlord-signature" {
@@ -124,7 +129,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	actor := domain.Actor{ID: p.AccountID, SessionID: p.SessionID}
+	uaHash := sha256.Sum256([]byte(r.UserAgent()))
+	actor := domain.Actor{
+		ID:            p.AccountID,
+		SessionID:     p.SessionID,
+		IPMasked:      extractMaskedIP(r),
+		UserAgentHash: uaHash[:],
+	}
 	if r.Method == http.MethodGet {
 		if resourceID != "" {
 			if r.URL.RawQuery != "" {
@@ -150,6 +161,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.RawQuery != "" {
 		failure(w, 400, "invalid_request")
+		return
+	}
+	if isOTPChallenge {
+		var in domain.OTPChallengeInput
+		if !decode(w, r, &in) {
+			return
+		}
+		res, e := h.service.RequestOTPChallenge(r.Context(), actor, in)
+		if e != nil {
+			replyError(w, e)
+			return
+		}
+		reply(w, 201, res)
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -237,11 +261,37 @@ func replyError(w http.ResponseWriter, err error) {
 		failure(w, 409, "identity_verification_required")
 	case errors.Is(err, domain.ErrIdempotency):
 		failure(w, 409, "idempotency_conflict")
+	case errors.Is(err, domain.ErrOTPRequired):
+		failure(w, 422, "otp_required")
+	case errors.Is(err, domain.ErrOTPInvalid):
+		failure(w, 409, "otp_invalid")
+	case errors.Is(err, domain.ErrOTPExpired):
+		failure(w, 409, "otp_expired")
 	case errors.Is(err, domain.ErrConflict):
 		failure(w, 409, "agreement_conflict")
 	default:
 		failure(w, 500, "internal_error")
 	}
+}
+
+func extractMaskedIP(r *http.Request) string {
+	raw := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0])
+	if raw == "" {
+		raw = r.RemoteAddr
+	}
+	host, _, err := net.SplitHostPort(raw)
+	if err == nil {
+		raw = host
+	}
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		return "unknown"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return net.IPv4(v4[0], v4[1], v4[2], 0).String() + "/24"
+	}
+	masked := ip.Mask(net.CIDRMask(48, 128))
+	return masked.String() + "/48"
 }
 func failure(w http.ResponseWriter, status int, code string) {
 	reply(w, status, map[string]any{"error": map[string]string{"code": code, "request_id": w.Header().Get("X-Request-ID")}})

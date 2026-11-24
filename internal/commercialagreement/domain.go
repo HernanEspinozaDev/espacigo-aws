@@ -33,19 +33,56 @@ var (
 	ErrIdempotency  = errors.New("commercialagreement: idempotency key conflict")
 	ErrExpired      = errors.New("commercialagreement: request expired")
 	ErrIdentity     = errors.New("commercialagreement: verified identities required")
+	ErrOTPRequired  = errors.New("commercialagreement: otp verification required")
+	ErrOTPInvalid   = errors.New("commercialagreement: invalid otp code")
+	ErrOTPExpired   = errors.New("commercialagreement: otp challenge expired")
 )
 
-type Actor struct{ ID, SessionID string }
+// SigningProvider abstracts the signature modality (internal FES today,
+// external FEA / FirmaVirtual notarial in future deliveries).
+type SigningProvider interface {
+	Mode() string
+}
+
+const (
+	ModeFESInternal          = "fes_interna"
+	ModeFirmaVirtualNotarial = "firmavirtual_notarial"
+	ModeFEAExternal          = "fea_externa"
+)
+
+type Actor struct {
+	ID            string
+	SessionID     string
+	IPMasked      string
+	UserAgentHash []byte
+}
+type OTPChallengeInput struct {
+	ProposalID  string `json:"proposal_id"`
+	SHA256      string `json:"snapshot_sha256"`
+	Role        string `json:"role"`
+	AgreementID string `json:"agreement_id,omitempty"`
+}
+type OTPChallengeResult struct {
+	ChallengeID string    `json:"challenge_id"`
+	Channel     string    `json:"channel"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	MaskedEmail string    `json:"masked_email"`
+}
 type CreateInput struct {
 	ProposalID     string `json:"proposal_id"`
 	SHA256         string `json:"snapshot_sha256"`
 	Consent        bool   `json:"consent"`
 	ConsentVersion string `json:"consent_version"`
+	OTPChallengeID string `json:"otp_challenge_id,omitempty"`
+	OTPCode        string `json:"otp_code,omitempty"`
+	SignatureMode  string `json:"signature_mode,omitempty"`
 }
 type SignInput struct {
 	SHA256         string `json:"snapshot_sha256"`
 	Consent        bool   `json:"consent"`
 	ConsentVersion string `json:"consent_version"`
+	OTPChallengeID string `json:"otp_challenge_id,omitempty"`
+	OTPCode        string `json:"otp_code,omitempty"`
 }
 type DecisionInput struct {
 	SHA256   string `json:"snapshot_sha256"`
@@ -57,6 +94,9 @@ type Signature struct {
 	SHA256          string    `json:"snapshot_sha256"`
 	ProposalVersion int64     `json:"proposal_version"`
 	ConsentVersion  string    `json:"consent_version"`
+	SignatureType   string    `json:"signature_type,omitempty"`
+	AuthMethod      string    `json:"auth_method,omitempty"`
+	EvidenceSHA256  string    `json:"evidence_sha256,omitempty"`
 }
 type Agreement struct {
 	ID               string      `json:"id"`
@@ -71,6 +111,7 @@ type Agreement struct {
 	ExpiresAt        time.Time   `json:"expires_at"`
 	PaymentExpiresAt *time.Time  `json:"payment_expires_at"`
 	OccupancyID      *string     `json:"-"`
+	SignatureMode    string      `json:"signature_mode,omitempty"`
 	Revision         int64       `json:"revision"`
 	CreatedAt        time.Time   `json:"created_at"`
 	UpdatedAt        time.Time   `json:"updated_at"`
@@ -85,13 +126,26 @@ type Repository interface {
 	List(context.Context, string, string) ([]Agreement, error)
 	ExpireDue(context.Context, int) (int, error)
 }
-type Service struct{ repo Repository }
+type OTPRepository interface {
+	CreateOTPChallenge(context.Context, Actor, OTPChallengeInput) (OTPChallengeResult, string, string, error)
+}
+type Service struct {
+	repo       Repository
+	otpRepo    OTPRepository
+	otpSender  Sender
+	requireOTP bool
+}
 
 func New(repo Repository) (*Service, error) {
 	if repo == nil {
 		return nil, ErrInvalid
 	}
 	return &Service{repo: repo}, nil
+}
+func (s *Service) ConfigureOTP(otpRepo OTPRepository, sender Sender, require bool) {
+	s.otpRepo = otpRepo
+	s.otpSender = sender
+	s.requireOTP = require
 }
 func ValidID(s string) bool {
 	id, err := uuid.Parse(s)
@@ -118,15 +172,53 @@ func Fingerprint(in CreateInput) []byte {
 	sum := sha256.Sum256(blob)
 	return sum[:]
 }
+func validOTPCode(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, r := range code {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+func (s *Service) RequestOTPChallenge(ctx context.Context, a Actor, in OTPChallengeInput) (OTPChallengeResult, error) {
+	if s.otpRepo == nil || s.otpSender == nil {
+		return OTPChallengeResult{}, ErrInvalid
+	}
+	if !validActor(a) || !ValidID(in.ProposalID) || !ValidSHA(in.SHA256) || (in.Role != "arrendatario" && in.Role != "arrendador") {
+		return OTPChallengeResult{}, ErrInvalid
+	}
+	if in.AgreementID != "" && !ValidID(in.AgreementID) {
+		return OTPChallengeResult{}, ErrInvalid
+	}
+	res, email, code, err := s.otpRepo.CreateOTPChallenge(ctx, a, in)
+	if err != nil {
+		return OTPChallengeResult{}, err
+	}
+	subject := "Código de firma electrónica EspaciGo"
+	body := "Tu código de verificación para firmar el contrato es: " + code + ". Expira en 5 minutos. No lo compartas con nadie."
+	if err := s.otpSender.SendLocalBookingNotice(ctx, email, subject, body); err != nil {
+		return OTPChallengeResult{}, err
+	}
+	return res, nil
+}
 func (s *Service) Create(ctx context.Context, a Actor, in CreateInput, key string) (Agreement, error) {
 	if !validActor(a) || !ValidID(in.ProposalID) || !ValidSHA(in.SHA256) || !in.Consent || in.ConsentVersion != ConsentVersion || !ValidKey(key) {
 		return Agreement{}, ErrInvalid
+	}
+	if s.requireOTP && (!ValidID(in.OTPChallengeID) || !validOTPCode(in.OTPCode)) {
+		return Agreement{}, ErrOTPRequired
 	}
 	return s.repo.Create(ctx, a, in, key)
 }
 func (s *Service) Accept(ctx context.Context, a Actor, id string, rev int64, in SignInput) (Agreement, error) {
 	if !validActor(a) || !ValidID(id) || rev < 1 || !ValidSHA(in.SHA256) || !in.Consent || in.ConsentVersion != ConsentVersion {
 		return Agreement{}, ErrInvalid
+	}
+	if s.requireOTP && (!ValidID(in.OTPChallengeID) || !validOTPCode(in.OTPCode)) {
+		return Agreement{}, ErrOTPRequired
 	}
 	return s.repo.Accept(ctx, a, id, rev, in)
 }

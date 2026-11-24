@@ -51,9 +51,16 @@ export class HostAgreementsOpenApiAdapter implements HostAgreementsPort {
     );
     if (!result.response.ok)
       throw normalizeApiError(result.response, result.error);
-    return parseProposal(result.data?.data, { proposalId: id });
+    return parseProposal(result.data?.data, {
+      proposalId: id,
+      allowRevealedParties: true,
+    });
   }
-  async accept(read: AgreementRead, signal?: AbortSignal) {
+  async accept(
+    read: AgreementRead,
+    signal?: AbortSignal,
+    otp?: { challengeId: string; code: string },
+  ) {
     const result = await this.client.PUT(
       "/commercial-agreements/{agreementID}/landlord-signature",
       {
@@ -65,6 +72,7 @@ export class HostAgreementsOpenApiAdapter implements HostAgreementsPort {
           snapshot_sha256: read.agreement.snapshot_sha256,
           consent: true,
           consent_version: agreementConsentVersion,
+          ...(otp ? { otp_challenge_id: otp.challengeId, otp_code: otp.code } : {}),
         },
         bodySerializer: serializeExactJson,
         signal,

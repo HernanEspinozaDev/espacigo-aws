@@ -18,7 +18,7 @@ func TestEvaluateAllowsOnlyExactPublishedVersionWithinAmountAndValidity(t *testi
 	now := time.Date(2030, 1, 2, 12, 0, 0, 0, time.UTC)
 	grant := validGrant(now)
 	terms := validTerms()
-	if d := Evaluate(grant, terms, now); !d.Eligible || d.Reason != "within_authorized_limits_manual_review_required" {
+	if d := Evaluate(grant, terms, now); !d.Eligible || d.Reason != "within_authorized_limits" {
 		t.Fatalf("eligible decision=%+v", d)
 	}
 	cases := []struct {
@@ -59,6 +59,34 @@ func TestValidateActivationBoundsVersionAmountAndDuration(t *testing.T) {
 		mutate(&bad)
 		if ValidateActivation(bad, now) {
 			t.Fatalf("invalid activation accepted: %+v", bad)
+		}
+	}
+}
+
+func TestEvaluateUnlimitedGrantAllowsAnyPositiveCLPSubtotal(t *testing.T) {
+	now := time.Date(2030, 1, 2, 12, 0, 0, 0, time.UTC)
+	grant := validGrant(now)
+	grant.MaxAmountCLP = MaxAmountCLP
+	terms := validTerms()
+	terms.SubtotalCLP = MaxAmountCLP * 5
+	if d := Evaluate(grant, terms, now); !d.Eligible || d.Reason != "within_authorized_limits" {
+		t.Fatalf("unlimited decision=%+v", d)
+	}
+	terms.SubtotalCLP = 0
+	if d := Evaluate(grant, terms, now); d.Eligible || d.Reason != "amount_out_of_bounds" {
+		t.Fatalf("zero subtotal decision=%+v", d)
+	}
+}
+
+func TestValidOTPCode(t *testing.T) {
+	for _, good := range []string{"000000", "123456", "987654"} {
+		if !ValidOTPCode(good) {
+			t.Fatalf("expected %q valid", good)
+		}
+	}
+	for _, bad := range []string{"", "12345", "1234567", "12345a", " 12345"} {
+		if ValidOTPCode(bad) {
+			t.Fatalf("expected %q invalid", bad)
 		}
 	}
 }

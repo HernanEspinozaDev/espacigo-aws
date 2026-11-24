@@ -21,6 +21,9 @@ func TestConfirmedLocationProjectionAndGeoFilteringPrecedeLimit(t *testing.T) {
 		if f.Proximity != nil {
 			fixture = append(fixture, float64(1.25))
 		}
+		if f.MapOnly {
+			fixture = append(fixture, 1)
+		}
 		pool := &coverSourcePool{row: fixture}
 		items, err := (&Repository{pool: pool}).List(context.Background(), f, nil, 4)
 		if err != nil || len(items) != 1 || items[0].Location == nil || items[0].Location.Address != "Calle 123" {

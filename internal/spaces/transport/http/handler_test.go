@@ -75,6 +75,17 @@ func (m *memoryRepo) Create(_ context.Context, owner string, in spaces.Input) (s
 	m.draft.UpdatedAt = time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
 	return m.draft, nil
 }
+
+func (m *memoryRepo) CreateWithLocation(ctx context.Context, owner string, in spaces.Input, location spaces.LocationInput) (spaces.Draft, error) {
+	in.Address, in.RegionCode, in.CommuneCode = location.Address, location.RegionCode, location.CommuneCode
+	d, err := m.Create(ctx, owner, in)
+	if err == nil {
+		m.draft.Address = location.Address
+		m.draft.RegionCode, m.draft.CommuneCode = &location.RegionCode, &location.CommuneCode
+		d = m.draft
+	}
+	return d, err
+}
 func (m *memoryRepo) ListOwn(_ context.Context, owner string) ([]spaces.Draft, error) {
 	if owner != m.owner {
 		return []spaces.Draft{}, nil
@@ -205,19 +216,22 @@ func draftFromInput(in spaces.Input) spaces.Draft {
 	return spaces.Draft{CategoryCode: in.CategoryCode, CategoryName: name, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: in.Address, State: "borrador", AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
 }
 func validJSON() string {
-	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1"})
+	b, _ := json.Marshal(spaces.CreateInput{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Location: spaces.LocationInput{Address: "Calle 1", RegionCode: "13", CommuneCode: "13101", Latitude: ptrFloat(-33.45), Longitude: ptrFloat(-70.66)}})
 	return string(b)
 }
 func versionedDraftJSON(title string) string {
-	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: title, Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1", AttributeSchemaVersion: 1, Attributes: map[string]any{}})
+	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: title, Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1", RegionCode: "13", CommuneCode: "13101", AttributeSchemaVersion: 1, Attributes: map[string]any{}})
 	return string(b)
 }
+func ptrFloat(v float64) *float64 { return &v }
 func testHandler(t *testing.T) http.Handler {
 	t.Helper()
 	svc, e := spaces.NewService(&memoryRepo{})
 	if e != nil {
 		t.Fatal(e)
 	}
+	svc.SetLocationBoundaryChecker(testLocationBounds{})
+	svc.SetLocationCatalog(testLocationCatalog{})
 	return NewHandler(fakeAuth{}, svc, []string{"http://localhost"})
 }
 
@@ -290,6 +304,20 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`, draftETag(repo.draft))
 	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "time_zone_required" || !strings.Contains(response.Body.String(), "IANA") || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
 		t.Fatalf("missing time zone error contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{err: spaces.ErrIdentityRequired, code: "identity_verification_required"},
+		{err: spaces.ErrMercadoPagoRequired, code: "mercadopago_connection_required"},
+		{err: spaces.ErrContractTemplateRequired, code: "contract_template_required"},
+	} {
+		repo.publicationErr = tc.err
+		response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`, draftETag(repo.draft))
+		if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != tc.code || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
+			t.Fatalf("gate %s error contract got %d header=%q body=%s", tc.code, response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+		}
 	}
 }
 
@@ -500,6 +528,8 @@ func TestDraftRoutesRequireSessionAndReturnNotFoundAcrossOwners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	service.SetLocationBoundaryChecker(testLocationBounds{})
+	service.SetLocationCatalog(testLocationCatalog{})
 	h := NewHandler(fakeAuth{}, service, []string{"http://localhost"})
 	if got := invoke(h, "GET", "/api/v1/spaces", "", "").Code; got != 401 {
 		t.Fatalf("unauthenticated status=%d", got)
@@ -1386,6 +1416,8 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	service.SetLocationBoundaryChecker(testLocationBounds{})
+	service.SetLocationCatalog(testLocationCatalog{})
 	h := NewHandler(fakeAuth{}, service, []string{"http://localhost"})
 	profileResponse := invoke(h, "GET", "/api/v1/spaces/categories/oficina/attributes", "user", "")
 	if profileResponse.Code != http.StatusOK {
@@ -1585,6 +1617,8 @@ func TestUpdateDraftKeepsItsStoredProfileVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	svc.SetLocationBoundaryChecker(testLocationBounds{})
+	svc.SetLocationCatalog(testLocationCatalog{})
 	h := NewHandler(fakeAuth{}, svc, nil)
 	if response := invoke(h, "POST", "/api/v1/spaces", "user", validJSON()); response.Code != 201 {
 		t.Fatalf("create status=%d %s", response.Code, response.Body.String())
@@ -1592,7 +1626,7 @@ func TestUpdateDraftKeepsItsStoredProfileVersion(t *testing.T) {
 	// Simulate an existing draft that predates the currently latest profile.
 	repo.draft.AttributeSchemaVersion = 1
 	current := invoke(h, http.MethodGet, "/api/v1/spaces/"+draftID, "user", "")
-	updated := invokeIfMatch(h, "/api/v1/spaces/"+draftID, "user", validJSON(), current.Header().Get("ETag"))
+	updated := invokeIfMatch(h, "/api/v1/spaces/"+draftID, "user", versionedDraftJSON("Oficina"), current.Header().Get("ETag"))
 	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"attribute_schema_version":1`) {
 		t.Fatalf("v1 update status=%d %s", updated.Code, updated.Body.String())
 	}
@@ -1607,6 +1641,8 @@ func TestPublicMonthlyAvailabilityAndHostInventoryUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	svc.SetLocationBoundaryChecker(testLocationBounds{})
+	svc.SetLocationCatalog(testLocationCatalog{})
 	h := NewHandler(fakeAuth{}, svc, nil)
 	// Create draft
 	if response := invoke(h, "POST", "/api/v1/spaces", "user", validJSON()); response.Code != 201 {

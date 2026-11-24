@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import {
   expect,
   test,
@@ -14,14 +15,28 @@ import { isAllowedLocalResource } from "./helpers/local-resource-origin";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
+const controlledMapStyle =
+  /^https:\/\/maps\.geo\.[a-z0-9-]+\.amazonaws\.com\/v2\/styles\/[^?]+\/descriptor(?:\?|$)/;
 const requestsOutsideLoopback = new WeakMap<Page, boolean>();
 test.beforeEach(async ({ page }) => {
   requestsOutsideLoopback.set(page, false);
+  await page.route(controlledMapStyle, (route) =>
+    route.fulfill({
+      json: {
+        version: 8,
+        sources: {},
+        layers: [{ id: "test-background", type: "background" }],
+      },
+    }),
+  );
   const baseUrl = test.info().project.use.baseURL;
   if (typeof baseUrl !== "string")
     throw new Error("Playwright baseURL is required");
   page.on("request", (request) => {
-    if (!isAllowedLocalResource(request.url(), baseUrl))
+    if (
+      !controlledMapStyle.test(request.url()) &&
+      !isAllowedLocalResource(request.url(), baseUrl)
+    )
       requestsOutsideLoopback.set(page, true);
   });
 });
@@ -599,6 +614,10 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 6 pasos (Paso 
         roles: ["arrendatario", "arrendador"],
       };
       acceptedCreate = true;
+      capturedLocationBody = capturedCreateBody.location as Record<
+        string,
+        unknown
+      >;
       return {
         status: 201,
         headers: { etag: '"rev-create-1"' },
@@ -615,34 +634,13 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 6 pasos (Paso 
             capturedCreateBody.cancellation_policy_version,
           rate_unit: capturedCreateBody.rate_unit,
           base_price_clp: capturedCreateBody.base_price_clp,
-          address: capturedCreateBody.address,
+          address: capturedLocationBody?.address,
           state: "borrador",
           time_zone: null,
-          region_code: capturedCreateBody.region_code,
-          comuna_code: capturedCreateBody.comuna_code,
+          region_code: capturedLocationBody?.region_code,
+          comuna_code: capturedLocationBody?.comuna_code,
           attribute_schema_version: capturedCreateBody.attribute_schema_version,
           attributes: capturedCreateBody.attributes,
-        },
-      };
-    }
-
-    if (
-      pathname === `/api/backend/spaces/${newSpaceId}/location` &&
-      method === "PUT"
-    ) {
-      capturedLocationBody = JSON.parse(request.postData() ?? "{}") as Record<
-        string,
-        unknown
-      >;
-      return {
-        status: 200,
-        headers: { etag: '"rev-location-2"' },
-        body: {
-          space_id: newSpaceId,
-          ...capturedLocationBody,
-          confirmed_at: null,
-          revision: 1,
-          updated_at: new Date().toISOString(),
         },
       };
     }
@@ -898,8 +896,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 6 pasos (Paso 
     /.+/,
   );
   await page.locator("#wizard-address").fill("Av. Apoquindo 3000, Las Condes");
-  await page.locator("#wizard-region").selectOption("13");
-  await page.locator("#wizard-comuna").selectOption("13114");
+  await chooseWizardLocation(page, "13114", true);
   await page.locator("#wizard-address").fill("😀".repeat(501));
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   const addressField = page.locator("#wizard-address");
@@ -1164,7 +1161,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 6 pasos (Paso 
   // POST /spaces no admite Idempotency-Key; la galería sí lo conserva.
   expect(capturedIdempotencyKey).toBeNull();
   expect(createPostCount).toBe(1);
-  expect(timezoneIfMatch).toBe('"rev-location-2"');
+  expect(timezoneIfMatch).toBe('"rev-create-1"');
   expect(capturedLocationBody).toMatchObject({
     address: "Av. Apoquindo 3000, Las Condes",
     region_code: "13",
@@ -4110,6 +4107,7 @@ test("@phase7 @controlled quincho sin parrilla: pone solo el contador en cero y 
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 2: Ubicación")).toBeVisible();
+  await chooseWizardLocation(page, "13101", true);
   await page.locator("#wizard-address").fill("Dirección sintética 100");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 3: Atributos")).toBeVisible();
@@ -4226,6 +4224,7 @@ test("@phase7 @controlled estacionamiento v1: renderiza el perfil local sin crea
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 2: Ubicación")).toBeVisible();
+  await chooseWizardLocation(page, "13101", true);
   await page.locator("#wizard-address").fill("Dirección sintética 100");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 3: Atributos")).toBeVisible();
@@ -4306,6 +4305,7 @@ for (const category of profileFixtureCategories) {
       );
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(page.getByText("Paso 2: Ubicación")).toBeVisible();
+    await chooseWizardLocation(page, "13101", true);
     await page.locator("#wizard-address").fill("Dirección sintética 100");
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
     await expect(page.getByText("Paso 3: Atributos")).toBeVisible();
@@ -4414,6 +4414,7 @@ test("@phase7 @controlled perfil sala_multiproposito v1: bloquea el avance y aso
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 2: Ubicación")).toBeVisible();
+  await chooseWizardLocation(page, "13101", true);
   await page.locator("#wizard-address").fill("Avenida sintética 123");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 3: Atributos")).toBeVisible();
@@ -4477,6 +4478,7 @@ test("@phase7 @controlled el asistente espera el perfil dinámico antes de valid
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await schemaRequested;
   await expect(page.getByText("Paso 2: Ubicación")).toBeVisible();
+  await chooseWizardLocation(page, "13101", true);
   await page.locator("#wizard-address").fill("Dirección sintética 100");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByText("Paso 3: Atributos")).toBeVisible();
@@ -4527,7 +4529,7 @@ test("@phase7 @controlled si falla el perfil dinámico, el wizard permite reinte
       "Espacio sintético para verificar el mensaje y la recuperación cuando el servicio de perfiles no está disponible temporalmente.",
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-  await page.getByRole("button", { name: "Siguiente", exact: true }).click();
+  await chooseWizardLocation(page, "13101", true);
   await page.locator("#wizard-address").fill("Dirección sintética 100");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(
@@ -4644,6 +4646,8 @@ test("@phase7 @controlled cambiar categoría elimina atributos dinámicos anteri
       "Descripción sintética para probar que al cambiar de una oficina con Wi-Fi a estacionamiento el atributo anterior no se filtre en el borrador creado.",
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
+  await chooseWizardLocation(page, "13114", true);
+  await page.locator("#wizard-address").fill("Dirección sintética inicial");
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByLabel(wifi!.label)).toBeVisible();
   await page.getByLabel(wifi!.label).check();
@@ -4653,8 +4657,7 @@ test("@phase7 @controlled cambiar categoría elimina atributos dinámicos anteri
   await page.locator("#wizard-category").selectOption(newCategory);
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await page.locator("#wizard-address").fill("Dirección sintética 123");
-  await page.locator("#wizard-region").selectOption("13");
-  await page.locator("#wizard-comuna").selectOption("13114");
+  await chooseWizardLocation(page, "13114", true);
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
   await expect(page.getByLabel(access!.label)).toBeVisible();
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();

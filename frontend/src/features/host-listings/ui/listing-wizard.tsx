@@ -15,6 +15,10 @@ import {
   Loader2,
   AlertCircle,
   Info,
+  ListChecks,
+  CheckCircle2,
+  Clock,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -32,19 +36,24 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { authFacade } from "@/features/auth/auth-runtime";
 import { listingErrorMessage } from "../domain/listing-error-message";
 import {
+  mercadoPagoReturnHref,
+  verificationReturnHref,
+} from "../domain/publish-guide";
+import {
+  PublishGuideModal,
+  usePublishPrerequisites,
+} from "./publish-guide-modal";
+import {
   cancellationPolicies,
   cancellationPolicyVersion,
 } from "../domain/cancellation-policy";
 import type { CancellationPolicyVersion } from "../domain/cancellation-policy";
-import {
-  CHILE_COMUNAS,
-  CHILE_REGIONS,
-  getComunasByRegion,
-} from "../domain/chile-dpa";
+import { CHILE_COMUNAS, CHILE_REGIONS } from "../domain/chile-dpa";
 import { validateLocation } from "../domain/commercial-location";
 import { CommercialLocationFields } from "./commercial-location-fields";
-import { commercialLocationService } from "../commercial-location-runtime";
 import { validateWizardLocation } from "../domain/wizard-location";
+import { reverseGeocodeCommercialPin } from "../commercial-location-runtime";
+import { useCommercialPinResolution } from "./use-commercial-pin-resolution";
 import { CHILE_TIME_ZONE_OPTIONS } from "../domain/chile-time-zones";
 import {
   cleanAttributesForPayload,
@@ -69,7 +78,7 @@ import {
 } from "../domain/validation";
 import type {
   Category,
-  ListingDraftInput,
+  ListingCreateInput,
   RateUnit,
   ScheduleSlot,
 } from "../domain/types";
@@ -107,6 +116,17 @@ export function ListingWizard() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const isAuthenticated =
+    authSnapshot.status === "authenticated" && Boolean(accessToken);
+  const isHost =
+    authSnapshot.status === "authenticated" &&
+    authSnapshot.roles.includes("arrendador");
+  const prerequisites = usePublishPrerequisites({
+    accessToken: isAuthenticated ? accessToken : null,
+    isHost,
+    enabled: isAuthenticated,
+  });
   const [partialDraft, setPartialDraft] = useState<{
     id: string | null;
     accountId: string | null;
@@ -123,14 +143,25 @@ export function ListingWizard() {
   const [description, setDescription] = useState<string>("");
 
   // Paso 2: Ubicación, dimensiones y atributos dinámicos
-  const [address, setAddress] = useState<string>("");
-  const [pin, setPin] = useState<{
-    latitude: number | null;
-    longitude: number | null;
-    public_confirmed: boolean;
-  }>({ latitude: null, longitude: null, public_confirmed: false });
-  const [comunaCode, setComunaCode] = useState<string>("");
-  const [regionCode, setRegionCode] = useState<string>("");
+  const pinResolution = useCommercialPinResolution({
+    initial: {
+      address: "",
+      region_code: "",
+      comuna_code: "",
+      latitude: null,
+      longitude: null,
+      public_confirmed: false,
+    },
+    resolvePin: reverseGeocodeCommercialPin,
+    onChange: () => {},
+  });
+  const {
+    location: pin,
+    onLocationChange,
+    selectPin,
+    isResolved,
+  } = pinResolution;
+  const { address, region_code: regionCode, comuna_code: comunaCode } = pin;
   const [areaM2, setAreaM2] = useState<number>(25);
   const [capacity, setCapacity] = useState<number>(4);
   const [dynamicAttributes, setDynamicAttributes] = useState<
@@ -249,6 +280,9 @@ export function ListingWizard() {
       else if (Array.from(address).length > 500)
         errors.address = "La dirección no puede superar los 500 caracteres.";
       if (!location.valid) errors.comuna = location.message;
+      if (!isResolved)
+        errors.location =
+          "Ajusta el pin y espera a que se confirme la región y comuna.";
     } else if (step === 3) {
       if (!isValidAreaM2(areaM2))
         errors.area =
@@ -402,6 +436,13 @@ export function ListingWizard() {
       setStepError(location.message);
       return;
     }
+    if (!isResolved || pin.latitude === null || pin.longitude === null) {
+      setCurrentStep(2);
+      setStepError(
+        "Ajusta el pin y espera a que se confirme la región y comuna.",
+      );
+      return;
+    }
 
     // Validación final completa
     if (!currentSchema) {
@@ -409,7 +450,7 @@ export function ListingWizard() {
       return;
     }
     const cleanAttributes = cleanAttributesForPayload(dynamicAttributes);
-    const draftPayload: ListingDraftInput = {
+    const draftPayload: ListingCreateInput = {
       category_code: categoryCode,
       title: title.trim(),
       description: description.trim(),
@@ -419,9 +460,11 @@ export function ListingWizard() {
       cancellation_policy_version: cancellationPolicy,
       rate_unit: rateUnit,
       base_price_clp: Number(basePriceCLP),
-      address: address.trim(),
-      region_code: regionCode || undefined,
-      comuna_code: comunaCode.trim() || undefined,
+      location: {
+        ...pin,
+        latitude: pin.latitude,
+        longitude: pin.longitude,
+      },
       attribute_schema_version: currentSchema.schema_version,
       attributes: cleanAttributes,
     };
@@ -436,12 +479,7 @@ export function ListingWizard() {
     }
 
     try {
-      validateLocation({
-        address: draftPayload.address,
-        region_code: regionCode,
-        comuna_code: comunaCode,
-        ...pin,
-      });
+      validateLocation(pin);
     } catch (error) {
       setStepError(
         error instanceof Error ? error.message : "Revisa la ubicación.",
@@ -471,29 +509,19 @@ export function ListingWizard() {
         throw new DOMException("La sesión cambió.", "AbortError");
       }
 
-      // Configure timezone first, then use its renewed ETag for schedule.
+      // Configure timezone with the create response ETag.
       const createdEtag = created.etag;
       if (!createdEtag) {
         throw new Error("No se pudo verificar la versión del borrador creado.");
       }
-      const located = await commercialLocationService.save(
-        created.id,
-        {
-          address: draftPayload.address,
-          region_code: regionCode,
-          comuna_code: comunaCode,
-          ...pin,
-        },
-        createdEtag,
-      );
-      if (currentScope !== getAccessToken())
-        throw new DOMException("La sesión cambió.", "AbortError");
       const configured = await configureTimeZone(
         currentScope,
         created.id,
         timeZone,
-        located.etag,
+        createdEtag,
       );
+      if (currentScope !== getAccessToken())
+        throw new DOMException("La sesión cambió.", "AbortError");
       if (scheduleEnabled && rateUnit === "hora" && slots.length > 0) {
         await updateWeeklySchedule(
           currentScope,
@@ -545,13 +573,132 @@ export function ListingWizard() {
             Completa los 6 pasos para dar de alta tu propiedad en EspaciGo.
           </p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/anfitrion/espacios" className="gap-1.5">
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            Mis espacios
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              setGuideOpen(true);
+              prerequisites.reload();
+            }}
+          >
+            <ListChecks className="size-4 text-primary" aria-hidden="true" />
+            Guía para publicar
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/anfitrion/espacios" className="gap-1.5">
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Mis espacios
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {/* Guía compacta de requisitos previos para publicar */}
+      {prerequisites.loaded &&
+        !prerequisites.error &&
+        (!prerequisites.kycVerified || (isHost && !prerequisites.mpConnected)) && (
+          <section
+            aria-label="Requisitos previos para publicar"
+            className="rounded-xl border border-amber-300 bg-amber-50/70 p-4 space-y-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <h2 className="text-sm font-semibold text-amber-950">
+                  Antes de publicar tu espacio, necesitarás completar estos pasos
+                </h2>
+                <p className="text-xs text-amber-900">
+                  Puedes crear tu borrador ahora, pero para activarlo en el
+                  catálogo deberás confirmar tu identidad, vincular Mercado Pago
+                  y publicar la plantilla de contrato en el editor.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-amber-400 bg-white text-amber-950 hover:bg-amber-100"
+                onClick={() => setGuideOpen(true)}
+              >
+                Ver guía completa
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">1. Identidad (KYC)</span>
+                {prerequisites.kycVerified ? (
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="size-3" aria-hidden="true" />
+                    Listo
+                  </Badge>
+                ) : (
+                  <Link
+                    href={verificationReturnHref("/anfitrion/espacios/nuevo")}
+                    className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    Completar
+                    <ArrowRight className="size-3" aria-hidden="true" />
+                  </Link>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">2. Mercado Pago</span>
+                {prerequisites.mpConnected ? (
+                  <Badge className="bg-emerald-600 text-white gap-1">
+                    <CheckCircle2 className="size-3" aria-hidden="true" />
+                    Listo
+                  </Badge>
+                ) : isHost ? (
+                  <Link
+                    href={mercadoPagoReturnHref("/anfitrion/espacios/nuevo")}
+                    className="font-semibold text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    Vincular
+                    <ArrowRight className="size-3" aria-hidden="true" />
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground inline-flex items-center gap-1">
+                    <Lock className="size-3" aria-hidden="true" />
+                    Tras borrador
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">3. Borrador</span>
+                <Badge
+                  variant="outline"
+                  className="border-amber-400 text-amber-800 gap-1"
+                >
+                  <Clock className="size-3" aria-hidden="true" />
+                  En curso
+                </Badge>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <span className="font-medium">4. Contrato</span>
+                <span className="text-muted-foreground inline-flex items-center gap-1">
+                  <Lock className="size-3" aria-hidden="true" />
+                  En editor
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
+
+      <PublishGuideModal
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
+        mode="wizard"
+        isHost={isHost}
+        prerequisites={prerequisites}
+        onRefresh={prerequisites.reload}
+        returnPath="/anfitrion/espacios/nuevo"
+      />
 
       {/* Indicador de progreso de 6 pasos accesibles */}
       <nav aria-label="Pasos del asistente de publicación">
@@ -794,141 +941,45 @@ export function ListingWizard() {
             </CardHeader>
             <CardContent className="space-y-6">
               {currentStep === 2 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="wizard-address" className="font-semibold">
-                      Dirección física *
-                    </Label>
-                    <Input
-                      id="wizard-address"
-                      value={address}
-                      onChange={(e) => {
-                        setAddress(e.target.value);
-                        setPin((current) => ({
-                          ...current,
-                          public_confirmed: false,
-                        }));
-                        clearFieldError("address");
-                      }}
-                      {...fieldFeedback("address")}
-                      placeholder="Ej: Av. Apoquindo 4500, Oficina 801"
-                      required
-                    />
-                    {fieldErrors.address && (
-                      <p
-                        id="wizard-address-error"
-                        className="text-sm text-red-800"
-                      >
-                        {fieldErrors.address}
-                      </p>
-                    )}
+                <div className="space-y-4">
+                  <CommercialLocationFields
+                    idPrefix="wizard"
+                    location={pin}
+                    onLocationChange={(next) => {
+                      onLocationChange(next);
+                      if (next.address !== address) clearFieldError("address");
+                    }}
+                    onSelectPin={selectPin}
+                    resolution={pinResolution.resolution}
+                    onRestoreAddress={
+                      pinResolution.restoredAddressAvailable
+                        ? pinResolution.restoreAddress
+                        : undefined
+                    }
+                    addressErrorId={
+                      fieldErrors.address ? "wizard-address-error" : undefined
+                    }
+                    addressInvalid={Boolean(fieldErrors.address)}
+                    disabled={isSubmitting}
+                  />
+                  {fieldErrors.location && (
                     <p
-                      id="wizard-address-count"
-                      className="text-xs text-muted-foreground text-right"
+                      id="wizard-location-error"
+                      role="alert"
+                      className="text-sm text-destructive"
                     >
-                      {Array.from(address).length}/500
+                      {fieldErrors.location}
                     </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wizard-region" className="font-semibold">
-                      Región
-                    </Label>
-                    <select
-                      id="wizard-region"
-                      value={regionCode}
-                      onChange={(e) => {
-                        setRegionCode(e.target.value);
-                        setPin((current) => ({
-                          ...current,
-                          public_confirmed: false,
-                        }));
-                        setComunaCode("");
-                        clearFieldError("region");
-                        clearFieldError("comuna");
-                      }}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  )}
+                  {fieldErrors.address && (
+                    <p
+                      id="wizard-address-error"
+                      role="alert"
+                      className="text-sm text-destructive"
                     >
-                      <option value="">Selecciona una región</option>
-                      {CHILE_REGIONS.map(({ code, name }) => (
-                        <option key={code} value={code}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="wizard-comuna" className="font-semibold">
-                      Comuna
-                    </Label>
-                    <select
-                      id="wizard-comuna"
-                      {...fieldFeedback("comuna")}
-                      value={comunaCode}
-                      disabled={!regionCode}
-                      onChange={(e) => {
-                        setComunaCode(e.target.value);
-                        setPin((current) => ({
-                          ...current,
-                          public_confirmed: false,
-                        }));
-                        clearFieldError("comuna");
-                      }}
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
-                      aria-describedby={
-                        [
-                          fieldErrors.comuna
-                            ? "wizard-comuna-error"
-                            : undefined,
-                          regionCode === "12"
-                            ? "wizard-comuna-limit"
-                            : undefined,
-                        ]
-                          .filter(Boolean)
-                          .join(" ") || undefined
-                      }
-                    >
-                      <option value="">Selecciona una comuna</option>
-                      {getComunasByRegion(regionCode).map(({ code, name }) => (
-                        <option
-                          key={code}
-                          value={code}
-                          disabled={code === "12202"}
-                        >
-                          {code === "12202"
-                            ? "Antártica — aún no disponible"
-                            : name}
-                        </option>
-                      ))}
-                    </select>
-                    {regionCode === "12" && (
-                      <p
-                        id="wizard-comuna-limit"
-                        className="text-sm text-muted-foreground"
-                      >
-                        Antártica figura en el catálogo, pero el backend actual
-                        no admite esa comuna.
-                      </p>
-                    )}
-                    {fieldErrors.comuna && (
-                      <p
-                        id="wizard-comuna-error"
-                        className="text-sm text-destructive"
-                      >
-                        {fieldErrors.comuna}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <CommercialLocationFields
-                      address={address}
-                      value={pin}
-                      onChange={setPin}
-                      disabled={isSubmitting}
-                    />
-                  </div>
+                      {fieldErrors.address}
+                    </p>
+                  )}
                 </div>
               )}
               {currentStep === 3 && (
@@ -1823,6 +1874,7 @@ export function ListingWizard() {
               onClick={handleNext}
               disabled={
                 isSubmitting ||
+                (currentStep === 2 && !isResolved) ||
                 (currentStep === 3 && Boolean(categoryCode) && !currentSchema)
               }
               className="gap-1.5 font-semibold"

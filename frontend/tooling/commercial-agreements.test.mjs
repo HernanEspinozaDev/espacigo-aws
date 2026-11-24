@@ -21,7 +21,10 @@ async function compile(file, output, replacements = []) {
   );
   return import(pathToFileURL(path.join(dir, output)).href);
 }
-await compile("../src/lib/api/errors.ts", "errors.mjs");
+const { ApiError, ApiProtocolError } = await compile(
+  "../src/lib/api/errors.ts",
+  "errors.mjs",
+);
 await compile(
   "../src/features/host-listings/domain/contract-template.ts",
   "templates.mjs",
@@ -230,4 +233,146 @@ test("capability errors remain errors and resume rejects a changed snapshot", as
   );
   await assert.rejects(service.resume(agreement.id), /snapshot mismatch/);
   assert.equal(scoped, 1);
+});
+
+function makeApiError(status, code) {
+  return new ApiError({
+    status,
+    code,
+    requestId: null,
+    retryAfter: null,
+    fields: [],
+  });
+}
+
+test("agreementErrorMessage surfaces specific OTP, conflict, validation, and protocol errors", () => {
+  const cases = [
+    [
+      makeApiError(409, "otp_invalid"),
+      "El código de firma es inválido o superó el máximo de intentos. Solicita uno nuevo.",
+    ],
+    [
+      makeApiError(409, "otp_expired"),
+      "El código de firma expiró (5 minutos). Solicita un código nuevo.",
+    ],
+    [
+      makeApiError(422, "otp_required"),
+      "Ingresa el código de 6 dígitos enviado a tu correo antes de confirmar.",
+    ],
+    [
+      makeApiError(409, "agreement_conflict"),
+      "La cotización venció (6 minutos) o cambió el estado de la solicitud. Actualiza la cotización para continuar.",
+    ],
+    [
+      makeApiError(409, "idempotency_conflict"),
+      "Ya se procesó un intento previo con este envío. Actualiza el estado o solicita un nuevo código.",
+    ],
+    [
+      makeApiError(422, "validation_error"),
+      "Los datos de firma no son válidos. Revisa el código e inténtalo nuevamente.",
+    ],
+    [
+      makeApiError(401, "unauthenticated"),
+      "Inicia sesión con la cuenta que participa en esta solicitud.",
+    ],
+    [
+      makeApiError(404, "not_found"),
+      "La cotización o la solicitud ya no están disponibles para esta cuenta.",
+    ],
+    [
+      makeApiError(503, "service_unavailable"),
+      "No pudimos confirmar la operación. Actualiza el estado antes de continuar o reintenta el envío.",
+    ],
+    [
+      new ApiProtocolError(),
+      "No pudimos confirmar la respuesta del servidor. Actualiza la página o intenta nuevamente.",
+    ],
+    [
+      new TypeError("Failed to fetch"),
+      "No pudimos confirmar la operación. Actualiza la página o reintenta el envío.",
+    ],
+  ];
+  for (const [err, expected] of cases) {
+    assert.equal(domain.agreementErrorMessage(err), expected);
+  }
+});
+
+test("signing idempotency key rotates across OTP challenges and definitive 4xx errors while preserving transient 5xx retries", () => {
+  let seq = 0;
+  const nextKey = () => `key-${++seq}`;
+
+  const first = domain.nextSigningIdempotencyKey(null, null, "ch-1", nextKey);
+  assert.deepEqual(first, { idempotencyKey: "key-1", challengeId: "ch-1" });
+
+  // Transient 5xx / network error preserves key for retry with same challenge
+  assert.equal(
+    domain.shouldClearSigningIdempotencyKey(
+      makeApiError(503, "service_unavailable"),
+    ),
+    false,
+  );
+  assert.equal(
+    domain.shouldClearSigningIdempotencyKey(new TypeError("network")),
+    false,
+  );
+  const sameChallengeRetry = domain.nextSigningIdempotencyKey(
+    first.idempotencyKey,
+    first.challengeId,
+    "ch-1",
+    nextKey,
+  );
+  assert.deepEqual(sameChallengeRetry, {
+    idempotencyKey: "key-1",
+    challengeId: "ch-1",
+  });
+
+  // New OTP challenge rotates Idempotency-Key even if previous key wasn't cleared
+  const rotatedChallenge = domain.nextSigningIdempotencyKey(
+    first.idempotencyKey,
+    first.challengeId,
+    "ch-2",
+    nextKey,
+  );
+  assert.deepEqual(rotatedChallenge, {
+    idempotencyKey: "key-2",
+    challengeId: "ch-2",
+  });
+
+  // Definitive 4xx errors (400, 409, 422) clear the key so next retry gets a fresh one
+  for (const [status, code] of [
+    [400, "invalid_request"],
+    [409, "otp_invalid"],
+    [409, "idempotency_conflict"],
+    [422, "validation_error"],
+  ]) {
+    assert.equal(
+      domain.shouldClearSigningIdempotencyKey(makeApiError(status, code)),
+      true,
+    );
+  }
+
+  const afterCleared = domain.nextSigningIdempotencyKey(
+    null,
+    null,
+    "ch-2",
+    nextKey,
+  );
+  assert.deepEqual(afterCleared, {
+    idempotencyKey: "key-3",
+    challengeId: "ch-2",
+  });
+});
+
+test("isQuoteRefreshErrorCode identifies quote-refreshable conflict and expiry codes", () => {
+  for (const code of [
+    "agreement_conflict",
+    "request_expired",
+    "proposal_changed",
+    "contract_terms_changed",
+  ]) {
+    assert.equal(domain.isQuoteRefreshErrorCode(code), true);
+  }
+  for (const code of ["otp_invalid", "otp_expired", "validation_error", null]) {
+    assert.equal(domain.isQuoteRefreshErrorCode(code), false);
+  }
 });

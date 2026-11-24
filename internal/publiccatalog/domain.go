@@ -15,6 +15,8 @@ var (
 const (
 	DefaultPageSize = 20
 	MaxPageSize     = 48
+	MaxMapPageSize  = 250
+	NearbyLimit     = 6
 )
 
 type Category struct {
@@ -57,9 +59,10 @@ type AttributePredicate struct {
 // Space is an intentional public projection. It contains no owner, private address,
 // profile JSON, fixture state, availability, or file/blob references.
 type ConfirmedLocation struct {
-	Address   string  `json:"address"`
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
+	Address    string  `json:"address"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	Visibility string  `json:"visibility,omitempty"`
 }
 
 type Bounds struct{ West, South, East, North float64 }
@@ -100,6 +103,7 @@ type Space struct {
 	CategoryOrder int     `json:"-"`
 	TitleKey      string  `json:"-"`
 	RelevanceRank float64 `json:"-"`
+	TotalCount    int     `json:"-"`
 }
 
 type PublicHost struct {
@@ -143,7 +147,10 @@ type PublicImageRef struct {
 type Filters struct {
 	Bounds           *Bounds
 	Proximity        *Proximity
+	ExcludeBounds    *Bounds
+	ExcludeRadiusKM  *float64
 	MapOnly          bool
+	NearbyFallback   bool
 	CategoryCode     string
 	RateUnit         string
 	MinUnitPriceCLP  *int64
@@ -156,6 +163,7 @@ type Filters struct {
 	RegionCode       string
 	CommuneCode      string
 	MinAreaM2        string
+	MinCapacity      *int
 	Attributes       map[string]bool
 	TypedAttributes  map[string]AttributePredicate
 	AttributeVersion int
@@ -183,6 +191,8 @@ type Cursor struct {
 type Page struct {
 	Items      []Space `json:"items"`
 	NextCursor string  `json:"next_cursor,omitempty"`
+	HasMore    bool    `json:"-"`
+	TotalCount int     `json:"-"`
 }
 
 type Repository interface {
@@ -219,16 +229,21 @@ type PublicImage struct {
 
 // MapMarker omits detail-only content and host/profile information.
 type MapMarker struct {
-	DistanceKM   *float64          `json:"distance_km,omitempty"`
-	SpaceID      string            `json:"space_id"`
-	Title        string            `json:"title"`
-	BasePriceCLP int64             `json:"base_price_clp"`
-	Currency     string            `json:"currency"`
-	RateUnit     string            `json:"rate_unit"`
-	Location     ConfirmedLocation `json:"location"`
-	CoverImageID *string           `json:"cover_image_id,omitempty"`
+	DistanceKM        *float64          `json:"distance_km,omitempty"`
+	SpaceID           string            `json:"space_id"`
+	Title             string            `json:"title"`
+	BasePriceCLP      int64             `json:"base_price_clp"`
+	Currency          string            `json:"currency"`
+	RateUnit          string            `json:"rate_unit"`
+	EstimatedTotalCLP *int64            `json:"estimated_total_clp,omitempty"`
+	CommuneName       *string           `json:"comuna_name,omitempty"`
+	Location          ConfirmedLocation `json:"location"`
+	CoverImageID      *string           `json:"cover_image_id,omitempty"`
+	CoverURL          *string           `json:"cover_url,omitempty"`
 }
 type MapPage struct {
 	Items      []MapMarker `json:"items"`
 	NextCursor string      `json:"next_cursor,omitempty"`
+	HasMore    bool        `json:"has_more"`
+	TotalCount int         `json:"total_count"`
 }

@@ -1,5 +1,6 @@
 import type { ContractProposal } from "../domain/agreements";
 import { formatRentalCLP } from "@/features/public-catalog/domain/contract-preview-format";
+import { stripPostalCodeFromAddress } from "@/features/host-listings/domain/commercial-location";
 
 export function contractDate(value: string, timeZone: string) {
   return new Intl.DateTimeFormat("es-CL", {
@@ -17,7 +18,7 @@ export function ContractProposalTerms({
     <div className="space-y-5 text-sm">
       <div>
         <h3 className="font-semibold">{proposal.space_title}</h3>
-        <p>{proposal.location.address}</p>
+        <p>{stripPostalCodeFromAddress(proposal.location.address)}</p>
         <p>
           {contractDate(proposal.start_at, proposal.time_zone)} —{" "}
           {contractDate(proposal.end_at, proposal.time_zone)}

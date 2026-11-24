@@ -97,6 +97,9 @@ type Repository interface {
 	Create(context.Context, string, rentalflow.Quote, Record, func() error) (Record, error)
 	Get(context.Context, string, string) (Record, error)
 }
+type PaidProposalChecker interface {
+	IsPaid(context.Context, string) (bool, error)
+}
 type Cipher interface {
 	Seal([]byte, []byte) (string, []byte, error)
 	Open(string, []byte, []byte) ([]byte, error)
@@ -187,7 +190,7 @@ func (s *Service) Create(ctx context.Context, actor, quoteID string) (View, erro
 	if err != nil {
 		return View{}, err
 	}
-	return s.project(actor, r)
+	return s.project(ctx, actor, r)
 }
 func (s *Service) Get(ctx context.Context, actor, id string) (View, error) {
 	if !contracttemplate.ValidIDs(actor, id) {
@@ -198,9 +201,9 @@ func (s *Service) Get(ctx context.Context, actor, id string) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	return s.project(actor, r)
+	return s.project(ctx, actor, r)
 }
-func (s *Service) project(actor string, r Record) (View, error) {
+func (s *Service) project(ctx context.Context, actor string, r Record) (View, error) {
 	if actor != r.OwnerID && actor != r.RenterID {
 		return View{}, ErrNotFound
 	}
@@ -210,7 +213,13 @@ func (s *Service) project(actor string, r Record) (View, error) {
 	}
 	owner := rentalflow.ContractIdentity{SubjectID: parties[0].SubjectID, LegalName: parties[0].LegalName, RUT: parties[0].RUT}
 	renter := rentalflow.ContractIdentity{SubjectID: parties[1].SubjectID, LegalName: parties[1].LegalName, RUT: parties[1].RUT}
-	return View{ID: r.ID, Version: r.Version, SHA256: r.SHA256, Terms: r.Terms, Parties: rentalflow.RedactedContractParties(actor, owner, renter), ContactNotice: rentalflow.ContractContactNotice, GeneratedAt: r.CreatedAt}, nil
+	projectedParties := rentalflow.RedactedContractParties(actor, owner, renter)
+	if checker, ok := s.repo.(PaidProposalChecker); ok {
+		if paid, err := checker.IsPaid(ctx, r.ID); err == nil && paid {
+			projectedParties = rentalflow.RevealedContractParties(actor, owner, renter)
+		}
+	}
+	return View{ID: r.ID, Version: r.Version, SHA256: r.SHA256, Terms: r.Terms, Parties: projectedParties, ContactNotice: rentalflow.ContractContactNotice, GeneratedAt: r.CreatedAt}, nil
 }
 
 // OpenEvidence is an internal custody primitive, never an HTTP projection. The

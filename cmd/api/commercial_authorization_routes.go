@@ -11,10 +11,10 @@ import (
 )
 
 // mountCommercialAuthorization exposes owner-only opt-in, revocation, history,
-// and a deterministic limit check. It deliberately does not enable auto-booking.
-func mountCommercialAuthorization(mux *http.ServeMux, pool *pgxpool.Pool, auth commercialauthorizationhttp.Authenticator, origins []string) {
-	h := commercialauthorizationhttp.New(auth, commercialauthorizationpg.New(pool), commercialproposalspg.New(pool), origins, time.Now)
-	for _, action := range []string{"current", "history", "activate", "revoke", "evaluate"} {
+// OTP verification challenges, and a deterministic limit check.
+func mountCommercialAuthorization(mux *http.ServeMux, pool *pgxpool.Pool, auth commercialauthorizationhttp.Authenticator, sender commercialauthorizationhttp.Sender, origins []string) {
+	h := commercialauthorizationhttp.New(auth, commercialauthorizationpg.New(pool), commercialproposalspg.New(pool), sender, origins, time.Now)
+	for _, action := range []string{"current", "history", "activate", "revoke", "evaluate", "otp-challenge"} {
 		mux.Handle("/api/v1/spaces/{spaceID}/commercial-authorization/"+action, h)
 	}
 }

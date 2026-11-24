@@ -41,7 +41,10 @@ export class OpenApiAgreementsAdapter implements AgreementsPort {
       signal,
     });
     if (!r.response.ok) throw normalizeApiError(r.response, r.error);
-    return parseProposal(r.data?.data, { proposalId });
+    return parseProposal(r.data?.data, {
+      proposalId,
+      allowRevealedParties: true,
+    });
   }
   async list(role: "renter" | "landlord", signal?: AbortSignal) {
     const r = await this.client.GET("/commercial-agreements", {
@@ -64,6 +67,7 @@ export class OpenApiAgreementsAdapter implements AgreementsPort {
     proposal: ContractProposal,
     idempotencyKey: string,
     signal?: AbortSignal,
+    otp?: { challengeId: string; code: string },
   ) {
     const r = await this.client.POST("/commercial-agreements", {
       params: { header: { "Idempotency-Key": idempotencyKey } },
@@ -72,6 +76,7 @@ export class OpenApiAgreementsAdapter implements AgreementsPort {
         snapshot_sha256: proposal.sha256,
         consent: true,
         consent_version: agreementConsentVersion,
+        ...(otp ? { otp_challenge_id: otp.challengeId, otp_code: otp.code } : {}),
       },
       bodySerializer: serializeExactJson,
       signal,

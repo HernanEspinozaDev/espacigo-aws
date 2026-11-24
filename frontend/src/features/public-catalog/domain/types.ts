@@ -24,7 +24,10 @@ export type CatalogSort = NonNullable<
   NonNullable<operations["listPublicSpaces"]["parameters"]["query"]>["sort"]
 >;
 
+export type CatalogAreaMode = "admin" | "radius" | "bbox";
+
 export type CatalogQuery = {
+  areaMode?: CatalogAreaMode;
   bbox?: string;
   latitude?: string;
   longitude?: string;
@@ -34,6 +37,7 @@ export type CatalogQuery = {
   region_code?: string;
   comuna_code?: string;
   min_area_m2?: string;
+  min_capacity?: string;
   attribute: string[];
   rate_unit?: PublicSpace["rate_unit"];
   min_unit_price_clp?: string;

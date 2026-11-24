@@ -1,13 +1,13 @@
 // Package apidocs serves the OpenAPI 3.1 JSON contract and the interactive
 // Scalar API Reference exclusively in non-production development runtimes.
-// By default it projects the Mercado Pago / Payments module scope so developers
-// can inspect and test OAuth, Checkout Pro, Wallet, Checkout API, and Webhooks.
+// It exposes the complete contract and focused views for payments and administration.
 package apidocs
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -16,6 +16,8 @@ import (
 )
 
 var mercadoPagoPaths = []string{
+	"/host/settlements",
+	"/host/settlements/{reservationID}",
 	"/host/mercadopago",
 	"/host/mercadopago/oauth/start",
 	"/host/mercadopago/oauth/callback",
@@ -27,14 +29,16 @@ var mercadoPagoPaths = []string{
 
 type Handler struct {
 	fullJSON        []byte
+	fullYAML        []byte
 	mercadoPagoJSON []byte
+	adminJSON       []byte
 }
 
 func Enabled(getenv func(string) string) bool {
 	if getenv == nil {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(getenv("APP_PROFILE")), "production") {
+	if profile := strings.ToLower(strings.TrimSpace(getenv("APP_PROFILE"))); profile != "" && profile != "local" && profile != "development" {
 		return false
 	}
 	env := strings.TrimSpace(getenv("ENVIRONMENT"))
@@ -69,7 +73,17 @@ func NewHandlerFromYAML(raw []byte) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	adminDoc, err := projectSpec(doc, "EspaciGo API — Administración", "Operaciones de administración y revisión interna. Consulta la matriz de montaje para conocer el entorno.", isAdminPath)
+	if err != nil {
+		return nil, err
+	}
+	adminJSON, err := marshalIndentJSON(adminDoc)
+	if err != nil {
+		return nil, err
+	}
 	return &Handler{
+		fullYAML:        append([]byte(nil), raw...),
+		adminJSON:       adminJSON,
 		fullJSON:        fullJSON,
 		mercadoPagoJSON: mpJSON,
 	}, nil
@@ -79,54 +93,76 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	if h == nil || mux == nil {
 		return
 	}
-	mux.HandleFunc("GET /openapi.json", h.ServeOpenAPIJSON)
-	mux.HandleFunc("GET /docs", h.ServeScalarDocs)
+	mux.HandleFunc("GET /openapi.json", localOnly(h.ServeOpenAPIJSON))
+	mux.HandleFunc("GET /openapi.yaml", localOnly(h.serveOpenAPIYAML))
+	mux.HandleFunc("GET /docs", localOnly(h.ServeScalarDocs))
+}
+
+func localOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		remote, _, _ := net.SplitHostPort(r.RemoteAddr)
+		host := r.Host
+		if name, _, err := net.SplitHostPort(host); err == nil {
+			host = name
+		}
+		if !net.ParseIP(remote).IsLoopback() ||
+			(host != "localhost" && !net.ParseIP(strings.Trim(host, "[]")).IsLoopback()) {
+			http.NotFound(w, r)
+			return
+		}
+		for name := range r.Header {
+			key := strings.ToLower(name)
+			switch {
+			case key == "forwarded", key == "x-real-ip", key == "cf-connecting-ip", strings.HasPrefix(key, "x-forwarded-"):
+				http.NotFound(w, r)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func (h *Handler) scope(raw string) (name, title string, payload []byte) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all", "full":
+		return "all", "EspaciGo API — Contrato completo", h.fullJSON
+	case "mercadopago", "payments":
+		return "mercadopago", "EspaciGo API — Pagos y Mercado Pago", h.mercadoPagoJSON
+	case "admin":
+		return "admin", "EspaciGo API — Administración", h.adminJSON
+	default:
+		return "", "", nil
+	}
 }
 
 func (h *Handler) ServeOpenAPIJSON(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		http.Error(w, `{"error":{"code":"method_not_allowed"}}`, http.StatusMethodNotAllowed)
-		return
-	}
-	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
-	payload := h.mercadoPagoJSON
-	if scope == "all" || scope == "full" {
-		payload = h.fullJSON
-	} else if scope != "" && scope != "mercadopago" && scope != "payments" {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _, payload := h.scope(r.URL.Query().Get("scope"))
+	if payload == nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"error":{"code":"invalid_scope"}}`))
 		return
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(payload)
+}
+
+func (h *Handler) serveOpenAPIYAML(w http.ResponseWriter, _ *http.Request) {
+	setSecurityHeaders(w)
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	_, _ = w.Write(h.fullYAML)
 }
 
 func (h *Handler) ServeScalarDocs(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w)
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
-	specURL := "/openapi.json?scope=mercadopago"
-	title := "EspaciGo API — Módulo Mercado Pago (OpenAPI 3.1)"
-	if scope == "all" || scope == "full" {
-		specURL = "/openapi.json?scope=all"
-		title = "EspaciGo API — Contrato Completo (OpenAPI 3.1)"
-	} else if scope != "" && scope != "mercadopago" && scope != "payments" {
+	name, title, _ := h.scope(r.URL.Query().Get("scope"))
+	if name == "" {
 		http.Error(w, "Invalid scope", http.StatusBadRequest)
 		return
 	}
-
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(scalarHTML(title, specURL)))
+	_, _ = w.Write([]byte(scalarHTML(title, "/openapi.json?scope="+name)))
 }
 
 func setSecurityHeaders(w http.ResponseWriter) {
@@ -169,57 +205,92 @@ func scalarHTML(title, specURL string) string {
     </div>
     <nav aria-label="Alcance de documentación OpenAPI">
       <a href="/docs?scope=mercadopago">Módulo Mercado Pago</a>
-      <a href="/docs?scope=all">API Completa</a>
+      <a href="/docs?scope=all">API completa</a>
+      <a href="/docs?scope=admin">Administración</a>
       <a href="` + specURL + `" target="_blank" rel="noreferrer">JSON Spec</a>
     </nav>
   </header>
-  <script id="api-reference" data-url="` + specURL + `"></script>
+  <div id="api-reference" data-url="` + specURL + `"></div>
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <script>
+    const reference = document.getElementById('api-reference');
+    Scalar.createApiReference('#api-reference', {
+      url: reference.dataset.url,
+      hideTestRequestButton: true,
+      hideClientButton: true,
+      showOperationId: true,
+    });
+  </script>
 </body>
 </html>`
 }
 
+func isAdminPath(path string) bool {
+	return strings.HasPrefix(path, "/admin/") ||
+		strings.HasPrefix(path, "/document-verification/reviewer/") ||
+		strings.HasPrefix(path, "/privacy/suppression-requests") ||
+		path == "/privacy/retention/purge"
+}
+
 func projectMercadoPagoSpec(full map[string]any) (map[string]any, error) {
+	return projectSpec(full, "EspaciGo API — Pagos y Mercado Pago",
+		"OAuth del anfitrión, Checkout Pro, Wallet, Checkout API, webhooks y liquidaciones del anfitrión.",
+		func(path string) bool {
+			for _, selected := range mercadoPagoPaths {
+				if selected == path {
+					return true
+				}
+			}
+			return false
+		})
+}
+
+func projectSpec(full map[string]any, title, description string, includes func(string) bool) (map[string]any, error) {
 	allPaths, ok := full["paths"].(map[string]any)
 	if !ok {
 		return nil, errors.New("apidocs: missing paths object")
 	}
-	selectedPaths := make(map[string]any, len(mercadoPagoPaths))
-	for _, p := range mercadoPagoPaths {
-		if item, exists := allPaths[p]; exists {
-			selectedPaths[p] = item
+	selectedPaths := make(map[string]any)
+	for path, item := range allPaths {
+		if includes(path) {
+			selectedPaths[path] = item
 		}
 	}
 	if len(selectedPaths) == 0 {
-		return nil, errors.New("apidocs: no Mercado Pago paths found in OpenAPI spec")
+		return nil, errors.New("apidocs: no paths found for documentation scope")
 	}
-
-	info := map[string]any{
-		"title":       "EspaciGo API — Módulo de Pagos y Mercado Pago",
-		"version":     "1.0.0",
-		"description": "Contrato OpenAPI 3.1 focalizado en todas las interacciones con Mercado Pago en EspaciGo: vinculación OAuth 2.0 + PKCE del anfitrión vendedor, creación y consulta de preferencias Checkout Pro y Wallet, cobro con tarjeta tokenizada mediante Checkout API (Payments API) y recepción de Webhooks firmados con HMAC-SHA256.",
-	}
-	tags := []map[string]string{
-		{
-			"name":        "Payments",
-			"description": "Operaciones de pago, preferencias Checkout Pro, cobros tokenizados Checkout API y recepción de webhooks de Mercado Pago.",
-		},
-		{
-			"name":        "Host",
-			"description": "Vinculación OAuth 2.0 + PKCE de la cuenta Mercado Pago del anfitrión vendedor.",
-		},
-		{
-			"name":        "Rental",
-			"description": "Flujo comercial de cotizaciones de arriendo asociado al checkout.",
-		},
-	}
-
+	info, _ := full["info"].(map[string]any)
 	projected := map[string]any{
 		"openapi": full["openapi"],
-		"info":    info,
+		"info":    map[string]any{"title": title, "description": description, "version": info["version"]},
 		"servers": full["servers"],
-		"tags":    tags,
 		"paths":   selectedPaths,
+	}
+	if tags, ok := full["tags"].([]any); ok {
+		usedTags := make(map[string]bool)
+		for _, rawPath := range selectedPaths {
+			path, _ := rawPath.(map[string]any)
+			for _, rawOperation := range path {
+				operation, _ := rawOperation.(map[string]any)
+				operationTags, _ := operation["tags"].([]any)
+				for _, rawTag := range operationTags {
+					if name, ok := rawTag.(string); ok {
+						usedTags[name] = true
+					}
+				}
+			}
+		}
+		var selectedTags []any
+		for _, rawTag := range tags {
+			tag, _ := rawTag.(map[string]any)
+			name, _ := tag["name"].(string)
+			if usedTags[name] {
+				selectedTags = append(selectedTags, tag)
+			}
+		}
+		if len(selectedTags) > 0 {
+			projected["tags"] = selectedTags
+		}
 	}
 	if sec, exists := full["security"]; exists {
 		projected["security"] = sec
@@ -240,11 +311,11 @@ func filterReferencedComponents(selectedPaths map[string]any, rawComponents any)
 		filtered["securitySchemes"] = secSchemes
 	}
 
-	needed := map[string]map[string]bool{
-		"schemas":    {},
-		"responses":  {},
-		"parameters": {},
-		"headers":    {},
+	needed := make(map[string]map[string]bool, len(components))
+	for section := range components {
+		if section != "securitySchemes" {
+			needed[section] = make(map[string]bool)
+		}
 	}
 	queue := []any{selectedPaths}
 	for len(queue) > 0 {

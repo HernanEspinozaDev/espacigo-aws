@@ -44,10 +44,24 @@ func (h *Handler) serveLocation(w http.ResponseWriter, r *http.Request, id, owne
 			failure(w, 400, "invalid_precondition", "If-Match no es válido.")
 			return
 		}
-		var in spaces.LocationInput
-		if !decode(w, r, &in) {
+		var body struct {
+			Address         string   `json:"address"`
+			RegionCode      string   `json:"region_code"`
+			CommuneCode     string   `json:"comuna_code"`
+			Latitude        *float64 `json:"latitude"`
+			Longitude       *float64 `json:"longitude"`
+			Source          string   `json:"source,omitempty"`
+			Precision       string   `json:"precision,omitempty"`
+			PublicConfirmed *bool    `json:"public_confirmed"`
+		}
+		if !decode(w, r, &body) {
 			return
 		}
+		if body.PublicConfirmed == nil {
+			failureWithDetails(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.", []spaces.FieldError{{Field: "public_confirmed", Code: "required"}})
+			return
+		}
+		in := spaces.LocationInput{Address: body.Address, RegionCode: body.RegionCode, CommuneCode: body.CommuneCode, Latitude: body.Latitude, Longitude: body.Longitude, Source: body.Source, Precision: body.Precision, PublicConfirmed: *body.PublicConfirmed}
 		item, err = h.service.SetOwnLocation(r.Context(), owner, id, expected, in)
 	default:
 		failure(w, 405, "method_not_allowed", "Método no permitido.")

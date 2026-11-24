@@ -18,6 +18,59 @@ type locationMemoryRepo struct {
 	writes   int
 }
 
+type testLocationBounds struct{}
+type testLocationCatalog struct{}
+
+func (testLocationCatalog) ResolveLocation(_ context.Context, region, commune string) (string, string, bool, error) {
+	return "Región Metropolitana", "Santiago", region == "13" && commune == "13101", nil
+}
+
+func (testLocationBounds) Contains(code string, latitude, longitude float64) (bool, bool) {
+	return longitude < -70, true
+}
+func (testLocationBounds) Bounds(string) (float64, float64, float64, float64, bool) {
+	return -71, -34, -70, -33, true
+}
+func (testLocationBounds) Find(latitude, longitude float64) (string, bool) {
+	if longitude < -70 {
+		return "13101", true
+	}
+	return "", false
+}
+
+func TestCommercialLocationRejectsConfirmedOutsideCommuneButSavesDraft(t *testing.T) {
+	repo := &locationMemoryRepo{memoryRepo: &memoryRepo{}, location: spaces.CommercialLocation{SpaceID: draftID, UpdatedAt: time.Date(2026, 11, 21, 0, 0, 0, 0, time.UTC)}}
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocationBoundaryChecker(testLocationBounds{})
+	svc.SetLocationCatalog(testLocationCatalog{})
+	handler := NewHandler(fakeAuth{}, svc, nil)
+	path := "/api/v1/spaces/" + draftID + "/location"
+	put := func(confirmed bool) *httptest.ResponseRecorder {
+		body := `{"address":"Av. Prueba 123","region_code":"13","comuna_code":"13101","latitude":-33.45,"longitude":-69.66,"public_confirmed":false}`
+		if confirmed {
+			body = strings.Replace(body, `"public_confirmed":false`, `"public_confirmed":true`, 1)
+		}
+		request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer landlord")
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("If-Match", draftETag(spaces.Draft{ID: draftID, UpdatedAt: repo.location.UpdatedAt}))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+	confirmed := put(true)
+	if confirmed.Code != 422 || !strings.Contains(confirmed.Body.String(), `"field":"location.latitude","code":"no_commune_match"`) || repo.writes != 0 {
+		t.Fatalf("confirmed mismatch: %d %s writes=%d", confirmed.Code, confirmed.Body.String(), repo.writes)
+	}
+	draft := put(false)
+	if draft.Code != 422 || repo.writes != 0 {
+		t.Fatalf("mismatched draft must be rejected: %d %s writes=%d", draft.Code, draft.Body.String(), repo.writes)
+	}
+}
+
 func (m *locationMemoryRepo) GetOwnLocation(_ context.Context, owner, id string) (spaces.CommercialLocation, error) {
 	if owner != ownerA || id != draftID {
 		return spaces.CommercialLocation{}, spaces.ErrNotFound
@@ -50,6 +103,8 @@ func TestCommercialLocationHTTPAuthorizationAndCAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	svc.SetLocationBoundaryChecker(testLocationBounds{})
+	svc.SetLocationCatalog(testLocationCatalog{})
 	handler := NewHandler(fakeAuth{}, svc, nil)
 	path := "/api/v1/spaces/" + draftID + "/location"
 	body := `{"address":"Av. Prueba 123","region_code":"13","comuna_code":"13101","latitude":-33.45,"longitude":-70.66,"public_confirmed":true}`

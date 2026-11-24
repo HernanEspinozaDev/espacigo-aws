@@ -14,6 +14,7 @@ import type {
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
+  ListingCreateInput,
   ListingState,
   ListingSummary,
   ManualAvailabilityBlock,
@@ -417,7 +418,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async createDraft(
-    input: ListingDraftInput,
+    input: ListingCreateInput,
     idempotencyKey?: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
@@ -435,13 +436,20 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
           : { cancellation_policy_version: input.cancellation_policy_version }),
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
-        address: input.address,
-        ...(input.region_code === undefined
-          ? {}
-          : { region_code: input.region_code }),
-        ...(input.comuna_code === undefined
-          ? {}
-          : { comuna_code: input.comuna_code }),
+        location: {
+          address: input.location.address,
+          region_code: input.location.region_code,
+          comuna_code: input.location.comuna_code,
+          latitude: input.location.latitude,
+          longitude: input.location.longitude,
+          public_confirmed: input.location.public_confirmed,
+          ...(input.location.source === undefined
+            ? {}
+            : { source: input.location.source }),
+          ...(input.location.precision === undefined
+            ? {}
+            : { precision: input.location.precision }),
+        },
         ...(input.attribute_schema_version === undefined
           ? {}
           : { attribute_schema_version: input.attribute_schema_version }),
@@ -483,7 +491,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
           : { cancellation_policy_version: input.cancellation_policy_version }),
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
-        address: input.address,
+        ...(input.address === undefined ? {} : { address: input.address }),
         ...(input.region_code === undefined
           ? {}
           : { region_code: input.region_code }),

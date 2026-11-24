@@ -1,4 +1,4 @@
-import type { AuthorizationActivation } from "../domain/commercial-authorization";
+import type { ActivateCommercialAuthorizationInput } from "../domain/commercial-authorization";
 import type { CommercialAuthorizationPort } from "./commercial-authorization.port";
 
 export class CommercialAuthorizationService {
@@ -9,7 +9,10 @@ export class CommercialAuthorizationService {
   history(spaceId: string, signal?: AbortSignal) {
     return this.port.history(spaceId, signal);
   }
-  activate(spaceId: string, input: AuthorizationActivation) {
+  requestOtpChallenge(spaceId: string, templateVersion: number) {
+    return this.port.requestOtpChallenge(spaceId, templateVersion);
+  }
+  activate(spaceId: string, input: ActivateCommercialAuthorizationInput) {
     return this.port.activate(spaceId, input);
   }
   revoke(spaceId: string, authorizationId: string, reason: string) {

@@ -103,6 +103,14 @@ func (r *Repository) Profile(ctx context.Context, category string, version int) 
 	return p, nil
 }
 func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) (spaces.Draft, error) {
+	return r.create(ctx, owner, in, nil)
+}
+
+func (r *Repository) CreateWithLocation(ctx context.Context, owner string, in spaces.Input, location spaces.LocationInput) (spaces.Draft, error) {
+	return r.create(ctx, owner, in, &location)
+}
+
+func (r *Repository) create(ctx context.Context, owner string, in spaces.Input, location *spaces.LocationInput) (spaces.Draft, error) {
 	id, err := r.ids.ID()
 	if err != nil {
 		return spaces.Draft{}, err
@@ -115,7 +123,20 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,ubicacion_catalogo_version,region_codigo,comuna_codigo,politica_cancelacion_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,NULLIF($12,''),NULLIF($13,''),$14)`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode, in.CancellationPolicyVersion)
+	var region, commune string
+	var latitude, longitude *float64
+	var confirmed any
+	var source, precision string
+	if location != nil {
+		region, commune, latitude, longitude = location.RegionCode, location.CommuneCode, location.Latitude, location.Longitude
+		source, precision = location.Source, location.Precision
+		if location.PublicConfirmed {
+			confirmed = time.Now().UTC()
+		}
+	} else {
+		region, commune = in.RegionCode, in.CommuneCode
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,ubicacion_catalogo_version,region_codigo,comuna_codigo,politica_cancelacion_version,ubicacion_latitud,ubicacion_longitud,ubicacion_confirmada_en,ubicacion_pin_origen,ubicacion_pin_precision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,NULLIF($12,''),NULLIF($13,''),$14,$15,$16,$17,NULLIF($18,''),NULLIF($19,''))`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, region, commune, in.CancellationPolicyVersion, latitude, longitude, confirmed, source, precision)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -235,7 +256,10 @@ func (r *Repository) delete(ctx context.Context, actor, owner, id, correlationID
 	if administrative && !updatedAt.Equal(expectedUpdatedAt) {
 		return spaces.Deletion{}, spaces.ErrPublicationConflict
 	}
-	if state != "activa" && state != "oculta" {
+	// Owners can discard unfinished drafts from the editor. Keep the same
+	// obligation checks below so a draft with linked rental activity cannot
+	// bypass publication retirement safeguards.
+	if state != "borrador" && state != "activa" && state != "oculta" {
 		return spaces.Deletion{}, spaces.ErrPublicationConflict
 	}
 	// The space row lock serializes this check with quote/reservation creation.
@@ -448,6 +472,9 @@ func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, 
 		if err = requireConfirmedLocationForFirstPublication(ctx, tx, id, draft.State); err != nil {
 			return spaces.Draft{}, err
 		}
+		if err = requirePublicationPrerequisites(ctx, tx, owner, id); err != nil {
+			return spaces.Draft{}, err
+		}
 	} else if state == "oculta" {
 		if draft.State != "activa" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict
@@ -482,6 +509,58 @@ func validIANAZone(zone *string) bool {
 	}
 	_, err := time.LoadLocation(*zone)
 	return err == nil
+}
+
+// requirePublicationPrerequisites enforces the mandatory Phase 4 publication
+// gates in order: verified KYC eligibility -> active Mercado Pago seller ->
+// published contract template (version_publicada >= 1).
+func requirePublicationPrerequisites(ctx context.Context, tx pgx.Tx, owner, spaceID string) error {
+	var kycReady bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM public.elegibilidad_verificacion_local e
+		JOIN public.verificacion v
+		  ON v.id = e.verificacion_id
+		 AND v.usuario_id = e.usuario_id
+		 AND v.tipo = e.tipo
+		JOIN public.usuario u
+		  ON u.id = e.usuario_id
+		WHERE e.usuario_id = $1
+		  AND e.tipo = 'kyc'
+		  AND e.estado = 'elegible'
+		  AND v.estado = 'aprobada'
+		  AND u.estado = 'activo'
+	)`, owner).Scan(&kycReady); err != nil {
+		return err
+	}
+	if !kycReady {
+		return spaces.ErrIdentityRequired
+	}
+	var mpConnected bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM public.mercadopago_seller_connection
+		WHERE anfitrion_id = $1
+		  AND connection_state = 'active'
+	)`, owner).Scan(&mpConnected); err != nil {
+		return err
+	}
+	if !mpConnected {
+		return spaces.ErrMercadoPagoRequired
+	}
+	var contractPublished bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1
+		FROM public.espacio_contrato_borrador
+		WHERE espacio_id = $1
+		  AND version_publicada >= 1
+	)`, spaceID).Scan(&contractPublished); err != nil {
+		return err
+	}
+	if !contractPublished {
+		return spaces.ErrContractTemplateRequired
+	}
+	return nil
 }
 
 func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, in spaces.PublishedContentInput) (spaces.Draft, error) {
@@ -521,6 +600,16 @@ func (r *Repository) updatePublishedOwn(ctx context.Context, owner, id string, i
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
+	var locationMismatch []spaces.FieldError
+	if in.RegionCode != nil && *in.RegionCode != oldRegionCode {
+		locationMismatch = append(locationMismatch, spaces.FieldError{Field: "region_code", Code: "location_immutable"})
+	}
+	if in.CommuneCode != nil && *in.CommuneCode != oldCommuneCode {
+		locationMismatch = append(locationMismatch, spaces.FieldError{Field: "comuna_code", Code: "location_immutable"})
+	}
+	if len(locationMismatch) > 0 {
+		return spaces.Draft{}, spaces.NewValidationError(locationMismatch)
+	}
 	var nextPrice any
 	if in.BasePriceCLP != nil && *in.BasePriceCLP != oldPrice {
 		var version int32
@@ -553,17 +642,9 @@ func (r *Repository) updatePublishedOwn(ctx context.Context, owner, id string, i
 	if in.CancellationPolicyVersion != nil && *in.CancellationPolicyVersion != oldCancellationPolicyVersion {
 		nextCancellationPolicyVersion = *in.CancellationPolicyVersion
 	}
-	var nextLocationVersion, nextRegionCode, nextCommuneCode any
-	updateLocation := false
-	if in.RegionCode != nil && in.CommuneCode != nil && (*in.RegionCode != oldRegionCode || *in.CommuneCode != oldCommuneCode) {
-		updateLocation = true
-		if *in.RegionCode != "" {
-			nextLocationVersion, nextRegionCode, nextCommuneCode = spaces.PublicLocationCatalogVersion, *in.RegionCode, *in.CommuneCode
-		}
-	}
-	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil || nextCancellationPolicyVersion != nil || updateLocation {
-		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN $9 ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN $10 ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN $11 ELSE comuna_codigo END,politica_cancelacion_version=COALESCE($12,politica_cancelacion_version)
-			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice, updateLocation, nextLocationVersion, nextRegionCode, nextCommuneCode, nextCancellationPolicyVersion); err != nil {
+	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil || nextCancellationPolicyVersion != nil {
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),politica_cancelacion_version=COALESCE($8,politica_cancelacion_version)
+			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice, nextCancellationPolicyVersion); err != nil {
 			return spaces.Draft{}, mapError(err)
 		}
 		if _, err = spaceversion.Bump(ctx, tx, id); err != nil {
@@ -604,10 +685,10 @@ func (r *Repository) updateOwn(ctx context.Context, owner, id string, in spaces.
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	var oldUnit string
+	var oldUnit, oldAddress, oldRegion, oldCommune string
 	var oldAmount int64
 	var currentUpdatedAt time.Time
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount, &currentUpdatedAt)
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en,direccion,COALESCE(region_codigo,''),COALESCE(comuna_codigo,'') FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount, &currentUpdatedAt, &oldAddress, &oldRegion, &oldCommune)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -616,11 +697,24 @@ func (r *Repository) updateOwn(ctx context.Context, owner, id string, in spaces.
 			return spaces.Draft{}, err
 		}
 	}
+	var locationMismatch []spaces.FieldError
+	if in.AddressProvided && in.Address != oldAddress {
+		locationMismatch = append(locationMismatch, spaces.FieldError{Field: "address", Code: "location_immutable"})
+	}
+	if in.RegionCodeProvided && in.RegionCode != oldRegion {
+		locationMismatch = append(locationMismatch, spaces.FieldError{Field: "region_code", Code: "location_immutable"})
+	}
+	if in.CommuneCodeProvided && in.CommuneCode != oldCommune {
+		locationMismatch = append(locationMismatch, spaces.FieldError{Field: "comuna_code", Code: "location_immutable"})
+	}
+	if len(locationMismatch) != 0 {
+		return spaces.Draft{}, spaces.NewValidationError(locationMismatch)
+	}
 	_, err = tx.Exec(ctx, `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, id)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,''),politica_cancelacion_version=COALESCE($14,politica_cancelacion_version) WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode, in.CancellationPolicyVersion)
+	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,politica_cancelacion_version=COALESCE($11,politica_cancelacion_version) WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.CancellationPolicyVersion)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}

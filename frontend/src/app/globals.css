@@ -49,7 +49,7 @@
   --muted: var(--brand-surface-subtle);
   --muted-foreground: var(--brand-muted);
   --accent: var(--brand-primary-soft);
-  --accent-foreground: var(--brand-primary-active);
+  --accent-foreground: var(--brand-primary-soft-ink);
   --destructive: var(--brand-error);
   --border: var(--brand-border);
   --input: var(--brand-control-border);

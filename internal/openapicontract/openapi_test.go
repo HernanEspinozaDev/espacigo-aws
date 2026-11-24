@@ -64,12 +64,12 @@ func TestPublicSpaceSchemasHaveExactPropertyAndRequiredAllowLists(t *testing.T) 
 		},
 		{
 			name:       "PublicSpaceLocation",
-			properties: []string{"address", "latitude", "longitude"},
+			properties: []string{"address", "latitude", "longitude", "visibility"},
 			required:   []string{"address", "latitude", "longitude"},
 		},
 		{
 			name:       "PublicSpaceMapMarker",
-			properties: []string{"space_id", "title", "base_price_clp", "currency", "rate_unit", "location", "cover_image_id", "distance_km"},
+			properties: []string{"space_id", "title", "base_price_clp", "currency", "rate_unit", "location", "cover_image_id", "distance_km", "cover_url", "comuna_name", "estimated_total_clp"},
 			required:   []string{"space_id", "title", "base_price_clp", "currency", "rate_unit", "location"},
 		},
 		{

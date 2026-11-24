@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import { expect, test } from "@playwright/test";
 import { createBffFixtureState } from "./helpers/bff-fixture";
 import categoryProfiles from "./fixtures/category-profiles-v1.json";
@@ -154,8 +155,7 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
       "Descripción sintética suficientemente extensa para validar la recuperación segura del borrador cuando cambia el ámbito de cuenta.",
     );
   await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-  await page.locator("#wizard-region").selectOption("13");
-  await page.locator("#wizard-comuna").selectOption("13101");
+  await chooseWizardLocation(page, "13101", true);
   await page
     .locator("#wizard-address")
     .fill("Dirección sintética 122, Santiago");

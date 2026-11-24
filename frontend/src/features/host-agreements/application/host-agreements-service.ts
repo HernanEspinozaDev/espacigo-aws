@@ -12,7 +12,11 @@ export interface HostAgreementsPort {
   list(signal?: AbortSignal): Promise<CommercialAgreement[]>;
   get(id: string, signal?: AbortSignal): Promise<AgreementRead>;
   proposal(id: string, signal?: AbortSignal): Promise<ContractProposal>;
-  accept(read: AgreementRead, signal?: AbortSignal): Promise<AgreementRead>;
+  accept(
+    read: AgreementRead,
+    signal?: AbortSignal,
+    otp?: { challengeId: string; code: string },
+  ): Promise<AgreementRead>;
   reject(read: AgreementRead, signal?: AbortSignal): Promise<AgreementRead>;
 }
 export class HostAgreementsService {
@@ -41,13 +45,18 @@ export class HostAgreementsService {
       );
     return { read, proposal };
   }
-  accept(review: HostAgreementReview, consent: boolean, signal?: AbortSignal) {
+  accept(
+    review: HostAgreementReview,
+    consent: boolean,
+    signal?: AbortSignal,
+    otp?: { challengeId: string; code: string },
+  ) {
     this.pending(review);
     if (!consent)
       throw new Error(
         "Confirma que has revisado y aceptas esta versión del contrato.",
       );
-    return this.port.accept(review.read, signal);
+    return this.port.accept(review.read, signal, otp);
   }
   reject(review: HostAgreementReview, signal?: AbortSignal) {
     this.pending(review);

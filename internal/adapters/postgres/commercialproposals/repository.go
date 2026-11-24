@@ -144,3 +144,9 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (commercialpropo
 	}
 	return record, err
 }
+
+func (r *Repository) IsPaid(ctx context.Context, proposalID string) (bool, error) {
+	var paid bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.contrato_solicitud_comercial s JOIN public.checkout_preferencia_comercial c ON c.solicitud_comercial_id=s.id JOIN public.reserva_arriendo_comercial r ON r.operacion_checkout_id=c.id WHERE s.propuesta_id=$1 AND c.estado='approved' AND c.payment_verified_at IS NOT NULL AND r.estado='pagada')`, proposalID).Scan(&paid)
+	return paid, err
+}

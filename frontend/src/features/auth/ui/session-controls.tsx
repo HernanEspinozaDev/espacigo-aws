@@ -3,9 +3,17 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import {
+  Building2,
+  ChevronDown,
+  FileText,
+  LogOut,
+  User,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAccount } from "@/features/account/ui/use-account";
+import { NotificationBell } from "@/features/notifications/ui/notification-bell";
 import { useAuth } from "./use-auth";
 import { useSessionIdentity } from "./use-session-identity";
 
@@ -25,6 +33,8 @@ export function SessionControls({
   const { snapshot: accountSnapshot, loadProfilePhoto } = useAccount();
   const { logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!anonymousOnly && status === "authenticated" && accountId) {
@@ -32,10 +42,29 @@ export function SessionControls({
     }
   }, [accountId, anonymousOnly, loadProfilePhoto, status]);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   if (anonymousOnly && status !== "anonymous") return null;
 
   const handleLogout = async () => {
     if (loggingOut) return;
+    setMenuOpen(false);
     setLoggingOut(true);
     try {
       await logout();
@@ -52,17 +81,23 @@ export function SessionControls({
       return (
         <div
           data-testid="session-controls-checking"
-          className="inline-flex h-9 w-20 rounded-full"
-          aria-hidden="true"
-        />
+          className="inline-flex h-9 w-20 items-center justify-center rounded-full border border-border bg-secondary/60 text-xs font-medium text-muted-foreground opacity-75"
+          aria-busy="true"
+        >
+          Acceso
+        </div>
       );
     }
     return (
-      <div
+      <Link
+        href="/acceso"
         data-testid="session-controls-checking"
-        className="inline-flex min-h-11 w-32 rounded-full"
-        aria-hidden="true"
-      />
+        onClick={onNavigate}
+        aria-busy="true"
+        className="inline-flex min-h-11 items-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground/80 transition-colors hover:bg-secondary"
+      >
+        Iniciar sesión
+      </Link>
     );
   }
 
@@ -91,52 +126,97 @@ export function SessionControls({
       </span>
     );
 
-    if (variant === "workspace") {
-      return (
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 sm:gap-x-4">
-          <Link
-            href="/mi-cuenta"
-            className="shrink-0 text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Mi cuenta
-          </Link>
-          {avatar}
-          <span
-            className="inline-block max-w-[110px] min-[390px]:max-w-[130px] sm:max-w-[200px] truncate text-sm font-medium text-gray-700"
-            title={displayIdentity || undefined}
-            aria-label={displayIdentity || undefined}
-          >
-            {displayIdentity}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={loggingOut}
-            onClick={() => void handleLogout()}
-            className="rounded-full text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Cerrar sesión
-          </Button>
-        </div>
-      );
-    }
-
     return (
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {avatar}
-        <span
-          className="inline-block max-w-[75px] min-[390px]:max-w-[95px] sm:max-w-[180px] truncate text-sm font-medium text-foreground"
-          title={displayIdentity || undefined}
-          aria-label={displayIdentity || undefined}
-        >
-          {displayIdentity}
-        </span>
-        <Link
-          href="/mi-cuenta"
-          className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
-        >
-          Mi cuenta
-        </Link>
+      <div className="flex shrink-0 items-center gap-3">
+        <NotificationBell />
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            onClick={() => setMenuOpen((prev) => !prev)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-full border border-border bg-white px-2.5 py-1.5 text-sm font-medium text-foreground shadow-xs transition-colors hover:bg-secondary"
+          >
+            {avatar}
+            <span
+              className="sr-only sm:not-sr-only sm:inline-block sm:max-w-[140px] sm:truncate"
+              title={displayIdentity || undefined}
+            >
+              {displayIdentity || "Menú de cuenta"}
+            </span>
+            <ChevronDown
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+          </button>
+
+          {menuOpen && (
+            <div
+              role="menu"
+              aria-label="Menú de cuenta"
+              className="absolute right-0 top-full z-50 mt-2 w-60 rounded-xl border border-border bg-white p-1.5 shadow-lg"
+            >
+              <div className="border-b border-border/60 px-3 py-2">
+                <p className="truncate text-xs font-medium text-muted-foreground">
+                  Sesión iniciada
+                </p>
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {displayIdentity}
+                </p>
+              </div>
+              <div className="py-1">
+                <Link
+                  role="menuitem"
+                  href="/mi-cuenta"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onNavigate?.();
+                  }}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+                >
+                  <User className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span>Mi cuenta</span>
+                </Link>
+                <Link
+                  role="menuitem"
+                  href="/reservas/contratos"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onNavigate?.();
+                  }}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+                >
+                  <FileText className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span>Mis contratos</span>
+                </Link>
+                <Link
+                  role="menuitem"
+                  href="/anfitrion/espacios"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onNavigate?.();
+                  }}
+                  className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-foreground transition-colors hover:bg-secondary"
+                >
+                  <Building2 className="size-4 text-muted-foreground" aria-hidden="true" />
+                  <span>Mis espacios</span>
+                </Link>
+              </div>
+              <div className="border-t border-border/60 pt-1">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={loggingOut}
+                  onClick={() => void handleLogout()}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                >
+                  <LogOut className="size-4" aria-hidden="true" />
+                  <span>{loggingOut ? "Cerrando sesión…" : "Cerrar sesión"}</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -154,9 +234,9 @@ export function SessionControls({
     <Link
       href="/acceso"
       onClick={onNavigate}
-      className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
+      className="inline-flex min-h-11 items-center rounded-full bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-[var(--brand-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      Ingresar a EspaciGo
+      Iniciar sesión
     </Link>
   );
 }

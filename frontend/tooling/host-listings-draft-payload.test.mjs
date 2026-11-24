@@ -20,6 +20,18 @@ test("draft creation contract does not promise unsupported idempotency", async (
     false,
   );
   assert.ok(create.responses["201"].headers.ETag);
+  assert.ok(
+    contract.components.schemas.SpaceCreateInput.required.includes("location"),
+  );
+  assert.equal(
+    contract.components.schemas.SpaceCreateInput.properties.address,
+    undefined,
+  );
+  assert.ok(
+    contract.components.schemas.SpaceLocationInput.required.includes(
+      "latitude",
+    ),
+  );
 });
 const source = await readFile(
   path.join(root, "src/features/host-listings/ui/listing-wizard.tsx"),
@@ -55,7 +67,7 @@ function extractCleaner() {
 }
 
 function extractDraftPayload() {
-  const start = source.indexOf("const draftPayload: ListingDraftInput = {");
+  const start = source.indexOf("const draftPayload: ListingCreateInput = {");
   assert.notEqual(start, -1, "wizard draft payload builder exists");
   const open = source.indexOf("{", start);
   let depth = 0;
@@ -83,9 +95,7 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     "usageRules",
     "rateUnit",
     "basePriceCLP",
-    "address",
-    "regionCode",
-    "comunaCode",
+    "pin",
     "currentSchema",
     "dynamicAttributes",
     "cleanAttributes",
@@ -104,9 +114,14 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     "Normas",
     "hora",
     15000,
-    "Dirección",
-    "13",
-    "13114",
+    {
+      address: "Dirección",
+      region_code: "13",
+      comuna_code: "13114",
+      latitude: -33.42,
+      longitude: -70.59,
+      public_confirmed: false,
+    },
     schema,
     attributes,
     new Function(`${extractCleaner()}; return cleanAttributesForPayload;`)()({
@@ -123,6 +138,7 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     disponible: false,
     minimo: 0,
   });
+  assert.equal(payload.location.comuna_code, "13114");
   assert.equal(payload.attribute_schema_version, 7);
   assert.equal(payload.usage_rules, "Normas");
   assert.equal(payload.cancellation_policy_version, "flexible_v1");

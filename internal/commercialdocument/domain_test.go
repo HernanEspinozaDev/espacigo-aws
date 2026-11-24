@@ -189,3 +189,39 @@ func TestPDFRendererRejectsUnsupportedGlyphInsteadOfCorruptingIdentity(t *testin
 		t.Fatalf("unsupported glyph error=%v", err)
 	}
 }
+
+func TestPDFRendererStripsPostalCodeFromLocationAddress(t *testing.T) {
+	withPostal, parties, _ := documentFixture(t)
+	withPostal.Proposal.Terms.Location.Address = "Avenida Sintética 123, 8320000 Santiago, Chile"
+	withoutPostal, _, _ := documentFixture(t)
+	withoutPostal.Proposal.Terms.Location.Address = "Avenida Sintética 123, Santiago, Chile"
+
+	pdfWithPostal, err := (PDFRenderer{}).Render(context.Background(), withPostal, parties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdfWithoutPostal, err := (PDFRenderer{}).Render(context.Background(), withoutPostal, parties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(pdfWithPostal, pdfWithoutPostal) {
+		t.Fatal("PDFRenderer did not strip 7-digit postal code from Clause 1 location address")
+	}
+	if tool, e := exec.LookPath("pdftotext"); e == nil {
+		path := filepath.Join(t.TempDir(), "contrato-sin-postal.pdf")
+		if err = os.WriteFile(path, pdfWithPostal, 0600); err != nil {
+			t.Fatal(err)
+		}
+		out, e := exec.Command(tool, "-layout", path, "-").Output()
+		if e != nil {
+			t.Fatal(e)
+		}
+		text := string(out)
+		if !strings.Contains(text, "Avenida Sintética 123, Santiago, Chile") {
+			t.Fatalf("expected stripped address in PDF text, got: %s", text)
+		}
+		if strings.Contains(text, "8320000") {
+			t.Fatalf("unexpected postal code 8320000 in PDF text: %s", text)
+		}
+	}
+}

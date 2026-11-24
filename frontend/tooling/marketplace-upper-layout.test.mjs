@@ -20,9 +20,11 @@ test("public gallery precedes the summary and rental calendar on the same page",
   assert.match(page, /PublicSpaceMarketplaceGallery/);
   assert.match(page, /PublicSpaceRentalAvailability/);
   assert.doesNotMatch(page, /PublicWeeklySchedule/);
-  assert.ok(layout.indexOf("{gallery}") < layout.indexOf("{summary}"));
   assert.ok(
     layout.indexOf("{summary}") < layout.indexOf("{availabilityElement}"),
+  );
+  assert.ok(
+    layout.indexOf("{availabilityElement}") < layout.indexOf("{gallery}"),
   );
   assert.match(layout, /id="disponibilidad"/);
 });

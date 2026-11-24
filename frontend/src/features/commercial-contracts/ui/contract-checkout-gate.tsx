@@ -6,11 +6,17 @@ export function ContractCheckoutGate({
   quoteId,
   checkoutApiEnabled,
   walletPurchaseEnabled,
+  onAgreementStateChange,
+  forceCloseModal,
+  onRefreshQuote,
   children,
 }: {
   quoteId: string;
   checkoutApiEnabled: boolean;
   walletPurchaseEnabled: boolean;
+  onAgreementStateChange?: (state: string | null) => void;
+  forceCloseModal?: boolean;
+  onRefreshQuote?: () => void;
   children: ReactNode;
 }) {
   const [mode, setMode] = useState<"loading" | "manual" | "legacy" | "error">(
@@ -60,6 +66,9 @@ export function ContractCheckoutGate({
       quoteId={quoteId}
       checkoutApiEnabled={checkoutApiEnabled}
       walletPurchaseEnabled={walletPurchaseEnabled}
+      onAgreementStateChange={onAgreementStateChange}
+      forceCloseModal={forceCloseModal}
+      onRefreshQuote={onRefreshQuote}
     />
   );
 }

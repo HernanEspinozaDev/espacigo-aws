@@ -12,6 +12,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/commercialproposal"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/sfnt"
@@ -28,22 +29,54 @@ func (PDFRenderer) Render(ctx context.Context, source Source, parties []commerci
 		return nil, ErrInvalid
 	}
 	terms := source.Proposal.Terms
-	lines := []string{"CONTRATO DE ARRIENDO", "Versión: " + strconv.FormatInt(source.Proposal.Version, 10), "Propuesta: " + source.Proposal.ID, "SHA-256 documento firmado: " + source.Proposal.SHA256, "", "PARTES"}
+	var landlord, renter commercialproposal.EvidenceParty
 	for _, p := range parties {
-		lines = append(lines, p.Role+": "+p.LegalName, "RUT: "+p.RUT)
+		if p.Role == "arrendador" {
+			landlord = p
+		} else if p.Role == "arrendatario" {
+			renter = p
+		}
 	}
-	lines = append(lines, "", "ESPACIO Y HORARIO", terms.SpaceTitle, "ID espacio: "+terms.SpaceID, "Dirección confirmada: "+terms.Location.Address, fmt.Sprintf("Coordenadas: %.8f, %.8f", terms.Location.Latitude, terms.Location.Longitude), "Inicio: "+terms.StartAt.Format("2006-01-02T15:04:05Z07:00"), "Término: "+terms.EndAt.Format("2006-01-02T15:04:05Z07:00"), "Zona horaria: "+terms.TimeZone, fmt.Sprintf("Tarifa: %d CLP por %s; unidades: %d; total: %d CLP", terms.UnitPriceCLP, terms.RateUnit, terms.Units, terms.SubtotalCLP), "", "CLÁUSULAS")
-	for _, section := range terms.Sections {
-		lines = append(lines, section.Title, section.Body, "")
+	ordinals := []string{"QUINTO", "SEXTO", "SÉPTIMO", "OCTAVO", "NOVENO", "DÉCIMO", "DÉCIMO PRIMERO", "DÉCIMO SEGUNDO", "DÉCIMO TERCERO", "DÉCIMO CUARTO", "DÉCIMO QUINTO", "DÉCIMO SEXTO"}
+	ordinal := func(i int) string {
+		if i < len(ordinals) {
+			return ordinals[i]
+		}
+		return "CLÁUSULA " + strconv.Itoa(i+5)
 	}
-	lines = append(lines, "POLÍTICA DE CANCELACIÓN", terms.CancellationPolicy.Version, terms.CancellationPolicy.Text, "", "EVIDENCIA DE CONSENTIMIENTO")
+	lines := []string{
+		"ESPACIGO — CONTRATO DE ARRENDAMIENTO DE ESPACIO",
+		"Propuesta: " + source.Proposal.ID + " · Versión: " + strconv.FormatInt(source.Proposal.Version, 10),
+		"SHA-256 documento firmado: " + source.Proposal.SHA256,
+		"",
+		fmt.Sprintf("En Chile, comparecen: por una parte, %s, RUT %s, en adelante EL ARRENDADOR; y por la otra, %s, RUT %s, en adelante EL ARRENDATARIO; ambos mayores de edad, con identidad verificada en EspaciGo, quienes convienen en celebrar el siguiente Contrato de Arrendamiento Simple regido por la Ley N.º 18.101, el Código Civil de Chile y la Ley N.º 19.799 (FES):", landlord.LegalName, landlord.RUT, renter.LegalName, renter.RUT),
+		"",
+		fmt.Sprintf("PRIMERO. INDIVIDUALIZACIÓN DEL INMUEBLE: EL ARRENDADOR entrega en arrendamiento el espacio denominado «%s», ubicado en %s, en condiciones aptas para el uso acordado.", terms.SpaceTitle, spaces.StripPostalCodeFromAddress(terms.Location.Address)),
+		"SEGUNDO. OBJETO Y USO PERMITIDO: EL ARRENDATARIO no podrá subarrendar, ceder ni destinar el espacio a un uso distinto o ilícito sin autorización previa y escrita de EL ARRENDADOR.",
+		fmt.Sprintf("TERCERO. VIGENCIA, HORARIO Y RESTITUCIÓN: El arrendamiento regirá desde %s hasta %s (zona horaria %s). Al término de dicho período, EL ARRENDATARIO restituirá el inmueble de inmediato en el mismo estado de conservación y aseo.", terms.StartAt.Format("2006-01-02T15:04:05Z07:00"), terms.EndAt.Format("2006-01-02T15:04:05Z07:00"), terms.TimeZone),
+		fmt.Sprintf("CUARTO. CANON DE ARRIENDO Y FORMA DE PAGO: La renta se fija en %d %s (%d %s a razón de %d %s por %s), pagadera en línea mediante EspaciGo / Mercado Pago.", terms.SubtotalCLP, terms.Currency, terms.Units, terms.RateUnit, terms.UnitPriceCLP, terms.Currency, terms.RateUnit),
+		"",
+	}
+	for i, section := range terms.Sections {
+		lines = append(lines, ordinal(i)+". "+strings.ToUpper(section.Title)+": "+section.Body, "")
+	}
+	lines = append(lines, ordinal(len(terms.Sections))+". POLÍTICA DE CANCELACIÓN: "+terms.CancellationPolicy.Text)
+	lines = append(lines, ordinal(len(terms.Sections)+1)+". DOMICILIO Y JURISDICCIÓN: Las partes fijan domicilio en la comuna del inmueble y se someten a los Tribunales Ordinarios de Justicia de Chile, perfeccionándose mediante Firma Electrónica Simple (FES) conforme a la Ley N.º 19.799.", "", "EVIDENCIA DE FIRMAS ELECTRÓNICAS")
 	signatures := append([]Signature(nil), source.Signatures...)
 	sort.Slice(signatures, func(i, j int) bool { return signatures[i].Role < signatures[j].Role })
 	for _, s := range signatures {
 		lines = append(lines, s.Role+" — "+s.SignedAt.UTC().Format("2006-01-02T15:04:05Z"), "Consentimiento: "+s.ConsentVersion, "Referencia de sesión: "+s.SessionID)
 	}
-	lines = append(lines, "", "CONFIRMACIÓN DE PAGO", "Proveedor: Mercado Pago", "Referencia verificada: "+source.ProviderPaymentID, fmt.Sprintf("Monto verificado: %d %s", source.AmountCLP, source.Currency), "Confirmado por el servidor: "+source.VerifiedAt.UTC().Format("2006-01-02T15:04:05Z"), "Estado: aprobado")
-	return renderUnicodePDF(ctx, lines)
+	lines = append(lines, "", "MODALIDAD DE FIRMA", "Firma Electrónica Simple (FES) — Ley N.º 19.799", "Sello criptográfico de plataforma: PKCS#7 / RSA-2048", "", "CONFIRMACIÓN DE PAGO", "Proveedor: Mercado Pago", "Referencia verificada: "+source.ProviderPaymentID, fmt.Sprintf("Monto verificado: %d %s", source.AmountCLP, source.Currency), "Confirmado por el servidor: "+source.VerifiedAt.UTC().Format("2006-01-02T15:04:05Z"), "Estado: aprobado")
+	rawPDF, err := renderUnicodePDF(ctx, lines)
+	if err != nil {
+		return nil, err
+	}
+	seal, err := DefaultPlatformSeal()
+	if err != nil {
+		return nil, err
+	}
+	return SealPDF(rawPDF, seal, source.VerifiedAt)
 }
 
 type pdfGlyph struct {

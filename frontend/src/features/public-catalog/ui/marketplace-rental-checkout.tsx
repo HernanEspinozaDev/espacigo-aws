@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -90,8 +91,19 @@ export function MarketplaceRentalCheckout({
       : auth.status;
   const autoRequestKey = `${currentAuthKey}:${selection.spaceId}:${selection.startAt}:${selection.endAt}`;
 
+  const router = useRouter();
+  const [agreementState, setAgreementState] = useState<string | null>(null);
   const quote =
     quoteState?.authKey === currentAuthKey ? quoteState.quote : null;
+  const quoteTimerActive = agreementState === null;
+
+  useEffect(() => {
+    if (!quote || !quoteTimerActive || expiredQuoteId !== quote.id) return;
+    const timeoutId = window.setTimeout(() => {
+      router.replace(`/espacios/${encodeURIComponent(selection.spaceId)}`);
+    }, 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [quote, quoteTimerActive, expiredQuoteId, router, selection.spaceId]);
   const operation =
     operationState?.authKey === currentAuthKey
       ? operationState
@@ -363,11 +375,13 @@ export function MarketplaceRentalCheckout({
                 />
                 Cotización oficial
               </h4>
-              <ReservationCountdown
-                expiresAt={quote.expires_at}
-                size="lg"
-                onExpire={() => setExpiredQuoteId(quote.id)}
-              />
+              {quoteTimerActive && (
+                <ReservationCountdown
+                  expiresAt={quote.expires_at}
+                  size="lg"
+                  onExpire={() => setExpiredQuoteId(quote.id)}
+                />
+              )}
             </div>
 
             <div className="space-y-2 text-sm">
@@ -473,6 +487,12 @@ export function MarketplaceRentalCheckout({
               quoteId={quote.id}
               checkoutApiEnabled={checkoutApiEnabled}
               walletPurchaseEnabled={walletPurchaseEnabled}
+              onAgreementStateChange={setAgreementState}
+              forceCloseModal={quoteTimerActive && expiredQuoteId === quote.id}
+              onRefreshQuote={() => {
+                setExpiredQuoteId(null);
+                void requestQuote();
+              }}
             >
               <p className="text-xs leading-relaxed text-[#66574e]">
                 {checkoutApiEnabled
