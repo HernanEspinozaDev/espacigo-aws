@@ -151,6 +151,36 @@ BEGIN
     IF current_database() <> 'espacigo_aws_local' OR session_user <> 'espacigo_admin' THEN
         RAISE EXCEPTION 'Unexpected local migration target';
     END IF;
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    CREATE EXTENSION IF NOT EXISTS btree_gist;
+    CREATE EXTENSION IF NOT EXISTS unaccent;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_runtime') THEN
+        CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_api_login') THEN
+        CREATE ROLE espacigo_api_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_migrator_login') THEN
+        CREATE ROLE espacigo_migrator_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_schema_owner') THEN
+        CREATE ROLE espacigo_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_document_verification_fn') THEN
+        CREATE ROLE espacigo_document_verification_fn NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_privacy_cleanup_worker') THEN
+        CREATE ROLE espacigo_privacy_cleanup_worker NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'espacigo_privacy_worker_login') THEN
+        CREATE ROLE espacigo_privacy_worker_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_auth_members
+        WHERE member = 'espacigo_api_login'::regrole AND roleid = 'espacigo_runtime'::regrole
+    ) THEN
+        GRANT espacigo_runtime TO espacigo_api_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+    END IF;
     IF (SELECT count(*) FROM pg_roles
         WHERE rolname IN ('espacigo_migrator_login', 'espacigo_schema_owner')
           AND rolcanlogin = (rolname = 'espacigo_migrator_login')
