@@ -25,15 +25,24 @@ Parameters:
 
   EnablePersistentSecretsManagerEndpoint:
     Type: String
-    Default: 'true'
+    Default: 'false'
     AllowedValues:
       - 'true'
       - 'false'
     Description: Habilita el VPC Endpoint privado de Secrets Manager para tareas ECS.
 
+  EnablePrivateInterfaceEndpoints:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Habilita los VPC Interface Endpoints de ECR y CloudWatch Logs (redundantes si existe NAT).
+
 Conditions:
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
   EnableSecretsManagerEndpoint: !Equals [!Ref EnablePersistentSecretsManagerEndpoint, 'true']
+  EnableInterfaceEndpoints: !Equals [!Ref EnablePrivateInterfaceEndpoints, 'true']
 
 Resources:
   # ============================================================================
@@ -325,6 +334,7 @@ Resources:
 
   EcrApiEndpoint:
     Type: AWS::EC2::VPCEndpoint
+    Condition: EnableInterfaceEndpoints
     Properties:
       VpcId: !Ref MainVPC
       ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
@@ -337,6 +347,7 @@ Resources:
 
   EcrDkrEndpoint:
     Type: AWS::EC2::VPCEndpoint
+    Condition: EnableInterfaceEndpoints
     Properties:
       VpcId: !Ref MainVPC
       ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
@@ -349,6 +360,7 @@ Resources:
 
   LogsEndpoint:
     Type: AWS::EC2::VPCEndpoint
+    Condition: EnableInterfaceEndpoints
     Properties:
       VpcId: !Ref MainVPC
       ServiceName: !Sub com.amazonaws.${AWS::Region}.logs

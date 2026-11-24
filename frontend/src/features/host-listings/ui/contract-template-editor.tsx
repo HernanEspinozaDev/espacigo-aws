@@ -721,7 +721,10 @@ function TemplateEditor({
                               onClick={() => moveSection(index, -1)}
                               className="inline-flex size-7 items-center justify-center rounded border border-border text-muted-foreground hover:bg-secondary disabled:opacity-40"
                             >
-                              <ArrowUp className="size-3.5" aria-hidden="true" />
+                              <ArrowUp
+                                className="size-3.5"
+                                aria-hidden="true"
+                              />
                             </button>
                             <button
                               type="button"
@@ -773,8 +776,8 @@ function TemplateEditor({
                         />
                         {hasContact && (
                           <p className="text-xs font-medium text-destructive">
-                            No incluyas teléfonos, correos electrónicos ni enlaces
-                            en las cláusulas.
+                            No incluyas teléfonos, correos electrónicos ni
+                            enlaces en las cláusulas.
                           </p>
                         )}
                       </div>
@@ -828,7 +831,9 @@ function TemplateEditor({
                       <select
                         id="modal-version-select"
                         value={
-                          inspectedVersion ? String(inspectedVersion.version) : ""
+                          inspectedVersion
+                            ? String(inspectedVersion.version)
+                            : ""
                         }
                         onChange={(e) => setSelectedVersionNum(e.target.value)}
                         className="h-8 rounded-md border border-input bg-background px-2.5 text-xs"
@@ -1022,11 +1027,7 @@ function TemplateEditor({
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={closeEditor}
-                  >
+                  <Button type="button" variant="outline" onClick={closeEditor}>
                     Cerrar
                   </Button>
                   <Button

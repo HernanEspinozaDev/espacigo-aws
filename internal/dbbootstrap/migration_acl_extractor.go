@@ -25,6 +25,7 @@ var migrationACLRoleRestoreCall = regexp.MustCompile(`(?is)^EXECUTE\s+pg_catalog
 var migrationACLIfBoundary = regexp.MustCompile(`(?is)\bEND\s+IF\b|\bIF\b`)
 var migrationACLThen = regexp.MustCompile(`(?is)\bTHEN\b`)
 var migrationACLGuardStatements = regexp.MustCompile(`(?is)^\s*(?:(?:RAISE\s+EXCEPTION\b[^;]*)?;\s*)*$`)
+var migrationACLSchemaBulk = regexp.MustCompile(`(?is)^(?:GRANT|REVOKE)\s+.+?\s+ON\s+ALL\s+(?:TABLES|SEQUENCES|FUNCTIONS)\s+IN\s+SCHEMA\s+[a-z_][a-z0-9_]*\s+(?:TO|FROM)\s+`)
 
 // Mask only the complete, known role-restoration expression. Looking up EXECUTE
 // in masked code prevents a quoted example/comment from becoming an allowlist.
@@ -298,6 +299,9 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 			if i := migrationACLWord.FindStringIndex(stmt); i != nil {
 				stmt = stmt[i[0]:]
 			}
+			if migrationACLSchemaBulk.MatchString(stmt) {
+				continue
+			}
 			var effects []RuntimeACLEffect
 			var err error
 			if includeGrantee {
@@ -496,7 +500,11 @@ func migrationACLActionSet(source, grantee string, dynamic bool) (map[string]str
 			if !targetRef.MatchString(masked[loc[0]:]) {
 				continue
 			}
-			if err := parse(strings.TrimSpace(statement[loc[0]:])); err != nil {
+			sub := strings.TrimSpace(statement[loc[0]:])
+			if migrationACLSchemaBulk.MatchString(sub) {
+				continue
+			}
+			if err := parse(sub); err != nil {
 				return nil, err
 			}
 		}

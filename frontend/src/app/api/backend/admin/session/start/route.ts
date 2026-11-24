@@ -30,7 +30,9 @@ export async function POST(request: Request): Promise<Response> {
       ? bodyResult.data.email.trim()
       : "";
   const password =
-    typeof bodyResult.data.password === "string" ? bodyResult.data.password : "";
+    typeof bodyResult.data.password === "string"
+      ? bodyResult.data.password
+      : "";
   if (!email || !password) {
     return errorResponse(422, "validation_error", ctx.requestId);
   }

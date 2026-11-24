@@ -331,7 +331,10 @@ export function HowItWorksInteractive({
               {stepIndex < steps.length - 1
                 ? "Siguiente paso"
                 : "Volver al paso 01"}
-              <ArrowRight className="size-4 text-[var(--brand-accent)]" aria-hidden="true" />
+              <ArrowRight
+                className="size-4 text-[var(--brand-accent)]"
+                aria-hidden="true"
+              />
             </button>
 
             {role === "arrendatario" ? (

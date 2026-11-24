@@ -105,7 +105,9 @@ export function ContractsWorkspace({
               {counts.landlordPending}
             </span>
           ) : counts.landlordTotal > 0 ? (
-            <span className="text-xs tabular-nums opacity-80">({counts.landlordTotal})</span>
+            <span className="text-xs tabular-nums opacity-80">
+              ({counts.landlordTotal})
+            </span>
           ) : null}
         </button>
 

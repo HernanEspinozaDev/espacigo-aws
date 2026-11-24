@@ -76,9 +76,7 @@ export function AdminFinanceView() {
       );
     }
     if (canReadContracts) {
-      tasks.push(
-        listGlobalContracts().then((res) => setContracts(res.items)),
-      );
+      tasks.push(listGlobalContracts().then((res) => setContracts(res.items)));
     }
     await Promise.all(tasks);
   }, [
@@ -229,9 +227,7 @@ export function AdminFinanceView() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge
-                          variant={p.test_mode ? "secondary" : "default"}
-                        >
+                        <Badge variant={p.test_mode ? "secondary" : "default"}>
                           {p.test_mode ? "Prueba MP" : "Comercial"}
                         </Badge>
                         <Badge variant="outline">{p.status}</Badge>

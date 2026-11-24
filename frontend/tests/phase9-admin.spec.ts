@@ -1408,7 +1408,9 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
       page.getByRole("heading", { name: /Abrir vista asistida/i }),
     ).toBeVisible();
 
-    await page.locator(`#assisted-case-${account.account_id}`).fill("SUP-2026-2040");
+    await page
+      .locator(`#assisted-case-${account.account_id}`)
+      .fill("SUP-2026-2040");
     await page
       .locator(`#assisted-reason-${account.account_id}`)
       .fill("Revisión de reservas y contratos reportados en soporte");
@@ -1421,7 +1423,9 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
     });
 
     await expect(page).toHaveURL(
-      new RegExp(`/administracion/cuentas/${account.account_id}/vista-asistida$`),
+      new RegExp(
+        `/administracion/cuentas/${account.account_id}/vista-asistida$`,
+      ),
     );
 
     const banner = page.getByRole("complementary", {
@@ -1873,11 +1877,11 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
       page.locator('[data-slot="badge"]', { hasText: "Comercial" }),
     ).toBeVisible();
     await expect(page.getByText("mp-sandbox-9001")).toBeVisible();
-    await expect(page.getByText("Conciliación automática sandbox")).toBeVisible();
+    await expect(
+      page.getByText("Conciliación automática sandbox"),
+    ).toBeVisible();
 
-    const financeAxe = await new AxeBuilder({ page })
-      .include("main")
-      .analyze();
+    const financeAxe = await new AxeBuilder({ page }).include("main").analyze();
     expect(financeAxe.violations).toEqual([]);
 
     await page.getByRole("tab", { name: /Reservas/i }).click();
@@ -1899,9 +1903,7 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
     ).toBeVisible();
     await expect(page.getByText("en_revision")).toBeVisible();
 
-    const privacyAxe = await new AxeBuilder({ page })
-      .include("main")
-      .analyze();
+    const privacyAxe = await new AxeBuilder({ page }).include("main").analyze();
     expect(privacyAxe.violations).toEqual([]);
 
     // 3. /administracion/aprobaciones

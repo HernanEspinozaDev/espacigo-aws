@@ -31,7 +31,10 @@ export default async function VerificacionesPage({
         </p>
       </div>
 
-      <AccountVerificationCard showDeclarationLink={false} returnTo={returnTo} />
+      <AccountVerificationCard
+        showDeclarationLink={false}
+        returnTo={returnTo}
+      />
     </div>
   );
 }

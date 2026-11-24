@@ -29,14 +29,17 @@ export function ProductGrid({
           </h2>
           <p className="mt-2 max-w-2xl text-muted-foreground">{description}</p>
         </div>
-        {(showViewAll || mapHref) ? (
+        {showViewAll || mapHref ? (
           <div className="hidden items-center gap-4 sm:inline-flex">
             {mapHref ? (
               <Link
                 href={mapHref}
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:border-[var(--brand-accent)] hover:bg-[var(--brand-primary-soft)]/50"
               >
-                <MapPin className="size-4 text-[var(--brand-accent)]" aria-hidden="true" />
+                <MapPin
+                  className="size-4 text-[var(--brand-accent)]"
+                  aria-hidden="true"
+                />
                 Ver en mapa
               </Link>
             ) : null}

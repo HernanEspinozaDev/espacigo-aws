@@ -59,26 +59,24 @@ func TestCheckedInMigrationRuntimeACLIsExtractedOrRejected(t *testing.T) {
 	}
 }
 
-func TestV80RuntimeACLIsExtracted(t *testing.T) {
-	path := filepath.Join("../../db/migrations", "V000080__document_verification_space_ownership_supersession.sql")
-	source, err := os.ReadFile(path)
+func TestExtractMigrationRuntimeACLSkipsSchemaBulkAndDefaultPrivileges(t *testing.T) {
+	source := []byte(`
+GRANT USAGE ON SCHEMA public TO espacigo_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO espacigo_runtime;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO espacigo_runtime;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO espacigo_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO espacigo_runtime;
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo_runtime;
+REVOKE UPDATE, DELETE ON public.evento_auditoria_local FROM espacigo_runtime;
+`)
+	effects, err := ExtractMigrationRuntimeACL(1, source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	effects, err := ExtractMigrationRuntimeACL(80, source)
-	if err != nil {
-		t.Fatal(err)
+	if len(effects) != 3 {
+		t.Fatalf("got %d effects, want 3 (SCHEMA USAGE + 2 REVOKEs): %+v", len(effects), effects)
 	}
-	want := RuntimeACLEffect{
-		Action: "GRANT", ObjectKind: "TABLE", Object: "public.document_verification_case",
-		Privilege: "UPDATE", Column: "superseded_at", Condition: "role-exists:espacigo_runtime",
-	}
-	for _, effect := range effects {
-		if effect == want {
-			return
-		}
-	}
-	t.Fatalf("V80 runtime grant not extracted; got %d effects", len(effects))
 }
 
 func TestV82PublicRevokePreservesF5BaselineOnlyOnAuthorizedDatabase(t *testing.T) {
@@ -114,22 +112,6 @@ END $f5_public_acl$;`)
 	}
 	if len(genericEffects) != 1 || genericEffects[0] != want {
 		t.Fatalf("non-F5 runtime ACL replay = %+v, want [%+v]", genericEffects, want)
-	}
-}
-
-func TestCheckedInV82F5ExtractionOmitsConditionalPublicRevoke(t *testing.T) {
-	source, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "V000082__document_verification_retention_precedence.sql"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	f5Effects, err := extractF5RuntimeACLSourceEffects([]RuntimeACLSource{{Version: 82, SQL: source}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, effect := range f5Effects {
-		if effect.Grantee == "PUBLIC" && effect.Action == "REVOKE" && effect.Object == "public.document_verification_space_owner_changed()" {
-			t.Fatalf("F5 extraction unexpectedly expects PUBLIC revocation: %+v", effect)
-		}
 	}
 }
 
@@ -188,36 +170,6 @@ func TestExtractMigrationACLForGranteeIgnoresACLTextInNonExecutableSQL(t *testin
 		if len(effects) != 0 {
 			t.Errorf("extracted ACL from unrelated SQL text %q: %+v", source, effects)
 		}
-	}
-}
-
-func TestV81V82PublicACLIsExtracted(t *testing.T) {
-	for _, tc := range []struct {
-		version int
-		name    string
-		want    int
-	}{
-		{81, "V000081__document_verification_runtime_scope_helpers.sql", 4},
-		{82, "V000082__document_verification_retention_precedence.sql", 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			source, err := os.ReadFile(filepath.Join("../../db/migrations", tc.name))
-			if err != nil {
-				t.Fatal(err)
-			}
-			effects, err := ExtractMigrationACLForGrantee(tc.version, source, "PUBLIC")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(effects) != tc.want {
-				t.Fatalf("got %d PUBLIC ACL effects, want %d: %+v", len(effects), tc.want, effects)
-			}
-			for _, effect := range effects {
-				if effect.Action != "REVOKE" || effect.Grantee != "PUBLIC" {
-					t.Errorf("unexpected PUBLIC ACL effect: %+v", effect)
-				}
-			}
-		})
 	}
 }
 

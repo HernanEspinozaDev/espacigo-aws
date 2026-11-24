@@ -80,21 +80,30 @@ export default function MercadoPagoInfoPage() {
           </p>
           <ul className="mt-5 space-y-2.5 text-sm text-foreground">
             <li className="flex items-start gap-2.5">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <CheckCircle2
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Aprobación guardada:</strong> no necesitas volver a
                 autorizar cada publicación o reserva.
               </span>
             </li>
             <li className="flex items-start gap-2.5">
-              <RefreshCw className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <RefreshCw
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Cobro y liquidación trazables:</strong> revisa el estado
                 de cada pago, comisión y abono en tu panel.
               </span>
             </li>
             <li className="flex items-start gap-2.5">
-              <KeyRound className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <KeyRound
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Control total:</strong> puedes revocar o reconectar tu
                 cuenta de Mercado Pago cuando quieras.
@@ -117,21 +126,30 @@ export default function MercadoPagoInfoPage() {
           </p>
           <ul className="mt-5 space-y-2.5 text-sm text-foreground">
             <li className="flex items-start gap-2.5">
-              <Lock className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <Lock
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Sin exposición de tarjetas:</strong> tus credenciales
                 financieras quedan exclusivamente en Mercado Pago.
               </span>
             </li>
             <li className="flex items-start gap-2.5">
-              <Receipt className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <Receipt
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Confirmación verificada:</strong> validamos el pago con
                 Mercado Pago antes de emitir pases y recibos.
               </span>
             </li>
             <li className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]" aria-hidden="true" />
+              <ShieldCheck
+                className="mt-0.5 size-4 shrink-0 text-[var(--brand-success)]"
+                aria-hidden="true"
+              />
               <span>
                 <strong>Respaldo contractual:</strong> tu pago queda asociado al
                 contrato firmado y descargable en PDF.

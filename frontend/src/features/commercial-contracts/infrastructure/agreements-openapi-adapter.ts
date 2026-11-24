@@ -76,7 +76,9 @@ export class OpenApiAgreementsAdapter implements AgreementsPort {
         snapshot_sha256: proposal.sha256,
         consent: true,
         consent_version: agreementConsentVersion,
-        ...(otp ? { otp_challenge_id: otp.challengeId, otp_code: otp.code } : {}),
+        ...(otp
+          ? { otp_challenge_id: otp.challengeId, otp_code: otp.code }
+          : {}),
       },
       bodySerializer: serializeExactJson,
       signal,

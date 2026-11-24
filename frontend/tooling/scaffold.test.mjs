@@ -49,7 +49,9 @@ test("marketplace routes use the Go public catalog without local listing fixture
     "Hero",
     "ProductGrid",
     "CategoryRail",
-    "OwnerCallout",
+    "PlatformFeaturesSection",
+    "HowItWorksPreview",
+    "MercadoPagoSecuritySection",
   ]) {
     assert.match(home, new RegExp(templateSection));
   }

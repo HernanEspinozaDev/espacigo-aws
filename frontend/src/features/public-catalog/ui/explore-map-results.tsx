@@ -95,9 +95,9 @@ export function ExploreMapResults({
   const [nearbyMarkers, setNearbyMarkers] = useState<PublicMapMarker[] | null>(
     null,
   );
-  const [nearbyState, setNearbyState] = useState<
-    "idle" | "loading" | "error"
-  >("idle");
+  const [nearbyState, setNearbyState] = useState<"idle" | "loading" | "error">(
+    "idle",
+  );
   const nearbyAbortRef = useRef<AbortController | null>(null);
   const panelTouchStart = useRef<number | null>(null);
   const itemRefs = useRef(new Map<string, HTMLLIElement>());
@@ -477,7 +477,9 @@ export function ExploreMapResults({
               <button
                 type="button"
                 onClick={() =>
-                  setSheetState(sheetHeight === "expanded" ? "half" : "expanded")
+                  setSheetState(
+                    sheetHeight === "expanded" ? "half" : "expanded",
+                  )
                 }
                 className="min-h-9 rounded-full border px-3 text-xs font-medium lg:hidden"
               >
@@ -529,7 +531,10 @@ export function ExploreMapResults({
                 >
                   Ver espacio
                 </Link>
-                <SpaceNearbyPois key={selected.space_id} spaceId={selected.space_id} />
+                <SpaceNearbyPois
+                  key={selected.space_id}
+                  spaceId={selected.space_id}
+                />
               </div>
             </article>
           )}

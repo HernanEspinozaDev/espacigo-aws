@@ -14,12 +14,7 @@ export function Footer() {
               href="/"
               className="inline-flex items-center gap-2 text-xl font-semibold tracking-tight text-foreground"
             >
-              <Image
-                src="/espacigo-mark.svg"
-                width={28}
-                height={28}
-                alt=""
-              />
+              <Image src="/espacigo-mark.svg" width={28} height={28} alt="" />
               <span>EspaciGo</span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-[var(--brand-muted-on-subtle)]">

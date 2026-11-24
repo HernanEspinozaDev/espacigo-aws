@@ -96,7 +96,10 @@ export function PlatformFeaturesSection() {
             href="/explorar/mapa"
             className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-full border border-border bg-background px-5 text-sm font-medium text-foreground transition-colors hover:border-[var(--brand-accent)] hover:bg-[var(--brand-primary-soft)]/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <MapPinned className="size-4 text-[var(--brand-accent)]" aria-hidden="true" />
+            <MapPinned
+              className="size-4 text-[var(--brand-accent)]"
+              aria-hidden="true"
+            />
             Explorar en mapa
           </Link>
         </div>
