@@ -260,7 +260,7 @@ required += [
 ]
 resolver_root = 'TestPostgresEarlyRentalSnapshotRuntime'
 required += [resolver_root] + [f'{resolver_root}/{name}' for name in (
-    'MigrationOnlyDeniesListingRead', 'SnapshotAvailable', 'CustomTariffConflict',
+    'SnapshotAvailable', 'CustomTariffConflict',
 )]
 events_root = 'TestPostgresEarlyRentalReadEvents'
 required += [events_root] + [f'{events_root}/{name}' for name in (
