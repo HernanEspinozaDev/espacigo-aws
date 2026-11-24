@@ -58,6 +58,7 @@ func mountPublicCatalogRoutes(mux *http.ServeMux, handler http.Handler, standalo
 	for _, route := range []string{
 		"/api/v1/public/spaces",
 		"/api/v1/public/spaces/",
+		"/api/v1/public/spaces/map",
 		"/api/v1/public/space-categories",
 		"/api/v1/public/space-categories/",
 		"/api/v1/public/locations",

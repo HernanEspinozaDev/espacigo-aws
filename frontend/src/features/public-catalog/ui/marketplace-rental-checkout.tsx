@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -12,6 +13,7 @@ import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
 import { calculateBuyerFeeBreakdown } from "@/features/rental-checkout/domain/fee-breakdown";
 import { CheckoutProButton } from "@/features/rental-checkout/ui/checkout-pro-button";
 import { CheckoutSummaryCard } from "@/features/rental-checkout/ui/checkout-flow-chrome";
+import { ContractCheckoutGate } from "@/features/commercial-contracts/ui/contract-checkout-gate";
 import { ReservationCountdown } from "@/features/rental-checkout/ui/reservation-countdown";
 
 export interface MarketplaceCheckoutSelection {
@@ -89,8 +91,19 @@ export function MarketplaceRentalCheckout({
       : auth.status;
   const autoRequestKey = `${currentAuthKey}:${selection.spaceId}:${selection.startAt}:${selection.endAt}`;
 
+  const router = useRouter();
+  const [agreementState, setAgreementState] = useState<string | null>(null);
   const quote =
     quoteState?.authKey === currentAuthKey ? quoteState.quote : null;
+  const quoteTimerActive = agreementState === null;
+
+  useEffect(() => {
+    if (!quote || !quoteTimerActive || expiredQuoteId !== quote.id) return;
+    const timeoutId = window.setTimeout(() => {
+      router.replace(`/espacios/${encodeURIComponent(selection.spaceId)}`);
+    }, 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [quote, quoteTimerActive, expiredQuoteId, router, selection.spaceId]);
   const operation =
     operationState?.authKey === currentAuthKey
       ? operationState
@@ -362,11 +375,13 @@ export function MarketplaceRentalCheckout({
                 />
                 Cotización oficial
               </h4>
-              <ReservationCountdown
-                expiresAt={quote.expires_at}
-                size="lg"
-                onExpire={() => setExpiredQuoteId(quote.id)}
-              />
+              {quoteTimerActive && (
+                <ReservationCountdown
+                  expiresAt={quote.expires_at}
+                  size="lg"
+                  onExpire={() => setExpiredQuoteId(quote.id)}
+                />
+              )}
             </div>
 
             <div className="space-y-2 text-sm">
@@ -418,6 +433,16 @@ export function MarketplaceRentalCheckout({
                   </ul>
                 </div>
               ) : null}
+              {quote.cancellation_policy && (
+                <div className="rounded-lg border border-[#e8c5b5] bg-white/70 p-3 text-sm">
+                  <p className="font-semibold text-[#332720]">
+                    Política de cancelación
+                  </p>
+                  <p className="mt-1 text-[#66574e]">
+                    {quote.cancellation_policy.text}
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5 border-t border-[#e8c5b5] pt-3">
                 <div className="flex items-baseline justify-between gap-3 text-[#66574e]">
                   <span>Precio original del espacio</span>
@@ -458,52 +483,64 @@ export function MarketplaceRentalCheckout({
               </div>
             </div>
 
-            <p className="text-xs leading-relaxed text-[#66574e]">
-              {checkoutApiEnabled
-                ? walletPurchaseEnabled
-                  ? "Elige pagar con tarjeta aquí o ingresar a tu cuenta de Mercado Pago."
-                  : "Completarás el pago en EspaciGo. Mercado Pago procesa la transacción."
-                : "El pago continúa en el sitio seguro de Mercado Pago y EspaciGo confirma el estado al regresar."}
-            </p>
-            {expiredQuoteId === quote.id ? (
-              <div className="space-y-3 rounded-xl border border-red-300 bg-red-50 p-3.5 text-sm text-red-800">
-                <p>
-                  El tiempo de 6 minutos para esta reserva venció y el horario
-                  volvió a quedar libre en el calendario.
-                </p>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setExpiredQuoteId(null);
-                    void requestQuote();
-                  }}
-                  className="min-h-11 w-full rounded-xl bg-[#a44731] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#843522]"
+            <ContractCheckoutGate
+              quoteId={quote.id}
+              checkoutApiEnabled={checkoutApiEnabled}
+              walletPurchaseEnabled={walletPurchaseEnabled}
+              onAgreementStateChange={setAgreementState}
+              forceCloseModal={quoteTimerActive && expiredQuoteId === quote.id}
+              onRefreshQuote={() => {
+                setExpiredQuoteId(null);
+                void requestQuote();
+              }}
+            >
+              <p className="text-xs leading-relaxed text-[#66574e]">
+                {checkoutApiEnabled
+                  ? walletPurchaseEnabled
+                    ? "Elige pagar con tarjeta aquí o ingresar a tu cuenta de Mercado Pago."
+                    : "Completarás el pago en EspaciGo. Mercado Pago procesa la transacción."
+                  : "El pago continúa en el sitio seguro de Mercado Pago y EspaciGo confirma el estado al regresar."}
+              </p>
+              {expiredQuoteId === quote.id ? (
+                <div className="space-y-3 rounded-xl border border-red-300 bg-red-50 p-3.5 text-sm text-red-800">
+                  <p>
+                    El tiempo de 6 minutos para esta reserva venció y el horario
+                    volvió a quedar libre en el calendario.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setExpiredQuoteId(null);
+                      void requestQuote();
+                    }}
+                    className="min-h-11 w-full rounded-xl bg-[#a44731] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#843522]"
+                  >
+                    Solicitar nueva cotización
+                  </Button>
+                </div>
+              ) : walletPurchaseEnabled || checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-options"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
                 >
-                  Solicitar nueva cotización
-                </Button>
-              </div>
-            ) : walletPurchaseEnabled || checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/opciones/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-options"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Ir a pagar
-              </Link>
-            ) : checkoutApiEnabled ? (
-              <Link
-                href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
-                data-mp-checkout-cta="checkout-api"
-                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
-              >
-                Pagar con Mercado Pago
-              </Link>
-            ) : (
-              <CheckoutProButton
-                quoteId={quote.id}
-                expiresAt={quote.expires_at}
-              />
-            )}
+                  Ir a pagar
+                </Link>
+              ) : checkoutApiEnabled ? (
+                <Link
+                  href={`/reservas/checkout/tarjeta/${encodeURIComponent(quote.id)}`}
+                  data-mp-checkout-cta="checkout-api"
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#a44731] px-5 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[#843522] active:bg-[#702a1b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1d4ed8]"
+                >
+                  Pagar con Mercado Pago
+                </Link>
+              ) : (
+                <CheckoutProButton
+                  quoteId={quote.id}
+                  expiresAt={quote.expires_at}
+                />
+              )}
+            </ContractCheckoutGate>
 
             {selection.rateUnit === "mes" && (
               <fieldset className="space-y-2 rounded-lg border border-[#e8c5b5] bg-[#fbf7f2] p-3 text-xs">

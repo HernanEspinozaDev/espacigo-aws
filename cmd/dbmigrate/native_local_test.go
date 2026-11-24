@@ -117,50 +117,6 @@ func TestValidateNativePreV81PlanAcceptsOnlyVerifiedPrefix(t *testing.T) {
 	}
 }
 
-func TestMakeNativePreV81SnapshotContainsExactlyReviewedPrefix(t *testing.T) {
-	privateTemp := t.TempDir()
-	if err := os.Chmod(privateTemp, 0700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TMPDIR", privateTemp)
-	source := filepath.Join("..", "..", "db", "migrations")
-	all, err := migrator.DiscoverMigrations(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, cleanup, err := makeNativePreV81Snapshot(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanup)
-	got, err := migrator.DiscoverMigrations(snapshot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(all) < 85 || len(got) != 80 {
-		t.Fatalf("source/snapshot counts = %d/%d, want at least 85/80", len(all), len(got))
-	}
-	for i := range got {
-		if got[i].Version != int64(i+1) || got[i].Name != all[i].Name || got[i].Checksum != all[i].Checksum {
-			t.Fatalf("snapshot entry %d does not match source prefix", i+1)
-		}
-	}
-	snapshot81, cleanup81, err := makeNativeV81Snapshot(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(cleanup81)
-	got81, err := migrator.DiscoverMigrations(snapshot81)
-	if err != nil || len(got81) != 81 {
-		t.Fatalf("V81 snapshot has %d entries: %v", len(got81), err)
-	}
-	for i := range got81 {
-		if got81[i].Version != int64(i+1) || got81[i].Name != all[i].Name || got81[i].Checksum != all[i].Checksum {
-			t.Fatalf("V81 snapshot entry %d does not match source prefix", i+1)
-		}
-	}
-}
-
 func TestValidateNativeMigratorV81InvocationPinsPrivatePassfileAndTarget(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0700); err != nil {

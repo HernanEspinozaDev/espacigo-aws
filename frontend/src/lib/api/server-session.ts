@@ -2,6 +2,7 @@ import "server-only";
 
 export const SESSION_COOKIE_NAME = "__Host-espacigo-session";
 export const EXPIRY_COOKIE_NAME = "__Host-espacigo-session-expiry";
+export const ADMIN_SESSION_COOKIE_NAME = "espacigo_admin_session";
 
 export interface BrowserSession {
   account_id: string;
@@ -207,6 +208,54 @@ export function buildClearSessionCookies(): [string, string] {
   const cookie2 = `${EXPIRY_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=${epoch}; Max-Age=0`;
 
   return [cookie1, cookie2];
+}
+
+export function parseAdminSessionCookie(cookieHeader: string | null): string | null {
+  if (!cookieHeader) return null;
+  let rawToken: string | null = null;
+  let tokenCount = 0;
+
+  for (const entry of cookieHeader.split(";")) {
+    const parts = entry.split("=");
+    if (parts.length < 2) continue;
+    const name = parts[0].trim();
+    const val = parts.slice(1).join("=").trim();
+    if (name === ADMIN_SESSION_COOKIE_NAME) {
+      tokenCount++;
+      rawToken = val;
+    }
+  }
+
+  if (tokenCount !== 1 || !rawToken || !safeOpaqueToken.test(rawToken)) {
+    return null;
+  }
+  return rawToken;
+}
+
+export function buildAdminSessionCookie(
+  token: string,
+  expiresAtIso?: string,
+): string {
+  const parts = [
+    `${ADMIN_SESSION_COOKIE_NAME}=${token}`,
+    "Path=/",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  ];
+  if (expiresAtIso && rfc3339Timestamp.test(expiresAtIso)) {
+    const expiresMs = Date.parse(expiresAtIso);
+    if (!Number.isNaN(expiresMs)) {
+      const maxAgeSeconds = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
+      parts.push(`Expires=${new Date(expiresMs).toUTCString()}`);
+      parts.push(`Max-Age=${maxAgeSeconds}`);
+    }
+  }
+  return parts.join("; ");
+}
+
+export function buildClearAdminSessionCookie(): string {
+  return `${ADMIN_SESSION_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0`;
 }
 
 export function errorResponse(

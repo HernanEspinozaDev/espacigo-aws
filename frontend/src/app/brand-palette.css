@@ -1,42 +1,50 @@
-/* Tailwind v4 color configuration, not a replacement stylesheet.
- * Keep all existing JSX classes, geometry and fonts unchanged.
+/* Tailwind v4 color configuration — neutral surfaces, graphite ink, and brand orange.
  * Semantic state palettes (red, amber, blue, emerald) remain independent.
  */
 :root {
-  --brand-primary: #a44731;
-  --brand-primary-hover: #843522;
-  --brand-primary-active: #702a1b;
-  --brand-primary-soft: #f5e3db;
-  --brand-accent: #d97745;
-  --brand-canvas: #fbf7f2;
+  /* Primary action: #C54B18 (4.78:1 with white text) */
+  --brand-primary: #c54b18;
+  --brand-primary-hover: #a93d11;
+  --brand-primary-active: #8d310c;
+  /* Soft selection / active tab / category pill: #FFF1E8 with #9B3610 text (6.49:1) */
+  --brand-primary-soft: #fff1e8;
+  --brand-primary-soft-ink: #9b3610;
+  /* Brand illustration & icon accent: #E76F35 (3.12:1 on white, decorative/large icons) */
+  --brand-accent: #e76f35;
+  /* Neutral surfaces & graphite reading ink */
+  --brand-canvas: #ffffff;
   --brand-surface: #ffffff;
-  --brand-surface-subtle: #f5eee6;
-  --brand-ink: #332720;
-  --brand-muted: #66574e;
-  --brand-border: #ded5cc;
-  --brand-control-border: #8a796b;
+  --brand-surface-subtle: #f6f7f9;
+  --brand-ink: #20252b;
+  /* Secondary text: #64748B on white (4.77:1), #526174 on subtle gray (5.90:1) */
+  --brand-muted: #64748b;
+  --brand-muted-on-subtle: #526174;
+  /* Borders & semantic states */
+  --brand-border: #e2e8f0;
+  --brand-control-border: #94a3b8;
   --brand-focus: #1d4ed8;
   --brand-error: #b91c1c;
+  --brand-warning: #b45309;
   --brand-success: #15803d;
 }
 
 /* Preserve the template's existing gray/orange class names and variants.
- * These aliases generate ordinary Tailwind utilities with warm brand colors.
- * orange-500 stays decorative; existing active auth CTAs use orange-700.
+ * Purpose-specific tokens (--brand-*) should be preferred in new/redesigned components;
+ * broad aliases remain for backward compatibility until Phase 6 cleanup.
  */
 @theme inline {
-  --color-gray-50: var(--brand-canvas);
+  --color-gray-50: var(--brand-surface-subtle);
   --color-gray-100: var(--brand-surface-subtle);
   --color-gray-200: var(--brand-border);
   --color-gray-300: var(--brand-border);
   --color-gray-400: var(--brand-control-border);
   --color-gray-500: var(--brand-muted);
-  --color-gray-600: var(--brand-muted);
+  --color-gray-600: var(--brand-muted-on-subtle);
   --color-gray-700: var(--brand-ink);
   --color-gray-800: var(--brand-ink);
   --color-gray-900: var(--brand-ink);
   --color-gray-950: var(--brand-ink);
-  --color-orange-50: var(--brand-canvas);
+  --color-orange-50: var(--brand-primary-soft);
   --color-orange-100: var(--brand-primary-soft);
   --color-orange-200: var(--brand-primary-soft);
   --color-orange-300: var(--brand-accent);

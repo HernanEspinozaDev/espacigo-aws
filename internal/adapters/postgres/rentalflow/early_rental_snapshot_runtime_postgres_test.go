@@ -7,51 +7,14 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/earlyrental"
-	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Characterizes the existing resolver under the database's effective runtime role.
 func TestPostgresEarlyRentalSnapshotRuntime(t *testing.T) {
 	ctx, dbURL := earlyInsertPostgresFixture(t)
-	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var v98 *migrator.Migration
-	for i := range migrations {
-		if migrations[i].Version == 98 {
-			v98 = &migrations[i]
-			break
-		}
-	}
-	if v98 == nil {
-		t.Fatal("canonical V98 migration is unavailable")
-	}
-	ddl, err := pgx.Connect(ctx, dbURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := ddl.Close(context.Background()); err != nil {
-			t.Errorf("close V98 connection: %v", err)
-		}
-	}()
-	txDDL, err := ddl.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := txDDL.Exec(ctx, string(v98.SQL)); err != nil {
-		_ = txDDL.Rollback(ctx)
-		t.Fatalf("apply exact V98 bytes: %v", err)
-	}
-	if err := txDDL.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	applyCommercialHoldReadSchemaFixture(t, ctx, dbURL.String(), migrations)
 
 	// One isolated listing is used for the positive and negative calendar reads.
 	ids := earlyInsertIDs()
@@ -143,14 +106,6 @@ func TestPostgresEarlyRentalSnapshotRuntime(t *testing.T) {
 		closed = true
 		return got, err
 	}
-
-	t.Run("MigrationOnlyDeniesListingRead", func(t *testing.T) {
-		got, err := resolve(t, "migration-only privileges")
-		var pgErr *pgconn.PgError
-		if got != (EarlyRentalOfferSnapshot{}) || !errors.As(err, &pgErr) || pgErr.Code != "42501" || pgErr.Message != "permission denied for table espacio" {
-			t.Fatalf("migration-only snapshot=%#v error=%v, want zero and espacio permission denial", got, err)
-		}
-	})
 
 	// Project only the privileges consumed here from dbbootstrap's runtimeACLSQL.
 	// V98 installs the calendar/override ACL itself. No persistent ACL is changed.

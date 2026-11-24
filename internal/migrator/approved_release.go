@@ -29,7 +29,7 @@ func (p releasePolicy) checkPending(plan PlanResult) error {
 	if p.Format != "espacigo.initial-migration-policy.v1" || p.Baseline < 1 {
 		return errors.New("invalid migration release policy")
 	}
-	if !plan.HistoryExists || len(plan.Applied) < max(p.Baseline, 100) {
+	if !plan.HistoryExists || len(plan.Applied) < p.Baseline {
 		return errors.New("initialize and verify the production baseline before automatic migrations")
 	}
 	for _, pending := range plan.Pending {

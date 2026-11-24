@@ -2,7 +2,10 @@ package publiccatalog
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -17,6 +20,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"golang.org/x/text/unicode/norm"
 )
@@ -27,10 +31,24 @@ var areaPattern = regexp.MustCompile(`^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$`)
 var attributeDecimalPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 
 type Service struct {
-	repo       Repository
-	key        []byte
-	imageStore PublicImageStore
-	mediaStore media.ObjectStore
+	repo                 Repository
+	key                  []byte
+	imageStore           PublicImageStore
+	mediaStore           media.ObjectStore
+	destinationSuggester DestinationSuggester
+	nearbyPOILookup      NearbyPOILookup
+}
+
+func (s *Service) SetDestinationSuggester(suggester DestinationSuggester) {
+	if s != nil {
+		s.destinationSuggester = suggester
+	}
+}
+
+func (s *Service) SetNearbyPOILookup(lookup NearbyPOILookup) {
+	if s != nil {
+		s.nearbyPOILookup = lookup
+	}
 }
 
 // New derives a purpose-specific cursor key from a stable local application
@@ -262,6 +280,9 @@ func (s *Service) List(ctx context.Context, filters Filters) (Page, error) {
 		if err != nil || cursor.Version != cursorVersion || cursor.Fingerprint != fingerprint || cursor.Sort != filters.Sort || cursor.PageSize != filters.PageSize || !validUUID(cursor.LastSpaceID) {
 			return Page{}, ErrInvalid
 		}
+		if filters.Sort == "distance_asc" && (cursor.LastDistanceKM == nil || !finite(*cursor.LastDistanceKM) || *cursor.LastDistanceKM < 0) {
+			return Page{}, ErrInvalid
+		}
 		after = &cursor
 	}
 	items, err := s.repo.List(ctx, filters, after, filters.PageSize+1)
@@ -287,12 +308,15 @@ func (s *Service) List(ctx context.Context, filters Filters) (Page, error) {
 			Version: cursorVersion, Fingerprint: fingerprint, Sort: filters.Sort, PageSize: filters.PageSize,
 			LastCategoryOrder: last.CategoryOrder, LastTitleKey: last.TitleKey,
 			LastUnitPriceCLP: last.BasePriceCLP, LastEstimatedTotalCLP: last.EstimatedTotalCLP,
-			LastRelevanceRank: last.RelevanceRank, LastSpaceID: last.SpaceID,
+			LastRelevanceRank: last.RelevanceRank, LastSpaceID: last.SpaceID, LastDistanceKM: last.DistanceKM,
 		}
 		page.NextCursor, err = s.encodeCursor(cursor)
 		if err != nil {
 			return Page{}, err
 		}
+	}
+	for i := range page.Items {
+		page.Items[i] = publicProjection(page.Items[i])
 	}
 	return page, nil
 }
@@ -406,20 +430,42 @@ func (s *Service) Detail(ctx context.Context, spaceID string) (Space, error) {
 	if !validUUID(spaceID) {
 		return Space{}, ErrNotFound
 	}
-	return s.repo.Detail(ctx, strings.ToLower(spaceID))
+	item, err := s.repo.Detail(ctx, strings.ToLower(spaceID))
+	if err != nil {
+		return Space{}, err
+	}
+	item.CancellationPolicy = nil
+	if policy, ok := commercialpolicy.ByVersion(item.CancellationPolicyVersion); ok {
+		text := policy.Text
+		item.CancellationPolicy = &text
+	}
+	return publicProjection(item), err
 }
 
 func validate(filters *Filters) error {
+	if err := validateGeo(*filters); err != nil {
+		return err
+	}
+	maxPageSize := MaxPageSize
+	if filters.MapOnly {
+		maxPageSize = MaxMapPageSize
+		if filters.PageSize == 0 && !filters.PageSizeSet {
+			filters.PageSize = MaxMapPageSize
+		}
+	}
 	if filters.PageSize == 0 && !filters.PageSizeSet {
 		filters.PageSize = DefaultPageSize
 	}
-	if filters.PageSize < 1 || filters.PageSize > MaxPageSize {
+	if filters.PageSize < 1 || filters.PageSize > maxPageSize {
 		return ErrInvalid
 	}
 	if filters.Sort == "" {
 		filters.Sort = "default"
 	}
-	if filters.Sort != "default" && filters.Sort != "title_asc" && filters.Sort != "title_desc" && filters.Sort != "unit_price_asc" && filters.Sort != "unit_price_desc" && filters.Sort != "relevance" && filters.Sort != "estimated_total_asc" && filters.Sort != "estimated_total_desc" {
+	if filters.Sort != "distance_asc" && filters.Sort != "default" && filters.Sort != "title_asc" && filters.Sort != "title_desc" && filters.Sort != "unit_price_asc" && filters.Sort != "unit_price_desc" && filters.Sort != "relevance" && filters.Sort != "estimated_total_asc" && filters.Sort != "estimated_total_desc" {
+		return ErrInvalid
+	}
+	if filters.Sort == "distance_asc" && filters.Proximity == nil {
 		return ErrInvalid
 	}
 	if utf8.RuneCountInString(filters.Query) > 120 {
@@ -431,6 +477,12 @@ func validate(filters *Filters) error {
 		}
 	}
 	if filters.MinAreaM2 != "" && (!areaPattern.MatchString(filters.MinAreaM2) || strings.TrimLeft(strings.ReplaceAll(filters.MinAreaM2, ".", ""), "0") == "") {
+		return ErrInvalid
+	}
+	if filters.MinCapacity != nil && (*filters.MinCapacity < 1 || int64(*filters.MinCapacity) > math.MaxInt32) {
+		return ErrInvalid
+	}
+	if (filters.Bounds != nil || filters.Proximity != nil) && (filters.RegionCode != "" || filters.CommuneCode != "") {
 		return ErrInvalid
 	}
 	if filters.RegionCode != "" && !validRegionCode(filters.RegionCode) {
@@ -520,6 +572,9 @@ func digitsOnly(value string) bool {
 
 func filtersFingerprint(filters Filters) string {
 	canonical := struct {
+		Bounds           *Bounds                       `json:"bounds,omitempty"`
+		Proximity        *Proximity                    `json:"proximity,omitempty"`
+		MapOnly          bool                          `json:"map_only,omitempty"`
 		Category         string                        `json:"category"`
 		Unit             string                        `json:"unit"`
 		Min              *int64                        `json:"min,omitempty"`
@@ -530,6 +585,7 @@ func filtersFingerprint(filters Filters) string {
 		Region           string                        `json:"region"`
 		Commune          string                        `json:"commune"`
 		MinArea          string                        `json:"min_area"`
+		MinCapacity      *int                          `json:"min_capacity,omitempty"`
 		Attributes       map[string]bool               `json:"attributes"`
 		TypedAttributes  map[string]AttributePredicate `json:"typed_attributes"`
 		AttributeVersion int                           `json:"attribute_version"`
@@ -537,8 +593,8 @@ func filtersFingerprint(filters Filters) string {
 		EndAt            *time.Time                    `json:"end_at"`
 		MinTotal         *int64                        `json:"min_total"`
 		MaxTotal         *int64                        `json:"max_total"`
-	}{filters.CategoryCode, filters.RateUnit, filters.MinUnitPriceCLP, filters.MaxUnitPriceCLP, filters.Sort, filters.PageSize,
-		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
+	}{filters.Bounds, filters.Proximity, filters.MapOnly, filters.CategoryCode, filters.RateUnit, filters.MinUnitPriceCLP, filters.MaxUnitPriceCLP, filters.Sort, filters.PageSize,
+		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.MinCapacity, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
 		filters.StartAt, filters.EndAt, filters.MinTotalCLP, filters.MaxTotalCLP}
 	raw, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(raw)
@@ -546,6 +602,25 @@ func filtersFingerprint(filters Filters) string {
 }
 
 func (s *Service) encodeCursor(cursor Cursor) (string, error) {
+	// Signed cursors are public. Seal unsafe sort keys so redacted contact data
+	// cannot be recovered from the next-page token.
+	if publicText(cursor.LastTitleKey) != strings.TrimSpace(cursor.LastTitleKey) {
+		block, err := aes.NewCipher(s.key)
+		if err != nil {
+			return "", err
+		}
+		aead, err := cipher.NewGCM(block)
+		if err != nil {
+			return "", err
+		}
+		nonce := make([]byte, aead.NonceSize())
+		if _, err = rand.Read(nonce); err != nil {
+			return "", err
+		}
+		cursor.EncryptedTitleKey = base64.RawURLEncoding.EncodeToString(aead.Seal(nonce, nonce, []byte(cursor.LastTitleKey), []byte("public-catalog/title-key/v1")))
+		cursor.LastTitleKey = ""
+	}
+
 	raw, err := json.Marshal(cursor)
 	if err != nil {
 		return "", err
@@ -573,6 +648,29 @@ func (s *Service) decodeCursor(value string) (Cursor, error) {
 	_, _ = mac.Write(raw)
 	if !hmac.Equal(signature, mac.Sum(nil)) || json.Unmarshal(raw, &cursor) != nil {
 		return Cursor{}, ErrInvalid
+	}
+	if cursor.EncryptedTitleKey != "" {
+		if cursor.LastTitleKey != "" {
+			return Cursor{}, ErrInvalid
+		}
+		sealed, err := base64.RawURLEncoding.DecodeString(cursor.EncryptedTitleKey)
+		if err != nil {
+			return Cursor{}, ErrInvalid
+		}
+		block, err := aes.NewCipher(s.key)
+		if err != nil {
+			return Cursor{}, ErrInvalid
+		}
+		aead, err := cipher.NewGCM(block)
+		if err != nil || len(sealed) < aead.NonceSize() {
+			return Cursor{}, ErrInvalid
+		}
+		plaintext, err := aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], []byte("public-catalog/title-key/v1"))
+		if err != nil {
+			return Cursor{}, ErrInvalid
+		}
+		cursor.LastTitleKey = string(plaintext)
+		cursor.EncryptedTitleKey = ""
 	}
 	return cursor, nil
 }

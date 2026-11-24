@@ -39,7 +39,6 @@ func AttachPhoneVerificationService(target http.Handler, s *identity.PhoneVerifi
 	}
 }
 
-
 func NewHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, privacyServices ...*privacy.Service) http.Handler {
 	return newHandler(service, terms, origins, nil, privacyServices...)
 }
@@ -120,30 +119,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	const (
-		accountPhonePath               = "/api/v1/account/security/phone"
-		accountPhoneSendCodePath       = "/api/v1/account/security/phone/send-code"
-		accountPhoneVerifyPath         = "/api/v1/account/security/phone/verify"
-		accountDevicesPath             = "/api/v1/account/security/devices"
-		accountDevicesRevokeOthersPath = "/api/v1/account/security/devices/revoke-others"
-		accountDevicesPrefix           = "/api/v1/account/security/devices/"
-		accountAlertsPath              = "/api/v1/account/security/alerts"
-		accountAlertsChannelsPath      = "/api/v1/account/security/alerts/channels"
-		accountTOTPPath                = "/api/v1/account/security/totp"
-		accountTOTPSetupPath           = "/api/v1/account/security/totp/setup"
-		accountTOTPEnablePath          = "/api/v1/account/security/totp/enable"
-		accountTOTPDisablePath         = "/api/v1/account/security/totp/disable"
-		accountPasskeysPath            = "/api/v1/account/security/passkeys"
+		accountPhonePath                   = "/api/v1/account/security/phone"
+		accountPhoneSendCodePath           = "/api/v1/account/security/phone/send-code"
+		accountPhoneVerifyPath             = "/api/v1/account/security/phone/verify"
+		accountDevicesPath                 = "/api/v1/account/security/devices"
+		accountDevicesRevokeOthersPath     = "/api/v1/account/security/devices/revoke-others"
+		accountDevicesPrefix               = "/api/v1/account/security/devices/"
+		accountAlertsPath                  = "/api/v1/account/security/alerts"
+		accountAlertsChannelsPath          = "/api/v1/account/security/alerts/channels"
+		accountTOTPPath                    = "/api/v1/account/security/totp"
+		accountTOTPSetupPath               = "/api/v1/account/security/totp/setup"
+		accountTOTPEnablePath              = "/api/v1/account/security/totp/enable"
+		accountTOTPDisablePath             = "/api/v1/account/security/totp/disable"
+		accountPasskeysPath                = "/api/v1/account/security/passkeys"
 		accountPasskeysRegisterOptionsPath = "/api/v1/account/security/passkeys/register/options"
 		accountPasskeysRegisterVerifyPath  = "/api/v1/account/security/passkeys/register/verify"
-		accountPasskeysPrefix          = "/api/v1/account/security/passkeys/"
-		accountQRPath                  = "/api/v1/account/security/qr"
-		accountQRTicketPath            = "/api/v1/account/security/qr/ticket"
-		accountQRTicketPrefix          = "/api/v1/account/security/qr/ticket/"
-		accountQRApprovePath           = "/api/v1/account/security/qr/approve"
-		accountLocationPath            = "/api/v1/account/security/location"
-		accountTrustedContactsPath      = "/api/v1/account/security/trusted-contacts"
-		accountTrustedContactsPrefix    = "/api/v1/account/security/trusted-contacts/"
-		accountSecurityMethodsPath      = "/api/v1/account/security/methods"
+		accountPasskeysPrefix              = "/api/v1/account/security/passkeys/"
+		accountQRPath                      = "/api/v1/account/security/qr"
+		accountQRTicketPath                = "/api/v1/account/security/qr/ticket"
+		accountQRTicketPrefix              = "/api/v1/account/security/qr/ticket/"
+		accountQRApprovePath               = "/api/v1/account/security/qr/approve"
+		accountLocationPath                = "/api/v1/account/security/location"
+		accountTrustedContactsPath         = "/api/v1/account/security/trusted-contacts"
+		accountTrustedContactsPrefix       = "/api/v1/account/security/trusted-contacts/"
+		accountSecurityMethodsPath         = "/api/v1/account/security/methods"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	passkeyDeletePath := strings.HasPrefix(r.URL.Path, accountPasskeysPrefix) && r.URL.Path != accountPasskeysRegisterOptionsPath && r.URL.Path != accountPasskeysRegisterVerifyPath
@@ -217,8 +216,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountTOTPEnablePath:                    true,
 		accountTOTPDisablePath:                   true,
 		accountPasskeysPath:                      true,
-		accountPasskeysRegisterOptionsPath:        true,
-		accountPasskeysRegisterVerifyPath:         true,
+		accountPasskeysRegisterOptionsPath:       true,
+		accountPasskeysRegisterVerifyPath:        true,
 		accountQRPath:                            true,
 		accountQRTicketPath:                      true,
 		accountQRApprovePath:                     true,
@@ -652,12 +651,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		case accountPhoneSendCodePath:
 			var input struct {
-				Phone string `json:"phone"`
+				Phone   string                `json:"phone"`
+				Channel identity.PhoneChannel `json:"channel"`
 			}
 			if !h.decode(w, r, &input) {
 				return
 			}
-			result, err := h.phoneService.SendPhoneVerificationCode(r.Context(), principal.AccountID, input.Phone)
+			if input.Channel != "" && input.Channel != identity.PhoneChannelSMS && input.Channel != identity.PhoneChannelWhatsApp {
+				h.fail(w, http.StatusBadRequest, "invalid_channel", "Elige un canal de verificación válido.")
+				return
+			}
+			result, err := h.phoneService.SendPhoneVerificationCode(r.Context(), principal.AccountID, input.Phone, input.Channel)
 			if err != nil {
 				h.phoneError(w, err)
 				return
@@ -838,16 +842,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 
 		case accountPasskeysRegisterOptionsPath:
-			rpID := ""
-			if host, _, err := net.SplitHostPort(r.Host); err == nil && host != "" {
-				rpID = host
-			} else if r.Host != "" {
-				rpID = r.Host
-			}
-			if rpID == "" {
-				rpID = "localhost"
-			}
-			opts, err := h.service.BeginPasskeyRegistration(r.Context(), principal.AccountID, rpID)
+			// Omitting the RP ID lets the browser use the public origin, even behind the BFF.
+			opts, err := h.service.BeginPasskeyRegistration(r.Context(), principal.AccountID, "")
 			if err != nil {
 				h.passkeyError(w, err)
 				return
@@ -1192,8 +1188,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(204)
 	case "/api/v1/auth/login":
 		var input struct {
-			Email    string          `json:"email"`
-			Password identity.Secret `json:"password"`
+			Email             string          `json:"email"`
+			Password          identity.Secret `json:"password"`
+			AuthenticatorCode identity.Secret `json:"authenticator_code"`
 		}
 		if !h.decode(w, r, &input) {
 			return
@@ -1205,10 +1202,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		clientIP := clientIPForDevice(r)
 		userAgent := r.UserAgent()
 		result, err := h.service.Login(r.Context(), identity.LoginInput{
-			Email:     input.Email,
-			Password:  input.Password,
-			UserAgent: userAgent,
-			IP:        clientIP,
+			Email:             input.Email,
+			Password:          input.Password,
+			AuthenticatorCode: input.AuthenticatorCode,
+			UserAgent:         userAgent,
+			IP:                clientIP,
 		})
 		if err != nil {
 			h.serviceError(w, err)
@@ -1313,6 +1311,10 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 		code = "unauthenticated"
 		message = "Credencial ausente, incorrecta o expirada."
 		w.Header().Set("WWW-Authenticate", "Bearer")
+	case errors.Is(err, identity.ErrLoginTOTPRequired):
+		status, code, message = http.StatusForbidden, "authenticator_required", "Ingresa un código de tu aplicación de autenticación o un código de respaldo."
+	case errors.Is(err, identity.ErrTOTPInvalidCode):
+		status, code, message = http.StatusForbidden, "authenticator_invalid", "El código no es válido o ya fue utilizado."
 	case errors.Is(err, identity.ErrEmailUnverified):
 		status = 403
 		code = "email_unverified"
@@ -1442,6 +1444,13 @@ func (h *Handler) accountFields(w http.ResponseWriter, status int, code string, 
 
 func (h *Handler) phoneError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, identity.ErrPhoneDeliveryUnavailable):
+		h.fail(w, http.StatusServiceUnavailable, "channel_unavailable", "El canal de verificación no está disponible.")
+	case errors.Is(err, identity.ErrPhoneDeliveryFailed):
+		w.Header().Set("Retry-After", "60")
+		h.fail(w, http.StatusServiceUnavailable, "delivery_failed", "No pudimos enviar el código. Espera un minuto e inténtalo de nuevo.")
+	case errors.Is(err, identity.ErrPhoneAlreadyVerified):
+		h.fail(w, http.StatusConflict, "phone_already_verified", "Tu teléfono ya está verificado.")
 	case errors.Is(err, identity.ErrInvalidPhone):
 		h.fail(w, http.StatusBadRequest, "invalid_phone", "Número de teléfono móvil chileno inválido.")
 	case errors.Is(err, identity.ErrPhoneCooldownActive):
@@ -1608,5 +1617,3 @@ func clientIPForDevice(r *http.Request) string {
 	}
 	return ""
 }
-
-

@@ -16,6 +16,7 @@ import type {
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
+  ListingCreateInput,
   ListingState,
   ListingSummary,
   ManualAvailabilityBlock,
@@ -49,7 +50,7 @@ export interface HostListingsView {
   ): Promise<ListingDetail | null>;
   createDraft(
     token: AccessToken,
-    input: ListingDraftInput,
+    input: ListingCreateInput,
     idempotencyKey?: string,
   ): Promise<ListingDetail>;
   updateDraft(
@@ -220,7 +221,7 @@ export function useHostListings(): HostListingsView {
   );
 
   const createDraft = useCallback(
-    (token: AccessToken, input: ListingDraftInput, idempotencyKey?: string) =>
+    (token: AccessToken, input: ListingCreateInput, idempotencyKey?: string) =>
       hostListingsFeatureBridge.createDraft(token, input, idempotencyKey),
     [],
   );

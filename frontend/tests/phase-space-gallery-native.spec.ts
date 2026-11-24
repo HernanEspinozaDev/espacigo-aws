@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import { expect, test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { readFile } from "node:fs/promises";
@@ -311,8 +312,7 @@ test("@space-gallery @native owner creates, edits and independently rehydrates r
       await page
         .locator("#wizard-address")
         .fill("Dirección sintética local de ensayo");
-      await page.locator("#wizard-region").selectOption("13");
-      await page.locator("#wizard-comuna").selectOption("13101");
+      await chooseWizardLocation(page, "13101");
       await page.locator("#wizard-area").fill("35");
       await page.locator("#wizard-capacity").fill("2");
       await page.getByRole("checkbox", { name: "Wi-Fi", exact: true }).check();

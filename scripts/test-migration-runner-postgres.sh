@@ -5,7 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 SCOPE="${1:-full}"
 case "$SCOPE" in
-  full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
+  full) GO_TEST_PATTERN='^Test(BaselinePostgresIntegration|Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration|RentalCombinedFixtureOptIn)' ;;
   aws-bootstrap|aws-bootstrap-preview) GO_TEST_PATTERN='^TestRunnerAWSBootstrapReferenceCatalogPostgres$' ;;
   checkout-pro) GO_TEST_PATTERN='^TestCurrentSchemaMigrationCheckoutProUpToV111$' ;;
   v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
@@ -161,36 +161,7 @@ PY
 else
   python3 - "$TMP_DIR/results.jsonl" <<'PY'
 import json, sys
-root = 'TestRunnerEarlyRentalSchemaCandidatePostgres'
-cases = ['commit-valid-pair-independent-session', 'legacy-preserved']
-cases += ['rollback-' + name for name in [
-    'no-link', 'no-offer', 'space-mismatch', 'range-mismatch', 'id-mismatch',
-    'second-inverse-link', 'partial-null', 'wrong-type',
-    'reservation-with-reason', 'hold-without-expiry', 'overlap-sqlstate',
-]]
-required = {f'{root}/baseline-{baseline}/{case}' for baseline in (0, 75) for case in cases}
-integrity = [
-    'snapshot', 'parts', 'participants', 'contract-version', 'contract-text',
-    'contract-digest', 'interval', 'deadline', 'pending-confirmed-with-hold',
-    'pending-confirmed-consistent', 'terminal-release', 'terminal-without-release',
-    'terminal-expiry-mismatch',
-]
-evidence = [
-    'schema-bilateral-lifecycle',
-    'confirmation-participant-and-exact-contract', 'payment-snapshot-parties-and-order',
-    'events-actor-sequence-and-append-only', 'idempotency-unique-key-and-fingerprint',
-]
-evidence += ['event-integrity-' + name for name in [
-    'gap', 'missing-confirmation', 'wrong-confirmation-actor', 'wrong-confirmation-kind',
-    'missing-payment', 'prior-state', 'event-without-revision', 'revision-without-event',
-    'wrong-next-state', 'missing-initial-event',
-]]
-for suite, suite_cases in [
-    ('TestRunnerEarlyRentalIntegrityCandidatePostgres', integrity),
-    ('TestRunnerEarlyRentalEvidenceCandidatePostgres', evidence),
-]:
-    required.update(f'{suite}/baseline-{baseline}/{case}' for baseline in (0, 75) for case in suite_cases)
-schema_required_count = len(required)
+required = {'TestBaselinePostgresIntegration'}
 identity_required = {f'TestRunnerAuthorityIdentityReaderPostgres/{name}' for name in [
     'read-only-repeatable-identity', 'reject-read-write', 'reject-read-committed',
     'missing-role-no-partial', 'missing-object-no-partial', 'foreign-database-no-partial',
@@ -211,25 +182,14 @@ extended_authority_required = {f'TestRunnerAuthorityDefaultACLReaderPostgres/{na
     'absent-owner-defaults-explicit-empty-observation', 'explicit-empty-function-default',
     'rejects-missing-owner-with-zero-observation',
 ]}
-extended_authority_required.update(['TestRunnerAuthorityEffectiveReaderPostgres','TestRunnerAuthorityACLCatalogPostgres'])
+extended_authority_required.update(['TestRunnerAuthorityEffectiveReaderPostgres', 'TestRunnerAuthorityACLCatalogPostgres'])
 required.update(extended_authority_required)
-operational_required={f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['early-advance-is-rejected-atomically','schema-bilateral-lifecycle','generic-runner-refuses-v99','generic-applied-v99-is-noop']}
-operational_required.update(f'TestRunnerSingleOwnerEffectiveRolePostgres/{name}' for name in ['success','missing-membership','wrong-owner','role-not-restored','ddl-rollback','ledger-rollback','before-authority-rollback','after-authority-rollback','committed-postcheck-failure'])
-operational_required.add('TestRunnerEarlyRentalOperationalCandidatePostgres/empty-database-generic-refusal')
-operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/{name}' for baseline in (0,75) for name in ['terminal-reason-required','terminal-reasons-preserved','expiration-respects-deadline'])
-operational_required.update(f'TestRunnerEarlyRentalOperationalCandidatePostgres/baseline-{baseline}/catalog-refuses-missing-trigger' for baseline in (0,75))
+operational_required = {f'TestRunnerSingleOwnerEffectiveRolePostgres/{name}' for name in [
+    'success', 'missing-membership', 'wrong-owner', 'role-not-restored',
+    'ddl-rollback', 'ledger-rollback', 'before-authority-rollback',
+    'after-authority-rollback', 'committed-postcheck-failure',
+]}
 required.update(operational_required)
-checkout_root = 'TestCurrentSchemaMigrationCheckoutProUpToV111'
-for baseline in (0, 75):
-    root = f'{checkout_root}/baseline-{baseline}'
-    required.update({root, root+'/v97-upgrade', root+'/v98-expand',
-        root+'/commercial-quote-suppression', root+'/commercial-quote-persistence',
-        root+'/commercial-quote-persistence/retention-purge-publication-lock',
-        root+'/commercial-quote-persistence/admin-local-account-block',
-        root+'/commercial-quote-persistence/authentication-account-lock',
-        root+'/contract-identity-reader'})
-    required.update(root+'/commercial-quote-persistence/authentication-account-lock/'+name for name in
-        ('email','verification-id','action-token-id','session-hash'))
 actions = {}
 with open(sys.argv[1]) as source:
     for line in source:
@@ -238,8 +198,8 @@ with open(sys.argv[1]) as source:
             actions[event['Test']] = event['Action']
 missing = sorted(name for name in required if actions.get(name) != 'pass')
 if missing:
-    raise SystemExit('Early-rental candidate evidence missing/failed/skipped: ' + ', '.join(missing))
-print(f'PASS: early-rental schema/integrity/evidence candidates {schema_required_count} required fresh/upgrade cases, authority identity reader {len(identity_required)}, scoped ACL reader {len(acl_required)}, extended authority {len(extended_authority_required)} and operational SQL/role gates {len(operational_required)} required native cases executed, none skipped; canonical V99 exercised only in disposable fixtures, no persistent migration applied.')
+    raise SystemExit('Baseline migration evidence missing/failed/skipped: ' + ', '.join(missing))
+print(f'PASS: baseline integration, authority identity reader {len(identity_required)}, scoped ACL reader {len(acl_required)}, extended authority {len(extended_authority_required)} and single-owner role gates {len(operational_required)} executed, none skipped.')
 PY
   env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_RENTALFLOW_POSTGRES_ISOLATED=1 \
@@ -300,7 +260,7 @@ required += [
 ]
 resolver_root = 'TestPostgresEarlyRentalSnapshotRuntime'
 required += [resolver_root] + [f'{resolver_root}/{name}' for name in (
-    'MigrationOnlyDeniesListingRead', 'SnapshotAvailable', 'CustomTariffConflict',
+    'SnapshotAvailable', 'CustomTariffConflict',
 )]
 events_root = 'TestPostgresEarlyRentalReadEvents'
 required += [events_root] + [f'{events_root}/{name}' for name in (

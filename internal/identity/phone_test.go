@@ -26,14 +26,23 @@ func (m *memoryPhoneRepo) GetPhoneVerification(_ context.Context, accountID stri
 	return &cp, nil
 }
 
-func (m *memoryPhoneRepo) UpsertPhoneVerification(_ context.Context, record identity.AccountPhoneVerification) error {
+func (m *memoryPhoneRepo) ReservePhoneChallenge(_ context.Context, record identity.AccountPhoneVerification) error {
 	m.records[record.AccountID] = record
 	return nil
 }
 
-func (m *memoryPhoneRepo) IncrementPhoneAttempts(_ context.Context, accountID string) (int, error) {
+func (m *memoryPhoneRepo) CancelPhoneChallenge(_ context.Context, accountID, hash string) error {
+	rec := m.records[accountID]
+	if rec.OTPHash != nil && *rec.OTPHash == hash {
+		rec.OTPHash, rec.OTPExpiresAt = nil, nil
+		m.records[accountID] = rec
+	}
+	return nil
+}
+
+func (m *memoryPhoneRepo) IncrementPhoneAttempts(_ context.Context, accountID, hash string, _ time.Time) (int, error) {
 	rec, ok := m.records[accountID]
-	if !ok {
+	if !ok || rec.OTPHash == nil || *rec.OTPHash != hash {
 		return 0, identity.ErrPhoneNotPending
 	}
 	rec.OTPAttempts++
@@ -41,9 +50,9 @@ func (m *memoryPhoneRepo) IncrementPhoneAttempts(_ context.Context, accountID st
 	return rec.OTPAttempts, nil
 }
 
-func (m *memoryPhoneRepo) MarkPhoneVerified(_ context.Context, accountID string, verifiedAt time.Time) error {
+func (m *memoryPhoneRepo) MarkPhoneVerified(_ context.Context, accountID, hash string, verifiedAt time.Time) error {
 	rec, ok := m.records[accountID]
-	if !ok {
+	if !ok || rec.OTPHash == nil || *rec.OTPHash != hash {
 		return identity.ErrPhoneNotPending
 	}
 	rec.VerifiedAt = &verifiedAt
@@ -64,7 +73,11 @@ type sentCall struct {
 	code  string
 }
 
-func (s *memoryPhoneSender) SendPhoneCode(_ context.Context, phoneE164, code string) error {
+func (s *memoryPhoneSender) Channels() []identity.PhoneChannel {
+	return []identity.PhoneChannel{identity.PhoneChannelSMS}
+}
+
+func (s *memoryPhoneSender) SendPhoneCode(_ context.Context, phoneE164, code string, _ identity.PhoneChannel) error {
 	s.sentCalls = append(s.sentCalls, sentCall{phone: phoneE164, code: code})
 	return nil
 }
@@ -111,7 +124,7 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 	now := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 
-	svc := identity.NewPhoneVerificationService(repo, sender, clock)
+	svc := identity.NewPhoneVerificationService(repo, sender, clock, []byte("test-key"))
 	ctx := context.Background()
 	accountID := "acc-1234"
 
@@ -125,13 +138,13 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 	}
 
 	// 2. Send code with invalid phone
-	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "invalid")
+	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "invalid", "")
 	if !errors.Is(err, identity.ErrInvalidPhone) {
 		t.Fatalf("expected ErrInvalidPhone, got %v", err)
 	}
 
 	// 3. Send code valid
-	sendResult, err := svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678")
+	sendResult, err := svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678", "")
 	if err != nil {
 		t.Fatalf("send code err: %v", err)
 	}
@@ -148,7 +161,7 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 
 	// 4. Cooldown active (within 60s)
 	now = now.Add(30 * time.Second)
-	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678")
+	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678", "")
 	if !errors.Is(err, identity.ErrPhoneCooldownActive) {
 		t.Fatalf("expected ErrPhoneCooldownActive, got %v", err)
 	}
@@ -169,15 +182,19 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 	}
 
 	// 6. Verify with incorrect code (attempts 1..4)
+	wrongCode := "000000"
+	if otpCode == wrongCode {
+		wrongCode = "000001"
+	}
 	for i := 1; i <= 4; i++ {
-		_, err = svc.VerifyPhoneCode(ctx, accountID, "000000")
+		_, err = svc.VerifyPhoneCode(ctx, accountID, wrongCode)
 		if !errors.Is(err, identity.ErrPhoneCodeInvalid) {
 			t.Fatalf("attempt %d: expected ErrPhoneCodeInvalid, got %v", i, err)
 		}
 	}
 
 	// 7. 5th failed attempt -> max attempts reached
-	_, err = svc.VerifyPhoneCode(ctx, accountID, "000000")
+	_, err = svc.VerifyPhoneCode(ctx, accountID, wrongCode)
 	if !errors.Is(err, identity.ErrPhoneMaxAttempts) {
 		t.Fatalf("attempt 5: expected ErrPhoneMaxAttempts, got %v", err)
 	}
@@ -190,7 +207,7 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 
 	// 8. Cooldown passed (>60s) -> send new code
 	now = now.Add(40 * time.Second) // now at 70s
-	sendResult, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678")
+	sendResult, err = svc.SendPhoneVerificationCode(ctx, accountID, "", "")
 	if err != nil {
 		t.Fatalf("send code after cooldown err: %v", err)
 	}
@@ -205,7 +222,7 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 
 	// 10. Request new code and verify successfully
 	now = now.Add(65 * time.Second)
-	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678")
+	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 1234 5678", "")
 	if err != nil {
 		t.Fatalf("send code err: %v", err)
 	}
@@ -226,6 +243,12 @@ func TestPhoneVerificationService_Flow(t *testing.T) {
 	}
 	if !status.Configured || !status.Verified || status.PendingVerification || status.VerifiedAt == nil {
 		t.Fatalf("expected verified status, got: %+v", status)
+	}
+
+	// An existing verified number cannot be replaced through enrollment.
+	_, err = svc.SendPhoneVerificationCode(ctx, accountID, "+56 9 8765 4321", "")
+	if !errors.Is(err, identity.ErrPhoneAlreadyVerified) {
+		t.Fatalf("expected ErrPhoneAlreadyVerified, got %v", err)
 	}
 
 	// 12. Trying to verify again when no code pending

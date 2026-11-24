@@ -17,7 +17,6 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
-	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devphone"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
@@ -157,6 +156,9 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
+	if err := configureSpaceLocationBoundaries(spaceService, getenv); err != nil {
+		return nil, err
+	}
 	calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
 	if err != nil {
 		return nil, errors.New("production calendar initialization failed")
@@ -166,8 +168,12 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 		return nil, errors.New("production pricing initialization failed")
 	}
 	spacesHandler := spaceshttp.NewHandlerWithPricing(authService, spaceService, cfg.allowedOrigins, calendarService, pricingService)
+	if err := configureLocationGeocoder(ctx, spacesHandler, pool, getenv, false); err != nil {
+		return nil, err
+	}
 	mux.Handle("/api/v1/spaces", spacesHandler)
 	mux.Handle("/api/v1/spaces/", spacesHandler)
+	mountContractTemplates(mux, pool, authService, cfg.allowedOrigins)
 	registerPublicSpaceMonthRoute(mux, spacesHandler)
 	ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
 	ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(authService, ownerWeeklyHoursService, cfg.allowedOrigins)
@@ -424,6 +430,7 @@ func mountProductionAuth(
 		return nil, errors.New("production totp keyring initialization failed: " + err.Error())
 	}
 	service.SetTOTPKeyring(totpKeyring)
+	service.SetTOTPLoginEnabled(getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 	archiveRepo := ownerexport.NewWithMediaStore(pool, evidence, mediaStore)
 	privacyService, err := privacy.NewService(repo, archiveRepo)
 	if err != nil {
@@ -445,10 +452,20 @@ func mountProductionAuth(
 	mux.Handle("/api/v1/verifications", quickVerificationHandler)
 	mux.Handle("/api/v1/verifications/", quickVerificationHandler)
 	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService)
-	phoneSender := devphone.NewStubPhoneSender()
-	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now)
+	phoneSender, phoneKey, err := phoneDelivery(getenv, false)
+	if err != nil {
+		return nil, fmt.Errorf("phone delivery initialization: %w", err)
+	}
+	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now, phoneKey)
 	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
 	mux.Handle("/api/v1/", identityHandler)
+	adminSessionService, err := newAdminSessionService(repo, getenv, true)
+	if err != nil {
+		return nil, errors.New("production admin session initialization failed")
+	}
+	adminSessionHandler := identityhttp.NewAdminSessionHandler(adminSessionService, cfg.allowedOrigins)
+	mux.Handle("/api/v1/admin/session", adminSessionHandler)
+	mux.Handle("/api/v1/admin/session/", adminSessionHandler)
 	return service, nil
 }
 

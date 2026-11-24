@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -16,6 +16,7 @@ import {
   Maximize2,
   ExternalLink,
   CalendarCheck,
+  ListChecks,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -28,6 +29,16 @@ import {
 } from "@/components/workspace/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { ApiError } from "@/lib/api/errors";
+import { listingErrorMessage } from "../domain/listing-error-message";
+import {
+  isPublishGateReasonCode,
+  type PublishGateReasonCode,
+} from "../domain/publish-guide";
+import {
+  PublishGuideModal,
+  usePublishPrerequisites,
+} from "./publish-guide-modal";
 import { useHostListings } from "./use-host-listings";
 import type { ListingState, ListingSummary } from "../domain/types";
 
@@ -52,6 +63,51 @@ export function HostListingsList() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [operatingId, setOperatingId] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guideSpaceId, setGuideSpaceId] = useState<string | null>(null);
+  const [guideReason, setGuideReason] = useState<PublishGateReasonCode | null>(
+    null,
+  );
+
+  const isAuthenticated =
+    authSnapshot.status === "authenticated" && Boolean(accessToken);
+  const isHost =
+    authSnapshot.status === "authenticated" &&
+    authSnapshot.roles.includes("arrendador");
+  const accountId =
+    authSnapshot.status === "authenticated" ? authSnapshot.accountId : null;
+
+  const handlePrerequisitesLoaded = useCallback(
+    (loaded: {
+      readonly error: string | null;
+      readonly kycVerified: boolean;
+      readonly mpConnected: boolean;
+    }) => {
+      if (!accountId || loaded.error) return;
+      const missingPrereqs =
+        !loaded.kycVerified || (isHost && !loaded.mpConnected);
+      if (!missingPrereqs) return;
+      const seenKey = `espacigo:publish-guide-seen:${accountId}`;
+      try {
+        if (window.localStorage.getItem(seenKey)) return;
+        window.localStorage.setItem(seenKey, "1");
+        setGuideSpaceId(null);
+        setGuideReason(null);
+        setGuideOpen(true);
+      } catch {
+        // Ignore storage errors
+      }
+    },
+    [accountId, isHost],
+  );
+
+  const prerequisites = usePublishPrerequisites({
+    accessToken: isAuthenticated ? accessToken : null,
+    isHost,
+    spaceId: guideSpaceId,
+    enabled: isAuthenticated,
+    onLoaded: handlePrerequisitesLoaded,
+  });
 
   useEffect(() => {
     if (authSnapshot.status === "authenticated" && accessToken) {
@@ -97,11 +153,21 @@ export function HostListingsList() {
         await publishListing(accessToken, listingId, detail.etag);
         setActionSuccess("Espacio publicado exitosamente con estado activo.");
       } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : "No fue posible publicar el espacio";
-        setActionError(message);
+        if (err instanceof ApiError && isPublishGateReasonCode(err.code)) {
+          setActionError(listingErrorMessage(err));
+          setGuideSpaceId(listingId);
+          setGuideReason(err.code);
+          setGuideOpen(true);
+          prerequisites.reload();
+        } else {
+          const message =
+            err instanceof ApiError
+              ? listingErrorMessage(err)
+              : err instanceof Error
+                ? err.message
+                : "No fue posible publicar el espacio";
+          setActionError(message);
+        }
       } finally {
         setOperatingId(null);
       }
@@ -204,6 +270,21 @@ export function HostListingsList() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="font-semibold gap-2"
+            onClick={() => {
+              setGuideSpaceId(null);
+              setGuideReason(null);
+              setGuideOpen(true);
+              prerequisites.reload();
+            }}
+          >
+            <ListChecks className="size-4 text-primary" aria-hidden="true" />
+            Guía para publicar
+          </Button>
           <Button asChild variant="outline" size="lg" className="font-semibold">
             <Link
               href="/anfitrion/reservas"
@@ -227,6 +308,19 @@ export function HostListingsList() {
           </Button>
         </div>
       </div>
+
+      <PublishGuideModal
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
+        mode="list"
+        isHost={isHost}
+        prerequisites={prerequisites}
+        onRefresh={prerequisites.reload}
+        returnPath="/anfitrion/espacios"
+        spaceId={guideSpaceId}
+        hasAnyListing={allListings.length > 0}
+        triggerReason={guideReason}
+      />
 
       {/* Avisos de éxito o error */}
       {actionSuccess && (

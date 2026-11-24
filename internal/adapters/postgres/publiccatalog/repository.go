@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -210,7 +211,7 @@ func (r *Repository) List(ctx context.Context, f publiccatalog.Filters, after *p
 	if f.EndAt != nil {
 		end = *f.EndAt
 	}
-	args := []any{f.CategoryCode, f.RateUnit, f.MinUnitPriceCLP, f.MaxUnitPriceCLP, f.Query, f.RegionCode, f.CommuneCode, minArea, f.AttributeVersion, attributeJSON, start, end, f.MinTotalCLP, f.MaxTotalCLP}
+	args := []any{f.CategoryCode, f.RateUnit, f.MinUnitPriceCLP, f.MaxUnitPriceCLP, f.Query, f.RegionCode, f.CommuneCode, minArea, f.AttributeVersion, attributeJSON, start, end, f.MinTotalCLP, f.MaxTotalCLP, f.MinCapacity}
 	query := `WITH candidates AS (
 SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.titulo,e.descripcion,
        e.superficie_m2::double precision AS area_m2,t.modalidad,t.precio_base_clp,t.moneda,c.orden AS category_order,
@@ -223,7 +224,8 @@ SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.tit
             ELSE (t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric)::bigint END AS estimated_total,
        CASE WHEN $5='' THEN 0::real ELSE ts_rank(e.busqueda_publica,plainto_tsquery('public.espacigo_es_unaccent'::regconfig,$5)) END AS relevance_rank,
        attrs.valores AS filter_values,attrs.perfil_version AS filter_profile_version,
-       verification.identity_verified,verification.space_verified
+       verification.identity_verified,verification.space_verified,
+       ` + confirmedLocationSQL + ` AS public_location,CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_latitud ELSE e.ubicacion_latitud END AS latitude,CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_longitud ELSE e.ubicacion_longitud END AS longitude
 ` + eligiblePublicSQL + `
 AND ($1='' OR e.categoria_codigo=$1)
   AND ($2='' OR t.modalidad=$2)
@@ -233,44 +235,53 @@ AND ($1='' OR e.categoria_codigo=$1)
   AND ($6='' OR e.region_codigo=$6)
   AND ($7='' OR e.comuna_codigo=$7)
   AND ($8::numeric IS NULL OR e.superficie_m2 >= $8::numeric)
+  AND ($15::integer IS NULL OR e.capacidad_maxima >= $15::integer)
   AND ($10::jsonb='{}'::jsonb OR (attrs.perfil_version=$9 AND attrs.valores @> $10::jsonb))
+  AND ($11::timestamptz IS NULL OR (
+    NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($11,$12,'[)'))
+    AND NOT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial ch JOIN public.cotizacion_arriendo_comercial cq ON cq.id=ch.cotizacion_id WHERE ch.espacio_id=e.id AND ch.estado IN ('pending','reconciliation_required') AND (ch.estado='reconciliation_required' OR ch.vence_en>now()) AND cq.inicio<$12 AND $11<cq.termino)
+  ))
 )
 SELECT space_id, categoria_codigo, category_name,titulo,descripcion,area_m2,modalidad,precio_base_clp,moneda,
        category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,cover_source,estimated_total,relevance_rank,
-       identity_verified,space_verified
+       identity_verified,space_verified,public_location
 FROM candidates
 WHERE ($13::bigint IS NULL OR estimated_total >= $13)
   AND ($14::bigint IS NULL OR estimated_total <= $14)`
 	if after != nil {
 		switch f.Sort {
+		case "distance_asc":
+			if after.LastDistanceKM == nil {
+				return nil, publiccatalog.ErrInvalid
+			}
 		case "unit_price_asc":
-			query += ` AND (precio_base_clp,space_id::uuid) > ($15::bigint,$16::uuid)`
+			query += ` AND (precio_base_clp,space_id::uuid) > ($16::bigint,$17::uuid)`
 			args = append(args, after.LastUnitPriceCLP, after.LastSpaceID)
 		case "unit_price_desc":
-			query += ` AND (precio_base_clp,space_id::uuid) < ($15::bigint,$16::uuid)`
+			query += ` AND (precio_base_clp,space_id::uuid) < ($16::bigint,$17::uuid)`
 			args = append(args, after.LastUnitPriceCLP, after.LastSpaceID)
 		case "estimated_total_asc", "estimated_total_desc":
 			if after.LastEstimatedTotalCLP == nil {
-				query += ` AND estimated_total IS NULL AND space_id::uuid > $15::uuid`
+				query += ` AND estimated_total IS NULL AND space_id::uuid > $16::uuid`
 				args = append(args, after.LastSpaceID)
 			} else if f.Sort == "estimated_total_asc" {
-				query += ` AND (estimated_total > $15::bigint OR (estimated_total=$15::bigint AND space_id::uuid>$16::uuid) OR estimated_total IS NULL)`
+				query += ` AND (estimated_total > $16::bigint OR (estimated_total=$16::bigint AND space_id::uuid>$17::uuid) OR estimated_total IS NULL)`
 				args = append(args, *after.LastEstimatedTotalCLP, after.LastSpaceID)
 			} else {
-				query += ` AND (estimated_total < $15::bigint OR (estimated_total=$15::bigint AND space_id::uuid>$16::uuid) OR estimated_total IS NULL)`
+				query += ` AND (estimated_total < $16::bigint OR (estimated_total=$16::bigint AND space_id::uuid>$17::uuid) OR estimated_total IS NULL)`
 				args = append(args, *after.LastEstimatedTotalCLP, after.LastSpaceID)
 			}
 		case "relevance":
-			query += ` AND (relevance_rank < $15::real OR (relevance_rank=$15::real AND space_id::uuid>$16::uuid))`
+			query += ` AND (relevance_rank < $16::real OR (relevance_rank=$16::real AND space_id::uuid>$17::uuid))`
 			args = append(args, after.LastRelevanceRank, after.LastSpaceID)
 		case "title_asc":
-			query += ` AND (title_key COLLATE "C",space_id::uuid) > ($15::text COLLATE "C",$16::uuid)`
+			query += ` AND (title_key COLLATE "C",space_id::uuid) > ($16::text COLLATE "C",$17::uuid)`
 			args = append(args, after.LastTitleKey, after.LastSpaceID)
 		case "title_desc":
-			query += ` AND (title_key COLLATE "C",space_id::uuid) < ($15::text COLLATE "C",$16::uuid)`
+			query += ` AND (title_key COLLATE "C",space_id::uuid) < ($16::text COLLATE "C",$17::uuid)`
 			args = append(args, after.LastTitleKey, after.LastSpaceID)
 		default:
-			query += ` AND (category_order,title_key COLLATE "C",space_id::uuid) > ($15::smallint,$16::text COLLATE "C",$17::uuid)`
+			query += ` AND (category_order,title_key COLLATE "C",space_id::uuid) > ($16::smallint,$17::text COLLATE "C",$18::uuid)`
 			args = append(args, after.LastCategoryOrder, after.LastTitleKey, after.LastSpaceID)
 		}
 	}
@@ -311,7 +322,54 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		query += condition
 	}
+	// Geographic predicates run before ORDER BY/LIMIT for both grid and map.
+	if f.MapOnly || f.Bounds != nil || f.Proximity != nil {
+		query += " AND public_location IS NOT NULL"
+	}
+	if b := f.Bounds; b != nil {
+		args = append(args, b.West, b.South, b.East, b.North)
+		n := len(args) - 3
+		query += " AND longitude >= $" + itoa(n) + "::double precision AND latitude >= $" + itoa(n+1) + "::double precision AND longitude <= $" + itoa(n+2) + "::double precision AND latitude <= $" + itoa(n+3) + "::double precision"
+	}
+	var distanceSQL string
+	if p := f.Proximity; p != nil {
+		args = append(args, p.Latitude, p.Longitude)
+		n := len(args) - 1
+		distanceSQL = "6371.0088 * 2 * asin(sqrt(LEAST(1.0,GREATEST(0.0,power(sin(radians(latitude-$" + itoa(n) + "::double precision)/2),2)+cos(radians(latitude))*cos(radians($" + itoa(n) + "::double precision))*power(sin(radians(longitude-$" + itoa(n+1) + "::double precision)/2),2)))))"
+		candidateDistance := strings.NewReplacer(
+			"latitude", "(CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_latitud ELSE e.ubicacion_latitud END)",
+			"longitude", "(CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_longitud ELSE e.ubicacion_longitud END)",
+		).Replace(distanceSQL)
+		query = strings.Replace(query, " AS longitude\n", " AS longitude,"+candidateDistance+" AS distance_km\n", 1)
+		query = strings.Replace(query, "identity_verified,space_verified,public_location\nFROM", "identity_verified,space_verified,public_location,distance_km\nFROM", 1)
+		if !f.NearbyFallback {
+			args = append(args, p.RadiusKM)
+			query += " AND distance_km <= $" + itoa(len(args)) + "::double precision"
+		} else if f.ExcludeBounds != nil {
+			eb := f.ExcludeBounds
+			args = append(args, eb.West, eb.South, eb.East, eb.North)
+			en := len(args) - 3
+			query += " AND NOT (longitude >= $" + itoa(en) + "::double precision AND latitude >= $" + itoa(en+1) + "::double precision AND longitude <= $" + itoa(en+2) + "::double precision AND latitude <= $" + itoa(en+3) + "::double precision)"
+		} else if f.ExcludeRadiusKM != nil {
+			args = append(args, *f.ExcludeRadiusKM)
+			query += " AND distance_km > $" + itoa(len(args)) + "::double precision"
+		}
+		if f.Sort == "distance_asc" && after != nil {
+			args = append(args, *after.LastDistanceKM, after.LastSpaceID)
+			query += " AND (distance_km,space_id::uuid) > ($" + itoa(len(args)-1) + "::double precision,$" + itoa(len(args)) + "::uuid)"
+		}
+	}
+	if f.MapOnly {
+		if distanceSQL != "" {
+			query = strings.Replace(query, "public_location,distance_km\nFROM", "public_location,distance_km,COUNT(*) OVER()::integer AS total_count\nFROM", 1)
+		} else {
+			query = strings.Replace(query, "public_location\nFROM", "public_location,COUNT(*) OVER()::integer AS total_count\nFROM", 1)
+		}
+	}
+
 	switch f.Sort {
+	case "distance_asc":
+		query += ` ORDER BY distance_km,space_id::uuid`
 	case "unit_price_asc":
 		query += ` ORDER BY precio_base_clp,space_id::uuid`
 	case "unit_price_desc":
@@ -343,8 +401,25 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		v.Images = []publiccatalog.PublicImageRef{}
 		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID, coverSource sql.NullString
 		var estimatedTotal sql.NullInt64
-		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &coverSource, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified); err != nil {
+		var locationJSON []byte
+		dest := []any{&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &coverSource, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &locationJSON}
+		var distance float64
+		if distanceSQL != "" {
+			dest = append(dest, &distance)
+		}
+		if f.MapOnly {
+			dest = append(dest, &v.TotalCount)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
+		}
+		if distanceSQL != "" {
+			v.DistanceKM = &distance
+		}
+		if locationJSON != nil {
+			if err := json.Unmarshal(locationJSON, &v.Location); err != nil {
+				return nil, err
+			}
 		}
 		if timeZone.Valid {
 			v.TimeZone = timeZone.String
@@ -381,24 +456,33 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
   ),'[]'::jsonb)) ORDER BY d.weekday) FROM generate_series(1,7) d(weekday)
  ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`
 
+const confirmedLocationSQL = `CASE WHEN e.ubicacion_confirmada_en IS NOT NULL THEN jsonb_build_object('address',CASE WHEN e.ubicacion_visibilidad='approximate' THEN COALESCE(NULLIF(concat_ws(', ',m.nombre,r.nombre),''),'Ubicación aproximada') ELSE e.direccion END,'latitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_latitud ELSE e.ubicacion_latitud END,'longitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_longitud ELSE e.ubicacion_longitud END,'visibility',COALESCE(e.ubicacion_visibilidad,'exact')) END`
+
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),NULL::text,NULL::smallint` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint,e.politica_cancelacion_version` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
 	var scheduleJSON []byte
+	var locationJSON []byte
 	var hostName sql.NullString
 	var hostJoinedAt time.Time
 	var hostSpacesCount int64
 	var dispDesde sql.NullString
 	var estMinMeses sql.NullInt16
-	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount, &dispDesde, &estMinMeses)
+	var cancellationPolicyVersion sql.NullString
+	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.CapacityMax, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON, &hostName, &hostJoinedAt, &hostSpacesCount, &locationJSON, &dispDesde, &estMinMeses, &cancellationPolicyVersion)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			return publiccatalog.Space{}, publiccatalog.ErrNotFound
 		}
 		return v, err
+	}
+	if locationJSON != nil {
+		if err := json.Unmarshal(locationJSON, &v.Location); err != nil {
+			return publiccatalog.Space{}, err
+		}
 	}
 	if dispDesde.Valid {
 		v.DisponibleDesde = &dispDesde.String
@@ -406,6 +490,9 @@ func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space
 	if estMinMeses.Valid && estMinMeses.Int16 > 0 {
 		m := int(estMinMeses.Int16)
 		v.EstadiaMinimaMeses = &m
+	}
+	if cancellationPolicyVersion.Valid {
+		v.CancellationPolicyVersion = cancellationPolicyVersion.String
 	}
 	if v.RateUnit == "mes" && !dispDesde.Valid && !estMinMeses.Valid {
 		var mDispDesde sql.NullString

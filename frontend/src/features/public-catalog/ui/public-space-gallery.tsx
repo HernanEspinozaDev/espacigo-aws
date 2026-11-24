@@ -189,6 +189,7 @@ export function PublicSpaceMarketplaceGallery({
             ) : null}
             <div className="relative aspect-[4/3] max-h-[72dvh] w-full overflow-visible bg-black/20">
               <PublicMediaImage
+                key={selected}
                 src={images[selected].src}
                 fallbackSrc={images[selected].fallbackSrc}
                 alt={`${productName}, imagen ${selected + 1}`}
@@ -208,7 +209,7 @@ export function PublicSpaceMarketplaceGallery({
                 Siguiente
               </button>
             ) : null}
-            <p className="text-white">
+            <p className="rounded-full bg-black px-3 py-1 text-white">
               {selected + 1}/{count}
             </p>
           </div>

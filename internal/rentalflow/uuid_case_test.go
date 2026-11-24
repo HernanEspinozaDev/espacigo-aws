@@ -149,7 +149,7 @@ func TestContractPreviewCanonicalizesUUIDsBeforeParticipantAndIdentityChecks(t *
 	if quotes.actorID != testRenterID || quotes.quoteID != testQuoteID || catalog.requested[0] != testSpaceID ||
 		gate.host != testOwnerID || gate.renter != testRenterID || len(identities.calls) != 2 ||
 		identities.calls[0] != testRenterID+"/"+testQuoteID+"/"+testOwnerID || identities.calls[1] != testRenterID+"/"+testQuoteID+"/"+testRenterID ||
-		got.QuoteID != testQuoteID || got.SpaceID != testSpaceID || got.Parties[0].LegalName != "Arrendador Sintético" {
+		got.QuoteID != testQuoteID || got.SpaceID != testSpaceID || got.Parties[0].LegalName != "" || got.Parties[1].LegalName != "Arrendataria Sintética" {
 		t.Fatalf("UUID casing crossed preview boundaries: quote=%+v catalog=%v gate=%+v identities=%v response=%+v", quotes, catalog.requested, gate, identities.calls, got)
 	}
 }

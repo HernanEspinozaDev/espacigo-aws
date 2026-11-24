@@ -39,6 +39,18 @@ test("listing transport errors use fixed Spanish messages without leaking techni
     "Este espacio cambió. Actualiza la información antes de volver a guardar.",
   );
   assert.equal(
+    listingErrorMessage(error(409, "identity_verification_required")),
+    "Debes confirmar tu identidad (KYC) antes de publicar un espacio.",
+  );
+  assert.equal(
+    listingErrorMessage(error(409, "mercadopago_connection_required")),
+    "Debes vincular tu cuenta de Mercado Pago antes de publicar un espacio.",
+  );
+  assert.equal(
+    listingErrorMessage(error(409, "contract_template_required")),
+    "Debes configurar y publicar la plantilla de contrato del espacio antes de publicarlo.",
+  );
+  assert.equal(
     listingErrorMessage(error(401, "unauthenticated")).includes("API request"),
     false,
   );

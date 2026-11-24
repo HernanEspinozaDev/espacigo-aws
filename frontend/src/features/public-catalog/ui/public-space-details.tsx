@@ -11,6 +11,8 @@ import type { PublicSpaceDetail } from "../domain/types";
 import { safePublicText } from "../domain/presentation";
 import { PublicHostAvatar } from "./public-host-avatar";
 
+import { PublicSpaceLocation } from "./public-space-location";
+
 const dynamicText = "min-w-0 break-words [overflow-wrap:anywhere]";
 
 export interface PublicReviewItem {
@@ -61,12 +63,14 @@ export function PublicSpaceDetails({
 
   return (
     <div className="min-w-0 space-y-8 [overflow-wrap:anywhere]">
+      <PublicSpaceLocation space={space} />
       <section
+        id="detalles"
         aria-labelledby="public-space-details-heading"
-        className="min-w-0 space-y-5"
+        className="min-w-0 scroll-mt-24 space-y-5"
       >
         <h2 id="public-space-details-heading" className="text-xl font-semibold">
-          Especificaciones y reglas
+          Detalles y atributos
         </h2>
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
           <div className="flex min-w-0 items-start gap-3 rounded-xl border border-border p-4">
@@ -112,6 +116,16 @@ export function PublicSpaceDetails({
             ))}
           </dl>
         ) : null}
+      </section>
+
+      <section
+        id="reglas-cancelacion"
+        aria-labelledby="public-space-rules-heading"
+        className="min-w-0 scroll-mt-24 space-y-4"
+      >
+        <h2 id="public-space-rules-heading" className="text-xl font-semibold">
+          Reglas y cancelación
+        </h2>
         <div className="min-w-0 space-y-4 rounded-xl bg-muted/40 p-4">
           <div className="min-w-0">
             <h3 className="font-medium">Reglas del anuncio</h3>
@@ -122,7 +136,8 @@ export function PublicSpaceDetails({
             </p>
           </div>
           <p className={`${dynamicText} text-sm text-muted-foreground`}>
-            Política de cancelación no informada.
+            {space.cancellation_policy ??
+              "Política de cancelación no informada."}
           </p>
           <p className={`${dynamicText} text-sm text-muted-foreground`}>
             Garantía no informada.

@@ -36,6 +36,12 @@ const items = [
     description: "Consulta y administra tus reservas",
   },
   {
+    title: "Mis contratos",
+    href: "/reservas/contratos",
+    icon: FileText,
+    description: "Revisa y firma tus solicitudes de arriendo",
+  },
+  {
     title: "Seguridad",
     href: "/mi-cuenta/seguridad",
     icon: Lock,
@@ -115,7 +121,7 @@ export function AccountNavigation({
                 "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors whitespace-nowrap md:whitespace-normal",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive
-                  ? "bg-primary/10 text-primary font-semibold border-b-2 md:border-b-0 md:border-l-2 border-primary"
+                  ? "bg-[var(--brand-primary-soft)] text-[var(--brand-primary-soft-ink)] font-semibold border-b-2 md:border-b-0 md:border-l-2 border-primary"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
             >
@@ -125,7 +131,9 @@ export function AccountNavigation({
                 <span
                   className={cn(
                     "text-xs font-normal hidden lg:block truncate",
-                    isActive ? "text-foreground" : "text-muted-foreground",
+                    isActive
+                      ? "text-[var(--brand-primary-soft-ink)]/85"
+                      : "text-muted-foreground",
                   )}
                 >
                   {item.description}
