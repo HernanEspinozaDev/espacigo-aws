@@ -129,7 +129,7 @@ func assertContractIdentityReaderPostgres(t *testing.T, ctx context.Context, adm
 		t.Fatal(err)
 	}
 	preview, err := previewService.Preview(ctx, renter, quoteID)
-	if err != nil || len(preview.Parties) != 2 || preview.Parties[0].LegalName != "Owner Synthetic" || preview.Parties[0].RUT != "••••6785" || preview.Parties[1].LegalName != "Renter Synthetic" || preview.Parties[1].RUT != "••••1111" {
+	if err != nil || len(preview.Parties) != 2 || preview.Parties[0].Self || preview.Parties[0].LegalName != "" || preview.Parties[0].RUT != "" || !preview.Parties[1].Self || preview.Parties[1].LegalName != "Renter Synthetic" || preview.Parties[1].RUT != "••••1111" {
 		t.Fatalf("contract preview service identity projection mismatch: preview=%+v err=%v", preview, err)
 	}
 	handler := rentalflowhttp.New(commercialQuoteIntegrationAuthenticator{accountID: renter}, nil, nil, previewService, nil)
@@ -146,7 +146,7 @@ func assertContractIdentityReaderPostgres(t *testing.T, ctx context.Context, adm
 	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
 		t.Fatal(err)
 	}
-	if len(envelope.Data.Parties) != 2 || envelope.Data.Parties[0].LegalName != "Owner Synthetic" || envelope.Data.Parties[0].RUT != "••••6785" || envelope.Data.Parties[1].LegalName != "Renter Synthetic" || envelope.Data.Parties[1].RUT != "••••1111" {
+	if len(envelope.Data.Parties) != 2 || envelope.Data.Parties[0].Self || envelope.Data.Parties[0].LegalName != "" || envelope.Data.Parties[0].RUT != "" || !envelope.Data.Parties[1].Self || envelope.Data.Parties[1].LegalName != "Renter Synthetic" || envelope.Data.Parties[1].RUT != "••••1111" {
 		t.Fatalf("contract preview HTTP identity projection mismatch: %+v", envelope.Data.Parties)
 	}
 	if _, err := admin.Exec(ctx, `UPDATE public.document_verification_case SET verified_until=$2,updated_at=$2 WHERE id=$1`, caseIDs[owner], now); err != nil {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as prettier from "prettier";
@@ -96,7 +96,7 @@ const authPrototypeRange = sourceRange(
 );
 const localTrialRange = sourceRange(
   "if localBookingTrialEnabled {",
-  '\n\t\tmux.HandleFunc("GET /openapi.yaml"',
+  "\n\t\tmountLocalAPIDocs",
 );
 
 function isInRange(line, range) {
@@ -388,10 +388,33 @@ function cell(value) {
 }
 
 const rows = [];
+const operationIds = new Set();
+const moduleTags = new Set((spec.tags ?? []).map(({ name }) => name));
 for (const [pathname, pathItem] of Object.entries(spec.paths)) {
   for (const [method, operation] of Object.entries(pathItem)) {
     if (!httpMethods.has(method.toLowerCase())) continue;
+    assert.ok(
+      operation.operationId,
+      `Missing operationId for ${method} ${pathname}`,
+    );
+    assert.ok(
+      !operationIds.has(operation.operationId),
+      `Duplicate operationId: ${operation.operationId}`,
+    );
+    assert.ok(
+      operation.summary?.trim() || operation.description?.trim(),
+      `Missing operation description for ${method} ${pathname}`,
+    );
+    assert.ok(
+      Object.keys(operation.responses ?? {}).length,
+      `No responses for ${method} ${pathname}`,
+    );
+    operationIds.add(operation.operationId);
     const tags = operation.tags ?? pathItem.tags ?? [];
+    assert.ok(
+      tags.length > 0 && tags.every((tag) => moduleTags.has(tag)),
+      `Assign a documented module to ${method} ${pathname}`,
+    );
     const operationText = [
       operation.summary ?? "",
       operation.description ?? "",
@@ -401,7 +424,8 @@ for (const [pathname, pathItem] of Object.entries(spec.paths)) {
     rows.push({
       method: method.toUpperCase(),
       pathname,
-      operationId: operation.operationId ?? "sin operationId",
+      operationId: operation.operationId,
+      summary: operation.summary ?? operation.description.split("\n")[0],
       tag: tags.join(", ") || "sin tag",
       auth: operationAuth(operation),
       policy: declaredPolicy(operation, operationText),
@@ -421,6 +445,28 @@ rows.sort((left, right) =>
     `${right.pathname} ${right.method}`,
   ),
 );
+
+const apiDir = path.join(repositoryRoot, "cmd/api");
+const declared = new Set(
+  rows.map((row) => `${row.method} /api/v1${normalizePath(row.pathname)}`),
+);
+const explicit = new Set();
+for (const file of (await readdir(apiDir)).filter(
+  (name) => name.endsWith(".go") && !name.endsWith("_test.go"),
+)) {
+  const source = await readFile(path.join(apiDir, file), "utf8");
+  for (const [, method, route] of source.matchAll(
+    /\bmux\.Handle(?:Func)?\(\s*"([A-Z]+) (\/api\/v1\/[^"]+)"/g,
+  )) {
+    if (method === "OPTIONS") continue;
+    const mount = `${method} ${normalizePath(route)}`;
+    explicit.add(mount);
+    assert.ok(
+      declared.has(mount),
+      `Missing OpenAPI operation for ${method} ${route} in cmd/api/${file}`,
+    );
+  }
+}
 
 const mountClasses = [
   "directo",
@@ -446,16 +492,16 @@ const capabilityValues = spec.components?.schemas?.AdminCapability?.enum ?? [];
 const operationRows = rows
   .map(
     (row, index) =>
-      `${index + 1} | ${cell(row.method)} | \`${cell(row.pathname)}\` | \`${cell(row.operationId)}\` | ${cell(row.tag)} | ${cell(row.auth)} | ${cell(row.policy)} | ${cell(row.mountClass)}: ${cell(row.mount)} | ${cell(row.mountCondition)} | ${cell(row.phase)} |`,
+      `${index + 1} | ${cell(row.method)} | \`${cell(row.pathname)}\` | \`${cell(row.operationId)}\` | ${cell(row.summary)} | ${cell(row.tag)} | ${cell(row.auth)} | ${cell(row.policy)} | ${cell(row.mountClass)}: ${cell(row.mount)} | ${cell(row.mountCondition)} | ${cell(row.phase)} |`,
   )
   .join("\n");
-const markdown = `# Matriz de operaciones OpenAPI y montaje Go — Fase 3
+const markdown = `# Inventario de operaciones OpenAPI y montaje Go
 
-Generada desde \`planning/openapi.yaml\`, \`cmd/api/main.go\` y \`internal/identity/transport/http/handler.go\`. Total: ${rows.length} operaciones OpenAPI; la presencia en OpenAPI no se toma como prueba del montaje. Conteo por evidencia principal: ${mountSummary.join("; ")}. Montajes condicionales: ${conditionalCount} (solapados con la clase principal); \`authPrototypeEnabled\`: ${authPrototypeCount}; \`LOCAL_BOOKING_TRIAL=1\`: ${localTrialCount}. \`Directo\` indica ruta/método explícitos o allowlist+dispatch explícitos en el handler. \`Familia/prefijo\` acredita solo el registro del prefijo; el path/método concreto queda sin verificar. \`No verificado\` incluye rutas con método delegado o que solo coinciden con el catch-all. La columna de condición identifica ramas de montaje y no presume que estén activas. \`Sin montaje\` no coincide con registro alguno. No se realizaron llamadas mutantes desde este inventario.
+Generada desde \`planning/openapi.yaml\`, \`cmd/api/main.go\` y \`internal/identity/transport/http/handler.go\`. Total: ${rows.length} operaciones OpenAPI. Los ${explicit.size} registros literales con método y path versionado de \`cmd/api\` se contrastan contra el contrato; se excluye el preflight CORS de la comparación. La cobertura de dispatch dinámico se refleja por separado. La presencia en OpenAPI no se toma como prueba del montaje; conteo por evidencia principal: ${mountSummary.join("; ")}. Montajes condicionales: ${conditionalCount} (solapados con la clase principal); \`authPrototypeEnabled\`: ${authPrototypeCount}; \`LOCAL_BOOKING_TRIAL=1\`: ${localTrialCount}. \`Directo\` indica ruta/método explícitos o allowlist+dispatch explícitos en el handler. \`Familia/prefijo\` acredita solo el registro del prefijo; el path/método concreto queda sin verificar. \`No verificado\` incluye rutas con método delegado o que solo coinciden con el catch-all. La columna de condición identifica ramas de montaje y no presume que estén activas. \`Sin montaje\` no coincide con registro alguno. No se realizaron llamadas mutantes desde este inventario.
 
 Roles enumerados por el contrato: ${roles.map((role) => `\`${role}\``).join(", ") || "ninguno"}. Capacidades enumeradas por el contrato: ${capabilityValues.map((capability) => `\`${capability}\``).join(", ") || "ninguna"}. La columna de autorización refleja únicamente lo declarado en OpenAPI; si no hay rol/capacidad explícita, el handler/servicio Go es la autoridad y no se deduce autorización desde etiquetas o nombres de ruta. \"Fase UI futura\" es planificación, no funcionalidad implementada.
 
-| # | Método | Path OpenAPI | operationId | Tag | Auth del contrato | Rol/capacidad declarados | Clase/montaje Go | Condición del montaje | Fase UI futura |\n|---:|---|---|---|---|---|---|---|---|---|\n|${operationRows.replaceAll("\n", "\n|")}
+| # | Método | Path OpenAPI | operationId | Propósito | Tag | Auth del contrato | Rol/capacidad declarados | Clase/montaje Go | Condición del montaje | Fase UI futura |\n|---:|---|---|---|---|---|---|---|---|---|---|\n|${operationRows.replaceAll("\n", "\n|")}
 `;
 const formattedMarkdown = await prettier.format(markdown, {
   parser: "markdown",

@@ -192,6 +192,127 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Local early-rental processor receipts extend the V99 audit trail and preserve existing manual receipts."
+    },
+    "V000123__commercial_space_location.sql": {
+      "checksum": "c95b74fc6dc5c3bb32246441aedeb3593163172bed014503f2806468a81e7f64",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Adds optional owner-confirmed coordinates without backfill. Review publication privacy, historical row compatibility and location revision invalidation before release."
+    },
+    "V000124__commercial_space_contract_templates.sql": {
+      "checksum": "8a00e4100099e853e54bad54733a2499b8c2f77d0244a631a1290a7cc191aead",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds owner-managed draft clauses and immutable template versions with limited runtime grants. Review ownership, revision concurrency and published history before release."
+    },
+    "V000125__commercial_contract_proposals.sql": {
+      "checksum": "cd04c2c6ee9c8b65bd49adef5075178e961fa5889b447fa907c19c3868c7ef7b",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds immutable commercial agreement proposals and separately encrypted party evidence. Requires contract privacy, identity, key management and retention review before release."
+    },
+    "V000126__commercial_agreement_signatures.sql": {
+      "checksum": "659a58d67f988dd4a4d1bf8fdf3fb00ecb54675a5136010983f14568b4d37bc8",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds bilateral signature evidence, durable request notices and shared occupancy guards for commercial agreements. Requires review of actor authority, expiry and concurrent interval ownership."
+    },
+    "V000127__commercial_checkout_contract_binding.sql": {
+      "checksum": "5ddfdf3e8a9fe247183689e91782199e48f2d260372ac9a194fec3eaef49797f",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Binds contract-mode checkout immutably to the two matching signatures and the agreed hold. Requires checkout replay, receipt verification and late-payment reconciliation review."
+    },
+    "V000128__commercial_contract_document_jobs.sql": {
+      "checksum": "e9ffce63ba43154d5211cc8899acb6f9bbdfb49be9c3f89dd834b0a304556ca4",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds an immutable private PDF job bound to a verified paid commercial agreement. Review access, encryption, content fidelity, retry and retention before release."
+    },
+    "V000129__commercial_auto_authorization.sql": {
+      "checksum": "bf2abb5b0421c2cf021b39646342c2b6b5f4716b07c0c237d926c6a87db2a904",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Records bounded, revocable host opt-in and append-only audit history. Requires ownership, template replacement and execution-mode review."
+    },
+    "V000130__commercial_rental_tax_documents.sql": {
+      "checksum": "ee55697a828a1973b3756c84458925dcb655ffa13aeac467a1477fe9e269be3c",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Stores immutable metadata for privately inspected host tax attachments bound to verified payment. Requires review of participant access, storage isolation and retention."
+    },
+    "V000131__space_description_optional.sql": {
+      "checksum": "ed77ec587ee09c44f4a4a93c7a10c5b52d5d88e105daf2ba326d29e3d7378ce1",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Allows empty and short listing descriptions. Review stored and public representations, and remove application validation in the same delivery."
+    },
+    "V000132__commercial_cancellation_policy_snapshots.sql": {
+      "checksum": "5554c3e2c4cc27897fbed3be81be0b20c5c982c9bf0cbc21f050b2002ae21aa3",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio", "public.cotizacion_arriendo_comercial"],
+      "reason": "Adds cancellation policy selection and immutable quote snapshots. Review legacy fallback, historical terms and contract binding before release."
+    },
+    "V000133__user_in_app_notifications.sql": {
+      "checksum": "62b262efcc3063c82947a8e7926fbb60f05dad843ec96b2780d7f17e6ff8af39",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds in-app notifications table for contract signature and rental lifecycle alerts."
+    },
+    "V000134__fes_reinforced_signatures_and_otp.sql": {
+      "checksum": "f50a7c970c50c76fc225421b0aab46e9b12df6b12d621745bd2354ca70a8672a",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.contrato_solicitud_comercial", "public.contrato_firma_comercial", "public.contrato_documento_comercial"],
+      "reason": "Adds OTP signature challenge table and reinforced FES/FEA evidence columns."
+    },
+    "V000135__commercial_location_pin_provenance.sql": {
+      "checksum": "2bb4059ba7a3ffbfbca3092f746fc9a2a97713460a745d507858f563003d780e",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Adds optional manual or geocoded pin provenance without backfill. The guard clears stale metadata on legacy location edits; review ownership and location revision behavior before release."
+    },
+    "V000136__public_location_visibility.sql": {
+      "checksum": "06186a37bee4906718729a2eee7334596b23a7de7e45cec7e570d02f58548a27",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.espacio"],
+      "reason": "Adds public location visibility ('exact' | 'approximate') and deterministic public coordinates on public.espacio."
+    },
+    "V000137__commercial_auto_authorization_activation.sql": {
+      "checksum": "ec3763145581376a37b4e34bc8b478a221a72e5738281d5715d17f98c715fa05",
+      "strategy": "expand",
+      "automatic": false,
+      "requires_schema_owner": ["public.autorizacion_arriendo_comercial_evento", "public.contrato_firma_comercial"],
+      "reason": "Allows repeated auto_confirmed audit events on commercial authorization history and auto_authorization method on landlord mandated signatures."
+    },
+    "V000138__commercial_auto_authorization_otp.sql": {
+      "checksum": "26bed2a5accb3caa3235ff2af6b8e2db84c2c4a0507a068e57ed1cfd949df2b0",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds email OTP challenge table for landlord commercial auto-authorization activation."
+    },
+    "V000139__admin_staff_sessions_and_sensitive_access.sql": {
+      "checksum": "1745ab69021263b6a025cdcb591474e361497a83a0c63eb69ded85021fdf3ebb",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds dedicated admin staff sessions, MFA challenges, and audited sensitive-access grants."
+    },
+    "V000140__admin_assisted_client_view.sql": {
+      "checksum": "30f13e2f7fafd4ca74934a848f885fe3b2f640cd1b10709ef57162b742f7dcdc",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds time-bounded, audited read-only assisted client view grants for global administrators."
+    },
+    "V000141__admin_specialized_ops_and_approvals.sql": {
+      "checksum": "2d03d8015de7f2fee6a81fba4c144c82a21e59ed6e1a25910f3eff0aa21e7c95",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Adds administrative support tickets, privacy rights requests, and dual-control approval workflows."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

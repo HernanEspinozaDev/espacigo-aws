@@ -122,12 +122,34 @@ test("public listing renders and navigates its eligible image gallery", async ({
     expect(renderedHtml).not.toContain("PRIVATE_ADDRESS_MARKER");
     expect(renderedHtml).not.toContain("PRIVATE_OBJECT_KEY_MARKER");
 
+    const sectionNav = page.getByRole("navigation", {
+      name: "Secciones de la publicación",
+    });
+    await expect(
+      sectionNav.getByRole("link", { name: "Detalles y atributos" }),
+    ).toHaveAttribute("href", "#detalles");
+    await expect(
+      sectionNav.getByRole("link", { name: "Disponibilidad" }),
+    ).toHaveAttribute("href", "#disponibilidad");
+    await expect(
+      sectionNav.getByRole("link", { name: "Ubicación" }),
+    ).toHaveCount(0);
+    await expect(
+      sectionNav.getByRole("link", { name: "Reglas y cancelación" }),
+    ).toHaveAttribute("href", "#reglas-cancelacion");
+    await expect(
+      page.getByRole("heading", { name: "Reglas y cancelación" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Detalles y atributos" }),
+    ).toBeVisible();
+
     const gallery = page.getByRole("region", {
-      name: "Galería de imágenes del espacio",
+      name: "Galería de imágenes",
     });
     await expect(gallery).toBeVisible();
     const firstImage = gallery.getByRole("img", {
-      name: "Espacio sintético — vista 1",
+      name: "Espacio sintético, imagen 1",
     });
     await expect(firstImage).toBeVisible();
     await expect
@@ -140,7 +162,7 @@ test("public listing renders and navigates its eligible image gallery", async ({
         ),
       )
       .toBe(true);
-    await expect(gallery.getByText("1 / 2", { exact: true })).toBeVisible();
+    await expect(gallery.getByText("1/2", { exact: true })).toBeVisible();
     assertPublicImageEvents(imageEvents, requestStart, [
       {
         pathname: publicMediaPath(imageIds[0]),
@@ -148,11 +170,20 @@ test("public listing renders and navigates its eligible image gallery", async ({
         mime: "image/webp",
         cache: "no-store",
       },
+      {
+        pathname: publicMediaPath(imageIds[1]),
+        status: 200,
+        mime: "image/webp",
+        cache: "no-store",
+      },
     ]);
 
-    await gallery.getByRole("button", { name: "Siguiente imagen" }).click();
-    const secondImage = gallery.getByRole("img", {
-      name: "Espacio sintético — vista 2",
+    await gallery.getByRole("button", { name: "Ver imagen 1 de 2" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Imagen siguiente" }).click();
+    const secondImage = dialog.getByRole("img", {
+      name: "Espacio sintético, imagen 2",
     });
     await expect(secondImage).toBeVisible();
     await expect
@@ -165,7 +196,7 @@ test("public listing renders and navigates its eligible image gallery", async ({
         ),
       )
       .toBe(true);
-    await expect(gallery.getByText("2 / 2", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("2/2", { exact: true })).toBeVisible();
     assertPublicImageEvents(imageEvents, requestStart, [
       {
         pathname: publicMediaPath(imageIds[0]),
@@ -226,10 +257,10 @@ test("public gallery recovers from a missing display variant through legacy medi
     const response = await page.goto(`/espacios/${spaceId}`);
     expect(response?.status()).toBe(200);
     const gallery = page.getByRole("region", {
-      name: "Galería de imágenes del espacio",
+      name: "Galería de imágenes",
     });
     const firstImage = gallery.getByRole("img", {
-      name: "Espacio sintético — vista 1",
+      name: "Espacio sintético, imagen 1",
     });
     await expect(firstImage).toBeVisible();
     await expect
@@ -253,7 +284,7 @@ test("public gallery recovers from a missing display variant through legacy medi
       },
     ]);
     const recoveryA11y = await new AxeBuilder({ page })
-      .include('[aria-label="Galería de imágenes del espacio"]')
+      .include('[aria-label="Galería de imágenes"]')
       .analyze();
     expect(recoveryA11y.violations).toEqual([]);
   }
@@ -287,26 +318,27 @@ test("public gallery shows its current placeholder when display and legacy media
     const response = await page.goto(`/espacios/${spaceId}`);
     expect(response?.status()).toBe(200);
     const gallery = page.getByRole("region", {
-      name: "Galería de imágenes del espacio",
+      name: "Galería de imágenes",
     });
-    await expect(gallery.getByText("Imagen no disponible")).toHaveCount(1);
+    await expect(gallery.getByText("Imagen no disponible")).toHaveCount(2);
     assertPublicImageEvents(imageEvents, requestStart, [
       { pathname: variantPath, status: 404 },
       { pathname: originalPath, status: 404 },
     ]);
     await expect(
-      gallery.getByRole("button", { name: "Ampliar imagen" }),
-    ).toHaveCount(0);
+      gallery.getByRole("button", { name: "Ver imagen 1 de 2" }),
+    ).toBeVisible();
     const fallbackA11y = await new AxeBuilder({ page })
-      .include('[aria-label="Galería de imágenes del espacio"]')
+      .include('[aria-label="Galería de imágenes"]')
       .analyze();
     expect(fallbackA11y.violations).toEqual([]);
-    await expect(
-      gallery.getByRole("button", { name: "Siguiente imagen" }),
-    ).toBeVisible();
-    await gallery.getByRole("button", { name: "Siguiente imagen" }).click();
-    const secondImage = gallery.getByRole("img", {
-      name: "Espacio sintético — vista 2",
+    await gallery.getByRole("button", { name: "Ver imagen 1 de 2" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("Imagen no disponible")).toBeAttached();
+    await dialog.getByRole("button", { name: "Imagen siguiente" }).click();
+    const secondImage = dialog.getByRole("img", {
+      name: "Espacio sintético, imagen 2",
     });
     await expect(secondImage).toBeVisible();
     await expect
@@ -319,7 +351,8 @@ test("public gallery shows its current placeholder when display and legacy media
         ),
       )
       .toBe(true);
-    await expect(gallery.getByText("Imagen no disponible")).toHaveCount(0);
+    await expect(dialog.getByText("Imagen no disponible")).toHaveCount(0);
+    await expect(gallery.getByText("Imagen no disponible")).toHaveCount(2);
     assertPublicImageEvents(imageEvents, requestStart, [
       { pathname: variantPath, status: 404 },
       { pathname: originalPath, status: 404 },

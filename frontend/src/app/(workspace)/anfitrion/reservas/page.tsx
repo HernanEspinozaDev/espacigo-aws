@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { HostAgreementRequests } from "@/features/host-agreements/ui/host-agreement-requests";
 import { ReservationsList } from "@/features/bookings/ui/reservations-list";
 
 export default async function HostReservasPage({
@@ -18,12 +20,23 @@ export default async function HostReservasPage({
         : undefined;
 
   return (
-    <ReservationsList
-      mode="host"
-      initialSpaceId={initialSpaceId}
-      initialSection={initialTab}
-      title="Reservas, Finanzas y Horarios"
-      description="Supervisa KPIs de reservas, finanzas netas con Mercado Pago, agenda horaria y comprobantes de cada espacio."
-    />
+    <div className="space-y-6">
+      <div className="flex justify-end">
+        <Link
+          href="/anfitrion/liquidaciones"
+          className="text-sm font-medium underline"
+        >
+          Ver liquidaciones
+        </Link>
+      </div>
+      <HostAgreementRequests />
+      <ReservationsList
+        mode="host"
+        initialSpaceId={initialSpaceId}
+        initialSection={initialTab}
+        title="Reservas, Finanzas y Horarios"
+        description="Supervisa KPIs de reservas, finanzas netas con Mercado Pago, agenda horaria y comprobantes de cada espacio."
+      />
+    </div>
   );
 }

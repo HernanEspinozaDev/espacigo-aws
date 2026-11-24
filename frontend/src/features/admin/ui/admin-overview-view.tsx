@@ -11,16 +11,16 @@ import {
   CardTitle,
 } from "@/components/workspace/ui/card";
 import { Button } from "@/components/workspace/ui/button";
-import { useAuth } from "@/features/auth/ui/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { useAdmin } from "./use-admin";
 import { AdminFeedbackBanners } from "./admin-feedback-banners";
 
 export function AdminOverviewView() {
   const { snapshot, loadOverview, canAccess } = useAdmin();
-  const { snapshot: session } = useAuth();
   const accountId =
-    session.status === "authenticated" ? session.accountId : null;
+    snapshot.adminSessionStatus === "authenticated"
+      ? (snapshot.adminSession?.account_id ?? null)
+      : null;
   const { overview, loading } = snapshot;
 
   useEffect(() => {

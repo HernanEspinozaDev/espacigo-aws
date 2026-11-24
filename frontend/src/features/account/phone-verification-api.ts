@@ -1,4 +1,7 @@
+export type PhoneChannel = "sms" | "whatsapp";
+
 export interface AccountPhoneStatus {
+  available_channels: PhoneChannel[];
   configured: boolean;
   verified: boolean;
   masked_phone: string;
@@ -99,6 +102,14 @@ function parseErrorMessage(
       userMessage =
         "Tu sesión no es válida o ha expirado. Inicia sesión nuevamente.";
       break;
+    case "delivery_failed":
+      userMessage =
+        "No pudimos enviar el código. Espera un minuto e inténtalo de nuevo.";
+      break;
+    case "phone_already_verified":
+      userMessage = "Tu teléfono ya está verificado.";
+      break;
+    case "channel_unavailable":
     case "service_unavailable":
       userMessage =
         "El servicio de verificación telefónica no está disponible en este momento.";
@@ -154,6 +165,7 @@ export async function getAccountPhoneStatus(
 export async function sendAccountPhoneCode(
   phone: string,
   signal?: AbortSignal,
+  channel?: PhoneChannel,
 ): Promise<AccountPhoneCodeSent> {
   const res = await fetch("/api/backend/account/security/phone/send-code", {
     method: "POST",
@@ -163,7 +175,7 @@ export async function sendAccountPhoneCode(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ phone: phone || undefined, channel }),
     signal,
   });
 

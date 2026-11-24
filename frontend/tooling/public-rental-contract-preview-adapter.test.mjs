@@ -58,15 +58,17 @@ const preview = {
   parties: [
     {
       role: "arrendador",
-      legal_name: "Carlos Propietario",
-      rut: "12.345.678-9",
+      self: false,
     },
     {
       role: "arrendatario",
+      self: true,
       legal_name: "Ana Arrendataria",
-      rut: "98.765.432-1",
+      rut: "••••4321",
     },
   ],
+  contact_notice:
+    "Los datos personales y contactos se habilitan después de confirmar el pago.",
   generated_at: "2026-11-14T05:00:00Z",
 };
 
@@ -104,6 +106,26 @@ test("contract preview adapter rejects malformed or cross-quote success payloads
     { ...preview, parties: [{ role: "arrendador", legal_name: 7, rut: "x" }] },
     { ...preview, subtotal_clp: {} },
     { ...preview, unit_price_clp: 1.5 },
+    {
+      ...preview,
+      parties: [
+        {
+          role: "arrendador",
+          self: false,
+          legal_name: "Counterpart leak",
+          rut: "••••1111",
+        },
+        preview.parties[1],
+      ],
+    },
+    {
+      ...preview,
+      parties: [
+        preview.parties[0],
+        { ...preview.parties[1], rut: "98.765.432-1" },
+      ],
+    },
+    { ...preview, contact_notice: "" },
   ]) {
     const adapter = createContractPreviewAdapter(
       async () => Response.json({ data }),

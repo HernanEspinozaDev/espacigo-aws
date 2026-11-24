@@ -23,11 +23,15 @@ type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
 type Handler struct {
-	auth     Authenticator
-	service  *spaces.Service
-	calendar CalendarService
-	pricing  *pricing.Service
-	origins  map[string]bool
+	auth            Authenticator
+	service         *spaces.Service
+	geocoder        Geocoder
+	reverseGeocoder ReverseGeocoder
+	locations       LocationCatalog
+	geocodeLimit    geocodeLimiter
+	calendar        CalendarService
+	pricing         *pricing.Service
+	origins         map[string]bool
 }
 
 type CalendarService interface {
@@ -51,7 +55,7 @@ func NewHandler(auth Authenticator, service *spaces.Service, origins []string, c
 	}
 	return &Handler{auth: auth, service: service, calendar: calendarService, origins: m}
 }
-func NewHandlerWithPricing(auth Authenticator, service *spaces.Service, origins []string, calendar CalendarService, pricingService *pricing.Service) http.Handler {
+func NewHandlerWithPricing(auth Authenticator, service *spaces.Service, origins []string, calendar CalendarService, pricingService *pricing.Service) *Handler {
 	h := NewHandler(auth, service, origins, calendar).(*Handler)
 	h.pricing = pricingService
 	return h
@@ -85,6 +89,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := strings.TrimSuffix(r.URL.Path, "/")
+	if path == "/api/v1/spaces/location/geocode" {
+		h.serveGeocode(w, r)
+		return
+	}
+	if path == "/api/v1/spaces/location/reverse-geocode" {
+		h.serveReverseGeocode(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "/api/v1/spaces/location/communes/") {
+		h.serveCommuneBounds(w, r, strings.TrimPrefix(path, "/api/v1/spaces/location/communes/"))
+		return
+	}
 	if strings.HasPrefix(path, "/api/v1/public/spaces/") && strings.HasSuffix(path, "/month") && r.Method == http.MethodGet {
 		spaceID := strings.TrimSuffix(strings.TrimPrefix(path, "/api/v1/public/spaces/"), "/month")
 		values, parseErr := url.ParseQuery(r.URL.RawQuery)
@@ -119,9 +135,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, result)
 		return
 	}
+	locationID := locationSpaceID(path)
 	publicationID := publicationSpaceID(path)
 	publicationContentID := publicationContentSpaceID(path)
 	requiredRole := identity.Role("")
+	if locationID != "" {
+		requiredRole = identity.RoleLandlord
+	}
 	if (publicationID != "" || publicationContentID != "") && r.Method == http.MethodPut {
 		requiredRole = identity.RoleLandlord
 	}
@@ -187,6 +207,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			failure(w, 401, "unauthenticated", "Credencial ausente, incorrecta o expirada.")
 		}
+		return
+	}
+	if locationID != "" {
+		h.serveLocation(w, r, locationID, principal.AccountID)
 		return
 	}
 	const profilesPrefix = "/api/v1/spaces/categories/"
@@ -331,11 +355,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if path == "/api/v1/spaces" && r.Method == http.MethodPost {
-		var in spaces.Input
+		var in spaces.CreateInput
 		if !decode(w, r, &in) {
 			return
 		}
-		item, e := h.service.Create(r.Context(), principal.AccountID, in)
+		item, e := h.service.CreateWithLocation(r.Context(), principal.AccountID, in)
 		if e != nil {
 			serviceError(w, e)
 			return
@@ -792,6 +816,8 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 func serviceError(w http.ResponseWriter, e error) {
 	switch {
+	case errors.Is(e, spaces.ErrLocationBoundaryUnavailable):
+		failure(w, 503, "location_resolution_unavailable", "La validación geográfica no está disponible.")
 	case errors.Is(e, spaces.ErrPublicationConflict):
 		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
 	case errors.Is(e, spaces.ErrDeleteBlocked):
@@ -800,6 +826,14 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
+	case errors.Is(e, spaces.ErrLocationRequired):
+		failure(w, 409, "location_confirmation_required", "Confirma la dirección y el pin públicos antes de publicar por primera vez.")
+	case errors.Is(e, spaces.ErrIdentityRequired):
+		failure(w, 409, "identity_verification_required", "Confirma tu verificación de identidad (KYC) antes de publicar el espacio.")
+	case errors.Is(e, spaces.ErrMercadoPagoRequired):
+		failure(w, 409, "mercadopago_connection_required", "Vincula tu cuenta de Mercado Pago antes de publicar el espacio.")
+	case errors.Is(e, spaces.ErrContractTemplateRequired):
+		failure(w, 409, "contract_template_required", "Configura y publica la plantilla de contrato del espacio antes de publicarlo.")
 	case errors.Is(e, spaces.ErrInvalid):
 		var validation *spaces.ValidationError
 		if errors.As(e, &validation) {

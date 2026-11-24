@@ -23,6 +23,7 @@ import (
 )
 
 var (
+	ErrLoginTOTPRequired     = errors.New("código de autenticación requerido")
 	ErrTOTPNotPending        = errors.New("no hay configuración de totp pendiente")
 	ErrTOTPAlreadyEnabled    = errors.New("el autenticador totp ya está activado")
 	ErrTOTPNotEnabled        = errors.New("el autenticador totp no está activado")
@@ -79,14 +80,14 @@ type AccountTOTPDisableResponse struct {
 // AccountTOTPRecord is the storage model for public.cuenta_totp.
 type AccountTOTPRecord struct {
 	AccountID               string
-	SecretCiphertext       []byte
-	KeyVersion             *string
+	SecretCiphertext        []byte
+	KeyVersion              *string
 	PendingSecretCiphertext []byte
-	PendingKeyVersion      *string
-	EnabledAt              *time.Time
-	LastVerifiedStep       *int64
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
+	PendingKeyVersion       *string
+	EnabledAt               *time.Time
+	LastVerifiedStep        *int64
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
 }
 
 // TOTPRepository defines persistence operations for TOTP and backup codes.
@@ -512,6 +513,84 @@ func (s *AuthenticationService) EnableTOTP(ctx context.Context, accountID string
 	}, nil
 }
 
+// These methods must run on the same transaction that creates the session.
+type totpLoginTransaction interface {
+	GetTOTP(context.Context, string) (*AccountTOTPRecord, int, error)
+	UpdateTOTPLastVerifiedStep(context.Context, string, int64) error
+	ConsumeBackupCode(context.Context, string, string) (bool, error)
+}
+
+func (s *AuthenticationService) verifyLoginTOTP(ctx context.Context, tx AuthenticationTransaction, accountID, input string, now time.Time) error {
+	totpTx, ok := tx.(totpLoginTransaction)
+	if !ok {
+		return errors.New("transactional TOTP is unavailable")
+	}
+	kr, err := s.getTOTPKeyring()
+	if err != nil {
+		// Only fail on keyring error when TOTP is actually enabled.
+		totp, _, getErr := totpTx.GetTOTP(ctx, accountID)
+		if getErr != nil {
+			return getErr
+		}
+		if totp == nil || totp.EnabledAt == nil {
+			return nil
+		}
+		return err
+	}
+	_, err = verifyTOTPOrBackupCode(ctx, totpTx, kr, accountID, input, now, true)
+	return err
+}
+
+func verifyTOTPOrBackupCode(ctx context.Context, totpTx totpLoginTransaction, kr *TOTPKeyring, accountID, input string, now time.Time, allowDisabled bool) (string, error) {
+	totp, _, err := totpTx.GetTOTP(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	if totp == nil || totp.EnabledAt == nil {
+		if allowDisabled {
+			return "", nil
+		}
+		return "", ErrTOTPInvalidCode
+	}
+
+	code := strings.TrimSpace(input)
+	if code == "" {
+		return "", ErrLoginTOTPRequired
+	}
+	if len(code) == totpDigits {
+		if kr == nil {
+			return "", ErrTOTPKeyringMissing
+		}
+		if totp.KeyVersion == nil {
+			return "", errors.New("enabled TOTP is missing its key version")
+		}
+		secret, err := kr.Open(*totp.KeyVersion, totp.SecretCiphertext)
+		if err != nil {
+			return "", err
+		}
+		step, err := ValidateTOTP(secret, code, now, totp.LastVerifiedStep)
+		if err != nil {
+			return "", err
+		}
+		if err := totpTx.UpdateTOTPLastVerifiedStep(ctx, accountID, step); err != nil {
+			return "", err
+		}
+		return "totp", nil
+	}
+
+	normalized := NormalizeBackupCode(code)
+	if len(normalized) == 9 && normalized[4] == '-' {
+		used, err := totpTx.ConsumeBackupCode(ctx, accountID, HashBackupCode(normalized))
+		if err != nil {
+			return "", err
+		}
+		if used {
+			return "backup_code", nil
+		}
+	}
+	return "", ErrTOTPInvalidCode
+}
+
 // DisableTOTP verifies a valid TOTP code or backup code and deactivates TOTP.
 func (s *AuthenticationService) DisableTOTP(ctx context.Context, accountID string, code string, deviceLabel, ipMasked string) (AccountTOTPDisableResponse, error) {
 	if accountID == "" {
@@ -539,8 +618,7 @@ func (s *AuthenticationService) DisableTOTP(ctx context.Context, accountID strin
 		if err == nil {
 			step, err := ValidateTOTP(secret, trimmed, s.now(), rec.LastVerifiedStep)
 			if err == nil {
-				verified = true
-				_ = s.repo.UpdateTOTPLastVerifiedStep(ctx, accountID, step)
+				verified = s.repo.UpdateTOTPLastVerifiedStep(ctx, accountID, step) == nil
 			}
 		}
 	}

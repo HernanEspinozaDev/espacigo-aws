@@ -14,7 +14,11 @@ type testPhoneSender struct {
 	lastCode  string
 }
 
-func (s *testPhoneSender) SendPhoneCode(_ context.Context, phone, code string) error {
+func (s *testPhoneSender) Channels() []identity.PhoneChannel {
+	return []identity.PhoneChannel{identity.PhoneChannelSMS}
+}
+
+func (s *testPhoneSender) SendPhoneCode(_ context.Context, phone, code string, _ identity.PhoneChannel) error {
 	s.lastPhone = phone
 	s.lastCode = code
 	return nil
@@ -33,7 +37,7 @@ func TestPostgresPhoneVerification_Flow(t *testing.T) {
 	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	clock := func() time.Time { return now }
 
-	svc := identity.NewPhoneVerificationService(repo, sender, clock)
+	svc := identity.NewPhoneVerificationService(repo, sender, clock, []byte("test-key"))
 
 	// 1. Initial status -> not configured
 	status, err := svc.GetPhoneVerificationStatus(ctx, account.ID)
@@ -45,7 +49,7 @@ func TestPostgresPhoneVerification_Flow(t *testing.T) {
 	}
 
 	// 2. Send code
-	res, err := svc.SendPhoneVerificationCode(ctx, account.ID, "+56 9 8765 4321")
+	res, err := svc.SendPhoneVerificationCode(ctx, account.ID, "+56 9 8765 4321", "")
 	if err != nil {
 		t.Fatalf("send code error: %v", err)
 	}
@@ -69,7 +73,11 @@ func TestPostgresPhoneVerification_Flow(t *testing.T) {
 	}
 
 	// 4. Failed verification attempt
-	_, err = svc.VerifyPhoneCode(ctx, account.ID, "000000")
+	incorrect := "000000"
+	if sender.lastCode == incorrect {
+		incorrect = "000001"
+	}
+	_, err = svc.VerifyPhoneCode(ctx, account.ID, incorrect)
 	if err == nil {
 		t.Fatalf("expected error on wrong code, got nil")
 	}

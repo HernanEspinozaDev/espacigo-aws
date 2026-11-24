@@ -46,6 +46,7 @@ const (
 	CapabilityLegacyAdministration Capability = "legacy.administration"
 	CapabilityAccountsList         Capability = "accounts.list"
 	CapabilityAccountsRead         Capability = "accounts.read"
+	CapabilityAccountsEmailReveal  Capability = "accounts.email.reveal"
 	CapabilityAdminAccessManage    Capability = "admin_access.manage"
 	CapabilityAccountsUpdate       Capability = "accounts.update"
 	CapabilityAccountsBlock        Capability = "accounts.block"
@@ -58,7 +59,41 @@ const (
 	CapabilityAuditRead            Capability = "audit.read"
 	CapabilityAuditExport          Capability = "audit.export"
 	CapabilityKPIRead              Capability = "kpi.read"
+	CapabilityReservationsRead     Capability = "reservations.read"
+	CapabilityContractsRead        Capability = "contracts.read"
+	CapabilityKYCCaseRead          Capability = "kyc.case.read"
+	CapabilityPaymentsRead         Capability = "payments.read"
+	CapabilityPaymentsReconcile    Capability = "payments.reconcile"
+	CapabilityPaymentsRefundRequest Capability = "payments.refund.request"
+	CapabilityPaymentsRefundApprove Capability = "payments.refund.approve"
+	CapabilityPrivacyRequestsManage Capability = "privacy.requests.manage"
+	CapabilityPrivacyExportApprove  Capability = "privacy.export.approve"
+	CapabilityStaffRolesManage     Capability = "staff.roles.manage"
+	CapabilityStaffSessionsRevoke  Capability = "staff.sessions.revoke"
+	CapabilitySupportTicketsManage Capability = "support.tickets.manage"
+	CapabilityApprovalsRequest     Capability = "approvals.request"
+	CapabilityApprovalsDecide      Capability = "approvals.decide"
 )
+
+// SpecializedAdminCapabilities returns the granular operational capabilities for global administrators.
+func SpecializedAdminCapabilities() []Capability {
+	return []Capability{
+		CapabilityReservationsRead,
+		CapabilityContractsRead,
+		CapabilityKYCCaseRead,
+		CapabilityPaymentsRead,
+		CapabilityPaymentsReconcile,
+		CapabilityPaymentsRefundRequest,
+		CapabilityPaymentsRefundApprove,
+		CapabilityPrivacyRequestsManage,
+		CapabilityPrivacyExportApprove,
+		CapabilityStaffRolesManage,
+		CapabilityStaffSessionsRevoke,
+		CapabilitySupportTicketsManage,
+		CapabilityApprovalsRequest,
+		CapabilityApprovalsDecide,
+	}
+}
 
 // CapabilitiesForRoles keeps the old administrator surface intact while
 // granting the global role only the GADM-01 directory/bootstrap capabilities.
@@ -72,6 +107,7 @@ func CapabilitiesForRoles(roles []Role) []Capability {
 			set[CapabilityLegacyAdministration] = struct{}{}
 			set[CapabilityAccountsList] = struct{}{}
 			set[CapabilityAccountsRead] = struct{}{}
+			set[CapabilityAccountsEmailReveal] = struct{}{}
 			set[CapabilityAdminAccessManage] = struct{}{}
 			set[CapabilityAccountsUpdate] = struct{}{}
 			set[CapabilityAccountsBlock] = struct{}{}
@@ -84,6 +120,9 @@ func CapabilitiesForRoles(roles []Role) []Capability {
 			set[CapabilityAuditRead] = struct{}{}
 			set[CapabilityAuditExport] = struct{}{}
 			set[CapabilityKPIRead] = struct{}{}
+			for _, cap := range SpecializedAdminCapabilities() {
+				set[cap] = struct{}{}
+			}
 		}
 	}
 	capabilities := make([]Capability, 0, len(set))
@@ -100,6 +139,16 @@ func HasCapability(roles []Role, required Capability) bool {
 	}
 	for _, capability := range CapabilitiesForRoles(roles) {
 		if capability == required {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyCapability returns true when the given roles grant at least one of the required capabilities.
+func HasAnyCapability(roles []Role, required ...Capability) bool {
+	for _, cap := range required {
+		if HasCapability(roles, cap) {
 			return true
 		}
 	}

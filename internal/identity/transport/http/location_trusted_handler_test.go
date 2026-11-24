@@ -352,8 +352,8 @@ func TestHTTP_SecurityMethods_Endpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal error: %v", err)
 	}
-	if resp.TotalCount != 7 {
-		t.Fatalf("TotalCount = %d, want 7", resp.TotalCount)
+	if resp.TotalCount != 6 {
+		t.Fatalf("TotalCount = %d, want 6", resp.TotalCount)
 	}
 	if !resp.Methods.Password.Enabled {
 		t.Fatalf("Password.Enabled = false, want true")

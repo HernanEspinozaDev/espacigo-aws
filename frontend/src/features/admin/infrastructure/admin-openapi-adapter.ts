@@ -1,10 +1,17 @@
 import "client-only";
 
 import { apiClient } from "@/lib/api/client";
-import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
+import {
+  ApiError,
+  ApiProtocolError,
+  normalizeApiError,
+} from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
 import type { AdminPort } from "../application/admin.port";
 import type {
+  AdminAssistedViewGrant,
+  AdminAssistedViewProjection,
+  AdminAssistedViewStartInput,
   AdminDamageClaim,
   AdminDamageClaimResolutionInput,
   AdminDisputesReport,
@@ -17,19 +24,169 @@ import type {
   AdminReservationSummary,
   AdminReservationsReport,
   AdminReviewReport,
+  AdminSensitiveAccessInput,
+  AdminSensitiveAccessResult,
+  AdminSessionData,
+  AdminSessionStartResponse,
   AdminVerificationCase,
   AuditEvent,
   AuditEventsQuery,
   GlobalAdminAccount,
   GlobalAdminAccountQuery,
+  GlobalAdminAccountResourceKind,
+  GlobalAdminAccountResourcePage,
+  GlobalAdminAccountResourceQuery,
   GlobalAdminKPIs,
   GlobalAdminMe,
   GlobalAdminOverview,
   GlobalAdminPublication,
   GlobalAdminPublicationQuery,
+  GlobalAdminPayment,
+  GlobalAdminPaymentQuery,
+  GlobalAdminReservation,
+  GlobalAdminReservationQuery,
+  GlobalAdminContract,
+  GlobalAdminContractQuery,
+  GlobalAdminKycCase,
+  GlobalAdminKycCaseQuery,
+  GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestQuery,
+  GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminSupportTicket,
+  GlobalAdminSupportTicketQuery,
+  GlobalAdminSupportTicketCreateInput,
+  GlobalAdminApproval,
+  GlobalAdminApprovalQuery,
+  GlobalAdminApprovalCreateInput,
+  GlobalAdminApprovalDecisionInput,
 } from "../domain/types";
 
 export class OpenApiAdminAdapter implements AdminPort {
+  // -----------------------------------------------------
+  // Dedicated Admin Session
+  // -----------------------------------------------------
+
+  async getAdminSession(signal?: AbortSignal): Promise<AdminSessionData | null> {
+    const result = await apiClient.GET("/admin/session", { signal });
+    if (result.response?.status === 401) return null;
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminSessionData;
+  }
+
+  async startAdminSession(
+    input: { email: string; password: string },
+    signal?: AbortSignal,
+  ): Promise<AdminSessionStartResponse> {
+    const result = await apiClient.POST("/admin/session/start", {
+      body: input,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminSessionStartResponse;
+  }
+
+  async verifyAdminSessionMfa(
+    input: { challenge_id?: string; code: string },
+    signal?: AbortSignal,
+  ): Promise<AdminSessionData> {
+    const result = await apiClient.POST("/admin/session/mfa", {
+      body: input,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminSessionData;
+  }
+
+  async deleteAdminSession(signal?: AbortSignal): Promise<void> {
+    const result = await apiClient.DELETE("/admin/session", { signal });
+    if (!result.response.ok && result.response.status !== 204) {
+      throw normalizeApiError(result.response, result.error);
+    }
+  }
+
+  async requestGlobalAccountSensitiveAccess(
+    accountId: string,
+    input: AdminSensitiveAccessInput,
+    signal?: AbortSignal,
+  ): Promise<AdminSensitiveAccessResult> {
+    const result = await apiClient.POST(
+      "/admin/global/accounts/{accountID}/sensitive-access",
+      {
+        params: { path: { accountID: accountId } },
+        body: input,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminSensitiveAccessResult;
+  }
+
+  async startAssistedView(
+    accountId: string,
+    input: AdminAssistedViewStartInput,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewGrant> {
+    const result = await apiClient.POST(
+      "/admin/global/accounts/{accountID}/assisted-view",
+      {
+        params: { path: { accountID: accountId } },
+        body: input,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminAssistedViewGrant;
+  }
+
+  async getAssistedViewProjection(
+    grantId: string,
+    signal?: AbortSignal,
+  ): Promise<AdminAssistedViewProjection> {
+    const result = await apiClient.GET(
+      "/admin/global/assisted-view/{grantID}/projection",
+      {
+        params: { path: { grantID: grantId } },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as AdminAssistedViewProjection;
+  }
+
+  async closeAssistedView(
+    grantId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const result = await apiClient.DELETE(
+      "/admin/global/assisted-view/{grantID}",
+      {
+        params: { path: { grantID: grantId } },
+        signal,
+      },
+    );
+    if (!result.response.ok && result.response.status !== 204) {
+      throw normalizeApiError(result.response, result.error);
+    }
+  }
+
   // -----------------------------------------------------
   // Global Admin
   // -----------------------------------------------------
@@ -190,6 +347,49 @@ export class OpenApiAdminAdapter implements AdminPort {
     );
   }
 
+  async listGlobalAccountResources(
+    accountId: string,
+    kind: GlobalAdminAccountResourceKind,
+    query?: GlobalAdminAccountResourceQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminAccountResourcePage> {
+    const result = await apiClient.GET(
+      "/admin/global/accounts/{accountID}/resources/{resourceKind}",
+      {
+        params: {
+          path: { accountID: accountId, resourceKind: kind },
+          query: query as never,
+        },
+        signal,
+      },
+    );
+    if (result.response?.status === 404) {
+      return {
+        items: [],
+        next_cursor: "",
+        matching_total: 0,
+        generated_at: new Date().toISOString(),
+      };
+    }
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    const envelope = result.data as
+      | { data?: GlobalAdminAccountResourcePage }
+      | GlobalAdminAccountResourcePage
+      | undefined;
+    const page =
+      envelope && "data" in envelope && envelope.data
+        ? envelope.data
+        : (envelope as GlobalAdminAccountResourcePage | undefined);
+    return {
+      items: page?.items ?? [],
+      next_cursor: page?.next_cursor ?? "",
+      matching_total: page?.matching_total ?? 0,
+      generated_at: page?.generated_at ?? new Date().toISOString(),
+    };
+  }
+
   async updateGlobalAccountProfile(
     accountId: string,
     input: {
@@ -307,23 +507,37 @@ export class OpenApiAdminAdapter implements AdminPort {
     query?: GlobalAdminPublicationQuery,
     signal?: AbortSignal,
   ): Promise<GlobalAdminPublication[]> {
+    const page = await this.listGlobalPublicationPage(query, signal).catch(
+      (error: unknown) => {
+        if (error instanceof ApiError && error.status === 404) {
+          return { items: [], nextCursor: "" };
+        }
+        throw error;
+      },
+    );
+    return page.items;
+  }
+
+  async listGlobalPublicationPage(
+    query?: GlobalAdminPublicationQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPublication[]; nextCursor: string }> {
     const result = await apiClient.GET("/admin/global/publications", {
       params: { query: query as never },
       signal,
     });
-    if (result.response?.status === 404) {
-      return [];
-    }
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
     const envelope = result.data as
       | {
-          data?: { items?: GlobalAdminPublication[] };
+          data?: { items?: GlobalAdminPublication[]; next_cursor?: string };
           items?: GlobalAdminPublication[];
+          next_cursor?: string;
         }
       | undefined;
-    return envelope?.data?.items ?? envelope?.items ?? [];
+    const page = envelope?.data ?? envelope;
+    return { items: page?.items ?? [], nextCursor: page?.next_cursor ?? "" };
   }
 
   async setGlobalPublicationState(
@@ -937,5 +1151,215 @@ export class OpenApiAdminAdapter implements AdminPort {
       throw normalizeApiError(result.response, result.error);
     }
     return result.data?.data as unknown as AdminDamageClaim;
+  }
+
+  private unwrapPage<T>(data: unknown): {
+    items: T[];
+    next_cursor?: string;
+    matching_total?: number;
+    generated_at?: string;
+  } {
+    const envelope = data as
+      | {
+          data?: {
+            items?: T[];
+            next_cursor?: string;
+            matching_total?: number;
+            generated_at?: string;
+          };
+          items?: T[];
+          next_cursor?: string;
+          matching_total?: number;
+          generated_at?: string;
+        }
+      | undefined;
+    return {
+      items: envelope?.data?.items ?? envelope?.items ?? [],
+      next_cursor: envelope?.data?.next_cursor ?? envelope?.next_cursor,
+      matching_total:
+        envelope?.data?.matching_total ?? envelope?.matching_total,
+      generated_at: envelope?.data?.generated_at ?? envelope?.generated_at,
+    };
+  }
+
+  async listGlobalPayments(
+    query?: GlobalAdminPaymentQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPayment[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/payments", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminPayment>(result.data);
+  }
+
+  async listGlobalReservations(
+    query?: GlobalAdminReservationQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminReservation[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/reservations", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminReservation>(result.data);
+  }
+
+  async listGlobalContracts(
+    query?: GlobalAdminContractQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminContract[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/contracts", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminContract>(result.data);
+  }
+
+  async listGlobalKycCases(
+    query?: GlobalAdminKycCaseQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminKycCase[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/kyc-cases", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminKycCase>(result.data);
+  }
+
+  async listGlobalPrivacyRequests(
+    query?: GlobalAdminPrivacyRequestQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/privacy-requests", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminPrivacyRequest>(result.data);
+  }
+
+  async createGlobalPrivacyRequest(
+    idempotencyKey: string,
+    input: GlobalAdminPrivacyRequestCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    const result = await apiClient.POST("/admin/global/privacy-requests", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: input as never,
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequest;
+  }
+
+  async listGlobalSupportTickets(
+    query?: GlobalAdminSupportTicketQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminSupportTicket[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/support-tickets", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminSupportTicket>(result.data);
+  }
+
+  async createGlobalSupportTicket(
+    idempotencyKey: string,
+    input: GlobalAdminSupportTicketCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminSupportTicket> {
+    const result = await apiClient.POST("/admin/global/support-tickets", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: input as never,
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminSupportTicket;
+  }
+
+  async listGlobalApprovals(
+    query?: GlobalAdminApprovalQuery,
+    signal?: AbortSignal,
+  ): Promise<{ items: GlobalAdminApproval[]; next_cursor?: string }> {
+    const result = await apiClient.GET("/admin/global/approvals", {
+      params: { query: query as never },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return this.unwrapPage<GlobalAdminApproval>(result.data);
+  }
+
+  async createGlobalApproval(
+    idempotencyKey: string,
+    input: GlobalAdminApprovalCreateInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval> {
+    const body = {
+      ...input,
+      idempotency_key: input.idempotency_key ?? idempotencyKey,
+    };
+    const result = await apiClient.POST("/admin/global/approvals", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: body as never,
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminApproval;
+  }
+
+  async decideGlobalApproval(
+    approvalId: string,
+    idempotencyKey: string,
+    input: GlobalAdminApprovalDecisionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminApproval> {
+    const result = await apiClient.POST(
+      "/admin/global/approvals/{approvalID}/decisions",
+      {
+        params: {
+          path: { approvalID: approvalId },
+          header: { "Idempotency-Key": idempotencyKey },
+        },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminApproval;
   }
 }

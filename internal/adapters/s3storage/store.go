@@ -93,36 +93,47 @@ func (s *Store) Get(ctx context.Context, id string) ([]byte, error) {
 // GetWithMetadata retrieves a private blob and its metadata. A positive
 // maxBytes bounds both the remote object size and bytes read into memory.
 func (s *Store) GetWithMetadata(ctx context.Context, id string, maxBytes int64) ([]byte, map[string]string, error) {
+	blob, metadata, _, err := s.GetVersionedWithMetadata(ctx, id, maxBytes, "")
+	return blob, metadata, err
+}
+
+// GetVersionedWithMetadata optionally reads an exact object version and returns
+// the observed version alongside the payload and metadata.
+func (s *Store) GetVersionedWithMetadata(ctx context.Context, id string, maxBytes int64, version string) ([]byte, map[string]string, string, error) {
 	if err := validate(ctx, id); err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	if maxBytes < 0 {
-		return nil, nil, errors.New("invalid private blob size limit")
+		return nil, nil, "", errors.New("invalid private blob size limit")
 	}
 	if s == nil || s.client == nil {
-		return nil, nil, errors.New("s3 storage client is not initialized")
+		return nil, nil, "", errors.New("s3 storage client is not initialized")
 	}
 	key := s.objectName(id)
-	head, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
+	headInput := &s3.HeadObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key)}
+	if version != "" {
+		headInput.VersionId = aws.String(version)
+	}
+	head, err := s.client.HeadObject(ctx, headInput)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	if maxBytes > 0 && head.ContentLength != nil && *head.ContentLength > maxBytes {
-		return nil, nil, ErrObjectTooLarge
+		return nil, nil, "", ErrObjectTooLarge
 	}
 	getInput := &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key),
+	}
+	if version != "" {
+		getInput.VersionId = aws.String(version)
 	}
 	if head.ETag != nil && *head.ETag != "" {
 		getInput.IfMatch = head.ETag
 	}
 	out, err := s.client.GetObject(ctx, getInput)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	var source io.Reader = out.Body
 	if maxBytes > 0 && maxBytes < int64(^uint64(0)>>1) {
@@ -139,12 +150,22 @@ func (s *Store) GetWithMetadata(ctx context.Context, id string, maxBytes int64) 
 	metadata := cloneMetadata(rawMeta)
 	closeErr := out.Body.Close()
 	if readErr != nil {
-		return nil, nil, readErr
+		return nil, nil, "", readErr
 	}
 	if closeErr != nil {
-		return nil, nil, closeErr
+		return nil, nil, "", closeErr
 	}
-	return blob, metadata, nil
+	observedVersion := aws.ToString(out.VersionId)
+	if observedVersion == "" {
+		observedVersion = aws.ToString(head.VersionId)
+	}
+	if observedVersion == "null" {
+		observedVersion = ""
+	}
+	if version != "" && observedVersion != version {
+		return nil, nil, "", errors.New("private object version mismatch")
+	}
+	return blob, metadata, observedVersion, nil
 }
 
 func (s *Store) Delete(ctx context.Context, id string) error {

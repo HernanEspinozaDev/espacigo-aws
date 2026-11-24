@@ -52,13 +52,15 @@ export function maskRUT(rut: string): string {
 export function RevealEmail({
   masked,
   reveal,
+  errorMessage,
 }: {
   masked: string;
   reveal: (signal: AbortSignal) => string | Promise<string>;
+  errorMessage?: (error: unknown) => string;
 }) {
   const [email, setEmail] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
 
   useEffect(() => () => controller.current?.abort(), []);
@@ -81,13 +83,15 @@ export function RevealEmail({
     }
     const attempt = new AbortController();
     controller.current = attempt;
-    setFailed(false);
+    setFailure(null);
     setPending(true);
     try {
       const value = await reveal(attempt.signal);
       if (!attempt.signal.aborted) setEmail(value);
-    } catch {
-      if (!attempt.signal.aborted) setFailed(true);
+    } catch (error) {
+      if (!attempt.signal.aborted) {
+        setFailure(errorMessage?.(error) ?? "No pudimos mostrar el correo.");
+      }
     } finally {
       if (!attempt.signal.aborted) setPending(false);
     }
@@ -105,9 +109,7 @@ export function RevealEmail({
       >
         {email !== null ? "Ocultar correo" : "Mostrar correo"}
       </button>
-      {failed ? (
-        <span role="status"> No pudimos mostrar el correo.</span>
-      ) : null}
+      {failure && <span role="status"> {failure}</span>}
     </span>
   );
 }

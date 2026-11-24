@@ -14,13 +14,13 @@ import (
 )
 
 var (
-	ErrPasskeyNotFound          = errors.New("llave de acceso no encontrada")
+	ErrPasskeyNotFound           = errors.New("llave de acceso no encontrada")
 	ErrPasskeyChallengeExpired   = errors.New("desafío webauthn expirado")
 	ErrPasskeyChallengeConsumed  = errors.New("desafío webauthn ya utilizado")
 	ErrPasskeyChallengeInvalid   = errors.New("desafío webauthn inválido")
 	ErrPasskeyInvalidClientData  = errors.New("clientDataJSON inválido")
 	ErrPasskeyInvalidPublicKey   = errors.New("clave pública webauthn inválida")
-	ErrPasskeyInvalidCredential = errors.New("identificador de credencial inválido")
+	ErrPasskeyInvalidCredential  = errors.New("identificador de credencial inválido")
 	ErrPasskeyCredentialConflict = errors.New("la llave de acceso ya se encuentra registrada")
 )
 
@@ -40,7 +40,7 @@ type PasskeyListResponse struct {
 
 // PasskeyRP represents the Relying Party entity.
 type PasskeyRP struct {
-	ID   string `json:"id"`
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 }
 
@@ -169,10 +169,6 @@ func (s *AuthenticationService) BeginPasskeyRegistration(ctx context.Context, ac
 	displayName, _ := s.repo.GetAccountDisplayName(ctx, accountID)
 	if strings.TrimSpace(displayName) == "" {
 		displayName = maskedEmail
-	}
-
-	if strings.TrimSpace(rpID) == "" {
-		rpID = "localhost"
 	}
 
 	// Generate 32 cryptographically random bytes for challenge

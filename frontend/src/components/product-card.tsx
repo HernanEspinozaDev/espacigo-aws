@@ -17,10 +17,13 @@ import {
 export function ProductCard({
   space,
   priority = false,
+  variant = "default",
 }: {
   space: PublicSpace;
   priority?: boolean;
+  variant?: "default" | "explore";
 }) {
+  const isExplore = variant === "explore";
   const cover = publicCoverUrl(space, "thumbnail");
   const images = space.images ?? [];
   const primaryRef =
@@ -47,13 +50,18 @@ export function ProductCard({
   const title = safePublicText(space.title);
   const price = formatPublicClp(space.base_price_clp);
   const estimate = formatPublicClp(space.estimated_total_clp);
+  const highlights = (space.features ?? [])
+    .filter((feature) => feature.value && feature.label.trim())
+    .slice(0, 2);
 
   return (
     <Link
       href={`/espacios/${encodeURIComponent(space.space_id)}`}
-      className="group block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4"
+      className="group block rounded-2xl border border-border bg-background p-3 transition-all hover:border-[var(--brand-accent)]/60 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 sm:p-3.5"
     >
-      <div className="relative mb-4 aspect-square overflow-hidden rounded-2xl bg-secondary">
+      <div
+        className={`relative mb-3.5 overflow-hidden rounded-xl bg-[var(--brand-surface-subtle)] ${isExplore ? "aspect-[4/3] sm:aspect-[16/10]" : "aspect-[4/3]"}`}
+      >
         {primaryImage ? (
           <PublicMediaImage
             key={primaryImage}
@@ -92,18 +100,56 @@ export function ProductCard({
             showPlaceholder={false}
           />
         ) : null}
-        <span className="absolute left-3 top-3 rounded-full bg-background/90 px-3 py-1 text-xs font-medium text-foreground backdrop-blur">
+        <span className="absolute left-3 top-3 rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground shadow-xs">
           {space.category_name}
         </span>
       </div>
-      <div className="space-y-1">
-        <PublicVerificationBadges verification={space.verification} />
-        <h2 className="text-base font-medium text-foreground">{title}</h2>
-        <p className="text-sm text-muted-foreground">
-          {[space.comuna_name, space.region_name].filter(Boolean).join(", ")}
-          {space.area_m2 > 0 ? ` · ${space.area_m2} m²` : ""}
-        </p>
-        <p className="pt-1 text-base font-semibold text-foreground">
+      <div className={isExplore ? "space-y-1.5" : "space-y-1"}>
+        <PublicVerificationBadges
+          verification={space.verification}
+          variant="card"
+        />
+        <div
+          className={
+            isExplore
+              ? "flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"
+              : undefined
+          }
+        >
+          <h2 className="text-base font-medium text-foreground">{title}</h2>
+          {isExplore ? (
+            <p className="text-sm text-muted-foreground">
+              {space.comuna_name?.trim() || "Comuna no informada"}
+              {typeof space.distance_km === "number" &&
+              Number.isFinite(space.distance_km)
+                ? ` · ${space.distance_km.toFixed(1)} km`
+                : ""}
+            </p>
+          ) : null}
+        </div>
+        {!isExplore ? (
+          <p className="text-sm text-muted-foreground">
+            {space.comuna_name?.trim() || "Comuna no informada"}
+          </p>
+        ) : null}
+        {highlights.length ? (
+          <ul
+            aria-label="Características destacadas"
+            className="flex flex-wrap gap-2 pt-1"
+          >
+            {highlights.map((feature) => (
+              <li
+                key={feature.code}
+                className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                {safePublicText(feature.label)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p
+          className={`${isExplore ? "pt-1 text-lg font-semibold" : "pt-1 text-base font-semibold"} tabular-nums text-foreground`}
+        >
           {price ?? "Tarifa no disponible"}
           {price ? (
             <span className="text-sm font-normal text-muted-foreground">

@@ -64,8 +64,8 @@ func (r *IdentityRepository) GetPhoneVerification(ctx context.Context, accountID
 	return &rec, nil
 }
 
-func (r *IdentityRepository) UpsertPhoneVerification(ctx context.Context, record identity.AccountPhoneVerification) error {
-	_, err := r.pool.Exec(ctx, `
+func (r *IdentityRepository) ReservePhoneChallenge(ctx context.Context, record identity.AccountPhoneVerification) error {
+	tag, err := r.pool.Exec(ctx, `
 		INSERT INTO public.cuenta_verificacion_telefono (
 			account_id,
 			phone_e164,
@@ -85,22 +85,37 @@ func (r *IdentityRepository) UpsertPhoneVerification(ctx context.Context, record
 			otp_attempts = EXCLUDED.otp_attempts,
 			resend_available_at = EXCLUDED.resend_available_at,
 			updated_at = EXCLUDED.updated_at
+		WHERE cuenta_verificacion_telefono.verified_at IS NULL
+		  AND (cuenta_verificacion_telefono.resend_available_at IS NULL
+		    OR cuenta_verificacion_telefono.resend_available_at <= EXCLUDED.updated_at)
 	`, record.AccountID, record.PhoneE164, record.VerifiedAt, record.OTPHash, record.OTPExpiresAt,
 		record.OTPAttempts, record.ResendAvailableAt, record.CreatedAt, record.UpdatedAt)
 	if err != nil {
 		return mapError(err)
 	}
+	if tag.RowsAffected() == 0 {
+		return identity.ErrPhoneCooldownActive
+	}
 	return nil
 }
 
-func (r *IdentityRepository) IncrementPhoneAttempts(ctx context.Context, accountID string) (int, error) {
+func (r *IdentityRepository) CancelPhoneChallenge(ctx context.Context, accountID, challengeHash string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE public.cuenta_verificacion_telefono
+		SET otp_hash = NULL, otp_expires_at = NULL
+		WHERE account_id = $1 AND otp_hash = $2
+	`, accountID, challengeHash)
+	return mapError(err)
+}
+
+func (r *IdentityRepository) IncrementPhoneAttempts(ctx context.Context, accountID, challengeHash string, at time.Time) (int, error) {
 	row := r.pool.QueryRow(ctx, `
 		UPDATE public.cuenta_verificacion_telefono
 		SET otp_attempts = otp_attempts + 1,
-		    updated_at = now()
-		WHERE account_id = $1
+		    updated_at = $3
+		WHERE account_id = $1 AND otp_hash = $2 AND otp_expires_at > $3 AND otp_attempts < 5
 		RETURNING otp_attempts
-	`, accountID)
+	`, accountID, challengeHash, at.UTC())
 
 	var attempts int
 	if err := row.Scan(&attempts); err != nil {
@@ -112,7 +127,7 @@ func (r *IdentityRepository) IncrementPhoneAttempts(ctx context.Context, account
 	return attempts, nil
 }
 
-func (r *IdentityRepository) MarkPhoneVerified(ctx context.Context, accountID string, verifiedAt time.Time) error {
+func (r *IdentityRepository) MarkPhoneVerified(ctx context.Context, accountID, challengeHash string, verifiedAt time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE public.cuenta_verificacion_telefono
 		SET verified_at = $2,
@@ -120,8 +135,8 @@ func (r *IdentityRepository) MarkPhoneVerified(ctx context.Context, accountID st
 		    otp_expires_at = NULL,
 		    otp_attempts = 0,
 		    updated_at = $2
-		WHERE account_id = $1
-	`, accountID, verifiedAt.UTC())
+		WHERE account_id = $1 AND otp_hash = $3 AND otp_expires_at > $2 AND otp_attempts < 5
+	`, accountID, verifiedAt.UTC(), challengeHash)
 	if err != nil {
 		return mapError(err)
 	}

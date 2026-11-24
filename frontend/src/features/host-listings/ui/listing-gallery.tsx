@@ -5,6 +5,7 @@ import {
   ArrowDown,
   ArrowUp,
   Image as ImageIcon,
+  GripVertical,
   Loader2,
   Star,
   Trash2,
@@ -125,6 +126,8 @@ export function ListingGallery(props: ListingGalleryProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [draggedPhotoId, setDraggedPhotoId] = useState<string | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const galleryKey = useMemo(() => `host-gallery:${listingId}`, [listingId]);
   useEffect(() => {
     onBusyChange?.(
@@ -400,7 +403,8 @@ export function ListingGallery(props: ListingGalleryProps) {
           <div>
             <CardTitle className="text-lg">Galería de imágenes</CardTitle>
             <CardDescription>
-              Selecciona la portada y organiza las fotografías del espacio.
+              Añade fotografías aquí. La portada y el orden se controlan en cada
+              tarjeta.
             </CardDescription>
           </div>
           <GalleryUploadBatch
@@ -434,6 +438,11 @@ export function ListingGallery(props: ListingGalleryProps) {
               Actualizar galería
             </Button>
           </div>
+          {photos.length > 0 && (
+            <h3 className="border-t pt-4 text-sm font-semibold">
+              Portada y orden de las fotografías
+            </h3>
+          )}
           {error && (
             <p role="alert" className="text-sm text-red-800">
               {error}
@@ -510,9 +519,82 @@ export function ListingGallery(props: ListingGalleryProps) {
                     data-testid="gallery-photo"
                     data-photo-id={photo.id}
                     className={`space-y-3 rounded-xl border p-3 ${cover ? "border-primary bg-primary/5 ring-2 ring-primary/20" : "bg-card"}`}
+                    onDragOver={(event) => {
+                      if (
+                        !draggedPhotoId ||
+                        draggedPhotoId === photo.id ||
+                        needsRefresh ||
+                        pending !== null ||
+                        uncertain !== null ||
+                        uploadBusy
+                      )
+                        return;
+                      event.preventDefault();
+                      setDropIndex(idx);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      setDraggedPhotoId(null);
+                      setDropIndex(null);
+                      if (
+                        !draggedPhotoId ||
+                        draggedPhotoId === photo.id ||
+                        needsRefresh ||
+                        pending !== null ||
+                        uncertain !== null ||
+                        uploadBusy
+                      )
+                        return;
+                      const ids = photos.map((item) => item.id);
+                      const sourceIndex = ids.indexOf(draggedPhotoId);
+                      if (sourceIndex === -1) return;
+                      ids.splice(sourceIndex, 1);
+                      ids.splice(idx, 0, draggedPhotoId);
+                      void action(
+                        draggedPhotoId,
+                        () => props.reorderPhotos(token, listingId, ids),
+                        "Orden actualizado.",
+                      );
+                    }}
+                    onDragEnd={() => {
+                      setDraggedPhotoId(null);
+                      setDropIndex(null);
+                    }}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs">#{idx + 1}</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          draggable={
+                            !needsRefresh &&
+                            !uploadBusy &&
+                            pending === null &&
+                            uncertain === null
+                          }
+                          disabled={
+                            needsRefresh ||
+                            uploadBusy ||
+                            pending !== null ||
+                            uncertain !== null
+                          }
+                          aria-label={`Arrastrar para reordenar fotografía ${idx + 1}`}
+                          title="Arrastra para cambiar el orden"
+                          className="flex min-h-11 min-w-11 cursor-grab touch-none items-center justify-center rounded border active:cursor-grabbing"
+                          onDragStart={(event) => {
+                            event.stopPropagation();
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", photo.id);
+                            setDraggedPhotoId(photo.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggedPhotoId(null);
+                            setDropIndex(null);
+                          }}
+                        >
+                          <GripVertical aria-hidden="true" />
+                        </button>
+                        <span className="text-xs">#{idx + 1}</span>
+                      </div>
                       {cover ? (
                         <Badge>
                           <Star className="mr-1 size-3" aria-hidden="true" />
@@ -542,6 +624,14 @@ export function ListingGallery(props: ListingGalleryProps) {
                         </Button>
                       )}
                     </div>
+                    {dropIndex === idx && draggedPhotoId !== photo.id && (
+                      <p
+                        role="status"
+                        className="rounded border-2 border-dashed border-primary bg-primary/5 p-2 text-center text-xs font-medium text-primary"
+                      >
+                        Posición de destino: #{idx + 1}
+                      </p>
+                    )}
                     <div className="flex h-36 items-center justify-center overflow-hidden rounded-lg border bg-muted/40">
                       {urls[photo.id] ? (
                         <img
