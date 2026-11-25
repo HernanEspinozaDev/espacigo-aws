@@ -303,8 +303,13 @@ function TemplateEditor({
       if (!read) return;
       await contractTemplateService.publish(spaceId, read.etag);
       const loaded = await contractTemplateService.load(spaceId);
-      if (permitted()) apply(loaded);
-    }, "Versión publicada. Las solicitudes anteriores conservan sus condiciones.");
+      if (permitted()) {
+        apply(loaded);
+        window.setTimeout(() => {
+          if (permitted()) closeEditor();
+        }, 1200);
+      }
+    }, "Publicación hecha.");
 
   const copyFromSource = () =>
     void mutate(async () => {
