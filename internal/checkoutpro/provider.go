@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,6 +20,19 @@ type PreferenceItem struct {
 	UnitPrice  float64 `json:"unit_price"`
 	CurrencyID string  `json:"currency_id"`
 }
+
+func parseCLPAmount(value json.Number, allowZero bool) (int64, bool) {
+	amount, ok := new(big.Rat).SetString(value.String())
+	if !ok || !amount.IsInt() || !amount.Num().IsInt64() {
+		return 0, false
+	}
+	clp := amount.Num().Int64()
+	if clp < 0 || (!allowZero && clp == 0) {
+		return 0, false
+	}
+	return clp, true
+}
+
 type ExcludedPaymentType struct {
 	ID string `json:"id"`
 }
@@ -180,8 +194,8 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 	if e != nil || seller <= 0 {
 		return VerifiedPayment{}, ErrProvider
 	}
-	amount, e := strconv.ParseFloat(p.TransactionAmount.String(), 64)
-	if e != nil || amount <= 0 || amount != float64(int64(amount)) {
+	amount, ok := parseCLPAmount(p.TransactionAmount, false)
+	if !ok {
 		return VerifiedPayment{}, ErrProvider
 	}
 	if p.DateLastUpdated.IsZero() {
@@ -193,11 +207,11 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 		if json.Unmarshal(p.ApplicationFee, &feeNumber) != nil {
 			return VerifiedPayment{}, ErrProvider
 		}
-		fee, parseErr := strconv.ParseFloat(feeNumber.String(), 64)
-		if parseErr != nil || fee < 0 || fee != float64(int64(fee)) {
+		fee, ok := parseCLPAmount(feeNumber, true)
+		if !ok {
 			return VerifiedPayment{}, ErrProvider
 		}
-		applicationFeeCLP := int64(fee)
+		applicationFeeCLP := fee
 		applicationFee = &applicationFeeCLP
 	}
 	paymentType := p.PaymentTypeID
@@ -212,6 +226,124 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 type HTTPGateway struct {
 	BaseURL string
 	Client  *http.Client
+}
+
+type RefundResult struct {
+	ID     string
+	Status string
+	Amount int64
+}
+
+func (g *HTTPGateway) ListRefunds(ctx context.Context, token []byte, paymentID string) ([]RefundResult, error) {
+	if ctx == nil || len(token) == 0 || len(token) > 8192 || !positiveDecimal(paymentID) {
+		return nil, ErrInvalid
+	}
+	path := "/v1/payments/" + url.PathEscape(paymentID) + "/refunds"
+	raw, err := g.requestRawAtStage(ctx, http.MethodGet, path, token, nil, "refund_lookup")
+	if err != nil {
+		return nil, err
+	}
+	var values []struct {
+		ID     any         `json:"id"`
+		Status string      `json:"status"`
+		Amount json.Number `json:"amount"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if decoder.Decode(&values) != nil || values == nil {
+		return nil, ErrProvider
+	}
+	results := make([]RefundResult, 0, len(values))
+	for _, value := range values {
+		id := fmt.Sprint(value.ID)
+		amount, amountOK := parseCLPAmount(value.Amount, false)
+		status := strings.ToLower(strings.TrimSpace(value.Status))
+		if !positiveDecimal(id) || !amountOK || status != "approved" && status != "in_process" && status != "rejected" && status != "cancelled" && status != "authorized" {
+			return nil, ErrProvider
+		}
+		results = append(results, RefundResult{ID: id, Status: status, Amount: amount})
+	}
+	return results, nil
+}
+
+// RefundPayment creates a total refund when amountCLP is nil, or a partial
+// refund otherwise. The caller must persist idempotencyKey before calling so
+// retries after an uncertain network result represent the same operation.
+func (g *HTTPGateway) RefundPayment(ctx context.Context, token []byte, paymentID string, amountCLP *int64, idempotencyKey string) (RefundResult, error) {
+	if ctx == nil || len(token) == 0 || len(token) > 8192 || !positiveDecimal(paymentID) || !uuidLike(idempotencyKey) {
+		return RefundResult{}, ErrInvalid
+	}
+	var body io.Reader
+	if amountCLP != nil {
+		if *amountCLP <= 0 {
+			return RefundResult{}, ErrInvalid
+		}
+		encoded, err := json.Marshal(struct {
+			Amount int64 `json:"amount"`
+		}{Amount: *amountCLP})
+		if err != nil {
+			return RefundResult{}, ErrProvider
+		}
+		body = bytes.NewReader(encoded)
+	}
+	path := "/v1/payments/" + url.PathEscape(paymentID) + "/refunds"
+	raw, err := g.requestRawWithIdempotency(ctx, http.MethodPost, path, token, body, "refund_create", idempotencyKey)
+	if err != nil {
+		return RefundResult{}, err
+	}
+	var response struct {
+		ID     any         `json:"id"`
+		Status string      `json:"status"`
+		Amount json.Number `json:"amount"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if decoder.Decode(&response) != nil {
+		return RefundResult{}, ErrProvider
+	}
+	id := fmt.Sprint(response.ID)
+	if !positiveDecimal(id) {
+		return RefundResult{}, ErrProvider
+	}
+	amount, amountOK := parseCLPAmount(response.Amount, false)
+	if !amountOK {
+		return RefundResult{}, ErrProvider
+	}
+	status := strings.ToLower(strings.TrimSpace(response.Status))
+	if status != "approved" && status != "in_process" && status != "rejected" && status != "cancelled" && status != "authorized" {
+		return RefundResult{}, ErrProvider
+	}
+	return RefundResult{ID: id, Status: status, Amount: amount}, nil
+}
+
+func positiveDecimal(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, c := range value {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return strings.Trim(value, "0") != ""
+}
+
+func uuidLike(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, c := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *HTTPGateway) PaymentTypes(ctx context.Context, token []byte) ([]string, error) {
@@ -289,6 +421,9 @@ func (g *HTTPGateway) requestRaw(ctx context.Context, method, path string, token
 	return g.requestRawAtStage(ctx, method, path, token, body, "provider_request")
 }
 func (g *HTTPGateway) requestRawAtStage(ctx context.Context, method, path string, token []byte, body io.Reader, stage string) ([]byte, error) {
+	return g.requestRawWithIdempotency(ctx, method, path, token, body, stage, "")
+}
+func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, path string, token []byte, body io.Reader, stage, idempotencyKey string) ([]byte, error) {
 	base := g.BaseURL
 	if base == "" {
 		base = "https://api.mercadopago.com"
@@ -307,6 +442,9 @@ func (g *HTTPGateway) requestRawAtStage(ctx context.Context, method, path string
 	}
 	req.Header.Set("Authorization", "Bearer "+string(token))
 	req.Header.Set("Accept", "application/json")
+	if idempotencyKey != "" {
+		req.Header.Set("X-Idempotency-Key", idempotencyKey)
+	}
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")
 	}

@@ -13,13 +13,30 @@ import {
   CheckCheck,
 } from "lucide-react";
 
+import { CommercialConversationPanel } from "./commercial-community-panels";
+
 interface BookingConversationPanelProps {
   reservationId: string;
+  commercial?: boolean;
+  participantRole?: "anfitrion" | "arrendatario";
 }
 
 export function BookingConversationPanel({
   reservationId,
+  commercial,
+  participantRole,
 }: BookingConversationPanelProps) {
+  return commercial ? (
+    <CommercialConversationPanel
+      reservationId={reservationId}
+      participantRole={participantRole}
+    />
+  ) : (
+    <TrialPanel reservationId={reservationId} />
+  );
+}
+
+function TrialPanel({ reservationId }: BookingConversationPanelProps) {
   const { snapshot: authSnapshot } = useAuth();
   const isAuthenticated = authSnapshot.status === "authenticated";
   const accountId = authSnapshot.accountId;

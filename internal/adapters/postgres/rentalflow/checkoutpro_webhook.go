@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
+	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -91,7 +92,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		return true, nil
 	}
 	status := strings.ToLower(strings.TrimSpace(p.Status))
-	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" {
+	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" && status != "refunded" {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "unsupported_provider_status")
 	}
 	if checkoutMethod == "payments_api" && status == "approved" && p.ApplicationFeeCLP != nil {
@@ -103,6 +104,9 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	}
 	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=matched application_fee_expected_set=%t application_fee_present=%t",
 		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
+	if status == "refunded" {
+		return r.applyCommercialRefundedPayment(ctx, tx, p, r.now().UTC())
+	}
 	recoverableExpiredApproval := (opState == "expired" || opState == "reconciliation_required") && status == "approved"
 	if !recoverableExpiredApproval && (opState == "approved" || opState == "rejected" || opState == "cancelled" || opState == "expired" || opState == "reconciliation_required") {
 		if opState == "approved" && status == "approved" {
@@ -233,6 +237,43 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		return false, err
 	}
 	return false, nil
+}
+
+// applyCommercialRefundedPayment only settles a locally initiated full refund.
+// A provider payment status alone never creates a cancellation or releases an
+// occupancy hold without a matching durable cancellation record.
+func (r *Repository) applyCommercialRefundedPayment(ctx context.Context, tx pgx.Tx, p checkoutpro.VerifiedPayment, now time.Time) (bool, error) {
+	var reservationID, reservationState, refundState string
+	var refundAmount, totalAmount int64
+	err := tx.QueryRow(ctx, `SELECT r.id::text,r.estado,COALESCE(c.refund_status,''),COALESCE(c.monto_reembolso_clp,0),COALESCE(c.monto_total_clp,0)
+FROM public.reserva_arriendo_comercial r
+LEFT JOIN public.reserva_comercial_cancelacion c ON c.reserva_id=r.id
+WHERE r.operacion_checkout_id=$1::uuid FOR UPDATE OF r`, p.OperationID).Scan(&reservationID, &reservationState, &refundState, &refundAmount, &totalAmount)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && refundState == "" {
+		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, "refunded", p.PaymentUpdatedAt, "refund_without_cancellation")
+	}
+	if err != nil {
+		return false, err
+	}
+	if refundAmount != totalAmount || refundState != "pendiente" && refundState != "aprobado" || reservationState != "pagada" && reservationState != "reembolsada" {
+		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, "refunded", p.PaymentUpdatedAt, "refund_state_mismatch")
+	}
+	if reservationState == "pagada" {
+		if _, err = tx.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET refund_status='aprobado',resuelta_en=$2,actualizada_en=$2 WHERE reserva_id=$1::uuid AND refund_status='pendiente'`, reservationID, now); err != nil {
+			return false, err
+		}
+		out := rentalflow.CommercialCancellation{ReservationID: reservationID, RefundAmountCLP: refundAmount, TotalChargedCLP: totalAmount}
+		if err = cancelCommercialReservationTx(ctx, tx, out, now); err != nil {
+			return false, err
+		}
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET provider_payment_status='refunded',provider_payment_updated_at=$2,payment_verified_at=$3,actualizada_en=$3 WHERE id=$1::uuid`, p.OperationID, p.PaymentUpdatedAt.UTC(), now); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func applicationFeeMatches(expected int64, observed *int64) bool {

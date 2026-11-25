@@ -2,6 +2,7 @@ package checkoutpro
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,7 +50,10 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 		if r.Header.Get("Authorization") != "Bearer seller-test-token" {
 			t.Fatalf("authorization missing")
 		}
-		body, _ := io.ReadAll(r.Body)
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+		}
 		raw := string(body)
 		for _, fragment := range []string{`"purpose":"wallet_purchase"`, `"external_reference":"op-123"`, `"marketplace_fee":3570`, `"currency_id":"CLP"`, `"operation_id":"op-123"`, `"installments":1`, `"id":"credit_card"`, `"expires":true`, `"expiration_date_from":"2030-01-01T10:00:00-03:00"`, `"expiration_date_to":"2030-01-01T12:00:00-03:00"`} {
 			if !strings.Contains(raw, fragment) {
@@ -107,6 +111,59 @@ func TestHTTPGatewayDoesNotAdvertiseInactivePaymentTypes(t *testing.T) {
 	}
 }
 
+func TestHTTPGatewayRefundPaymentUsesPersistedIdempotencyKey(t *testing.T) {
+	amount := int64(5000)
+	key := "0e4561a7-e89b-42d3-a456-426614174000"
+	g := &HTTPGateway{BaseURL: "https://api.test", Client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/payments/123456/refunds" {
+			t.Fatalf("request=%s %s", r.Method, r.URL)
+		}
+		if r.Header.Get("Authorization") != "Bearer seller-token" || r.Header.Get("X-Idempotency-Key") != key {
+			t.Fatalf("headers not bound to seller and persisted key")
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"amount":5000}` {
+			t.Fatalf("body=%s", body)
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":98765,"status":"approved","amount":5000}`))}, nil
+	})}}
+	got, err := g.RefundPayment(context.Background(), []byte("seller-token"), "123456", &amount, key)
+	if err != nil || got.ID != "98765" || got.Status != "approved" || got.Amount != amount {
+		t.Fatalf("refund=%+v err=%v", got, err)
+	}
+}
+
+func TestHTTPGatewayFullRefundOmitsAmount(t *testing.T) {
+	key := "0e4561a7-e89b-42d3-a456-426614174000"
+	g := &HTTPGateway{BaseURL: "https://api.test", Client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		var body []byte
+		if r.Body != nil {
+			body, _ = io.ReadAll(r.Body)
+		}
+		if len(body) != 0 || r.Header.Get("X-Idempotency-Key") != key {
+			t.Fatalf("full refund request body=%s key=%s", body, r.Header.Get("X-Idempotency-Key"))
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"98765","status":"approved","amount":10000}`))}, nil
+	})}}
+	got, err := g.RefundPayment(context.Background(), []byte("seller-token"), "123456", nil, key)
+	if err != nil || got.Amount != 10000 {
+		t.Fatalf("refund=%+v err=%v", got, err)
+	}
+}
+
+func TestHTTPGatewayListsRefundsForReconciliation(t *testing.T) {
+	g := &HTTPGateway{BaseURL: "https://api.test", Client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/payments/123456/refunds" || r.Header.Get("Authorization") != "Bearer seller-token" {
+			t.Fatalf("request=%s %s", r.Method, r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`[{"id":98765,"status":"in_process","amount":5000}]`))}, nil
+	})}}
+	refunds, err := g.ListRefunds(context.Background(), []byte("seller-token"), "123456")
+	if err != nil || len(refunds) != 1 || refunds[0].ID != "98765" || refunds[0].Status != "in_process" || refunds[0].Amount != 5000 {
+		t.Fatalf("refunds=%+v err=%v", refunds, err)
+	}
+}
+
 func TestHTTPGatewayLookupUsesVerifiedCollectorPaymentTypeAndUpdateTime(t *testing.T) {
 	g := &HTTPGateway{BaseURL: "https://api.test", Client: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/payments/12345" {
@@ -120,5 +177,24 @@ func TestHTTPGatewayLookupUsesVerifiedCollectorPaymentTypeAndUpdateTime(t *testi
 	}
 	if p.ProviderPaymentID != "12345" || p.SellerID != "67890" || p.TransactionAmountCLP != 100000 || p.PaymentType != "account_money" || p.PaymentUpdatedAt.IsZero() || p.OperationID != "op-1" {
 		t.Fatalf("verified payment=%+v", p)
+	}
+}
+
+func TestParseCLPAmountIsExact(t *testing.T) {
+	for _, tc := range []struct {
+		value     string
+		allowZero bool
+		want      int64
+		ok        bool
+	}{
+		{value: "12.0", want: 12, ok: true},
+		{value: "12.5", want: 0, ok: false},
+		{value: "0", allowZero: true, want: 0, ok: true},
+		{value: "9223372036854775808", want: 0, ok: false},
+	} {
+		got, ok := parseCLPAmount(json.Number(tc.value), tc.allowZero)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("parseCLPAmount(%q, %v)=(%d,%v), want (%d,%v)", tc.value, tc.allowZero, got, ok, tc.want, tc.ok)
+		}
 	}
 }

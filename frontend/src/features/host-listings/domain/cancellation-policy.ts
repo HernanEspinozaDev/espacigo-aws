@@ -1,5 +1,10 @@
 export const cancellationPolicies = [
   {
+    version: "facil_v1",
+    label: "Cancelación fácil",
+    summary: "Reembolso total si cancelas antes del inicio de la reserva.",
+  },
+  {
     version: "flexible_v1",
     label: "Flexible",
     summary: "Reembolso total hasta 24 horas antes del inicio del arriendo.",

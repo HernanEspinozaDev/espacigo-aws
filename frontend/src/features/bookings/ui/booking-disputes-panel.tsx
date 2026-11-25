@@ -13,13 +13,26 @@ import {
   Loader2,
 } from "lucide-react";
 
+import { CommercialSupportPanel } from "./commercial-support-panel";
+
 interface BookingDisputesPanelProps {
   reservationId: string;
+  commercial?: boolean;
+  participantRole?: "anfitrion" | "arrendatario";
 }
 
 export function BookingDisputesPanel({
   reservationId,
+  commercial,
 }: BookingDisputesPanelProps) {
+  return commercial ? (
+    <CommercialSupportPanel reservationId={reservationId} />
+  ) : (
+    <TrialPanel reservationId={reservationId} />
+  );
+}
+
+function TrialPanel({ reservationId }: BookingDisputesPanelProps) {
   const { snapshot: authSnapshot } = useAuth();
   const isAuthenticated = authSnapshot.status === "authenticated";
   const accountId = authSnapshot.accountId;
@@ -357,7 +370,8 @@ export function BookingDisputesPanel({
                 Descargo del arrendatario:
               </p>
               <p className="text-muted-foreground">
-                {damageClaim.defense.comments ?? "Sin comentarios adicionales."}
+                {damageClaim.defense.description ??
+                  "Sin comentarios adicionales."}
               </p>
             </div>
           ) : (

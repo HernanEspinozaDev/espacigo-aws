@@ -1,7 +1,32 @@
 {
   "format": "espacigo.initial-migration-policy.v1",
   "baseline": 1,
-  "automatic_migrations": {},
+  "automatic_migrations": {
+    "V000002__reservas_comerciales_postventa.sql": {
+      "checksum": "3a453bcab80b084c4c275746960e26028ad40c1c2022a024f3296fc78ac800ce",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.cotizacion_arriendo_comercial",
+        "public.espacio",
+        "public.reserva_arriendo_comercial"
+      ]
+    },
+    "V000003__mensajeria_comercial.sql": {
+      "checksum": "a594c0bcad3c94dcaaa904c78123f1ce2c4f3f1c47ea9b159dfdd902756c0006",
+      "strategy": "expand"
+    },
+    "V000004__resenas_comerciales.sql": {
+      "checksum": "cbe4f7a56d970dd74e2bf2e04e95007eff0067f3ae4c19d43a5bbbd8f53e8c14",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.reserva_arriendo_comercial"
+      ]
+    },
+    "V000005__disputas_reclamos_comerciales.sql": {
+      "checksum": "89cc4b67a64f21d29058c5665531554e68803b6634acfde58b6771f318976263",
+      "strategy": "expand"
+    }
+  },
   "review_required_migrations": {
     "V000001__baseline.sql": {
       "checksum": "8c2c452556ca4dcb7da6ab1870cdcbd706164d12544825fd030a9cccff359a64",

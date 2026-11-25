@@ -156,6 +156,13 @@ export function getBookingStateConfig(state: BookingState): {
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
       };
+    case "cancelada":
+      return {
+        label: "Reserva cancelada",
+        group: "cancelada",
+        badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
+        icon: XCircle,
+      };
     case "vencida_pago":
       return {
         label: "Reserva cancelada por tiempo (no pagada)",
@@ -171,6 +178,14 @@ export function getBookingStateConfig(state: BookingState): {
         group: "cancelada",
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
+      };
+    case "reembolsada":
+      return {
+        label: "Reserva reembolsada",
+        group: "cancelada",
+        badgeClass:
+          "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
+        icon: CheckCircle,
       };
     default:
       return {

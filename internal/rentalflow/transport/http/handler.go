@@ -112,6 +112,8 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("OPTIONS /api/v1/rental-quotes/{quoteID}/checkout-api", h.checkoutOptions)
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations", h.listCommercialReservations)
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations/{reservationID}", h.getCommercialReservation)
+	h.mux.HandleFunc("GET /api/v1/commercial-reservations/{reservationID}/cancellation-preview", h.previewCommercialCancellation)
+	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/cancel", h.cancelCommercialReservation)
 	h.mux.HandleFunc("POST /api/v1/commercial-reservations/verify-pass", h.verifyCommercialPass)
 	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/intervals/{intervalID}/usage", h.updateCommercialIntervalUsage)
 	h.mux.HandleFunc("OPTIONS /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +139,8 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodGet)
 	})
+	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, r *http.Request) { h.options(w, r, http.MethodGet) })
+	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/cancel", func(w http.ResponseWriter, r *http.Request) { h.options(w, r, http.MethodPost) })
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/verify-pass", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodPost)
 	})
@@ -164,6 +168,9 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("HEAD /api/v1/commercial-reservations/{reservationID}", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "GET, OPTIONS")
 	})
+	h.mux.HandleFunc("HEAD /api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "GET, OPTIONS") })
+	h.mux.HandleFunc("/api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "GET, OPTIONS") })
+	h.mux.HandleFunc("/api/v1/commercial-reservations/{reservationID}/cancel", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "POST, OPTIONS") })
 	h.mux.HandleFunc("/api/v1/commercial-reservations", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "GET, OPTIONS")
 	})
@@ -769,6 +776,75 @@ func (h *Handler) getCommercialReservation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	result, err := h.reservations.Get(r.Context(), principal.AccountID, reservationID)
+	if err != nil {
+		writeReservationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (h *Handler) previewCommercialCancellation(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" || requestBodyPresent(r) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	reservationID := r.PathValue("reservationID")
+	if !rentalflow.ValidUUID(reservationID) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	service, ok := h.reservations.(interface {
+		PreviewCancellation(context.Context, string, string) (rentalflow.CommercialCancellation, error)
+	})
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	result, err := service.PreviewCancellation(r.Context(), principal.AccountID, reservationID)
+	if err != nil {
+		writeReservationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": result})
+}
+
+func (h *Handler) cancelCommercialReservation(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	principal, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	reservationID := r.PathValue("reservationID")
+	if !rentalflow.ValidUUID(reservationID) {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	var body struct {
+		Reason                  string `json:"reason"`
+		ExpectedRefundAmountCLP *int64 `json:"expected_refund_amount_clp"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if strings.TrimSpace(body.Reason) == "" || len(body.Reason) > 500 || body.ExpectedRefundAmountCLP == nil || *body.ExpectedRefundAmountCLP < 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	service, ok := h.reservations.(interface {
+		Cancel(context.Context, string, string, string, int64) (rentalflow.CommercialCancellation, error)
+	})
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable")
+		return
+	}
+	result, err := service.Cancel(r.Context(), principal.AccountID, reservationID, body.Reason, *body.ExpectedRefundAmountCLP)
 	if err != nil {
 		writeReservationError(w, err)
 		return

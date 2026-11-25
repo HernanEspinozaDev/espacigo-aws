@@ -70,7 +70,8 @@ function isRentalQuote(
   if (
     policy !== undefined &&
     (!record(policy) ||
-      (policy.version !== "flexible_v1" &&
+      (policy.version !== "facil_v1" &&
+        policy.version !== "flexible_v1" &&
         policy.version !== "moderada_v1" &&
         policy.version !== "estricta_v1") ||
       typeof policy.text !== "string" ||

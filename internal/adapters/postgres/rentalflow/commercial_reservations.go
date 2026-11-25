@@ -73,7 +73,8 @@ CASE WHEN r.anfitrion_id=$1 THEN 'anfitrion' ELSE 'arrendatario' END,
 r.estado,c.estado,c.checkout_method,COALESCE(c.provider_payment_id,''),
 c.commission_clp,c.iva_clp,c.buyer_commission_clp,c.buyer_iva_clp,c.buyer_fee_clp,c.total_charged_clp,c.marketplace_fee_clp,(c.base_clp - (c.commission_clp + c.iva_clp)),
 r.modalidad,r.precio_unitario_clp,r.unidades,r.subtotal_clp,r.moneda,
-r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en
+r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en,
+COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,'')
 FROM public.reserva_arriendo_comercial r
 JOIN public.checkout_preferencia_comercial c ON c.id=r.operacion_checkout_id
 JOIN public.cotizacion_arriendo_comercial q ON q.id=r.cotizacion_id
@@ -88,12 +89,13 @@ ORDER BY r.actualizada_en DESC,r.id DESC LIMIT $4`, actor, lastUpdated, lastID, 
 	for rows.Next() {
 		var item rentalflow.CommercialReservation
 		var start, end, paymentExpires, created, updated time.Time
+		var policyVersion, policyText string
 		if err := rows.Scan(
 			&item.ID, &item.QuoteID, &item.SpaceID, &item.SpaceTitle, &item.ParticipantRole,
 			&item.Status, &item.CheckoutStatus, &item.CheckoutMethod, &item.ProviderPaymentID,
 			&item.CommissionCLP, &item.VATCLP, &item.BuyerCommissionCLP, &item.BuyerVATCLP, &item.BuyerFeeCLP, &item.TotalChargedCLP, &item.MarketplaceFeeCLP, &item.NetHostAmountCLP,
 			&item.RateUnit, &item.UnitPriceCLP, &item.Units, &item.SubtotalCLP, &item.Currency,
-			&start, &end, &item.TimeZone, &paymentExpires, &created, &updated,
+			&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText,
 		); err != nil {
 			return rentalflow.CommercialReservationPage{}, err
 		}
@@ -102,6 +104,12 @@ ORDER BY r.actualizada_en DESC,r.id DESC LIMIT $4`, actor, lastUpdated, lastID, 
 		item.PaymentExpiresAt = paymentExpires.UTC().Format(time.RFC3339Nano)
 		item.CreatedAt = created.UTC().Format(time.RFC3339Nano)
 		item.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+		if policyVersion != "" {
+			item.CancellationPolicyVersion = &policyVersion
+		}
+		if policyText != "" {
+			item.CancellationPolicyText = &policyText
+		}
 		page.Items = append(page.Items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -181,21 +189,24 @@ func (r *Repository) GetCommercialReservation(ctx context.Context, actor, reserv
 	}
 	var item rentalflow.CommercialReservation
 	var start, end, paymentExpires, created, updated time.Time
+	var policyVersion, policyText string
 	err := r.db.QueryRow(ctx, `SELECT r.id::text,r.cotizacion_id::text,r.espacio_id::text,q.titulo_espacio,
 CASE WHEN r.anfitrion_id=$2 THEN 'anfitrion' ELSE 'arrendatario' END,
 r.estado,c.estado,c.checkout_method,COALESCE(c.provider_payment_id,''),
 c.commission_clp,c.iva_clp,c.buyer_commission_clp,c.buyer_iva_clp,c.buyer_fee_clp,c.total_charged_clp,c.marketplace_fee_clp,(c.base_clp - (c.commission_clp + c.iva_clp)),
 r.modalidad,r.precio_unitario_clp,r.unidades,r.subtotal_clp,r.moneda,
-r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en
+r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en,
+COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,''),COALESCE(cc.refund_status,'')
 FROM public.reserva_arriendo_comercial r
 JOIN public.checkout_preferencia_comercial c ON c.id=r.operacion_checkout_id
 JOIN public.cotizacion_arriendo_comercial q ON q.id=r.cotizacion_id
+LEFT JOIN public.reserva_comercial_cancelacion cc ON cc.reserva_id=r.id
 WHERE r.id=$1 AND (r.anfitrion_id=$2 OR r.arrendatario_id=$2)`, reservationID, actor).Scan(
 		&item.ID, &item.QuoteID, &item.SpaceID, &item.SpaceTitle, &item.ParticipantRole,
 		&item.Status, &item.CheckoutStatus, &item.CheckoutMethod, &item.ProviderPaymentID,
 		&item.CommissionCLP, &item.VATCLP, &item.BuyerCommissionCLP, &item.BuyerVATCLP, &item.BuyerFeeCLP, &item.TotalChargedCLP, &item.MarketplaceFeeCLP, &item.NetHostAmountCLP,
 		&item.RateUnit, &item.UnitPriceCLP, &item.Units, &item.SubtotalCLP, &item.Currency,
-		&start, &end, &item.TimeZone, &paymentExpires, &created, &updated,
+		&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText, &item.RefundStatus,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rentalflow.CommercialReservation{}, rentalflow.ErrNotFound
@@ -208,6 +219,15 @@ WHERE r.id=$1 AND (r.anfitrion_id=$2 OR r.arrendatario_id=$2)`, reservationID, a
 	item.PaymentExpiresAt = paymentExpires.UTC().Format(time.RFC3339Nano)
 	item.CreatedAt = created.UTC().Format(time.RFC3339Nano)
 	item.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
+	if policyVersion != "" {
+		item.CancellationPolicyVersion = &policyVersion
+	}
+	if policyText != "" {
+		item.CancellationPolicyText = &policyText
+	}
+	if *item.RefundStatus == "" {
+		item.RefundStatus = nil
+	}
 	tRows, tErr := r.db.Query(ctx, `SELECT t.id::text, t.inicio, t.termino, t.unidades,
 		COALESCE(u.estado, 'pendiente'),
 		u.check_in_en,

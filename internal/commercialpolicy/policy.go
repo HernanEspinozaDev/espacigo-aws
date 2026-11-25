@@ -11,6 +11,8 @@ type Policy struct {
 func ByVersion(version string) (Policy, bool) {
 	var text string
 	switch version {
+	case "facil_v1":
+		text = "Cancelación fácil: devolución del 100 % antes del inicio del arriendo."
 	case "flexible_v1":
 		text = "Flexible: reembolso total hasta 24 horas antes del inicio del arriendo."
 	case "moderada_v1":

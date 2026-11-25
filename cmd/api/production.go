@@ -124,7 +124,7 @@ func validateProductionRuntime(getenv func(string) string, profile runtimeProfil
 
 // Production exposes the public catalog, availability, host space management,
 // profile/privacy, and identity/auth routes backed by Zoho SMTP.
-func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
+func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string, adminSession *identity.AdminSessionService) (*identity.AuthenticationService, error) {
 	key, err := productionCursorKey(getenv)
 	if err != nil {
 		return nil, errors.New("production catalog requires a private cursor key file")
@@ -258,10 +258,15 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
+	configureCommercialCancellation(commercialReservationService, commercialQuoteRepo, marketplaceTokens)
+	if marketplaceTokens != nil {
+		runCommercialCancellationReconciler(ctx, commercialReservationService)
+	}
 	rentalHandler := rentalflowhttp.New(authService, availability, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService)
 	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 		return nil, err
 	}
+	mountCommercialSupport(mux, pool, evidence, authService, adminSession, cfg.allowedOrigins)
 	noticeSender, ok := mailer.(productionNoticeSender)
 	if !ok {
 		return nil, errors.New("production commercial authorization requires a notice sender")
@@ -702,6 +707,7 @@ func mountProductionBookingFlow(
 	if err != nil {
 		return errors.New("production reputation service initialization failed")
 	}
+	registerCommercialCommunityRoutes(mux, authService, conversationService, reputationService, cfg.allowedOrigins)
 	reputationHandler := reputationhttp.NewHandler(authService, reputationService, cfg.allowedOrigins)
 	mux.Handle("GET /api/v1/spaces/{spaceID}/reviews", reputationHandler)
 	mux.Handle("/api/v1/admin/local/review-reports", reputationHandler)

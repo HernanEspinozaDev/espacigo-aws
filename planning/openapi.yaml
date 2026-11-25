@@ -1718,6 +1718,344 @@ paths:
         "403": { $ref: "#/components/responses/RentalForbidden" }
         "404": { $ref: "#/components/responses/RentalNotFound" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/cancellation-preview:
+    get:
+      operationId: previewCommercialCancellation
+      tags: [ Rental ]
+      summary: Consultar el importe previsto para cancelar una reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialCancellationPreview" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/cancel:
+    post:
+      operationId: cancelCommercialReservation
+      tags: [ Rental ]
+      summary: Solicitar la cancelación y el reembolso de la reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ reason, expected_refund_amount_clp ], properties: { reason: { type: string, minLength: 1, maxLength: 500 }, expected_refund_amount_clp: { type: integer, format: int64, minimum: 0 } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialCancellationResult" } } } } }
+        "202":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialCancellationResult" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/messages:
+    get:
+      operationId: listCommercialMessages
+      tags: [ Rental ]
+      summary: Leer mensajes privados de la reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: before, in: query, schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ items, older_cursor ], properties: { items: { type: array, items: { $ref: "#/components/schemas/LocalReservationMessage" } }, older_cursor: { type: [ integer, "null" ], format: int64, minimum: 1 } } } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+    post:
+      operationId: sendCommercialMessage
+      tags: [ Rental ]
+      summary: Enviar un mensaje privado a la contraparte
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ body ], properties: { body: { type: string } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/LocalReservationMessage" } } } } }
+        "201":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/LocalReservationMessage" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/messages/read:
+    post:
+      operationId: readCommercialMessages
+      tags: [ Rental ]
+      summary: Avanzar el cursor de lectura de mensajes
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ through_sequence ], properties: { through_sequence: { type: integer, format: int64 } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ read_through_sequence ], properties: { read_through_sequence: { type: integer, format: int64 } } } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/reviews:
+    get:
+      operationId: listCommercialReviews
+      tags: [ Rental ]
+      summary: Consultar reseñas y elegibilidad de la reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ items, can_review, reservation_ends_at ], properties: { items: { type: array, items: { $ref: "#/components/schemas/LocalReview" } }, can_review: { type: boolean }, review_unavailable_reason: { type: string }, reservation_ends_at: { type: string, format: date-time } } } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+    post:
+      operationId: writeCommercialReview
+      tags: [ Rental ]
+      summary: Publicar una reseña para el destinatario que corresponde al rol
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ rating ], properties: { rating: { type: integer, minimum: 1, maximum: 5 }, comment: { type: string } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/LocalReview" } } } } }
+        "201":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/LocalReview" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/post-sale-summary:
+    get:
+      operationId: getCommercialPostSaleSummary
+      tags: [ Rental ]
+      summary: Consultar indicadores de posventa de la reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Cantidades de mensajes sin leer, reseñas y casos activos
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ data ]
+                properties:
+                  data:
+                    type: object
+                    required: [ unread_messages, reviews, open_cases ]
+                    properties:
+                      unread_messages: { type: integer, minimum: 0 }
+                      reviews: { type: integer, minimum: 0 }
+                      open_cases: { type: integer, minimum: 0 }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/support-cases:
+    get:
+      operationId: listCommercialSupportParticipant
+      tags: [ Rental ]
+      summary: Consultar casos de soporte de reservas comerciales
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { $ref: "#/components/schemas/CommercialSupportCaseList" } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+    post:
+      operationId: openCommercialSupportCase
+      tags: [ Rental ]
+      summary: Abrir un caso de soporte para una reserva comercial
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ category, description ], properties: { category: { type: string }, description: { type: string } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialSupportCase" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/support-cases/{caseID}/actions:
+    post:
+      operationId: actCommercialSupportParticipant
+      tags: [ Rental ]
+      summary: Registrar una acción en un caso de soporte
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: caseID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ action ], properties: { action: { type: string }, description: { type: string } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialSupportCase" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/support-cases/{caseID}/evidence/{evidenceID}:
+    get:
+      operationId: downloadCommercialSupportParticipantEvidence
+      tags: [ Rental ]
+      summary: Descargar una evidencia privada del caso
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: caseID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: evidenceID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /admin/global/reservation-support-cases:
+    get:
+      operationId: listCommercialSupportAdmin
+      tags: [ Rental ]
+      summary: Consultar casos de soporte de reservas comerciales
+      security: [ { bearerAuth: [] } ]
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { $ref: "#/components/schemas/CommercialSupportCaseList" } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /admin/global/reservation-support-cases/{caseID}/actions:
+    post:
+      operationId: actCommercialSupportAdmin
+      tags: [ Rental ]
+      summary: Registrar una acción en un caso de soporte
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: caseID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 128 } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ action ], properties: { action: { type: string }, description: { type: string } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialSupportCase" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /admin/global/reservation-support-cases/{caseID}/evidence/{evidenceID}:
+    get:
+      operationId: downloadCommercialSupportAdminEvidence
+      tags: [ Rental ]
+      summary: Descargar una evidencia privada del caso
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: caseID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: evidenceID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/octet-stream: { schema: { type: string, format: binary } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/support-cases/{caseID}/evidence:
+    post:
+      operationId: attachCommercialSupportEvidence
+      tags: [ Rental ]
+      summary: Adjuntar evidencia privada a un caso de soporte
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: caseID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ content ], properties: { content: { type: string, contentEncoding: base64 } } } } }
+      responses:
+        "200":
+          description: Operación registrada
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialSupportEvidence" } } } } }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /commercial-reservations/{reservationID}/documents:
     get:
       operationId: getCommercialReservationDocuments
@@ -8461,7 +8799,7 @@ components:
         end_at: { type: string, format: date-time, description: Fin exclusivo del intervalo seleccionado. }
     CommercialCancellationPolicyVersion:
       type: string
-      enum: [ flexible_v1, moderada_v1, estricta_v1 ]
+      enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ]
     CommercialCancellationPolicy:
       type: object
       additionalProperties: false
@@ -8746,6 +9084,11 @@ components:
             state: { type: string, enum: [not_attached, ready] }
             notice: { type: string }
         access_instructions: { type: "null" }
+    CommercialCancellationPreview: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
+    CommercialCancellationResult: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at, status, refund_status ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
+    CommercialSupportCase: { type: object, additionalProperties: false, required: [ id, reservation_id, initiator_role, category, routed_to, status, description, created_at, actions, events, evidence ], properties: { id: { type: string, format: uuid }, reservation_id: { type: string, format: uuid }, initiator_role: { type: string, enum: [ anfitrion, arrendatario ] }, category: { type: string }, routed_to: { type: string, enum: [ contraparte, espacigo ] }, status: { type: string }, description: { type: string }, defense_deadline: { type: string, format: date-time }, created_at: { type: string, format: date-time }, actions: { type: array, items: { type: string } }, events: { type: array, items: { type: object, additionalProperties: false, required: [ action, description, created_at ], properties: { action: { type: string }, description: { type: string }, created_at: { type: string, format: date-time } } } }, evidence: { type: array, items: { $ref: "#/components/schemas/CommercialSupportEvidence" } } } }
+    CommercialSupportEvidence: { type: object, additionalProperties: false, required: [ id, mime, size ], properties: { id: { type: string, format: uuid }, mime: { type: string }, size: { type: integer, format: int64 } } }
+    CommercialSupportCaseList: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ items, can_claim_damage ], properties: { items: { type: array, items: { $ref: "#/components/schemas/CommercialSupportCase" } }, can_claim_damage: { type: boolean } } } } }
     CommercialReservation:
       type: object
       additionalProperties: false
@@ -8775,6 +9118,9 @@ components:
         space_title: { type: string }
         participant_role: { type: string, enum: [ anfitrion, arrendatario ] }
         status: { type: string }
+        cancellation_policy_version: { type: [ string, 'null' ] }
+        cancellation_policy_text: { type: [ string, 'null' ] }
+        refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] }
         checkout_status: { type: string }
         checkout_method: { type: string, enum: [ checkout_pro, payments_api ] }
         provider_payment_id: { type: string }
@@ -11169,7 +11515,7 @@ components:
       additionalProperties: false
       required: [ category_code, title, area_m2, capacity, usage_rules, rate_unit, base_price_clp, location ]
       properties:
-        cancellation_policy_version: { type: string, enum: [ flexible_v1, moderada_v1, estricta_v1 ] }
+        cancellation_policy_version: { type: string, enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ] }
         category_code: { type: string }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string }
@@ -11186,7 +11532,7 @@ components:
       additionalProperties: false
       required: [ category_code, title, area_m2, capacity, usage_rules, rate_unit, base_price_clp ]
       properties:
-        cancellation_policy_version: { type: string, enum: [ flexible_v1, moderada_v1, estricta_v1 ] }
+        cancellation_policy_version: { type: string, enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ] }
         category_code: { type: string }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string }
@@ -11205,7 +11551,7 @@ components:
       additionalProperties: false
       required: [ id, category_code, category_name, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address, state, attribute_schema_version, attributes ]
       properties:
-        cancellation_policy_version: { type: string, enum: [ flexible_v1, moderada_v1, estricta_v1 ] }
+        cancellation_policy_version: { type: string, enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ] }
         id: { type: string, format: uuid }
         category_code: { type: string }
         category_name: { type: string }
@@ -11324,7 +11670,7 @@ components:
       minProperties: 1
       additionalProperties: false
       properties:
-        cancellation_policy_version: { type: string, enum: [ flexible_v1, moderada_v1, estricta_v1 ] }
+        cancellation_policy_version: { type: string, enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ] }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string }
         capacity: { type: integer, format: int32, minimum: 1, maximum: 2147483647 }

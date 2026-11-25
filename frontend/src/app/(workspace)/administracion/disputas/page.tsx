@@ -1,3 +1,4 @@
+import { AdminCommercialSupport } from "@/features/admin/ui/admin-commercial-support";
 import type { Metadata } from "next";
 import { AdminDisputesView } from "@/features/admin/ui/admin-disputes-view";
 
@@ -12,5 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default function AdministracionDisputasPage() {
-  return <AdminDisputesView />;
+  return (
+    <div className="space-y-6">
+      <AdminCommercialSupport />
+      <AdminDisputesView />
+    </div>
+  );
 }

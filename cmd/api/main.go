@@ -300,7 +300,11 @@ func run() error {
 	} = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if production {
-		authService, prodErr := mountProductionCatalog(ctx, trackedWorkers, mux, pool, cfg, os.Getenv)
+		adminSessionService, err := newAdminSessionService(identitypg.NewIdentityRepository(pool), os.Getenv, true)
+		if err != nil {
+			return errors.New("production admin session initialization failed")
+		}
+		authService, prodErr := mountProductionCatalog(ctx, trackedWorkers, mux, pool, cfg, os.Getenv, adminSessionService)
 		if prodErr != nil {
 			return prodErr
 		}
@@ -311,10 +315,6 @@ func run() error {
 		admin, err := adminglobal.New(pool, time.Now)
 		if err != nil {
 			return errors.New("production global admin initialization failed")
-		}
-		adminSessionService, err := newAdminSessionService(identitypg.NewIdentityRepository(pool), os.Getenv, true)
-		if err != nil {
-			return errors.New("production admin session initialization failed")
 		}
 		registerProductionAdminAccountRoutes(mux, adminglobalhttp.NewHandler(adminSessionService, admin, cfg.allowedOrigins))
 		localIdentityService = authService
@@ -461,6 +461,10 @@ func run() error {
 			commercialReservationService, serviceErr := rentalflow.NewCommercialReservationService(commercialQuoteRepository)
 			if serviceErr != nil {
 				return errors.New("commercial rental reservation initialization failed")
+			}
+			configureCommercialCancellation(commercialReservationService, commercialQuoteRepository, marketplaceTokens)
+			if marketplaceTokens != nil {
+				runCommercialCancellationReconciler(ctx, commercialReservationService)
 			}
 			if checkoutService != nil {
 				commercialReservationService.SetReconciler(func(ctx context.Context, actor, quoteID string) {
@@ -660,6 +664,19 @@ func run() error {
 		}
 		globalAdminService.SetPublicationRetirer(spacesService)
 		mux.Handle("/api/v1/admin/global/", adminglobalhttp.NewHandler(adminSessionService, globalAdminService, cfg.allowedOrigins))
+		if commercialFlowEnabled {
+			mountCommercialSupport(mux, pool, evidenceStore, service, adminSessionService, cfg.allowedOrigins)
+			conversationService, err := conversation.NewService(conversationpg.New(pool), credentials.Generator{}, time.Now)
+			if err != nil {
+				return errors.New("commercial conversation initialization failed")
+			}
+			reputationService, err := reputation.New(reputationpg.New(pool), credentials.Generator{}, time.Now)
+			if err != nil {
+				return errors.New("commercial reputation initialization failed")
+			}
+			registerCommercialCommunityRoutes(mux, service, conversationService, reputationService, cfg.allowedOrigins)
+			mux.Handle("GET /api/v1/spaces/{spaceID}/reviews", reputationhttp.NewHandler(service, reputationService, cfg.allowedOrigins))
+		}
 		calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
 		if err != nil {
 			return errors.New("calendar initialization failed")

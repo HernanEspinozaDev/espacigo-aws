@@ -41,3 +41,11 @@ type Repository interface {
 	Send(context.Context, string, string, string, string, []byte, string, func() time.Time) (Message, error)
 	MarkRead(context.Context, string, string, int64) (int64, error)
 }
+
+// CommercialRepository isolates the commercial reservation conversation schema
+// from the synthetic booking repository while reusing the same message contract.
+type CommercialRepository interface {
+	ListCommercial(context.Context, string, string, *int64, int) (Page, error)
+	SendCommercial(context.Context, string, string, string, string, []byte, string, func() time.Time) (Message, error)
+	MarkCommercialRead(context.Context, string, string, int64) (int64, error)
+}
