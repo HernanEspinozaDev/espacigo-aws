@@ -65,10 +65,14 @@ func (p profileDiditProvider) Decision(ctx context.Context, session string) (pro
 		if out.RUT == "" {
 			out.RUT = doc.IdentificationNumber
 		}
-		out.ChecksPassed = strings.EqualFold(doc.Status, "approved") && strings.EqualFold(doc.IssuingState, "CHL") &&
-			strings.EqualFold(doc.DocumentType, "ID") && d.LivenessPassed() && d.FaceMatchPassed()
+		out.ChecksPassed = approvedChileanIdentityCard(doc) && d.LivenessPassed() && d.FaceMatchPassed()
 	}
 	return out, nil
+}
+
+func approvedChileanIdentityCard(doc didit.IDVerification) bool {
+	return strings.EqualFold(doc.Status, "approved") && strings.EqualFold(doc.IssuingState, "CHL") &&
+		(strings.EqualFold(doc.DocumentType, "Identity Card") || strings.EqualFold(doc.DocumentType, "ID"))
 }
 
 func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth profilekyc.Authorizer, cfg config, getenv func(string) string, production bool) (*profilekyc.Service, profilekyc.Keyring, error) {
