@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
 	bookingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/booking"
+	checkoutnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/checkoutnotice"
 	contractpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/contracts"
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
@@ -44,6 +46,7 @@ import (
 	adminlocalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminlocal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	bookinghttp "github.com/HernanEspinozaDev/espaciGo/internal/booking/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutnotice"
 	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	contracthttp "github.com/HernanEspinozaDev/espaciGo/internal/contract/transport/http"
@@ -231,11 +234,25 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 		return nil, err
 	}
 	if checkoutService != nil {
-		webhookHandler, _, webhookErr := newCheckoutWebhook(commercialQuoteRepo, pool, marketplaceTokens, os.Getenv)
+		webhookHandler, webhookWorker, webhookErr := newCheckoutWebhook(commercialQuoteRepo, pool, marketplaceTokens, getenv)
 		if webhookErr != nil {
 			return nil, webhookErr
 		}
 		mux.Handle("/api/v1/webhooks/mercadopago", webhookHandler)
+		if webhookWorker != nil {
+			workers.Go(func(workerCtx context.Context) {
+				if err := webhookWorker.Run(workerCtx); err != nil && !errors.Is(err, context.Canceled) {
+					log.Print("commercial checkout payment reconciliation worker stopped")
+				}
+			})
+		}
+		if noticeSender, ok := mailer.(productionNoticeSender); ok {
+			checkoutNoticeService, noticeErr := checkoutnotice.New(checkoutnoticepg.New(pool), noticeSender, time.Now)
+			if noticeErr != nil {
+				return nil, noticeErr
+			}
+			go checkoutNoticeService.Run(ctx, time.Second)
+		}
 	}
 	commercialReservationService, err := rentalflow.NewCommercialReservationService(commercialQuoteRepo)
 	if err != nil {

@@ -200,6 +200,9 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		if err = enqueueCheckoutPaymentNotices(ctx, tx, p.OperationID, "approved", r.now().UTC()); err != nil {
 			return false, err
 		}
+		if err = insertCheckoutConfirmedNotifications(ctx, tx, p.OperationID, renterID, hostID, r.now().UTC()); err != nil {
+			return false, err
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return false, err
 		}
@@ -355,4 +358,30 @@ func positiveDecimal(v string) bool {
 		}
 	}
 	return strings.Trim(v, "0") != ""
+}
+
+func insertCheckoutConfirmedNotifications(ctx context.Context, tx pgx.Tx, operationID, renterID, hostID string, at time.Time) error {
+	href := "/reservas/" + operationID
+	for _, item := range []struct {
+		recipient string
+		title     string
+		body      string
+	}{
+		{
+			recipient: renterID,
+			title:     "Pago confirmado",
+			body:      "Tu pago fue confirmado y la reserva quedó activa.",
+		},
+		{
+			recipient: hostID,
+			title:     "Pago confirmado",
+			body:      "Se confirmó el pago de una reserva en tu espacio.",
+		},
+	} {
+		if _, err := tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en) VALUES(gen_random_uuid(),$1,'pago_confirmado',$2,$3,$4,$5,$6) ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING`,
+			item.recipient, item.title, item.body, href, operationID, at); err != nil {
+			return err
+		}
+	}
+	return nil
 }
