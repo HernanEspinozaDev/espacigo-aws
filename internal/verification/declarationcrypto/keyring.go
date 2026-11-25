@@ -62,6 +62,13 @@ func LoadFile(path string) (*Keyring, error) {
 	if err != nil || len(data) > maxDataSize {
 		return nil, errors.New("invalid keyring file")
 	}
+	return ParseJSON(data)
+}
+
+func ParseJSON(data []byte) (*Keyring, error) {
+	if len(data) == 0 || len(data) > maxDataSize {
+		return nil, errors.New("invalid keyring file")
+	}
 	var config fileConfig
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
