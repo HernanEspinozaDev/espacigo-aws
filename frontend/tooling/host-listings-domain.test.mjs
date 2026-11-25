@@ -127,7 +127,7 @@ test("host-listings domain validates draft input fields", async () => {
 
   assert.equal(resInvalid.valid, false);
   assert.ok(resInvalid.errors.title);
-  assert.ok(resInvalid.errors.description);
+  assert.equal(resInvalid.errors.description, undefined);
   assert.ok(resInvalid.errors.category_code);
   assert.ok(resInvalid.errors.area_m2);
   assert.ok(resInvalid.errors.capacity);
@@ -181,11 +181,13 @@ test("host-listings common fields match Go rune, trim, and numeric constraints",
     validateListingDraftInput({ ...base, title: "  " + "x".repeat(71) }).errors
       .title,
   );
-  assert.equal(
-    validateListingDraftInput({ ...base, description: "  " + "d".repeat(100) })
-      .errors.description,
-    undefined,
-  );
+  for (const description of ["", "Oficina."]) {
+    assert.equal(
+      validateListingDraftInput({ ...base, title: "Oficina", description })
+        .valid,
+      true,
+    );
+  }
   assert.ok(
     validateListingDraftInput({ ...base, usage_rules: "   " }).errors
       .usage_rules,

@@ -54,7 +54,7 @@ await writeFile(
 );
 await writeFile(
   path.join(temporary, "query.mjs"),
-  'export { serializeCatalogQuery } from "./query-state.mjs";',
+  'export { serializeCatalogApiQuery } from "./query-state.mjs";',
 );
 const verification = await readFile(
   new URL(
@@ -152,6 +152,22 @@ test("real getSpace adapts public detail fields, sanitizes nested objects and re
     assert.equal(r.value.guarantee, null);
     assert.equal(r.value.base_price_clp, "9007199254740993");
     assert.equal(JSON.stringify(r).includes("SECRET"), false);
+    globalThis.fetch = async () =>
+      Response.json({
+        data: { ...wire, cancellation_policy: " Flexible: texto público. " },
+      });
+    const policy = await adapter.getSpace(base.space_id);
+    assert.equal(policy.ok, true);
+    assert.equal(policy.value.cancellation_policy, "Flexible: texto público.");
+    for (const malformedPolicy of [undefined, "   ", 42, { text: "SECRET" }]) {
+      globalThis.fetch = async () =>
+        Response.json({
+          data: { ...wire, cancellation_policy: malformedPolicy },
+        });
+      const malformed = await adapter.getSpace(base.space_id);
+      assert.equal(malformed.ok, true);
+      assert.equal(malformed.value.cancellation_policy, null);
+    }
     for (const bad of [undefined, 0, -1, 1.2, "12"]) {
       globalThis.fetch = async () =>
         Response.json({ data: { ...wire, capacity_max: bad } });

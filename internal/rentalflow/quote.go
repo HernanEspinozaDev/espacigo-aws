@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 )
 
@@ -82,23 +83,24 @@ type MultiQuote struct {
 }
 
 type Quote struct {
-	ID           string    `json:"id"`
-	SpaceID      string    `json:"space_id"`
-	OwnerID      string    `json:"-"`
-	RenterID     string    `json:"-"`
-	SpaceTitle   string    `json:"space_title"`
-	RateVersion  int64     `json:"-"`
-	RateUnit     string    `json:"rate_unit"`
-	UnitPriceCLP int64     `json:"unit_price_clp"`
-	Currency     string    `json:"currency"`
-	Units        int64     `json:"units"`
-	SubtotalCLP  int64     `json:"subtotal_clp"`
-	StartAt      time.Time `json:"start_at"`
-	EndAt        time.Time `json:"end_at"`
-	TimeZone     string    `json:"time_zone"`
-	CreatedAt    time.Time `json:"created_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
-	BillingMode  string    `json:"billing_mode,omitempty"`
+	ID                 string                   `json:"id"`
+	SpaceID            string                   `json:"space_id"`
+	OwnerID            string                   `json:"-"`
+	RenterID           string                   `json:"-"`
+	SpaceTitle         string                   `json:"space_title"`
+	RateVersion        int64                    `json:"-"`
+	RateUnit           string                   `json:"rate_unit"`
+	UnitPriceCLP       int64                    `json:"unit_price_clp"`
+	Currency           string                   `json:"currency"`
+	Units              int64                    `json:"units"`
+	SubtotalCLP        int64                    `json:"subtotal_clp"`
+	StartAt            time.Time                `json:"start_at"`
+	EndAt              time.Time                `json:"end_at"`
+	TimeZone           string                   `json:"time_zone"`
+	CreatedAt          time.Time                `json:"created_at"`
+	ExpiresAt          time.Time                `json:"expires_at"`
+	BillingMode        string                   `json:"billing_mode,omitempty"`
+	CancellationPolicy *commercialpolicy.Policy `json:"cancellation_policy,omitempty"`
 }
 
 // QuoteRepository must atomically re-read the active publication and current

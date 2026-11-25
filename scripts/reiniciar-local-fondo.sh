@@ -2,6 +2,13 @@
 set -Eeuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCATION_PILOT_ENV="${REPO_ROOT}/.local/secrets/amazon-location/pilot.env"
+if [[ -r "$LOCATION_PILOT_ENV" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$LOCATION_PILOT_ENV"
+  set +a
+fi
 FRONTEND_DIR="${REPO_ROOT}/frontend"
 RUN_DIR="${REPO_ROOT}/.local/run"
 LOG_DIR="${REPO_ROOT}/.local/logs"
@@ -9,6 +16,12 @@ ACTIVE_NEXT_FILE="${RUN_DIR}/active-next-standalone"
 PREVIEW_LOG="${LOG_DIR}/next-preview-build.log"
 RESTART_LOG="${LOG_DIR}/restart-local.log"
 PUBLIC_ORIGIN="https://prueba-mercadopago.testingpage.store"
+LOCAL_ONLY="${ESPACIGO_LOCAL_ONLY:-0}"
+if [[ "$LOCAL_ONLY" == 1 ]]; then
+  APP_ORIGIN="http://127.0.0.1:3000"
+else
+  APP_ORIGIN="$PUBLIC_ORIGIN"
+fi
 API_HEALTH="http://127.0.0.1:8080/health/ready"
 WEB_HEALTH="http://127.0.0.1:3000/api/ready"
 BUILD_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -54,12 +67,23 @@ if ! flock -n 9; then
   exit 1
 fi
 
-export MERCADOPAGO_CHECKOUT_ENABLED="${MERCADOPAGO_CHECKOUT_ENABLED:-1}"
-export MERCADOPAGO_WALLET_PURCHASE_ENABLED="${MERCADOPAGO_WALLET_PURCHASE_ENABLED:-1}"
-export MERCADOPAGO_PAYMENTS_API_ENABLED="${MERCADOPAGO_PAYMENTS_API_ENABLED:-1}"
-export MERCADOPAGO_WEBHOOK_ENABLED="${MERCADOPAGO_WEBHOOK_ENABLED:-1}"
-export NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED="${NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED:-1}"
-export NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED="${NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED:-1}"
+if [[ "$LOCAL_ONLY" == 1 ]]; then
+  export MERCADOPAGO_CHECKOUT_ENABLED=0
+  export MERCADOPAGO_WALLET_PURCHASE_ENABLED=0
+  export MERCADOPAGO_PAYMENTS_API_ENABLED=0
+  export MERCADOPAGO_CHECKOUT_API_SELLER_PUBLIC_KEY=0
+  export MERCADOPAGO_WEBHOOK_ENABLED=0
+  export NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED=0
+  export NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED=0
+else
+  export MERCADOPAGO_CHECKOUT_ENABLED="${MERCADOPAGO_CHECKOUT_ENABLED:-1}"
+  export MERCADOPAGO_WALLET_PURCHASE_ENABLED="${MERCADOPAGO_WALLET_PURCHASE_ENABLED:-1}"
+  export MERCADOPAGO_PAYMENTS_API_ENABLED="${MERCADOPAGO_PAYMENTS_API_ENABLED:-1}"
+  export MERCADOPAGO_CHECKOUT_API_SELLER_PUBLIC_KEY="${MERCADOPAGO_CHECKOUT_API_SELLER_PUBLIC_KEY:-1}"
+  export MERCADOPAGO_WEBHOOK_ENABLED="${MERCADOPAGO_WEBHOOK_ENABLED:-1}"
+  export NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED="${NEXT_PUBLIC_MP_WALLET_PURCHASE_ENABLED:-1}"
+  export NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED="${NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED:-1}"
+fi
 export MERCADOPAGO_TEST_MODE=true
 
 http_ready() {
@@ -193,7 +217,7 @@ cp -a "${DIST_PATH}/static" "${STANDALONE_DIR}/${DIST_DIR}/static"
     HOSTNAME=127.0.0.1 \
     PORT="$PREVIEW_PORT" \
     API_BACKEND_BASE_URL=http://127.0.0.1:8080/api/v1 \
-    FRONTEND_PUBLIC_ORIGIN="$PUBLIC_ORIGIN" \
+    FRONTEND_PUBLIC_ORIGIN="$APP_ORIGIN" \
     node server.js 9>&- >>"${LOG_DIR}/next-preview.log" 2>&1 </dev/null &
 )
 PREVIEW_STARTED=1
@@ -216,7 +240,7 @@ if port_open 3000 || port_open 8080; then
   exit 1
 fi
 
-if ! ESPACIGO_NEXT_STANDALONE_DIR="$STANDALONE_DIR" ESPACIGO_START_LOCK_HELD=1 \
+if ! ESPACIGO_NEXT_STANDALONE_DIR="$STANDALONE_DIR" ESPACIGO_LOCAL_ONLY="$LOCAL_ONLY" ESPACIGO_START_LOCK_HELD=1 \
   "${REPO_ROOT}/scripts/iniciar-local-fondo.sh"; then
   echo "ERROR: el inicio standalone falló; intentaré restaurar el modo Next anterior de EspaciGo."
   restore_previous_services
@@ -230,14 +254,18 @@ for url in "$API_HEALTH" "$WEB_HEALTH"; do
     exit 1
   fi
 done
-if ! wait_http "${PUBLIC_ORIGIN}/api/ready"; then
-  echo "ERROR: el túnel público no responde; Next y Go locales permanecen activos."
-  exit 1
-fi
-if ! node "${REPO_ROOT}/scripts/smoke-local-preview.mjs" "${PUBLIC_ORIGIN}/acceso"; then
-  echo "ERROR: el navegador detectó inestabilidad; restaurando el modo Next anterior."
-  restore_previous_services
-  exit 1
+if [[ "$LOCAL_ONLY" != 1 ]]; then
+  if ! wait_http "${PUBLIC_ORIGIN}/api/ready"; then
+    echo "ERROR: el túnel público no responde; Next y Go locales permanecen activos."
+    exit 1
+  fi
+  if ! node "${REPO_ROOT}/scripts/smoke-local-preview.mjs" "${PUBLIC_ORIGIN}/acceso"; then
+    echo "ERROR: el navegador detectó inestabilidad; restaurando el modo Next anterior."
+    restore_previous_services
+    exit 1
+  fi
+else
+  echo "Modo local-only: omití comprobaciones del túnel público."
 fi
 
 touch "${DIST_PATH}/BUILD_READY"
@@ -245,4 +273,8 @@ pointer_tmp="${ACTIVE_NEXT_FILE}.tmp.$$"
 printf '%s\n' "$STANDALONE_DIR" >"$pointer_tmp"
 chmod 600 "$pointer_tmp"
 mv -f -- "$pointer_tmp" "$ACTIVE_NEXT_FILE"
-echo "Listo. Go y Next compilado están activos, y el acceso público pasó el smoke de navegador."
+if [[ "$LOCAL_ONLY" == 1 ]]; then
+  echo "Listo. Go y Next compilado están activos en localhost; no se consultó la URL pública."
+else
+  echo "Listo. Go y Next compilado están activos, y el acceso público pasó el smoke de navegador."
+fi

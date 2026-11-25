@@ -11,6 +11,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
@@ -36,11 +37,12 @@ type TxBeginner interface {
 }
 
 type Repository struct {
-	db              DB
-	beginner        TxBeginner
-	now             func() time.Time
-	newID           func() string
-	declarationKeys verification.DeclarationOpener
+	contractsRequired bool
+	db                DB
+	beginner          TxBeginner
+	now               func() time.Time
+	newID             func() string
+	declarationKeys   verification.DeclarationOpener
 }
 
 func NewRepository(db DB, beginner TxBeginner, now func() time.Time) (*Repository, error) {
@@ -58,7 +60,7 @@ func (r *Repository) PublicListing(ctx context.Context, spaceID string) (rentalf
 	if r == nil || ctx == nil || strings.TrimSpace(spaceID) == "" {
 		return rentalflow.Listing{}, rentalflow.ErrInvalid
 	}
-	const q = `SELECT e.id::text, e.propietario_id::text, e.estado, e.titulo, t.modalidad, t.precio_base_clp, t.moneda, t.version, e.zona_horaria
+	const q = `SELECT e.id::text, e.propietario_id::text, e.estado, e.titulo, t.modalidad, t.precio_base_clp, t.moneda, t.version, e.zona_horaria, COALESCE(e.politica_cancelacion_version,'')
 FROM public.espacio e
 JOIN LATERAL (
     SELECT version, modalidad, precio_base_clp, moneda
@@ -71,7 +73,7 @@ WHERE e.id = $1 AND e.estado = 'activa'`
 	var l rentalflow.Listing
 	err := r.db.QueryRow(ctx, q, spaceID).Scan(
 		&l.ID, &l.OwnerID, &l.State, &l.Title,
-		&l.RateUnit, &l.UnitPriceCLP, &l.Currency, &l.RateVersion, &l.TimeZone,
+		&l.RateUnit, &l.UnitPriceCLP, &l.Currency, &l.RateVersion, &l.TimeZone, &l.CancellationPolicyVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rentalflow.Listing{}, rentalflow.ErrNotFound
@@ -109,6 +111,17 @@ func (r *Repository) IntervalAvailable(ctx context.Context, listing rentalflow.L
 		return false, err
 	}
 	return available && holdAvailable, nil
+}
+
+func cancellationPolicyForVersion(version string) (*commercialpolicy.Policy, error) {
+	if version == "" {
+		return nil, nil
+	}
+	policy, ok := commercialpolicy.ByVersion(version)
+	if !ok {
+		return nil, rentalflow.ErrUnavailable
+	}
+	return &policy, nil
 }
 
 func (r *Repository) candidateIntervals(ctx context.Context, listing rentalflow.Listing, dateText string, duration int) ([]rentalflow.Interval, error) {
@@ -408,6 +421,10 @@ func (r *Repository) CreateValidatedQuote(
 	if currentListing != listing {
 		return rentalflow.Quote{}, rentalflow.ErrConflict
 	}
+	cancellationPolicy, err := cancellationPolicyForVersion(currentListing.CancellationPolicyVersion)
+	if err != nil {
+		return rentalflow.Quote{}, err
+	}
 	location, err := time.LoadLocation(currentListing.TimeZone)
 	if err != nil {
 		return rentalflow.Quote{}, rentalflow.ErrInvalid
@@ -434,13 +451,14 @@ func (r *Repository) CreateValidatedQuote(
 	const insertQ = `INSERT INTO public.cotizacion_arriendo_comercial (
 	    id, espacio_id, propietario_id, arrendatario_id, titulo_espacio,
 	    tarifa_version, modalidad, precio_unitario_clp, moneda,
-	    unidades, subtotal_clp, inicio, termino, zona_horaria, creada_en, vence_en
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+	    unidades, subtotal_clp, inicio, termino, zona_horaria, creada_en, vence_en,
+	    politica_cancelacion_version, politica_cancelacion_texto
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
 	_, err = tx.Exec(ctx, insertQ,
 		quoteID, listing.ID, listing.OwnerID, renterID, listing.Title,
 		listing.RateVersion, listing.RateUnit, listing.UnitPriceCLP, listing.Currency,
 		units, subtotal, interval.StartAt, interval.EndAt, listing.TimeZone,
-		createdAt, expiresAt,
+		createdAt, expiresAt, policyVersion(cancellationPolicy), policyText(cancellationPolicy),
 	)
 	if err != nil {
 		return rentalflow.Quote{}, err
@@ -453,22 +471,23 @@ func (r *Repository) CreateValidatedQuote(
 	}
 
 	return rentalflow.Quote{
-		ID:           quoteID,
-		SpaceID:      listing.ID,
-		OwnerID:      listing.OwnerID,
-		RenterID:     renterID,
-		SpaceTitle:   listing.Title,
-		RateVersion:  listing.RateVersion,
-		RateUnit:     listing.RateUnit,
-		UnitPriceCLP: listing.UnitPriceCLP,
-		Currency:     listing.Currency,
-		Units:        units,
-		SubtotalCLP:  subtotal,
-		StartAt:      interval.StartAt,
-		EndAt:        interval.EndAt,
-		TimeZone:     listing.TimeZone,
-		CreatedAt:    createdAt,
-		ExpiresAt:    expiresAt,
+		ID:                 quoteID,
+		SpaceID:            listing.ID,
+		OwnerID:            listing.OwnerID,
+		RenterID:           renterID,
+		SpaceTitle:         listing.Title,
+		RateVersion:        listing.RateVersion,
+		RateUnit:           listing.RateUnit,
+		UnitPriceCLP:       listing.UnitPriceCLP,
+		Currency:           listing.Currency,
+		Units:              units,
+		SubtotalCLP:        subtotal,
+		StartAt:            interval.StartAt,
+		EndAt:              interval.EndAt,
+		TimeZone:           listing.TimeZone,
+		CreatedAt:          createdAt,
+		ExpiresAt:          expiresAt,
+		CancellationPolicy: cancellationPolicy,
 	}, nil
 }
 
@@ -537,6 +556,10 @@ func (r *Repository) CreateMultiValidatedQuote(
 	if currentListing != listing {
 		return rentalflow.MultiQuote{}, rentalflow.ErrConflict
 	}
+	cancellationPolicy, err := cancellationPolicyForVersion(currentListing.CancellationPolicyVersion)
+	if err != nil {
+		return rentalflow.MultiQuote{}, err
+	}
 	location, err := time.LoadLocation(currentListing.TimeZone)
 	if err != nil {
 		return rentalflow.MultiQuote{}, rentalflow.ErrInvalid
@@ -566,13 +589,14 @@ func (r *Repository) CreateMultiValidatedQuote(
 	const insertQ = `INSERT INTO public.cotizacion_arriendo_comercial (
 	    id, espacio_id, propietario_id, arrendatario_id, titulo_espacio,
 	    tarifa_version, modalidad, precio_unitario_clp, moneda,
-	    unidades, subtotal_clp, inicio, termino, zona_horaria, creada_en, vence_en
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+	    unidades, subtotal_clp, inicio, termino, zona_horaria, creada_en, vence_en,
+	    politica_cancelacion_version, politica_cancelacion_texto
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`
 	_, err = tx.Exec(ctx, insertQ,
 		quoteID, listing.ID, listing.OwnerID, renterID, listing.Title,
 		listing.RateVersion, listing.RateUnit, listing.UnitPriceCLP, listing.Currency,
 		totalUnits, subtotal, overallStart, overallEnd, listing.TimeZone,
-		createdAt, expiresAt,
+		createdAt, expiresAt, policyVersion(cancellationPolicy), policyText(cancellationPolicy),
 	)
 	if err != nil {
 		return rentalflow.MultiQuote{}, err
@@ -588,25 +612,40 @@ func (r *Repository) CreateMultiValidatedQuote(
 
 	return rentalflow.MultiQuote{
 		Quote: rentalflow.Quote{
-			ID:           quoteID,
-			SpaceID:      listing.ID,
-			OwnerID:      listing.OwnerID,
-			RenterID:     renterID,
-			SpaceTitle:   listing.Title,
-			RateVersion:  listing.RateVersion,
-			RateUnit:     listing.RateUnit,
-			UnitPriceCLP: listing.UnitPriceCLP,
-			Currency:     listing.Currency,
-			Units:        totalUnits,
-			SubtotalCLP:  subtotal,
-			StartAt:      overallStart,
-			EndAt:        overallEnd,
-			TimeZone:     listing.TimeZone,
-			CreatedAt:    createdAt,
-			ExpiresAt:    expiresAt,
+			ID:                 quoteID,
+			SpaceID:            listing.ID,
+			OwnerID:            listing.OwnerID,
+			RenterID:           renterID,
+			SpaceTitle:         listing.Title,
+			RateVersion:        listing.RateVersion,
+			RateUnit:           listing.RateUnit,
+			UnitPriceCLP:       listing.UnitPriceCLP,
+			Currency:           listing.Currency,
+			Units:              totalUnits,
+			SubtotalCLP:        subtotal,
+			StartAt:            overallStart,
+			EndAt:              overallEnd,
+			TimeZone:           listing.TimeZone,
+			CreatedAt:          createdAt,
+			ExpiresAt:          expiresAt,
+			CancellationPolicy: cancellationPolicy,
 		},
 		Intervals: intervals,
 	}, nil
+}
+
+func policyVersion(policy *commercialpolicy.Policy) any {
+	if policy == nil {
+		return nil
+	}
+	return policy.Version
+}
+
+func policyText(policy *commercialpolicy.Policy) any {
+	if policy == nil {
+		return nil
+	}
+	return policy.Text
 }
 
 func (r *Repository) GetQuoteIntervals(ctx context.Context, quoteID string) ([]rentalflow.QuoteInterval, error) {
@@ -647,8 +686,11 @@ AND NOT EXISTS(SELECT 1 FROM public.checkout_preferencia_comercial c WHERE c.cot
 AND NOT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial r WHERE r.cotizacion_id=q.id)
 ORDER BY vence_en,id LIMIT $2)
 DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
-		tag, err := r.db.Exec(ctx, q, at.UTC(), limit)
+		tag, err := r.db.Exec(ctx, r.contractQuotePurgeSQL(q), at.UTC(), limit)
 		if err != nil {
+			if r.contractsRequired && preservedCommercialQuoteRace(err) {
+				return 0, nil
+			}
 			return 0, err
 		}
 		return tag.RowsAffected(), nil
@@ -703,8 +745,11 @@ DELETE FROM public.cotizacion_arriendo_comercial q USING due WHERE q.id=due.id`
 DELETE FROM public.cotizacion_arriendo_comercial q
 USING due
 WHERE q.id=due.id`
-	tag, err := tx.Exec(ctx, q, at.UTC(), limit)
+	tag, err := tx.Exec(ctx, r.contractQuotePurgeSQL(q), at.UTC(), limit)
 	if err != nil {
+		if r.contractsRequired && preservedCommercialQuoteRace(err) {
+			return 0, nil
+		}
 		return 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -733,11 +778,14 @@ func (r *Repository) GetForParticipant(ctx context.Context, actorID string, quot
     q.termino,
     q.zona_horaria,
     q.creada_en,
-    q.vence_en
+    q.vence_en,
+    q.politica_cancelacion_version,
+    q.politica_cancelacion_texto
 FROM public.cotizacion_arriendo_comercial q
 WHERE q.id = $1 AND (q.propietario_id = $2 OR q.arrendatario_id = $2)`
 
 	var quote rentalflow.Quote
+	var policyVersion, policyText *string
 	err := r.db.QueryRow(ctx, q, quoteID, actorID).Scan(
 		&quote.ID,
 		&quote.SpaceID,
@@ -755,12 +803,20 @@ WHERE q.id = $1 AND (q.propietario_id = $2 OR q.arrendatario_id = $2)`
 		&quote.TimeZone,
 		&quote.CreatedAt,
 		&quote.ExpiresAt,
+		&policyVersion,
+		&policyText,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rentalflow.Quote{}, rentalflow.ErrNotFound
 	}
 	if err != nil {
 		return rentalflow.Quote{}, err
+	}
+	if (policyVersion == nil) != (policyText == nil) {
+		return rentalflow.Quote{}, rentalflow.ErrUnavailable
+	}
+	if policyVersion != nil {
+		quote.CancellationPolicy = &commercialpolicy.Policy{Version: *policyVersion, Text: *policyText}
 	}
 	return quote, nil
 }

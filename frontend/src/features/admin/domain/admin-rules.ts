@@ -93,6 +93,29 @@ const SECTION_CAPABILITIES: Readonly<
   reports: ["kpi.read", "legacy.administration"],
   reservations: ["legacy.administration"],
   damage_claims: ["legacy.administration"],
+  finance: [
+    "payments.read",
+    "payments.reconcile",
+    "payments.refund.request",
+    "reservations.read",
+    "contracts.read",
+  ],
+  privacy: [
+    "privacy.requests.manage",
+    "privacy.export.approve",
+    "kyc.case.read",
+    "kyc.review",
+  ],
+  approvals: [
+    "approvals.read",
+    "approvals.request",
+    "approvals.decide",
+    "payments.refund.approve",
+    "privacy.export.approve",
+    "support.tickets.read",
+    "support.tickets.manage",
+  ],
+  support: ["support.tickets.read", "support.tickets.manage"],
 };
 
 export function canAccessSection(

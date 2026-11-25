@@ -15,6 +15,8 @@ var (
 const (
 	DefaultPageSize = 20
 	MaxPageSize     = 48
+	MaxMapPageSize  = 250
+	NearbyLimit     = 6
 )
 
 type Category struct {
@@ -54,40 +56,54 @@ type AttributePredicate struct {
 	Values  []string `json:"values,omitempty"`
 }
 
-// Space is an intentional public projection. It contains no owner, address,
+// Space is an intentional public projection. It contains no owner, private address,
 // profile JSON, fixture state, availability, or file/blob references.
+type ConfirmedLocation struct {
+	Address    string  `json:"address"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	Visibility string  `json:"visibility,omitempty"`
+}
+
+type Bounds struct{ West, South, East, North float64 }
+type Proximity struct{ Latitude, Longitude, RadiusKM float64 }
+
 type Space struct {
-	SpaceID            string                `json:"space_id"`
-	Verification       VerificationSummary   `json:"verification"`
-	CategoryCode       string                `json:"category_code"`
-	CategoryName       string                `json:"category_name"`
-	Title              string                `json:"title"`
-	Description        string                `json:"description"`
-	AreaM2             float64               `json:"area_m2"`
-	CapacityMax        int                   `json:"capacity_max,omitempty"`
-	Host               *PublicHost           `json:"host,omitempty"`
-	CancellationPolicy *string               `json:"cancellation_policy,omitempty"`
-	Guarantee          *string               `json:"guarantee,omitempty"`
-	RateUnit           string                `json:"rate_unit"`
-	BasePriceCLP       int64                 `json:"base_price_clp"`
-	Currency           string                `json:"currency"`
-	RegionCode         *string               `json:"region_code,omitempty"`
-	RegionName         *string               `json:"region_name,omitempty"`
-	CommuneCode        *string               `json:"comuna_code,omitempty"`
-	CommuneName        *string               `json:"comuna_name,omitempty"`
-	EstimatedTotalCLP  *int64                `json:"estimated_total_clp"`
-	UsageRules         string                `json:"usage_rules,omitempty"`
-	Features           []PublicFeature       `json:"features"`
-	Images             []PublicImageRef      `json:"images"`
-	CoverImageID       *string               `json:"cover_image_id,omitempty"`
-	DisponibleDesde    *string               `json:"disponible_desde,omitempty"`
-	EstadiaMinimaMeses *int                  `json:"estadia_minima_meses,omitempty"`
-	TimeZone           string                `json:"-"`
-	WeeklySchedule     *PublicWeeklySchedule `json:"weekly_schedule,omitempty"`
+	DistanceKM                *float64              `json:"distance_km,omitempty"`
+	Location                  *ConfirmedLocation    `json:"location,omitempty"`
+	SpaceID                   string                `json:"space_id"`
+	Verification              VerificationSummary   `json:"verification"`
+	CategoryCode              string                `json:"category_code"`
+	CategoryName              string                `json:"category_name"`
+	Title                     string                `json:"title"`
+	Description               string                `json:"description"`
+	AreaM2                    float64               `json:"area_m2"`
+	CapacityMax               int                   `json:"capacity_max,omitempty"`
+	Host                      *PublicHost           `json:"host,omitempty"`
+	CancellationPolicy        *string               `json:"cancellation_policy,omitempty"`
+	CancellationPolicyVersion string                `json:"-"`
+	Guarantee                 *string               `json:"guarantee,omitempty"`
+	RateUnit                  string                `json:"rate_unit"`
+	BasePriceCLP              int64                 `json:"base_price_clp"`
+	Currency                  string                `json:"currency"`
+	RegionCode                *string               `json:"region_code,omitempty"`
+	RegionName                *string               `json:"region_name,omitempty"`
+	CommuneCode               *string               `json:"comuna_code,omitempty"`
+	CommuneName               *string               `json:"comuna_name,omitempty"`
+	EstimatedTotalCLP         *int64                `json:"estimated_total_clp"`
+	UsageRules                string                `json:"usage_rules,omitempty"`
+	Features                  []PublicFeature       `json:"features"`
+	Images                    []PublicImageRef      `json:"images"`
+	CoverImageID              *string               `json:"cover_image_id,omitempty"`
+	DisponibleDesde           *string               `json:"disponible_desde,omitempty"`
+	EstadiaMinimaMeses        *int                  `json:"estadia_minima_meses,omitempty"`
+	TimeZone                  string                `json:"-"`
+	WeeklySchedule            *PublicWeeklySchedule `json:"weekly_schedule,omitempty"`
 
 	CategoryOrder int     `json:"-"`
 	TitleKey      string  `json:"-"`
 	RelevanceRank float64 `json:"-"`
+	TotalCount    int     `json:"-"`
 }
 
 type PublicHost struct {
@@ -129,6 +145,12 @@ type PublicImageRef struct {
 }
 
 type Filters struct {
+	Bounds           *Bounds
+	Proximity        *Proximity
+	ExcludeBounds    *Bounds
+	ExcludeRadiusKM  *float64
+	MapOnly          bool
+	NearbyFallback   bool
 	CategoryCode     string
 	RateUnit         string
 	MinUnitPriceCLP  *int64
@@ -141,6 +163,7 @@ type Filters struct {
 	RegionCode       string
 	CommuneCode      string
 	MinAreaM2        string
+	MinCapacity      *int
 	Attributes       map[string]bool
 	TypedAttributes  map[string]AttributePredicate
 	AttributeVersion int
@@ -151,21 +174,25 @@ type Filters struct {
 }
 
 type Cursor struct {
-	Version               int     `json:"v"`
-	Fingerprint           string  `json:"f"`
-	Sort                  string  `json:"s"`
-	PageSize              int     `json:"n"`
-	LastCategoryOrder     int     `json:"c,omitempty"`
-	LastTitleKey          string  `json:"t,omitempty"`
-	LastUnitPriceCLP      int64   `json:"p,omitempty"`
-	LastEstimatedTotalCLP *int64  `json:"e,omitempty"`
-	LastRelevanceRank     float64 `json:"r,omitempty"`
-	LastSpaceID           string  `json:"i"`
+	LastDistanceKM        *float64 `json:"d,omitempty"`
+	EncryptedTitleKey     string   `json:"k,omitempty"`
+	Version               int      `json:"v"`
+	Fingerprint           string   `json:"f"`
+	Sort                  string   `json:"s"`
+	PageSize              int      `json:"n"`
+	LastCategoryOrder     int      `json:"c,omitempty"`
+	LastTitleKey          string   `json:"t,omitempty"`
+	LastUnitPriceCLP      int64    `json:"p,omitempty"`
+	LastEstimatedTotalCLP *int64   `json:"e,omitempty"`
+	LastRelevanceRank     float64  `json:"r,omitempty"`
+	LastSpaceID           string   `json:"i"`
 }
 
 type Page struct {
 	Items      []Space `json:"items"`
 	NextCursor string  `json:"next_cursor,omitempty"`
+	HasMore    bool    `json:"-"`
+	TotalCount int     `json:"-"`
 }
 
 type Repository interface {
@@ -198,4 +225,25 @@ type PublicImage struct {
 	Size                 int64
 	ObjectKey, Bucket    string
 	Generation           int64
+}
+
+// MapMarker omits detail-only content and host/profile information.
+type MapMarker struct {
+	DistanceKM        *float64          `json:"distance_km,omitempty"`
+	SpaceID           string            `json:"space_id"`
+	Title             string            `json:"title"`
+	BasePriceCLP      int64             `json:"base_price_clp"`
+	Currency          string            `json:"currency"`
+	RateUnit          string            `json:"rate_unit"`
+	EstimatedTotalCLP *int64            `json:"estimated_total_clp,omitempty"`
+	CommuneName       *string           `json:"comuna_name,omitempty"`
+	Location          ConfirmedLocation `json:"location"`
+	CoverImageID      *string           `json:"cover_image_id,omitempty"`
+	CoverURL          *string           `json:"cover_url,omitempty"`
+}
+type MapPage struct {
+	Items      []MapMarker `json:"items"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+	HasMore    bool        `json:"has_more"`
+	TotalCount int         `json:"total_count"`
 }

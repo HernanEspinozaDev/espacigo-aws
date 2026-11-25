@@ -1,3 +1,6 @@
+import type { CancellationPolicyVersion } from "./cancellation-policy";
+import type { LocationInput } from "./commercial-location";
+
 import type { components } from "@/lib/api/generated/openapi";
 
 export type RateUnit = "hora" | "dia" | "mes";
@@ -57,6 +60,7 @@ export interface ListingDetail {
   readonly area_m2: number;
   readonly capacity: number;
   readonly usage_rules: string;
+  readonly cancellation_policy_version?: CancellationPolicyVersion;
   readonly rate_unit: RateUnit;
   readonly base_price_clp: number;
   readonly address: string;
@@ -77,20 +81,33 @@ export interface ListingDraftInput {
   area_m2: number;
   capacity: number;
   usage_rules: string;
+  cancellation_policy_version?: CancellationPolicyVersion;
   rate_unit: RateUnit;
   base_price_clp: number;
-  address: string;
+  /** Legacy update endpoint accepts these optional match-only fields. */
+  address?: string;
   region_code?: string;
   comuna_code?: string;
   attribute_schema_version?: number;
   attributes?: Record<string, unknown>;
 }
 
+export type ListingCreateInput = Omit<
+  ListingDraftInput,
+  "address" | "region_code" | "comuna_code"
+> & {
+  location: Omit<LocationInput, "latitude" | "longitude"> & {
+    latitude: number;
+    longitude: number;
+  };
+};
+
 export interface ContentUpdateInput {
   title?: string;
   description?: string;
   capacity?: number;
   usage_rules?: string;
+  cancellation_policy_version?: CancellationPolicyVersion;
   base_price_clp?: number | string;
   region_code?: string;
   comuna_code?: string;

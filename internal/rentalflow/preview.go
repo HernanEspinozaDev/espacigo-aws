@@ -35,25 +35,61 @@ type ContractIdentity struct {
 
 type ContractParty struct {
 	Role      string `json:"role"`
-	LegalName string `json:"legal_name"`
-	RUT       string `json:"rut"`
+	Self      bool   `json:"self"`
+	LegalName string `json:"legal_name,omitempty"`
+	RUT       string `json:"rut,omitempty"`
+}
+
+const ContractContactNotice = "Los datos personales de la otra parte y los contactos estarán disponibles en la reserva privada después de confirmar el pago."
+
+// RedactedContractParties never serializes a counterpart's legal identity.
+// Both identities must still be verified before this presentation projection.
+func RedactedContractParties(actorID string, owner, renter ContractIdentity) []ContractParty {
+	parties := []ContractParty{{Role: "arrendador", Self: canonicalUUID(actorID) == canonicalUUID(owner.SubjectID)}, {Role: "arrendatario", Self: canonicalUUID(actorID) == canonicalUUID(renter.SubjectID)}}
+	for i, p := range []ContractIdentity{owner, renter} {
+		if parties[i].Self {
+			parties[i].LegalName = p.LegalName
+			parties[i].RUT = identity.MaskRUT(p.RUT)
+		}
+	}
+	return parties
+}
+
+// RevealedContractParties returns both parties' full legal names and RUTs once payment is verified.
+func RevealedContractParties(actorID string, owner, renter ContractIdentity) []ContractParty {
+	parties := []ContractParty{
+		{
+			Role:      "arrendador",
+			Self:      canonicalUUID(actorID) == canonicalUUID(owner.SubjectID),
+			LegalName: owner.LegalName,
+			RUT:       owner.RUT,
+		},
+		{
+			Role:      "arrendatario",
+			Self:      canonicalUUID(actorID) == canonicalUUID(renter.SubjectID),
+			LegalName: renter.LegalName,
+			RUT:       renter.RUT,
+		},
+	}
+	return parties
 }
 
 type ContractPreview struct {
-	State        string          `json:"state"`
-	QuoteID      string          `json:"quote_id"`
-	SpaceID      string          `json:"space_id"`
-	SpaceTitle   string          `json:"space_title"`
-	RateUnit     string          `json:"rate_unit"`
-	UnitPriceCLP int64           `json:"unit_price_clp"`
-	Units        int64           `json:"units"`
-	SubtotalCLP  int64           `json:"subtotal_clp"`
-	Currency     string          `json:"currency"`
-	StartAt      time.Time       `json:"start_at"`
-	EndAt        time.Time       `json:"end_at"`
-	TimeZone     string          `json:"time_zone"`
-	Parties      []ContractParty `json:"parties"`
-	GeneratedAt  time.Time       `json:"generated_at"`
+	State         string          `json:"state"`
+	QuoteID       string          `json:"quote_id"`
+	SpaceID       string          `json:"space_id"`
+	SpaceTitle    string          `json:"space_title"`
+	RateUnit      string          `json:"rate_unit"`
+	UnitPriceCLP  int64           `json:"unit_price_clp"`
+	Units         int64           `json:"units"`
+	SubtotalCLP   int64           `json:"subtotal_clp"`
+	Currency      string          `json:"currency"`
+	StartAt       time.Time       `json:"start_at"`
+	EndAt         time.Time       `json:"end_at"`
+	TimeZone      string          `json:"time_zone"`
+	Parties       []ContractParty `json:"parties"`
+	GeneratedAt   time.Time       `json:"generated_at"`
+	ContactNotice string          `json:"contact_notice"`
 }
 
 type ContractPreviewService struct {
@@ -217,12 +253,16 @@ func (s *ContractPreviewService) Preview(ctx context.Context, actorID, quoteID s
 		RateUnit: quote.RateUnit, UnitPriceCLP: quote.UnitPriceCLP, Units: quote.Units,
 		SubtotalCLP: quote.SubtotalCLP, Currency: quote.Currency, StartAt: quote.StartAt,
 		EndAt: quote.EndAt, TimeZone: quote.TimeZone,
-		Parties: []ContractParty{
-			{Role: "arrendador", LegalName: ownerIdentity.LegalName, RUT: identity.MaskRUT(ownerIdentity.RUT)},
-			{Role: "arrendatario", LegalName: renterIdentity.LegalName, RUT: identity.MaskRUT(renterIdentity.RUT)},
-		},
-		GeneratedAt: now,
+		Parties:       RedactedContractParties(actorID, ownerIdentity, renterIdentity),
+		ContactNotice: ContractContactNotice,
+		GeneratedAt:   now,
 	}, nil
+}
+
+// NormalizeContractIdentity validates a purpose-limited identity snapshot before
+// it enters immutable private contractual evidence.
+func NormalizeContractIdentity(identity ContractIdentity, subjectID string) (ContractIdentity, bool) {
+	return normalizeContractIdentity(identity, subjectID)
 }
 
 func normalizeContractIdentity(identity ContractIdentity, subjectID string) (ContractIdentity, bool) {

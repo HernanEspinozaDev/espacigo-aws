@@ -14,7 +14,7 @@ export interface AccountPasskeyRegistrationOptions {
   challenge_id: string;
   challenge: string;
   rp: {
-    id: string;
+    id?: string;
     name: string;
   };
   user: {

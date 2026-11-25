@@ -96,9 +96,14 @@ test("createDraft uses cookie transport without a bearer or unsupported idempote
       usage_rules: "Synthetic",
       rate_unit: "hora",
       base_price_clp: 5001,
-      address: "Synthetic",
-      region_code: "13",
-      comuna_code: "13101",
+      location: {
+        address: "Synthetic",
+        region_code: "13",
+        comuna_code: "13101",
+        latitude: -33.45,
+        longitude: -70.66,
+        public_confirmed: false,
+      },
       attribute_schema_version: 1,
     };
     await new OpenApiHostListingsAdapter().createDraft(input, "legacy-key");

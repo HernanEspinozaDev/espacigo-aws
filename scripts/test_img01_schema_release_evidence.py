@@ -97,7 +97,7 @@ class SchemaEvidenceTests(unittest.TestCase):
 
     def test_rejects_ledger_checksum_drift(self) -> None:
         report = valid_report()
-        report["migration_ledger"]["entries"][67]["checksum"] = "0" * 64
+        report["migration_ledger"]["entries"][-1]["checksum"] = "0" * 64
         with self.assertRaisesRegex(MODULE.EvidenceError, "ledger"):
             self.validate_report(report)
 

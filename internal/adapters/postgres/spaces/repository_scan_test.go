@@ -38,7 +38,7 @@ func TestScanPopulatesUpdatedAtButOmitsItFromJSON(t *testing.T) {
 	row := scanRow{values: []any{
 		"space-id", "CAT", "Category", "Title", "Description", float64(12.5), int32(4),
 		"Rules", "hour", int64(1000), "Address", "borrador", 2, []byte(`{"x":true}`),
-		"America/Santiago", "", "RM", "13101", want, false, "",
+		"America/Santiago", "", "RM", "13101", want, "flexible_v1", false, "",
 	}}
 
 	draft, err := scan(row)
@@ -47,6 +47,9 @@ func TestScanPopulatesUpdatedAtButOmitsItFromJSON(t *testing.T) {
 	}
 	if !draft.UpdatedAt.Equal(want) {
 		t.Fatalf("UpdatedAt = %v, want %v", draft.UpdatedAt, want)
+	}
+	if draft.CancellationPolicyVersion == nil || *draft.CancellationPolicyVersion != "flexible_v1" {
+		t.Fatalf("cancellation policy not scanned: %+v", draft.CancellationPolicyVersion)
 	}
 	encoded, err := json.Marshal(draft)
 	if err != nil {

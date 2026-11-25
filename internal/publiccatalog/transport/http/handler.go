@@ -3,6 +3,7 @@ package publiccataloghttp
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,8 +17,9 @@ import (
 )
 
 type Handler struct {
-	service *publiccatalog.Service
-	origins map[string]bool
+	service        *publiccatalog.Service
+	origins        map[string]bool
+	suggestLimiter *publiccatalog.SuggestRateLimiter
 }
 
 type headResponseWriter struct {
@@ -71,7 +73,19 @@ func New(service *publiccatalog.Service, allowedOrigins ...string) http.Handler 
 	for _, origin := range allowedOrigins {
 		origins[origin] = true
 	}
-	return &Handler{service: service, origins: origins}
+	return &Handler{
+		service:        service,
+		origins:        origins,
+		suggestLimiter: publiccatalog.NewSuggestRateLimiter(30, time.Minute),
+	}
+}
+
+func clientRateKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -253,13 +267,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			locations = []publiccatalog.Location{}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": locations})
-	case r.URL.Path == "/api/v1/public/spaces":
+	case r.URL.Path == "/api/v1/public/spaces" || r.URL.Path == "/api/v1/public/spaces/map" || r.URL.Path == "/api/v1/public/spaces/nearby":
 		f, ok := publicFilters(r)
 		if !ok {
 			publicError(w, 422)
 			return
 		}
-		v, err := h.service.List(r.Context(), f)
+		var v publiccatalog.Page
+		var err error
+		switch r.URL.Path {
+		case "/api/v1/public/spaces/map":
+			v, err = h.service.Map(r.Context(), f)
+		case "/api/v1/public/spaces/nearby":
+			v, err = h.service.Nearby(r.Context(), f)
+		default:
+			v, err = h.service.List(r.Context(), f)
+		}
 		if errors.Is(err, publiccatalog.ErrInvalid) {
 			publicError(w, 422)
 			return
@@ -274,7 +297,88 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for i := range v.Items {
 			v.Items[i] = normalizePublicSpaceListItem(v.Items[i])
 		}
-		_ = json.NewEncoder(w).Encode(v)
+		if r.URL.Path == "/api/v1/public/spaces/map" || r.URL.Path == "/api/v1/public/spaces/nearby" {
+			markers := make([]publiccatalog.MapMarker, 0, len(v.Items))
+			for _, item := range v.Items {
+				if item.Location != nil {
+					var coverURL *string
+					if item.CoverImageID != nil {
+						u := "/api/v1/public/spaces/" + item.SpaceID + "/images/" + *item.CoverImageID
+						coverURL = &u
+					}
+					markers = append(markers, publiccatalog.MapMarker{
+						DistanceKM:        item.DistanceKM,
+						SpaceID:           item.SpaceID,
+						Title:             item.Title,
+						BasePriceCLP:      item.BasePriceCLP,
+						Currency:          item.Currency,
+						RateUnit:          item.RateUnit,
+						EstimatedTotalCLP: item.EstimatedTotalCLP,
+						CommuneName:       item.CommuneName,
+						Location:          *item.Location,
+						CoverImageID:      item.CoverImageID,
+						CoverURL:          coverURL,
+					})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(publiccatalog.MapPage{Items: markers, NextCursor: v.NextCursor, HasMore: v.HasMore, TotalCount: v.TotalCount})
+		} else {
+			_ = json.NewEncoder(w).Encode(v)
+		}
+	case r.URL.Path == "/api/v1/public/destinations/suggest":
+		if h.suggestLimiter != nil && !h.suggestLimiter.Allow("suggest:"+clientRateKey(r), time.Now()) {
+			publicError(w, http.StatusTooManyRequests)
+			return
+		}
+		q := r.URL.Query()
+		for k := range q {
+			if k != "q" && k != "limit" {
+				publicError(w, 422)
+				return
+			}
+		}
+		limit := 8
+		if raw := q.Get("limit"); raw != "" {
+			n, convErr := strconv.Atoi(raw)
+			if convErr != nil || n < 1 || n > 12 {
+				publicError(w, 422)
+				return
+			}
+			limit = n
+		}
+		items, err := h.service.SuggestDestinations(r.Context(), q.Get("q"), limit)
+		if errors.Is(err, publiccatalog.ErrInvalid) {
+			publicError(w, 422)
+			return
+		}
+		if err != nil {
+			publicError(w, 500)
+			return
+		}
+		if items == nil {
+			items = []publiccatalog.DestinationSuggestion{}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+	case strings.HasPrefix(r.URL.Path, "/api/v1/public/spaces/") && strings.HasSuffix(r.URL.Path, "/nearby-pois"):
+		id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v1/public/spaces/"), "/nearby-pois")
+		if id == "" || strings.Contains(id, "/") || r.URL.RawQuery != "" {
+			publicError(w, 404)
+			return
+		}
+		if h.suggestLimiter != nil && !h.suggestLimiter.Allow("pois:"+clientRateKey(r), time.Now()) {
+			publicError(w, http.StatusTooManyRequests)
+			return
+		}
+		resp, err := h.service.NearbyPOIs(r.Context(), id)
+		if errors.Is(err, publiccatalog.ErrNotFound) {
+			publicError(w, 404)
+			return
+		}
+		if err != nil {
+			publicError(w, 500)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	case strings.HasPrefix(r.URL.Path, "/api/v1/public/spaces/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v1/public/spaces/")
 		if id == "" || strings.Contains(id, "/") || r.URL.RawQuery != "" {
@@ -299,7 +403,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if attrs == nil {
 			attrs = []publiccatalog.PublicAttribute{}
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules, CapacityMax: v.CapacityMax, Host: v.Host, CancellationPolicy: nil, Guarantee: nil, Attributes: attrs}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules, CapacityMax: v.CapacityMax, Host: v.Host, CancellationPolicy: v.CancellationPolicy, Guarantee: nil, Attributes: attrs}})
 	default:
 		publicError(w, 404)
 	}
@@ -313,8 +417,10 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 	allowed := map[string]bool{
 		"category_code": true, "rate_unit": true, "min_unit_price_clp": true, "max_unit_price_clp": true,
 		"sort": true, "page_size": true, "cursor": true, "q": true, "region_code": true,
-		"comuna_code": true, "min_area_m2": true, "attribute": true, "start_at": true,
+		"comuna_code": true, "min_area_m2": true, "min_capacity": true, "attribute": true, "start_at": true,
 		"end_at": true, "min_total_clp": true, "max_total_clp": true,
+		"bbox": true, "latitude": true, "longitude": true, "radius_km": true,
+		"exclude_bbox": true, "exclude_radius_km": true,
 	}
 	for key, values := range q {
 		if !allowed[key] || (key != "attribute" && len(values) != 1) || (key == "attribute" && len(values) > 32) {
@@ -325,6 +431,81 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 		CategoryCode: q.Get("category_code"), RateUnit: q.Get("rate_unit"), Sort: q.Get("sort"), Cursor: q.Get("cursor"),
 		Query: q.Get("q"), RegionCode: q.Get("region_code"), CommuneCode: q.Get("comuna_code"), MinAreaM2: q.Get("min_area_m2"),
 	}
+	if raw, ok := q["min_capacity"]; ok {
+		n, err := strconv.Atoi(raw[0])
+		if err != nil || n < 1 {
+			return f, false
+		}
+		f.MinCapacity = &n
+	}
+	if raw, ok := q["bbox"]; ok {
+		parts := strings.Split(raw[0], ",")
+		if len(parts) != 4 {
+			return f, false
+		}
+		values := [4]float64{}
+		for i, p := range parts {
+			v, err := strconv.ParseFloat(p, 64)
+			if err != nil {
+				return f, false
+			}
+			values[i] = v
+		}
+		f.Bounds = &publiccatalog.Bounds{West: values[0], South: values[1], East: values[2], North: values[3]}
+	}
+	if raw, ok := q["exclude_bbox"]; ok {
+		if r.URL.Path != "/api/v1/public/spaces/nearby" {
+			return f, false
+		}
+		parts := strings.Split(raw[0], ",")
+		if len(parts) != 4 {
+			return f, false
+		}
+		var values [4]float64
+		for i, part := range parts {
+			v, err := strconv.ParseFloat(part, 64)
+			if err != nil {
+				return f, false
+			}
+			values[i] = v
+		}
+		f.ExcludeBounds = &publiccatalog.Bounds{West: values[0], South: values[1], East: values[2], North: values[3]}
+	}
+	if raw, ok := q["exclude_radius_km"]; ok {
+		if r.URL.Path != "/api/v1/public/spaces/nearby" {
+			return f, false
+		}
+		v, err := strconv.ParseFloat(raw[0], 64)
+		if err != nil {
+			return f, false
+		}
+		f.ExcludeRadiusKM = &v
+	}
+	_, latOK := q["latitude"]
+	_, lonOK := q["longitude"]
+	_, radiusOK := q["radius_km"]
+	if latOK || lonOK || radiusOK {
+		if !latOK || !lonOK || (!radiusOK && r.URL.Path != "/api/v1/public/spaces/nearby") || f.Bounds != nil {
+			return f, false
+		}
+		p := &publiccatalog.Proximity{}
+		for name, target := range map[string]*float64{"latitude": &p.Latitude, "longitude": &p.Longitude} {
+			v, err := strconv.ParseFloat(q.Get(name), 64)
+			if err != nil {
+				return f, false
+			}
+			*target = v
+		}
+		if radiusOK {
+			v, err := strconv.ParseFloat(q.Get("radius_km"), 64)
+			if err != nil {
+				return f, false
+			}
+			p.RadiusKM = v
+		}
+		f.Proximity = p
+	}
+
 	if raw, ok := q["page_size"]; ok {
 		n, e := strconv.Atoi(raw[0])
 		if e != nil {

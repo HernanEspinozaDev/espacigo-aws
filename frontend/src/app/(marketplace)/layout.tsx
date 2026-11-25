@@ -7,8 +7,9 @@ import { SessionControls } from "@/features/auth/ui/session-controls";
 const links = [
   { href: "/", label: "Inicio" },
   { href: "/explorar", label: "Explorar" },
+  { href: "/explorar/mapa", label: "Mapa" },
   { href: "/categorias", label: "Categorías" },
-  { href: "/arriendos", label: "Arriendos residenciales" },
+  { href: "/arriendos", label: "Arriendos" },
   { href: "/como-funciona", label: "Cómo funciona" },
 ];
 

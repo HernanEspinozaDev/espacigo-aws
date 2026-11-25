@@ -1,3 +1,4 @@
+import { chooseWizardLocation } from "./helpers/wizard-location";
 import { expect, test } from "@playwright/test";
 import { createBffFixtureState } from "./helpers/bff-fixture";
 import categoryProfiles from "./fixtures/category-profiles-v1.json";
@@ -9,7 +10,8 @@ for (const rateUnit of ["dia", "mes"] as const) {
     page,
   }) => {
     const bff = createBffFixtureState();
-    let createBody: Record<string, unknown> | null = null;
+    const createBodies: Record<string, unknown>[] = [];
+    let locationWrites = 0;
     let availabilityBody: Record<string, unknown> | null = null;
     const weeklyRequests: string[] = [];
     const profile = categoryProfiles.profiles.inmuebles;
@@ -65,10 +67,9 @@ for (const rateUnit of ["dia", "mes"] as const) {
         path === "/api/backend/spaces" &&
         request.method() === "POST"
       ) {
-        createBody = JSON.parse(request.postData() ?? "{}") as Record<
-          string,
-          unknown
-        >;
+        createBodies.push(
+          JSON.parse(request.postData() ?? "{}") as Record<string, unknown>,
+        );
         result = {
           status: 201,
           headers: { etag: '"wizard-create-v1"' },
@@ -77,8 +78,19 @@ for (const rateUnit of ["dia", "mes"] as const) {
             category_code: "inmuebles",
             category_name: "Inmuebles",
             state: "borrador",
-            ...createBody,
+            ...createBodies.at(-1),
+            ...(createBodies.at(-1)?.location as Record<string, unknown>),
           },
+        };
+      } else if (
+        path ===
+          "/api/backend/spaces/00000000-0000-4000-8000-000000000121/location" &&
+        request.method() === "PUT"
+      ) {
+        locationWrites++;
+        result = {
+          status: 500,
+          body: { error: { code: "unexpected_location_write" } },
         };
       } else if (
         path ===
@@ -153,12 +165,14 @@ for (const rateUnit of ["dia", "mes"] as const) {
     await page
       .locator("#wizard-description")
       .fill(
-        "Descripción sintética suficientemente extensa para completar la creación del inmueble, con información clara sobre su uso y características principales.",
+        rateUnit === "dia"
+          ? ""
+          : "Descripción sintética suficientemente extensa para completar la creación del inmueble, con información clara sobre su uso y características principales.",
       );
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-    await page.locator("#wizard-region").selectOption("13");
-    await page.locator("#wizard-comuna").selectOption("13101");
+    await chooseWizardLocation(page, "13101", true);
     await page.locator("#wizard-address").fill("Av. de prueba 100, Santiago");
+    await page.getByRole("button", { name: "Siguiente" }).click();
     await page.locator("#wizard-area").fill("40");
     await page.locator("#wizard-capacity").fill("2");
     for (const attribute of profile.attributes.filter(
@@ -187,9 +201,11 @@ for (const rateUnit of ["dia", "mes"] as const) {
       }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Siguiente", exact: true }).click();
-    await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Paso 6:/ })).toBeVisible();
     await expect(page.locator("main")).toContainText(
-      "Horario semanal no aplicable a tarifas por día o mes",
+      rateUnit === "dia"
+        ? "Modalidad diaria: jornada completa sin horarios"
+        : "Modalidad mensual: disponible desde y estancia mínima se configuran en el editor tras el alta",
     );
     await page
       .getByRole("button", { name: "Crear espacio y continuar a edición" })
@@ -198,13 +214,21 @@ for (const rateUnit of ["dia", "mes"] as const) {
       /\/anfitrion\/espacios\/00000000-0000-4000-8000-000000000121\/editar/,
     );
 
+    const createBody = createBodies[0]!;
     expect(createBody).toMatchObject({
       category_code: "inmuebles",
       rate_unit: rateUnit,
       base_price_clp: 5001,
+    });
+    expect(locationWrites).toBe(0);
+    expect(createBody.location).toMatchObject({
+      address: "Av. de prueba 100, Santiago",
+      region_code: "13",
       comuna_code: "13101",
+      public_confirmed: false,
     });
     expect(availabilityBody).toMatchObject({ time_zone: "America/Santiago" });
+    if (rateUnit === "dia") expect(createBody.description).toBe("");
     expect(JSON.stringify(createBody)).not.toContain("undefined");
     expect(weeklyRequests).toEqual([]);
   });

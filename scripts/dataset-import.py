@@ -544,6 +544,10 @@ class Importer:
         existing_response = owner.request("GET", "/api/v1/spaces")
         existing = existing_response.get("items", [])
         remaining = list(existing)
+        reference_points = json.loads((
+            Path(__file__).resolve().parents[1]
+            / "frontend/src/features/public-catalog/domain/commune-centers.json"
+        ).read_text())
         prepared = []
         for assignment in sorted(assignments, key=lambda row: row["listing_ref"]):
             ref = assignment["listing_ref"]
@@ -571,6 +575,20 @@ class Importer:
                     remaining.remove(match)
                     space_id = match["id"]
                 else:
+                    # These listings are synthetic. Use the checked reference
+                    # point for their CUT code, never an inferred real address.
+                    point = reference_points.get(assignment["comuna_code"])
+                    if point is None:
+                        raise RuntimeError("synthetic listing commune has no supported reference point")
+                    body["location"] = {
+                        "address": body.pop("address"),
+                        "region_code": body.pop("region_code"),
+                        "comuna_code": body.pop("comuna_code"),
+                        "latitude": point[0],
+                        "longitude": point[1],
+                        "public_confirmed": True,
+                        "source": "manual",
+                    }
                     created = owner.request("POST", "/api/v1/spaces", body, expect=(201,))
                     space_id = object_data(created, "id")
                 self.state["listings"][ref] = {"id": space_id}

@@ -5,8 +5,12 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Building2,
+  CheckSquare,
   FileText,
   BriefcaseBusiness,
+  Landmark,
+  Lock,
+  LogOut,
   Scale,
   Shield,
   UserCheck,
@@ -92,9 +96,33 @@ const NAV_ITEMS: readonly AdminNavItem[] = [
     description: "Eventos y exportación",
     exact: false,
   },
+  {
+    label: "Finanzas y Reservas",
+    href: "/administracion/finanzas",
+    section: "finance",
+    icon: Landmark,
+    description: "Conciliación, reservas y contratos",
+    exact: false,
+  },
+  {
+    label: "Privacidad y KYC",
+    href: "/administracion/privacidad",
+    section: "privacy",
+    icon: Lock,
+    description: "ARCO+ (Ley 21.719) y KYC",
+    exact: false,
+  },
+  {
+    label: "Aprobaciones y Soporte",
+    href: "/administracion/aprobaciones",
+    section: "approvals",
+    icon: CheckSquare,
+    description: "Doble control y tickets",
+    exact: false,
+  },
 ];
 
-function formatSingleRole(role: string | null): string {
+export function formatAdminRole(role: string | null): string {
   switch (role) {
     case "administrador_global":
       return "Administrador Global";
@@ -109,9 +137,17 @@ function formatSingleRole(role: string | null): string {
   }
 }
 
-export function AdminNavigation() {
+export function AdminNavigation({
+  onNavigate,
+  showSessionCard = true,
+  className,
+}: {
+  onNavigate?: () => void;
+  showSessionCard?: boolean;
+  className?: string;
+}) {
   const pathname = usePathname();
-  const { canAccess, activeRole } = useAdmin();
+  const { snapshot, canAccess, activeRole, logoutAdminSession } = useAdmin();
 
   const accessibleItems = NAV_ITEMS.filter((item) => canAccess(item.section));
   const isRoot = pathname === "/administracion";
@@ -122,9 +158,8 @@ export function AdminNavigation() {
   return (
     <aside
       aria-label="Navegación de administración"
-      className="w-full md:w-64 shrink-0 md:border-r md:border-border/60 md:pr-6 space-y-4 max-w-full"
+      className={cn("w-full space-y-4 min-w-0", className)}
     >
-      {/* Breadcrumbs accesibles */}
       <div className="hidden md:block">
         <Breadcrumb>
           <BreadcrumbList>
@@ -153,49 +188,35 @@ export function AdminNavigation() {
         </Breadcrumb>
       </div>
 
-      {/* Badge de rol activo garantizado en la UI */}
-      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/60">
-        <Badge
-          variant="secondary"
-          className="gap-1.5 px-3 py-1 text-xs font-semibold tracking-wide uppercase shadow-none border border-slate-300 dark:border-slate-700"
-        >
-          <Shield className="size-3.5 text-primary" aria-hidden="true" />
-          <span>{formatSingleRole(activeRole)}</span>
-        </Badge>
-      </div>
-
-      {activeRole !== "administrador" &&
-      activeRole !== "administrador_global" ? (
-        <aside
-          role="region"
-          aria-label="Aviso de autenticación administrativa"
-          className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
-        >
-          <div className="space-y-0.5">
-            <p className="font-semibold text-sm">
-              Se requiere autorización administrativa
-            </p>
-            <p className="text-xs text-amber-800 dark:text-amber-300">
-              Para ver métricas y gestionar la plataforma debes iniciar sesión
-              con una cuenta de administrador o administrador global.
-            </p>
-          </div>
-          <Button
-            asChild
-            size="sm"
-            className="rounded-full bg-orange-700 text-white hover:bg-orange-800 shrink-0 font-medium w-full"
+      {showSessionCard && (
+        <div className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-muted/40 border border-border/60">
+          <Badge
+            variant="secondary"
+            className="gap-1.5 px-3 py-1 text-xs font-semibold tracking-wide uppercase shadow-none border border-slate-300 dark:border-slate-700"
           >
-            <Link href={`/acceso?return_to=${encodeURIComponent(pathname)}`}>
-              Iniciar sesión administrativa
-            </Link>
-          </Button>
-        </aside>
-      ) : null}
+            <Shield className="size-3.5 text-primary" aria-hidden="true" />
+            <span>{formatAdminRole(activeRole)}</span>
+          </Badge>
+          {snapshot.adminSessionStatus === "authenticated" && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void logoutAdminSession()}
+              disabled={snapshot.actionLoading}
+              className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <LogOut className="size-3.5 mr-1" aria-hidden="true" />
+              Salir
+              <span className="sr-only"> de la sesión administrativa</span>
+            </Button>
+          )}
+        </div>
+      )}
 
-      {/* Navegación vertical en escritorio y horizontal en móvil */}
       <nav
         aria-label="Navegación de secciones de administración"
-        className="flex flex-row md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0 max-w-full"
+        className="flex flex-col gap-1.5 min-w-0"
       >
         {accessibleItems.map((item) => {
           const isActive = item.exact
@@ -207,23 +228,26 @@ export function AdminNavigation() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               aria-current={isActive ? "page" : undefined}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors whitespace-nowrap md:whitespace-normal",
+                "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors min-w-0",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 isActive
-                  ? "bg-primary/10 text-primary font-semibold border-b-2 md:border-b-0 md:border-l-2 border-primary"
+                  ? "bg-[var(--brand-primary-soft)] text-[var(--brand-primary-soft-ink)] font-semibold border-l-2 border-primary"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
               )}
             >
               <Icon className="size-4 shrink-0" aria-hidden="true" />
               <div className="flex flex-col min-w-0 text-left">
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
                 <span
                   aria-hidden="true"
                   className={cn(
                     "text-xs font-normal hidden lg:block truncate",
-                    isActive ? "text-foreground" : "text-muted-foreground",
+                    isActive
+                      ? "text-[var(--brand-primary-soft-ink)]/85"
+                      : "text-muted-foreground",
                   )}
                 >
                   {item.description}

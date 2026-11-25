@@ -259,22 +259,19 @@ test("perfil de filtros y cursor respetan el contrato público del catálogo Go"
   expect(residentialCount).toBe(0);
 });
 
-test("CTAs de oferta informan el límite y llevan a anfitriones o al ingreso existente", async ({
+test("CTAs de oferta informan la guía de publicación y llevan al ingreso o creación", async ({
   page,
 }) => {
-  await page.goto("/anfitriones");
+  await page.goto("/como-funciona?rol=arrendador");
   await expect(
-    page.getByRole("heading", { name: /casa de veraneo/i }),
+    page.getByRole("heading", { name: /Cómo funciona EspaciGo/i }),
   ).toBeVisible();
   await expect(
-    page.getByText(/crear y publicar anuncios todavía no está habilitado/i),
-  ).toBeVisible();
+    page.getByRole("tab", { name: /Para Arrendadores/i }),
+  ).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("main").getByRole("link", { name: "Ingresar a EspaciGo" }),
-  ).toHaveAttribute("href", "/login");
-  await expect(
-    page.getByText(/No hay formulario de captación o lista de espera/i),
-  ).toBeVisible();
+    page.getByRole("main").getByRole("link", { name: /Publicar gratis como arrendador/i }),
+  ).toHaveAttribute("href", "/acceso?return_to=%2Fanfitrion%2Fespacios%2Fnuevo");
 });
 
 test("rutas legacy conservan query compatible y slugs de fixtures dan 404", async ({

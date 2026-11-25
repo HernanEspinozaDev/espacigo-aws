@@ -746,9 +746,9 @@ func TestContractPreviewRequiresParticipantAndReturnsOnlyAfterCurrentIdentityGat
 	if gate.calls != 1 || gate.host != testOwnerID || gate.renter != testRenterID || len(identities.calls) != 2 || len(identities.asOf) != 2 || !identities.asOf[0].Equal(now) || !identities.asOf[1].Equal(now) {
 		t.Fatalf("identity gate/snapshot calls do not match participant preview: gate=%+v snapshots=%v", gate, identities.calls)
 	}
-	if preview.Parties[0].Role != "arrendador" || preview.Parties[0].LegalName != "Arrendador Sintético" || preview.Parties[0].RUT != "••••1111" ||
-		preview.Parties[1].Role != "arrendatario" || preview.Parties[1].LegalName != "Arrendataria Sintética" || preview.Parties[1].RUT != "••••2222" {
-		t.Fatalf("legal identity snapshots must be complete and RUTs masked: %+v", preview.Parties)
+	if preview.Parties[0].Role != "arrendador" || preview.Parties[0].Self || preview.Parties[0].LegalName != "" || preview.Parties[0].RUT != "" ||
+		preview.Parties[1].Role != "arrendatario" || !preview.Parties[1].Self || preview.Parties[1].LegalName != "Arrendataria Sintética" || preview.Parties[1].RUT != "••••2222" {
+		t.Fatalf("counterpart identity must be absent and own RUT masked: %+v", preview.Parties)
 	}
 	ownerPreview, err := service.Preview(context.Background(), testOwnerID, testQuoteID)
 	if err != nil {
@@ -757,6 +757,9 @@ func TestContractPreviewRequiresParticipantAndReturnsOnlyAfterCurrentIdentityGat
 	if ownerPreview.State != "preview" || len(ownerPreview.Parties) != 2 || ownerPreview.Parties[0].Role != "arrendador" || ownerPreview.Parties[1].Role != "arrendatario" || gate.calls != 2 || len(identities.calls) != 4 ||
 		identities.calls[2] != testOwnerID+"/"+testQuoteID+"/"+testOwnerID || identities.calls[3] != testOwnerID+"/"+testQuoteID+"/"+testRenterID {
 		t.Fatalf("owner participant was not authorized with quote-scoped identity reads: preview=%+v gate=%+v calls=%v", ownerPreview, gate, identities.calls)
+	}
+	if !ownerPreview.Parties[0].Self || ownerPreview.Parties[0].LegalName != "Arrendador Sintético" || ownerPreview.Parties[1].Self || ownerPreview.Parties[1].LegalName != "" || ownerPreview.Parties[1].RUT != "" || ownerPreview.ContactNotice == "" {
+		t.Fatalf("owner preview exposes counterpart: %+v", ownerPreview)
 	}
 	calendar.available = false
 	if _, err = service.Preview(context.Background(), testRenterID, testQuoteID); !errors.Is(err, ErrConflict) {

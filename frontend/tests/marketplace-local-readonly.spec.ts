@@ -63,7 +63,7 @@ for (const viewport of [
     ).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: "Especificaciones y reglas",
+        name: "Detalles y atributos",
         exact: true,
       }),
     ).toBeVisible();

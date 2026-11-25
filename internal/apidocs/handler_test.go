@@ -46,6 +46,12 @@ func TestEnabledRejectsProductionAndRequiresDevOrPrototype(t *testing.T) {
 	}
 }
 
+func localRequest(path string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080"+path, nil)
+	req.RemoteAddr = "127.0.0.1:42000"
+	return req
+}
+
 func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 	specPath := filepath.Join("..", "..", "planning", "openapi.yaml")
 	h, err := NewHandlerFromFile(specPath)
@@ -55,8 +61,8 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 	mux := http.NewServeMux()
 	h.Mount(mux)
 
-	t.Run("default_openapi_json_projects_mercadopago_paths", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	t.Run("mercadopago_scope_projects_payment_paths", func(t *testing.T) {
+		req := localRequest("/openapi.json?scope=mercadopago")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -66,9 +72,9 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 			t.Fatalf("Cache-Control=%q, want no-store", got)
 		}
 		var doc struct {
-			OpenAPI    string                       `json:"openapi"`
-			Paths      map[string]map[string]any    `json:"paths"`
-			Components map[string]map[string]any    `json:"components"`
+			OpenAPI    string                    `json:"openapi"`
+			Paths      map[string]map[string]any `json:"paths"`
+			Components map[string]map[string]any `json:"components"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
 			t.Fatalf("decode /openapi.json: %v", err)
@@ -99,7 +105,7 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 	})
 
 	t.Run("scalar_docs_renders_html_with_strict_csp", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+		req := localRequest("/docs")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -113,13 +119,57 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 			t.Fatalf("unexpected CSP header: %q", csp)
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, `data-url="/openapi.json?scope=mercadopago"`) || !strings.Contains(body, "@scalar/api-reference") {
+		if !strings.Contains(body, `data-url="/openapi.json?scope=all"`) || !strings.Contains(body, "hideTestRequestButton: true") {
 			t.Fatalf("Scalar HTML did not include expected data-url or script tag")
 		}
 	})
 
+	t.Run("full_and_admin_scopes", func(t *testing.T) {
+		for _, tc := range []struct {
+			path string
+			want []string
+			omit string
+		}{
+			{"/openapi.json", []string{"/admin/global/me", "/public/spaces", "/host/settlements"}, ""},
+			{"/openapi.json?scope=admin", []string{"/admin/global/me", "/document-verification/reviewer/cases"}, "/public/spaces"},
+		} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, localRequest(tc.path))
+			var doc struct{ Paths map[string]any }
+			if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+				t.Fatalf("could not read %s: status %d", tc.path, rec.Code)
+			}
+			for _, path := range tc.want {
+				if doc.Paths[path] == nil {
+					t.Errorf("%s missing from %s", path, tc.path)
+				}
+			}
+			if tc.omit != "" && doc.Paths[tc.omit] != nil {
+				t.Errorf("%s leaked into %s", tc.omit, tc.path)
+			}
+		}
+	})
+
+	t.Run("docs_and_specs_require_direct_loopback", func(t *testing.T) {
+		for _, path := range []string{"/docs", "/openapi.json", "/openapi.yaml"} {
+			for _, change := range []func(*http.Request){
+				func(r *http.Request) { r.Host = "public.example.test" },
+				func(r *http.Request) { r.RemoteAddr = "203.0.113.1:42000" },
+				func(r *http.Request) { r.Header.Set("X-Forwarded-Host", "public.example.test") },
+			} {
+				req := localRequest(path)
+				change(req)
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, req)
+				if rec.Code != http.StatusNotFound {
+					t.Errorf("%s returned %d", path, rec.Code)
+				}
+			}
+		}
+	})
+
 	t.Run("invalid_scope_rejected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/openapi.json?scope=unknown", nil)
+		req := localRequest("/openapi.json?scope=unknown")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {

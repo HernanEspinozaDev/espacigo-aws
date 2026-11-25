@@ -11,6 +11,7 @@ import type {
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
+  ListingCreateInput,
   ListingState,
   ListingSummary,
   ManualAvailabilityBlock,
@@ -506,7 +507,7 @@ export class HostListingsFacade {
   }
 
   async createDraft(
-    input: ListingDraftInput,
+    input: ListingCreateInput,
     idempotencyKey?: string,
   ): Promise<ListingDetail> {
     if (

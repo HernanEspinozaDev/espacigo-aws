@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-type Service struct{ repo Repository }
+type Service struct {
+	repo               Repository
+	locationBoundaries LocationBoundaryChecker
+	locationCatalog    LocationCatalog
+}
 
 func NewService(repo Repository) (*Service, error) {
 	if repo == nil {
@@ -47,6 +51,56 @@ func (s *Service) Create(ctx context.Context, owner string, in Input) (Draft, er
 	}
 	return s.repo.Create(ctx, owner, in)
 }
+
+// CreateWithLocation validates a canonical map pin before the repository writes
+// the draft and its location in one database transaction.
+func (s *Service) CreateWithLocation(ctx context.Context, owner string, in CreateInput) (Draft, error) {
+	if !validOwner(owner) {
+		return Draft{}, ErrInvalid
+	}
+	loc := in.Location
+	if !in.LocationPublicConfirmedProvided {
+		return Draft{}, NewValidationError([]FieldError{{Field: "location.public_confirmed", Code: "required"}})
+	}
+	if fields := loc.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
+	}
+	if loc.Latitude == nil || loc.Longitude == nil || loc.RegionCode == "" || loc.CommuneCode == "" {
+		return Draft{}, NewValidationError([]FieldError{{Field: "location.latitude", Code: "required"}, {Field: "location.longitude", Code: "required"}, {Field: "location.region_code", Code: "required"}, {Field: "location.comuna_code", Code: "required"}})
+	}
+	if err := s.ResolvePin(ctx, *loc.Latitude, *loc.Longitude, loc.RegionCode, loc.CommuneCode); err != nil {
+		return Draft{}, err
+	}
+	base := Input{CategoryCode: in.CategoryCode, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, CancellationPolicyVersion: in.CancellationPolicyVersion, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: loc.Address, RegionCode: loc.RegionCode, CommuneCode: loc.CommuneCode, IsB2B: in.IsB2B, AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
+	if fields := base.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
+	}
+	profile, err := s.repo.Profile(ctx, base.CategoryCode, 0)
+	if errors.Is(err, ErrNotFound) {
+		return Draft{}, NewValidationError([]FieldError{{Field: "category_code", Code: "invalid_value"}})
+	}
+	if err != nil {
+		return Draft{}, err
+	}
+	if base.AttributeSchemaVersion != 0 && profile.SchemaVersion != base.AttributeSchemaVersion {
+		return Draft{}, NewValidationError([]FieldError{{Field: "attribute_schema_version", Code: "invalid_value"}})
+	}
+	if fields := profile.AttributeFieldErrorsForArea(base.Attributes, base.AreaM2); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
+	}
+	base.AttributeSchemaVersion = profile.SchemaVersion
+	if base.Attributes == nil {
+		base.Attributes = map[string]any{}
+	}
+	type creator interface {
+		CreateWithLocation(context.Context, string, Input, LocationInput) (Draft, error)
+	}
+	r, ok := s.repo.(creator)
+	if !ok {
+		return Draft{}, errors.New("spaces: atomic location creation repository required")
+	}
+	return r.CreateWithLocation(ctx, owner, base, loc)
+}
 func (s *Service) ListOwn(ctx context.Context, owner string) ([]Draft, error) {
 	if !validOwner(owner) {
 		return nil, ErrInvalid
@@ -63,12 +117,21 @@ func (s *Service) UpdateOwnIfRevision(ctx context.Context, owner, id string, exp
 	if !validOwner(owner) || !validID(id) {
 		return Draft{}, ErrNotFound
 	}
-	if fields := in.FieldErrors(); len(fields) != 0 {
-		return Draft{}, NewValidationError(fields)
-	}
 	existing, err := s.repo.GetOwn(ctx, owner, id)
 	if err != nil {
 		return Draft{}, err
+	}
+	if !in.AddressProvided && in.Address == "" {
+		in.Address = existing.Address
+	}
+	if !in.RegionCodeProvided && in.RegionCode == "" && existing.RegionCode != nil {
+		in.RegionCode = *existing.RegionCode
+	}
+	if !in.CommuneCodeProvided && in.CommuneCode == "" && existing.CommuneCode != nil {
+		in.CommuneCode = *existing.CommuneCode
+	}
+	if fields := in.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
 	}
 	version := in.AttributeSchemaVersion
 	if version == 0 {
@@ -105,14 +168,23 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	if !validOwner(owner) || !validID(id) {
 		return Draft{}, ErrNotFound
 	}
-	if fields := in.FieldErrors(); len(fields) != 0 {
-		return Draft{}, NewValidationError(fields)
-	}
 	// Existing drafts stay on their saved schema. A client may explicitly
 	// select a different category/profile, but we never silently upgrade it.
 	existing, err := s.repo.GetOwn(ctx, owner, id)
 	if err != nil {
 		return Draft{}, err
+	}
+	if !in.AddressProvided && in.Address == "" {
+		in.Address = existing.Address
+	}
+	if !in.RegionCodeProvided && in.RegionCode == "" && existing.RegionCode != nil {
+		in.RegionCode = *existing.RegionCode
+	}
+	if !in.CommuneCodeProvided && in.CommuneCode == "" && existing.CommuneCode != nil {
+		in.CommuneCode = *existing.CommuneCode
+	}
+	if fields := in.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
 	}
 	version := in.AttributeSchemaVersion
 	if version == 0 {

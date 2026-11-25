@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -28,25 +27,6 @@ func TestPostgresEarlyRentalLocalProcessorPayment(t *testing.T) {
 	dsn := url.String()
 	grantEarlyOfferReadColumns(t, ctx, dsn)
 	admin := connectEarlyReadAdmin(t, ctx, dsn)
-	migration, err := os.ReadFile("../../../../db/migrations/V000100__early_rental_local_payment.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := pgx.BeginFunc(ctx, admin, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `GRANT CREATE ON SCHEMA public TO espacigo_schema_owner`); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, string(migration)); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `RESET ROLE`); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, `REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner`)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := admin.Exec(ctx, `GRANT UPDATE (tipo, expira_en) ON TABLE public.ocupacion TO espacigo_runtime`); err != nil {
 		t.Fatal(err)
 	}

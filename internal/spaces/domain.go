@@ -1,24 +1,32 @@
 package spaces
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 )
 
 var (
-	ErrInvalid             = errors.New("spaces: invalid draft")
-	ErrNotFound            = errors.New("spaces: draft not found")
-	ErrPublicationConflict = errors.New("spaces: publication state conflict")
-	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
-	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
-	ErrKYBRequired         = errors.New("spaces: approved KYB verification required before B2B publication")
-	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
-	ErrPreconditionFailed  = errors.New("spaces: draft revision precondition failed")
+	ErrInvalid                  = errors.New("spaces: invalid draft")
+	ErrNotFound                 = errors.New("spaces: draft not found")
+	ErrPublicationConflict      = errors.New("spaces: publication state conflict")
+	ErrEnabledFixture           = errors.New("spaces: enabled synthetic fixture prevents publication transition")
+	ErrTimeZoneRequired         = errors.New("spaces: valid IANA time zone required before publication")
+	ErrKYBRequired              = errors.New("spaces: approved KYB verification required before B2B publication")
+	ErrLocationRequired         = errors.New("spaces: confirmed commercial location required before first publication")
+	ErrIdentityRequired         = errors.New("spaces: approved identity verification required before publication")
+	ErrMercadoPagoRequired      = errors.New("spaces: active Mercado Pago seller connection required before publication")
+	ErrContractTemplateRequired = errors.New("spaces: published contract template required before publication")
+	ErrDeleteBlocked            = errors.New("spaces: publication has open obligations")
+	ErrPreconditionFailed       = errors.New("spaces: draft revision precondition failed")
 )
 
 // FieldError exposes only a stable field path and local validation code. It
@@ -45,56 +53,128 @@ func NewValidationError(details []FieldError) error {
 }
 
 type Draft struct {
-	ID                     string         `json:"id"`
-	CategoryCode           string         `json:"category_code"`
-	CategoryName           string         `json:"category_name"`
-	Title                  string         `json:"title"`
-	Description            string         `json:"description"`
-	AreaM2                 float64        `json:"area_m2"`
-	Capacity               int32          `json:"capacity"`
-	UsageRules             string         `json:"usage_rules"`
-	RateUnit               string         `json:"rate_unit"`
-	BasePriceCLP           int64          `json:"base_price_clp"`
-	Address                string         `json:"address"`
-	State                  string         `json:"state"`
-	TimeZone               *string        `json:"time_zone,omitempty"`
-	RegionCode             *string        `json:"region_code,omitempty"`
-	CommuneCode            *string        `json:"comuna_code,omitempty"`
-	OrganizationID         string         `json:"organization_id,omitempty"`
-	IsB2B                  bool           `json:"is_b2b"`
-	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
-	AttributeSchemaVersion int            `json:"attribute_schema_version"`
-	Attributes             map[string]any `json:"attributes"`
-	UpdatedAt              time.Time      `json:"-"`
+	ID                        string         `json:"id"`
+	CategoryCode              string         `json:"category_code"`
+	CategoryName              string         `json:"category_name"`
+	Title                     string         `json:"title"`
+	Description               string         `json:"description"`
+	AreaM2                    float64        `json:"area_m2"`
+	Capacity                  int32          `json:"capacity"`
+	UsageRules                string         `json:"usage_rules"`
+	CancellationPolicyVersion *string        `json:"cancellation_policy_version,omitempty"`
+	RateUnit                  string         `json:"rate_unit"`
+	BasePriceCLP              int64          `json:"base_price_clp"`
+	Address                   string         `json:"address"`
+	State                     string         `json:"state"`
+	TimeZone                  *string        `json:"time_zone,omitempty"`
+	RegionCode                *string        `json:"region_code,omitempty"`
+	CommuneCode               *string        `json:"comuna_code,omitempty"`
+	OrganizationID            string         `json:"organization_id,omitempty"`
+	IsB2B                     bool           `json:"is_b2b"`
+	CoverPhotoID              *string        `json:"cover_photo_id,omitempty"`
+	AttributeSchemaVersion    int            `json:"attribute_schema_version"`
+	Attributes                map[string]any `json:"attributes"`
+	UpdatedAt                 time.Time      `json:"-"`
 }
 
 type Input struct {
-	CategoryCode           string         `json:"category_code"`
-	Title                  string         `json:"title"`
-	Description            string         `json:"description"`
-	AreaM2                 float64        `json:"area_m2"`
-	Capacity               int32          `json:"capacity"`
-	UsageRules             string         `json:"usage_rules"`
-	RateUnit               string         `json:"rate_unit"`
-	BasePriceCLP           int64          `json:"base_price_clp"`
-	Address                string         `json:"address"`
-	RegionCode             string         `json:"region_code,omitempty"`
-	CommuneCode            string         `json:"comuna_code,omitempty"`
-	IsB2B                  *bool          `json:"is_b2b,omitempty"`
-	AttributeSchemaVersion int            `json:"attribute_schema_version,omitempty"`
-	Attributes             map[string]any `json:"attributes,omitempty"`
+	CategoryCode              string         `json:"category_code"`
+	Title                     string         `json:"title"`
+	Description               string         `json:"description"`
+	AreaM2                    float64        `json:"area_m2"`
+	Capacity                  int32          `json:"capacity"`
+	UsageRules                string         `json:"usage_rules"`
+	CancellationPolicyVersion *string        `json:"cancellation_policy_version,omitempty"`
+	RateUnit                  string         `json:"rate_unit"`
+	BasePriceCLP              int64          `json:"base_price_clp"`
+	Address                   string         `json:"address"`
+	RegionCode                string         `json:"region_code,omitempty"`
+	CommuneCode               string         `json:"comuna_code,omitempty"`
+	IsB2B                     *bool          `json:"is_b2b,omitempty"`
+	AttributeSchemaVersion    int            `json:"attribute_schema_version,omitempty"`
+	Attributes                map[string]any `json:"attributes,omitempty"`
+	AddressProvided           bool           `json:"-"`
+	RegionCodeProvided        bool           `json:"-"`
+	CommuneCodeProvided       bool           `json:"-"`
+}
+
+func (i *Input) UnmarshalJSON(data []byte) error {
+	type plain Input
+	var v plain
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&v); err != nil {
+		return err
+	}
+	if d.Decode(new(any)) != io.EOF {
+		return errors.New("spaces: invalid input JSON")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*i = Input(v)
+	_, i.AddressProvided = fields["address"]
+	_, i.RegionCodeProvided = fields["region_code"]
+	_, i.CommuneCodeProvided = fields["comuna_code"]
+	return nil
+}
+
+// CreateInput keeps location as one required, authoritative unit at creation.
+type CreateInput struct {
+	CategoryCode                    string         `json:"category_code"`
+	Title                           string         `json:"title"`
+	Description                     string         `json:"description"`
+	AreaM2                          float64        `json:"area_m2"`
+	Capacity                        int32          `json:"capacity"`
+	UsageRules                      string         `json:"usage_rules"`
+	CancellationPolicyVersion       *string        `json:"cancellation_policy_version,omitempty"`
+	RateUnit                        string         `json:"rate_unit"`
+	BasePriceCLP                    int64          `json:"base_price_clp"`
+	Location                        LocationInput  `json:"location"`
+	IsB2B                           *bool          `json:"is_b2b,omitempty"`
+	AttributeSchemaVersion          int            `json:"attribute_schema_version,omitempty"`
+	Attributes                      map[string]any `json:"attributes,omitempty"`
+	LocationPublicConfirmedProvided bool           `json:"-"`
+}
+
+func (i *CreateInput) UnmarshalJSON(data []byte) error {
+	type plain CreateInput
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.DisallowUnknownFields()
+	var v plain
+	if err := d.Decode(&v); err != nil {
+		return err
+	}
+	if d.Decode(new(any)) != io.EOF {
+		return errors.New("spaces: invalid create JSON")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	var location map[string]json.RawMessage
+	if raw, ok := fields["location"]; ok {
+		if err := json.Unmarshal(raw, &location); err != nil {
+			return err
+		}
+	}
+	*i = CreateInput(v)
+	_, i.LocationPublicConfirmedProvided = location["public_confirmed"]
+	return nil
 }
 
 // PublishedContentInput limits edits of an existing local publication to
 // supported listing details. Nil means that field is unchanged.
 type PublishedContentInput struct {
-	Title        *string `json:"title,omitempty"`
-	Description  *string `json:"description,omitempty"`
-	Capacity     *int32  `json:"capacity,omitempty"`
-	UsageRules   *string `json:"usage_rules,omitempty"`
-	BasePriceCLP *int64  `json:"base_price_clp,omitempty"`
-	RegionCode   *string `json:"region_code,omitempty"`
-	CommuneCode  *string `json:"comuna_code,omitempty"`
+	Title                     *string `json:"title,omitempty"`
+	Description               *string `json:"description,omitempty"`
+	Capacity                  *int32  `json:"capacity,omitempty"`
+	UsageRules                *string `json:"usage_rules,omitempty"`
+	CancellationPolicyVersion *string `json:"cancellation_policy_version,omitempty"`
+	BasePriceCLP              *int64  `json:"base_price_clp,omitempty"`
+	RegionCode                *string `json:"region_code,omitempty"`
+	CommuneCode               *string `json:"comuna_code,omitempty"`
 }
 
 const PublicLocationCatalogVersion = "SUBDERE_DPA_2018"
@@ -120,7 +200,7 @@ func (i PublishedContentInput) Validate() error {
 
 func (i PublishedContentInput) FieldErrors() []FieldError {
 	var fields []FieldError
-	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
+	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.CancellationPolicyVersion == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
 		return []FieldError{{Field: "title", Code: "required"}}
 	}
 	if i.Title != nil {
@@ -130,9 +210,6 @@ func (i PublishedContentInput) FieldErrors() []FieldError {
 			fields = append(fields, FieldError{Field: "title", Code: "max_length"})
 		}
 	}
-	if i.Description != nil && len([]rune(strings.TrimSpace(*i.Description))) < 100 {
-		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
-	}
 	if i.Capacity != nil && *i.Capacity <= 0 {
 		fields = append(fields, FieldError{Field: "capacity", Code: "minimum"})
 	}
@@ -141,6 +218,11 @@ func (i PublishedContentInput) FieldErrors() []FieldError {
 			fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
 		} else if len([]rune(*i.UsageRules)) > 250 {
 			fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+		}
+	}
+	if i.CancellationPolicyVersion != nil {
+		if _, ok := commercialpolicy.ByVersion(*i.CancellationPolicyVersion); !ok {
+			fields = append(fields, FieldError{Field: "cancellation_policy_version", Code: "invalid_value"})
 		}
 	}
 	if i.BasePriceCLP != nil && *i.BasePriceCLP < 1000 {
@@ -177,9 +259,6 @@ func (i Input) FieldErrors() []FieldError {
 	} else if len([]rune(i.Title)) > 70 {
 		fields = append(fields, FieldError{Field: "title", Code: "max_length"})
 	}
-	if len([]rune(strings.TrimSpace(i.Description))) < 100 {
-		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
-	}
 	areaCents := i.AreaM2 * 100
 	if math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) {
 		fields = append(fields, FieldError{Field: "area_m2", Code: "invalid_value"})
@@ -197,6 +276,11 @@ func (i Input) FieldErrors() []FieldError {
 		fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
 	} else if len([]rune(i.UsageRules)) > 250 {
 		fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+	}
+	if i.CancellationPolicyVersion != nil {
+		if _, ok := commercialpolicy.ByVersion(*i.CancellationPolicyVersion); !ok {
+			fields = append(fields, FieldError{Field: "cancellation_policy_version", Code: "invalid_value"})
+		}
 	}
 	if i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes" {
 		fields = append(fields, FieldError{Field: "rate_unit", Code: "invalid_value"})

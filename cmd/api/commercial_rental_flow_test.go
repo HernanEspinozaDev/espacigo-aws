@@ -93,3 +93,37 @@ func TestPublicAvailabilityMountDoesNotExposeCommercialRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestCommercialContractModeAndCapabilitiesUseSameActivation(t *testing.T) {
+	cases := []struct {
+		value          string
+		commercialFlow bool
+		enabled        bool
+		invalid        bool
+	}{
+		{value: "", commercialFlow: true},
+		{value: "1", commercialFlow: true, enabled: true},
+		{value: "1", invalid: true},
+		{value: "true", commercialFlow: true, invalid: true},
+	}
+	for _, tc := range cases {
+		enabled, err := commercialContractMode(func(key string) string {
+			if key != "COMMERCIAL_CONTRACTS_ENABLED" {
+				t.Fatalf("unexpected configuration read %q", key)
+			}
+			return tc.value
+		}, tc.commercialFlow)
+		if enabled != tc.enabled || (err != nil) != tc.invalid {
+			t.Fatalf("mode(%q, %t) = (%t, %v)", tc.value, tc.commercialFlow, enabled, err)
+		}
+	}
+
+	mux := http.NewServeMux()
+	mountCommercialContractCapabilities(mux, true)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/rental-contract-capabilities", nil))
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" ||
+		response.Body.String() != "{\"data\":{\"manual_contracts_enabled\":true}}\n" {
+		t.Fatalf("unexpected public contract capabilities: status=%d body=%s", response.Code, response.Body.String())
+	}
+}

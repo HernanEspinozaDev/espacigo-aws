@@ -504,6 +504,13 @@ Resources:
                     - ${Arn}/*
                     - Arn:
                         Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
+        - PolicyName: amazon-location-places-geocode
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: geo-places:Geocode
+                Resource: !Sub 'arn:aws:geo-places:${AWS::Region}::provider/default'
 
   # ============================================================================
   # 4. NLB + TLS 443
@@ -582,6 +589,8 @@ Resources:
               Value: 127.0.0.1:8080
             - Name: AWS_REGION
               Value: !Ref AWS::Region
+            - Name: AWS_PLACES_GEOCODING_ENABLED
+              Value: 'true'
             - Name: DATABASE_HOST
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
