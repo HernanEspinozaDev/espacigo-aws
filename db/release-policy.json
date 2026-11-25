@@ -32,6 +32,21 @@
       "requires_schema_owner": [
         "public.checkout_preferencia_comercial"
       ]
+    },
+    "V000007__perfil_identidad_didit.sql": {
+      "checksum": "293ffe55d77ca0ab67a2f9e4671357b2b34faaf6ec24876f740c5e9a0f511c70",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.usuario"
+      ]
+    },
+    "V000008__espacigo_pinpass.sql": {
+      "checksum": "995f44831f5553666b56169ec03a9340ffa9813fb3b171fe1bdf5b6caa4b3711",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.sesion",
+        "public.usuario"
+      ]
     }
   },
   "review_required_migrations": {

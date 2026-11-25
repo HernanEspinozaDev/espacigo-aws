@@ -68,10 +68,7 @@ JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio 
 LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=e.id AND f.habilitada AND g.es_sintetica
 WHERE (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$1 OR f.arrendatario_id=$1))
    OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$1 AND EXISTS(
-       SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-       JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-       JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))
+       SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified)))
 AND ($2::text='' OR e.categoria_codigo=$2)
 AND ($3::timestamptz IS NULL OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')))
 AND ($5::integer IS NULL OR (c.perfil_version=$5 AND c.valores @> $6::jsonb))
@@ -134,10 +131,7 @@ JOIN public.categoria_perfil_atributos p ON p.categoria_codigo=c.categoria_codig
 JOIN LATERAL(SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
 WHERE e.id=$1 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
  OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(
-       SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-       JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-       JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID, actor).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes)
+       SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified)))`, spaceID, actor).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.Price, &v.Currency, &v.TimeZone, &v.ProfileVersion, &v.Profile, &v.Attributes)
 	return v, mapErr(err)
 }
 
@@ -149,10 +143,7 @@ func (r *Repository) AvailableIntervals(ctx context.Context, actor, spaceID stri
 		SELECT 1 FROM public.espacio e LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 		WHERE e.id=$1 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND (f.anfitrion_id=$2 OR f.arrendatario_id=$2))
 		OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(
-			SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-			JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-			JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-			WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible'))))`, spaceID, actor).Scan(&authorized); err != nil {
+			SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified))))`, spaceID, actor).Scan(&authorized); err != nil {
 		return nil, err
 	}
 	if !authorized {
@@ -240,10 +231,7 @@ JOIN public.espacio_caracteristicas c ON c.espacio_id=e.id AND c.categoria_codig
 JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
 WHERE e.id=$2 AND e.zona_horaria IS NOT NULL AND (((f.habilitada AND e.estado='borrador') AND f.arrendatario_id=$1)
  OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$1 AND EXISTS(
-       SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-       JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-       JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))
+       SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified)))
 FOR SHARE OF e`, renter, spaceID, booking.LocalCancellationPolicyVersion).Scan(&q.SpaceID, &hostID, &renterID, &q.RateVersion, &q.RateUnit, &q.UnitPrice, &q.Currency, &q.TimeZone, &q.Conditions, &q.CategoryCode, &q.ProfileVersion, &q.ProfileValues, &q.CancellationPolicyVersion)
 	if err != nil {
 		return booking.Quote{}, mapErr(err)
@@ -367,26 +355,31 @@ func (r *Repository) Create(ctx context.Context, renter, quoteID, key string, fi
 	if err = requireUnblockedAccounts(ctx, tx, renter, quoteHost); err != nil {
 		return booking.Reservation{}, err
 	}
-	if err = requireLocalKYCEligibility(ctx, tx, renter, quoteHost); err != nil {
-		return booking.Reservation{}, err
-	}
 	// Match the row lock used by UpdateOwn before validating the quoted tariff.
 	// Keeping this lock through commit makes the tariff check and occupancy
 	// creation serializable with a concurrent tariff update.
 	var lockedSpace string
-	err = tx.QueryRow(ctx, `SELECT e.id::text
+	var fixtureBooking bool
+	err = tx.QueryRow(ctx, `SELECT e.id::text, COALESCE(f.habilitada,false)
 FROM public.cotizacion_reserva_ensayo q
 JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id
 WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador'))
  OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(
-       SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-       JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-       JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-       WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))
-FOR SHARE OF e`, quoteID, renter).Scan(&lockedSpace)
+       SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified)))
+FOR SHARE OF e`, quoteID, renter).Scan(&lockedSpace, &fixtureBooking)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return booking.Reservation{}, err
+	}
+	if lockedSpace != "" {
+		if fixtureBooking {
+			err = requireLocalKYCEligibility(ctx, tx, renter, quoteHost)
+		} else {
+			err = requireVerifiedIdentity(ctx, tx, renter, quoteHost)
+		}
+		if err != nil {
+			return booking.Reservation{}, err
+		}
 	}
 	// Read the Backend clock only after idempotency and space locks have been
 	// acquired, so quote/start deadlines are revalidated after any lock wait.
@@ -415,7 +408,7 @@ EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q WHERE q.id=$1 AND q.arre
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q WHERE q.id=$1 AND q.arrendatario_id=$2 AND q.inicio>$3),
 NOT EXISTS(SELECT 1 FROM public.ocupacion o JOIN public.cotizacion_reserva_ensayo q ON q.espacio_id=o.espacio_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND o.activo AND o.intervalo && (SELECT tstzrange(inicio,termino,'[)') FROM public.cotizacion_reserva_ensayo WHERE id=$1)),
 EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN LATERAL(SELECT version,modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=q.espacio_id ORDER BY version DESC LIMIT 1)t ON true WHERE q.id=$1 AND q.arrendatario_id=$2 AND t.version=q.tarifa_version AND t.modalidad=q.modalidad AND t.precio_base_clp=q.precio_unitario_clp AND t.moneda=q.moneda),
-EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada' JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo' WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible'))))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent, &listingCurrent)
+EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified))))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent, &listingCurrent)
 	if err != nil {
 		return booking.Reservation{}, err
 	}
@@ -579,6 +572,9 @@ FROM public.reserva_ensayo_local r WHERE r.id=$1`, id).Scan(&guaranteeRequired, 
 			return booking.Reservation{}, err
 		}
 	} else {
+		if err := requireVerifiedIdentity(ctx, tx, v.HostID, v.RenterID); err != nil {
+			return booking.Reservation{}, err
+		}
 		_, err = tx.Exec(ctx, `UPDATE public.ocupacion SET expira_en=NULL WHERE reserva_id=$1 AND activo`, id)
 		if err != nil {
 			return booking.Reservation{}, err

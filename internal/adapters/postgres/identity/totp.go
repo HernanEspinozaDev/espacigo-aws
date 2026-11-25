@@ -12,6 +12,31 @@ import (
 
 var _ identity.TOTPRepository = (*IdentityRepository)(nil)
 
+// VerifyAuthenticatorCode uses the same replay counter as sign-in. The caller
+// must hold the account lock and commit the transaction before trusting the result.
+func VerifyAuthenticatorCode(ctx context.Context, tx pgx.Tx, keyring *identity.TOTPKeyring, account string, code identity.Secret, at time.Time) error {
+	repo := &IdentityRepository{tx: tx}
+	record, _, err := repo.GetTOTP(ctx, account)
+	if err != nil {
+		return err
+	}
+	if record == nil || record.EnabledAt == nil || record.KeyVersion == nil {
+		return identity.ErrTOTPInvalidCode
+	}
+	if keyring == nil {
+		return identity.ErrTOTPKeyringMissing
+	}
+	secret, err := keyring.Open(*record.KeyVersion, record.SecretCiphertext)
+	if err != nil {
+		return err
+	}
+	step, err := identity.ValidateTOTP(secret, string(code), at, record.LastVerifiedStep)
+	if err != nil {
+		return err
+	}
+	return repo.UpdateTOTPLastVerifiedStep(ctx, account, step)
+}
+
 func (r *IdentityRepository) GetTOTP(ctx context.Context, accountID string) (*identity.AccountTOTPRecord, int, error) {
 	dbtx := r.dbtx()
 	if dbtx == nil {

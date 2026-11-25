@@ -65,10 +65,7 @@ LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfit
 JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
 LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id
 WHERE e.id=$1 AND ((f.habilitada AND e.estado='borrador') OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND EXISTS(
-    SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
-    JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
-    JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-    WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit, &updated)
+    SELECT 1 FROM public.account_profile_identity_status(e.propietario_id,clock_timestamp()) WHERE verified)))`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit, &updated)
 	} else {
 		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad,e.actualizado_en
 FROM public.reserva_ensayo_local_fixture f

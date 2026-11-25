@@ -39,6 +39,200 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/account/identity-profile": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar el estado y los datos enmascarados del perfil propio */
+    get: operations["getOwnIdentityProfile"];
+    /**
+     * Validar y guardar el formulario completo de identidad
+     * @description Requiere clave de cifrado del perfil. Un RUN verificado queda ligado a la cuenta. Enviar RUN vacío para conservar el existente cuando el estado indica rut_locked.
+     */
+    put: operations["saveOwnIdentityProfile"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/identity-profile/draft": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Guardar un borrador cifrado del formulario de perfil
+     * @description El borrador admite campos parciales y no habilita la verificación.
+     */
+    patch: operations["saveOwnIdentityProfileDraft"];
+    trace?: never;
+  };
+  "/account/identity-profile/draft/restore": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Restaurar el borrador propio aún incompleto con la contraseña actual */
+    post: operations["restoreOwnIdentityProfileDraft"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/identity-profile/username": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Cambiar el nombre de usuario público */
+    patch: operations["changeOwnPublicUsername"];
+    trace?: never;
+  };
+  "/account/identity-profile/verification": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Iniciar o continuar la verificación de identidad
+     * @description Requiere perfil completo y Didit configurado en el entorno. El intento queda asociado a la revisión actual.
+     */
+    post: operations["startOwnProfileIdentityVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/identity-profile/verification/refresh": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Conciliar el resultado vigente de Didit para un intento pendiente
+     * @description Requiere Didit configurado. Las consultas al proveedor se limitan por intento.
+     */
+    post: operations["refreshOwnProfileIdentityVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/webhooks/profile-identity": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Recibir cambios de estado firmados por Didit
+     * @description Habilitado al configurar el proveedor. Usa firma Didit y comprueba aplicación, workflow, entorno e intento. La entrega duplicada no repite la transición.
+     */
+    post: operations["receiveProfileIdentityWebhook"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/pinpass": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar el estado del PIN y del permiso de esta sesión */
+    get: operations["getOwnPinpassStatus"];
+    /**
+     * Crear o sustituir el PIN propio con autenticación reciente
+     * @description Acepta contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos. El código TOTP se consume una sola vez.
+     */
+    put: operations["setOwnPinpass"];
+    post?: never;
+    /**
+     * Eliminar el PIN propio y revocar los permisos activos
+     * @description Requiere contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos.
+     */
+    delete: operations["resetOwnPinpass"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/pinpass/unlock": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Autorizar el acceso a datos propios en esta sesión por 15 minutos */
+    post: operations["unlockOwnSensitiveProfile"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/pinpass/reveal/{field}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Leer un dato sensible propio con permiso vigente */
+    get: operations["revealOwnSensitiveProfileField"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/host/settlements": {
     parameters: {
       query?: never;
@@ -2992,9 +3186,9 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Perfil solo del titular autenticado. La foto sintética se administra mediante /profile/photo. */
+    /** @description Perfil anterior del titular autenticado. El teléfono se devuelve enmascarado. La foto se administra mediante /profile/photo. */
     get: operations["getOwnProfile"];
-    /** @description Nombre visible y teléfono opcional de nueve dígitos según CU-07. */
+    /** @description Actualiza nombre visible y teléfono opcional del perfil anterior. Devuelve el teléfono enmascarado. */
     put: operations["updateOwnProfile"];
     post?: never;
     delete?: never;
@@ -4065,7 +4259,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar no requiere KYC ni documentos de identidad y no concede ni infiere roles. Solo cambia el estado local del espacio, sin abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
+    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
     put: operations["setOwnSpacePublicationState"];
     post?: never;
     delete?: never;
@@ -5543,6 +5737,55 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    IdentityProfileDraft: {
+      username?: string;
+      first_name?: string;
+      first_last_name?: string;
+      second_last_name?: string;
+      no_second_last_name?: boolean;
+      rut?: string;
+      date_of_birth?: string;
+      document_type?: string;
+      phone?: string;
+      consent?: boolean;
+    };
+    IdentityProfileInput: components["schemas"]["IdentityProfileDraft"] &
+      Record<string, never>;
+    IdentityProfileStatus: {
+      username?: string;
+      complete: boolean;
+      /** @enum {string} */
+      state:
+        | "incomplete"
+        | "ready"
+        | "in_progress"
+        | "in_review"
+        | "needs_correction"
+        | "verified"
+        | "expired"
+        | "revoked";
+      masked_email?: string;
+      masked_rut?: string;
+      masked_phone?: string;
+      /** Format: date-time */
+      verified_until?: string;
+      rut_locked: boolean;
+      draft_saved: boolean;
+    };
+    PinpassFactor:
+      | {
+          current_password?: $Write<string>;
+          otp_code?: $Write<string>;
+        }
+      | unknown
+      | unknown;
+    PinpassStatus: {
+      configured: boolean;
+      /** Format: date-time */
+      blocked_until?: string | null;
+      /** Format: date-time */
+      access_expires_at?: string | null;
+    };
     UserNotification: {
       /** Format: uuid */
       id: string;
@@ -9760,6 +10003,7 @@ export interface components {
     };
     Profile: {
       display_name: string;
+      /** @description Teléfono enmascarado. */
       phone?: string | null;
       /** Format: date-time */
       updated_at: string;
@@ -10626,6 +10870,530 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  getOwnIdentityProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado del perfil y del KYC de su revisión vigente. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description Estado de identidad no disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  saveOwnIdentityProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["IdentityProfileInput"];
+      };
+    };
+    responses: {
+      /** @description Perfil guardado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileStatus"];
+        };
+      };
+      /** @description Cuerpo inválido. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description Nombre de usuario ocupado o RUN verificado bloqueado. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Campos incompletos o con formato inválido. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Guardado del perfil no disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  saveOwnIdentityProfileDraft: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["IdentityProfileDraft"];
+      };
+    };
+    responses: {
+      /** @description Borrador guardado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Cuerpo inválido. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description Borrador no disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  restoreOwnIdentityProfileDraft: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          current_password: $Write<string>;
+        };
+      };
+    };
+    responses: {
+      /** @description Borrador propio para continuar la configuración inicial. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileDraft"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Reautenticación rechazada. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Sin borrador inicial disponible. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  changeOwnPublicUsername: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          username: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Nombre de usuario actualizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileStatus"];
+        };
+      };
+      /** @description Cuerpo inválido. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description Perfil incompleto o nombre ocupado. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Nombre inválido. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  startOwnProfileIdentityVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        "application/json": {
+          /** @description Ruta interna de retorno a la guía o al borrador del anfitrión. */
+          return_to?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description URL alojada por Didit para continuar la verificación. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: uri */
+            url: string;
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description Perfil incompleto o verificación ya resuelta o en revisión. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description La ruta opcional de retorno no está admitida. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Didit no está configurado o no está disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  refreshOwnProfileIdentityVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado privado del perfil después de consultar el intento. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      /** @description No se pudo conciliar el estado. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  receiveProfileIdentityWebhook: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Entrega aceptada. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Firma o sobre inválido. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Decisión pendiente de conciliación o almacenamiento no disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getOwnPinpassStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado privado de Pinpass. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PinpassStatus"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Pinpass no está disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  setOwnPinpass: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PinpassFactor"] & {
+          pin: $Write<string>;
+          confirmation: $Write<string>;
+        };
+      };
+    };
+    responses: {
+      /** @description PIN registrado y permisos anteriores revocados. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Configuración inválida. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description No se pudo validar la reautenticación. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Factor temporalmente bloqueado. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  resetOwnPinpass: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PinpassFactor"];
+      };
+    };
+    responses: {
+      /** @description PIN y permisos retirados. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description No se pudo validar la reautenticación. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Factor temporalmente bloqueado. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  unlockOwnSensitiveProfile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          pin: $Write<string>;
+        };
+      };
+    };
+    responses: {
+      /** @description Permiso temporal concedido. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: date-time */
+            access_expires_at: string;
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description PIN inválido. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Demasiados intentos. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  revealOwnSensitiveProfileField: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        field: "email" | "run" | "phone" | "legal_name" | "date_of_birth";
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Valor solicitado. La respuesta no se puede almacenar en caché. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** @enum {string} */
+            field: "email" | "run" | "phone" | "legal_name" | "date_of_birth";
+            value: string;
+            /** Format: date-time */
+            access_expires_at: string;
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Permiso inexistente o vencido. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Campo no configurado. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listHostSettlements: {
     parameters: {
       query: {

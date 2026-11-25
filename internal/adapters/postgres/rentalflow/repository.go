@@ -13,6 +13,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
+	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/google/uuid"
@@ -37,12 +38,14 @@ type TxBeginner interface {
 }
 
 type Repository struct {
-	contractsRequired bool
-	db                DB
-	beginner          TxBeginner
-	now               func() time.Time
-	newID             func() string
-	declarationKeys   verification.DeclarationOpener
+	contractsRequired       bool
+	db                      DB
+	beginner                TxBeginner
+	now                     func() time.Time
+	newID                   func() string
+	declarationKeys         verification.DeclarationOpener
+	profileKeys             profilekyc.Keyring
+	profileIdentityRequired bool
 }
 
 func NewRepository(db DB, beginner TxBeginner, now func() time.Time) (*Repository, error) {
@@ -54,6 +57,11 @@ func NewRepositoryWithDeclarationKeyring(db DB, beginner TxBeginner, now func() 
 		return nil, rentalflow.ErrInvalid
 	}
 	return &Repository{db: db, beginner: beginner, now: now, newID: func() string { return uuid.NewString() }, declarationKeys: keys}, nil
+}
+
+func (r *Repository) UseVerifiedIdentityProfile(keys profilekyc.Keyring) {
+	r.profileKeys = keys
+	r.profileIdentityRequired = true
 }
 
 func (r *Repository) PublicListing(ctx context.Context, spaceID string) (rentalflow.Listing, error) {
@@ -866,6 +874,22 @@ WHERE id = $1 AND (propietario_id = $2 OR arrendatario_id = $2)
 	}
 	if err := ctx.Err(); err != nil {
 		return rentalflow.ContractIdentity{}, err
+	}
+	if r.profileIdentityRequired {
+		if r.profileKeys == nil {
+			return rentalflow.ContractIdentity{}, rentalflow.ErrIdentityUnavailable
+		}
+		data, err := profilekyc.ReadVerified(ctx, tx, r.profileKeys, subjectID, asOf)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return rentalflow.ContractIdentity{}, rentalflow.ErrIdentityUnavailable
+		}
+		if err != nil {
+			return rentalflow.ContractIdentity{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return rentalflow.ContractIdentity{}, err
+		}
+		return rentalflow.ContractIdentity{SubjectID: subjectID, LegalName: data.LegalName(), RUT: data.RUT}, nil
 	}
 	if r.declarationKeys == nil {
 		return rentalflow.ContractIdentity{}, rentalflow.ErrIdentityUnavailable
