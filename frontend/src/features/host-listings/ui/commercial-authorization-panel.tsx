@@ -33,6 +33,7 @@ import {
 
 interface Props {
   readonly spaceId: string;
+  readonly contractPublishedVersion?: number;
 }
 
 function formatDateCl(date: Date): string {
@@ -88,11 +89,16 @@ function errorText(error: unknown): string {
   return "No se pudo completar la operación. Recarga el panel e inténtalo otra vez.";
 }
 
-export function CommercialAuthorizationPanel({ spaceId }: Props) {
+export function CommercialAuthorizationPanel({
+  spaceId,
+  contractPublishedVersion = 0,
+}: Props) {
   const [authorization, setAuthorization] =
     useState<CommercialAuthorization | null>(null);
   const [history, setHistory] = useState<CommercialAuthorizationEvent[]>([]);
-  const [publishedVersion, setPublishedVersion] = useState(0);
+  const [publishedVersion, setPublishedVersion] = useState(
+    contractPublishedVersion,
+  );
   const [consent, setConsent] = useState(false);
   const [otpChallenge, setOtpChallenge] =
     useState<CommercialAuthorizationOTPChallenge | null>(null);
@@ -106,10 +112,30 @@ export function CommercialAuthorizationPanel({ spaceId }: Props) {
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
+      if (!spaceId.trim()) {
+        setPublishedVersion(0);
+        setHistory([]);
+        setAuthorization(null);
+        setError("");
+        setLoading(false);
+        return;
+      }
+      setError("");
       try {
         const [template, events, current] = await Promise.all([
-          contractTemplateService.read(spaceId, signal),
-          commercialAuthorizationService.history(spaceId, signal),
+          contractTemplateService
+            .read(spaceId, signal)
+            .catch((cause: unknown) => {
+              if (cause instanceof ApiError && cause.status === 404)
+                return null;
+              throw cause;
+            }),
+          commercialAuthorizationService
+            .history(spaceId, signal)
+            .catch((cause: unknown) => {
+              if (cause instanceof ApiError && cause.status === 404) return [];
+              throw cause;
+            }),
           commercialAuthorizationService
             .current(spaceId, signal)
             .catch((cause: unknown) => {
@@ -118,7 +144,9 @@ export function CommercialAuthorizationPanel({ spaceId }: Props) {
               throw cause;
             }),
         ]);
-        setPublishedVersion(template.draft.published_version);
+        const nextPublished =
+          template?.draft.published_version ?? contractPublishedVersion;
+        setPublishedVersion(nextPublished);
         setHistory(events);
         setAuthorization(
           current && isCommercialAuthorization(current) && !current.revoked_at
@@ -131,7 +159,7 @@ export function CommercialAuthorizationPanel({ spaceId }: Props) {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [spaceId],
+    [spaceId, contractPublishedVersion],
   );
 
   useEffect(() => {
@@ -433,9 +461,11 @@ export function CommercialAuthorizationPanel({ spaceId }: Props) {
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
-                {publishedVersion < 1 && !loading
-                  ? "Publica una versión de la plantilla para habilitar la activación."
-                  : "Se enviará un código de verificación por correo para confirmar tu autorización."}
+                {!spaceId.trim() && !loading
+                  ? "Debes guardar el borrador y publicar tu contrato para habilitar la activación."
+                  : publishedVersion < 1 && !loading
+                    ? "Publica una versión de la plantilla para habilitar la activación."
+                    : "Se enviará un código de verificación por correo para confirmar tu autorización."}
               </p>
               <Button
                 type="button"
