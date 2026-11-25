@@ -14,6 +14,7 @@ import {
   Lock,
   RefreshCw,
   ShieldCheck,
+  UserRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/workspace/ui/button";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { apiClient } from "@/lib/api/client";
 import { isAbortError } from "@/lib/api/errors";
+import type { components } from "@/lib/api/generated/openapi";
 import { contractTemplateService } from "../contract-template-runtime";
 import {
   mercadoPagoReturnHref,
@@ -40,6 +42,8 @@ import { canPublishListing } from "../domain/validation";
 export interface PublishPrerequisitesSnapshot {
   readonly loading: boolean;
   readonly loaded: boolean;
+  readonly identityState?: components["schemas"]["IdentityProfileStatus"]["state"];
+  readonly profileComplete: boolean;
   readonly kycVerified: boolean;
   readonly mpConnected: boolean;
   readonly contractPublishedVersion: number;
@@ -72,6 +76,7 @@ export function usePublishPrerequisites({
     key: "",
     loading: false,
     loaded: false,
+    profileComplete: false,
     kycVerified: false,
     mpConnected: false,
     contractPublishedVersion: 0,
@@ -100,13 +105,15 @@ export function usePublishPrerequisites({
     const headers = { Authorization: `Bearer ${accessToken}` };
 
     async function load() {
+      let nextIdentityState: PublishPrerequisitesSnapshot["identityState"];
+      let nextProfileComplete = false;
       let nextKyc = false;
       let nextMp = false;
       let nextContractVersion = 0;
       let hadError = false;
 
       const kycPromise = apiClient
-        .GET("/verifications/eligibility", {
+        .GET("/account/identity-profile", {
           headers,
           signal: controller.signal,
         })
@@ -115,10 +122,9 @@ export function usePublishPrerequisites({
             hadError = true;
             return;
           }
-          const items = res.data?.items ?? [];
-          nextKyc = items.some(
-            (item) => item.type === "kyc" && item.eligible === true,
-          );
+          nextIdentityState = res.data?.state;
+          nextProfileComplete = res.data?.complete === true;
+          nextKyc = res.data?.state === "verified";
         })
         .catch((err: unknown) => {
           if (!isAbortError(err)) {
@@ -168,6 +174,8 @@ export function usePublishPrerequisites({
       const nextSnapshot: PublishPrerequisitesSnapshot = {
         loading: false,
         loaded: true,
+        identityState: nextIdentityState,
+        profileComplete: nextProfileComplete,
         kycVerified: nextKyc,
         mpConnected: nextMp,
         contractPublishedVersion: nextContractVersion,
@@ -197,6 +205,8 @@ export function usePublishPrerequisites({
   return {
     loading: isLoading,
     loaded,
+    identityState: result.identityState,
+    profileComplete: result.profileComplete,
     kycVerified: result.kycVerified,
     mpConnected: result.mpConnected,
     contractPublishedVersion: result.contractPublishedVersion,
@@ -274,9 +284,14 @@ export function PublishGuideChecklist({
   const effectiveSpaceId = spaceId ?? listing?.id ?? null;
   const draftCheck = listing ? canPublishListing(listing) : null;
 
-  const kycStatus: PublishGuideStepStatus = prerequisites.kycVerified
+  const profileStatus: PublishGuideStepStatus = prerequisites.profileComplete
     ? "completed"
     : "pending";
+  const kycStatus: PublishGuideStepStatus = prerequisites.kycVerified
+    ? "completed"
+    : prerequisites.profileComplete
+      ? "pending"
+      : "blocked";
 
   const mpStatus: PublishGuideStepStatus = prerequisites.mpConnected
     ? "completed"
@@ -304,7 +319,30 @@ export function PublishGuideChecklist({
 
   return (
     <ol className="space-y-3" aria-label="Pasos obligatorios para publicar">
-      {/* Paso 1: KYC */}
+      <li className="rounded-xl border p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <UserRound className="size-4 text-primary" aria-hidden="true" />
+              Paso 1 — Completa tu perfil
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Guarda tus datos obligatorios y elige tu nombre de usuario.
+            </p>
+          </div>
+          <StepStatusBadge status={profileStatus} />
+        </div>
+        {profileStatus === "pending" && (
+          <Button asChild size="sm" variant="outline" className="mt-3 gap-1.5">
+            <Link href={kycHref} onClick={onCloseModal}>
+              Completar mi perfil
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </Button>
+        )}
+      </li>
+
+      {/* Paso 2: KYC */}
       <li
         className={`rounded-xl border p-4 transition-colors ${
           kycStatus === "completed"
@@ -321,7 +359,7 @@ export function PublishGuideChecklist({
                   : "bg-amber-600 text-white"
               }`}
             >
-              1
+              2
             </div>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -330,18 +368,24 @@ export function PublishGuideChecklist({
                   aria-hidden="true"
                 />
                 <h3 className="text-sm font-semibold text-foreground">
-                  Paso 1 — Confirmar tu identidad (KYC)
+                  Paso 2 — Confirmar tu identidad (KYC)
                 </h3>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Debes tener tu verificación de identidad aprobada para publicar
-                espacios y celebrar contratos de arriendo.
+                {prerequisites.identityState === "in_review"
+                  ? "Tu verificación está en revisión."
+                  : prerequisites.identityState === "in_progress"
+                    ? "Continúa la verificación de identidad que empezaste."
+                    : prerequisites.identityState === "expired" ||
+                        prerequisites.identityState === "revoked"
+                      ? "Tu verificación ya no está vigente. Vuelve a verificarte."
+                      : "Debes tener tu identidad verificada para publicar y celebrar contratos de arriendo."}
               </p>
             </div>
           </div>
           <StepStatusBadge status={kycStatus} />
         </div>
-        {kycStatus !== "completed" && (
+        {kycStatus === "pending" && (
           <div className="mt-3 pl-10">
             <Button asChild size="sm" variant="default" className="gap-1.5">
               <Link href={kycHref} onClick={() => onCloseModal?.()}>
@@ -353,7 +397,7 @@ export function PublishGuideChecklist({
         )}
       </li>
 
-      {/* Paso 2: Borrador del espacio */}
+      {/* Paso 3: Borrador del espacio */}
       <li
         className={`rounded-xl border p-4 transition-colors ${
           draftStatus === "completed"
@@ -370,7 +414,7 @@ export function PublishGuideChecklist({
                   : "bg-amber-600 text-white"
               }`}
             >
-              2
+              3
             </div>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -379,7 +423,7 @@ export function PublishGuideChecklist({
                   aria-hidden="true"
                 />
                 <h3 className="text-sm font-semibold text-foreground">
-                  Paso 2 — Crear y completar borrador del espacio
+                  Paso 3 — Crear y completar borrador del espacio
                 </h3>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -437,7 +481,7 @@ export function PublishGuideChecklist({
         )}
       </li>
 
-      {/* Paso 3: Mercado Pago */}
+      {/* Paso 4: Mercado Pago */}
       <li
         className={`rounded-xl border p-4 transition-colors ${
           mpStatus === "completed"
@@ -458,7 +502,7 @@ export function PublishGuideChecklist({
                     : "bg-amber-600 text-white"
               }`}
             >
-              3
+              4
             </div>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -467,7 +511,7 @@ export function PublishGuideChecklist({
                   aria-hidden="true"
                 />
                 <h3 className="text-sm font-semibold text-foreground">
-                  Paso 3 — Sincronizar cuenta de Mercado Pago
+                  Paso 4 — Sincronizar cuenta de Mercado Pago
                 </h3>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -491,7 +535,7 @@ export function PublishGuideChecklist({
         )}
       </li>
 
-      {/* Paso 4: Plantilla de contrato publicada */}
+      {/* Paso 5: Plantilla de contrato publicada */}
       <li
         className={`rounded-xl border p-4 transition-colors ${
           contractStatus === "completed"
@@ -512,7 +556,7 @@ export function PublishGuideChecklist({
                     : "bg-amber-600 text-white"
               }`}
             >
-              4
+              5
             </div>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center gap-2">
@@ -521,7 +565,7 @@ export function PublishGuideChecklist({
                   aria-hidden="true"
                 />
                 <h3 className="text-sm font-semibold text-foreground">
-                  Paso 4 — Contrato listo (plantilla publicada)
+                  Paso 5 — Contrato listo (plantilla publicada)
                 </h3>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed">
@@ -570,12 +614,14 @@ export function PublishGuideChecklist({
 }
 
 const REASON_MESSAGES: Record<PublishGateReasonCode, string> = {
+  profile_incomplete:
+    "Para publicar, completa los datos de tu perfil en el Paso 1.",
   identity_verification_required:
-    "Para publicar este espacio primero debes confirmar tu identidad (KYC) en el Paso 1.",
+    "Para publicar este espacio primero debes confirmar tu identidad (KYC) en el Paso 2.",
   mercadopago_connection_required:
-    "Para publicar este espacio primero debes vincular tu cuenta de Mercado Pago en el Paso 2.",
+    "Para publicar este espacio primero debes vincular tu cuenta de Mercado Pago en el Paso 4.",
   contract_template_required:
-    "Para publicar este espacio primero debes configurar y publicar una versión de su plantilla de contrato en el Paso 4.",
+    "Para publicar este espacio primero debes configurar y publicar una versión de su plantilla de contrato en el Paso 5.",
   location_confirmation_required:
     "Confirma la dirección y el pin del espacio en el editor antes de publicar por primera vez.",
   time_zone_required:
@@ -621,7 +667,7 @@ export function PublishGuideModal({
             Guía para publicar espacio
           </DialogTitle>
           <DialogDescription>
-            Completa estos 4 pasos obligatorios en orden para activar tu espacio
+            Completa estos 5 pasos obligatorios en orden para activar tu espacio
             en el catálogo público de EspaciGo.
           </DialogDescription>
         </DialogHeader>

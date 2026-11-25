@@ -446,9 +446,7 @@ func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, 
 		return spaces.Draft{}, spaces.ErrEnabledFixture
 	}
 	if state == "activa" {
-		// Publication is independent of contractual identity and financial flows,
-		// but must not bypass an outstanding hand-back. Reception releases only
-		// the ended rental's exact occupation; other blocks remain untouched.
+		// Publication must respect outstanding hand-back obligations.
 		var pendingReturn bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(
 			SELECT 1 FROM public.reserva_ensayo_local r
@@ -515,23 +513,12 @@ func validIANAZone(zone *string) bool {
 // gates in order: verified KYC eligibility -> active Mercado Pago seller ->
 // published contract template (version_publicada >= 1).
 func requirePublicationPrerequisites(ctx context.Context, tx pgx.Tx, owner, spaceID string) error {
-	var kycReady bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1
-		FROM public.elegibilidad_verificacion_local e
-		JOIN public.verificacion v
-		  ON v.id = e.verificacion_id
-		 AND v.usuario_id = e.usuario_id
-		 AND v.tipo = e.tipo
-		JOIN public.usuario u
-		  ON u.id = e.usuario_id
-		WHERE e.usuario_id = $1
-		  AND e.tipo = 'kyc'
-		  AND e.estado = 'elegible'
-		  AND v.estado = 'aprobada'
-		  AND u.estado = 'activo'
-	)`, owner).Scan(&kycReady); err != nil {
+	var complete, kycReady bool
+	if err := tx.QueryRow(ctx, `SELECT complete,verified FROM public.account_profile_identity_status($1,clock_timestamp())`, owner).Scan(&complete, &kycReady); err != nil {
 		return err
+	}
+	if !complete {
+		return spaces.ErrProfileIncomplete
 	}
 	if !kycReady {
 		return spaces.ErrIdentityRequired

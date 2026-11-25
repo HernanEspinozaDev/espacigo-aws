@@ -13,8 +13,8 @@ func TestPublicVerificationSQLDerivesCurrentOwnerBadges(t *testing.T) {
 	}
 	text := string(source)
 	for _, fragment := range []string{
-		"identity_case.purpose='identity'",
-		"identity_case.subject_id=owner.id",
+		"account_profile_identity_status(owner.id,now())",
+		"SELECT p.username FROM public.account_identity_profile",
 		"space_case.purpose='space'",
 		"space_case.space_id=e.id",
 		"space_case.subject_id=owner.id",
@@ -73,10 +73,8 @@ func TestPublicVerificationSQLUsesLatestFinalizedDecision(t *testing.T) {
 		fragment string
 	}{
 		{
-			name: "identity",
-			fragment: "WHERE purpose='identity' AND subject_id=owner.id\n" +
-				"         AND state IN ('aprobada','revocada','vencida')\n" +
-				"       ORDER BY updated_at DESC,id DESC LIMIT 1",
+			name:     "identity",
+			fragment: "SELECT verified FROM public.account_profile_identity_status(owner.id,now())",
 		},
 		{
 			name: "space",

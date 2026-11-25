@@ -89,6 +89,13 @@ func newHandler(service *identity.AuthenticationService, terms identity.Authenti
 	}
 	return h
 }
+func maskedProfilePhone(phone *string) any {
+	if phone == nil {
+		return nil
+	}
+	return identity.MaskPhone(*phone)
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requestID, err := (credentials.Generator{}).ID()
 	if err != nil {
@@ -584,7 +591,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					h.privacyError(w, err)
 					return
 				}
-				h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": profile.Phone, "updated_at": profile.UpdatedAt.UTC()})
+				h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": maskedProfilePhone(profile.Phone), "updated_at": profile.UpdatedAt.UTC()})
 				return
 			}
 			var input struct {
@@ -599,7 +606,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.privacyError(w, err)
 				return
 			}
-			h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": profile.Phone, "updated_at": profile.UpdatedAt.UTC()})
+			h.write(w, http.StatusOK, map[string]any{"display_name": profile.Name, "phone": maskedProfilePhone(profile.Phone), "updated_at": profile.UpdatedAt.UTC()})
 			return
 		}
 		if r.Method == http.MethodGet {

@@ -4,6 +4,7 @@ const HOST_SPACES_RETURN_PATH_RE =
 export type PublishGuideStepStatus = "completed" | "pending" | "blocked";
 
 export type PublishGateReasonCode =
+  | "profile_incomplete"
   | "identity_verification_required"
   | "mercadopago_connection_required"
   | "contract_template_required"
@@ -25,8 +26,8 @@ export function safeHostReturnPath(
 export function verificationReturnHref(returnTo?: string | null): string {
   const safe = safeHostReturnPath(returnTo);
   return safe
-    ? `/mi-cuenta/verificaciones?return_to=${encodeURIComponent(safe)}`
-    : "/mi-cuenta/verificaciones";
+    ? `/mi-cuenta/perfil?return_to=${encodeURIComponent(safe)}#identity-verification`
+    : "/mi-cuenta/perfil#identity-verification";
 }
 
 export function mercadoPagoReturnHref(returnTo?: string | null): string {
@@ -40,6 +41,7 @@ export function isPublishGateReasonCode(
   code: unknown,
 ): code is PublishGateReasonCode {
   return (
+    code === "profile_incomplete" ||
     code === "identity_verification_required" ||
     code === "mercadopago_connection_required" ||
     code === "contract_template_required" ||

@@ -67,11 +67,14 @@ test("return-target allowlist keeps legacy dashboard bookmarks", async () => {
   }
 });
 
-test("verification return links to Mi cuenta using canonical wording", async () => {
+test("verification return refreshes profile identity without forwarding provider query values", async () => {
   const source = await readFile(
     resolve(root, "src/app/verificaciones/retorno/page.tsx"),
     "utf8",
   );
-  assert.match(source, /href="\/mi-cuenta"[\s\S]*?Volver a Mi cuenta/);
-  assert.doesNotMatch(source, /href="\/dashboard"[\s\S]*?Volver al panel/);
+  assert.match(source, /safeHostReturnPath\(return_to\)/);
+  assert.match(source, /refresh_identity=1/);
+  assert.match(source, /redirect\(destination\)/);
+  assert.doesNotMatch(source, /searchParams\.[a-z_]+/);
+  assert.doesNotMatch(source, /href="\/dashboard"/);
 });

@@ -21,6 +21,7 @@ var (
 	ErrEnabledFixture           = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 	ErrTimeZoneRequired         = errors.New("spaces: valid IANA time zone required before publication")
 	ErrLocationRequired         = errors.New("spaces: confirmed commercial location required before first publication")
+	ErrProfileIncomplete        = errors.New("spaces: complete profile required before publication")
 	ErrIdentityRequired         = errors.New("spaces: approved identity verification required before publication")
 	ErrMercadoPagoRequired      = errors.New("spaces: active Mercado Pago seller connection required before publication")
 	ErrContractTemplateRequired = errors.New("spaces: published contract template required before publication")

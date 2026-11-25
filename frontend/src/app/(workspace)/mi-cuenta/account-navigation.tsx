@@ -54,10 +54,10 @@ const items = [
     description: "Exportación y derechos",
   },
   {
-    title: "Verificaciones",
-    href: "/mi-cuenta/verificaciones",
+    title: "Verificar identidad",
+    href: "/mi-cuenta/perfil#identity-verification",
     icon: ShieldCheck,
-    description: "Verificación de usuario y espacios",
+    description: "Completa tu perfil y verifica tu identidad",
   },
   {
     title: "Revisión de identidad",

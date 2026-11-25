@@ -10,7 +10,7 @@ const generatedPaths = [
   new URL("../src/lib/api/generated/gateway-operations.ts", import.meta.url),
 ];
 
-test("external identity-provider routes and schemas are absent from OpenAPI", async () => {
+test("the new profile verification contract keeps the retired provider routes and payloads private", async () => {
   const providerPaths = Object.keys(spec.paths).filter((path) =>
     /didit/i.test(path),
   );
@@ -29,13 +29,22 @@ test("external identity-provider routes and schemas are absent from OpenAPI", as
   assert.deepEqual(providerPaths, []);
   assert.deepEqual(providerOperations, []);
   assert.deepEqual(providerSchemas, []);
+  assert.equal(
+    spec.paths["/webhooks/profile-identity"].post.operationId,
+    "receiveProfileIdentityWebhook",
+  );
+  assert.deepEqual(spec.paths["/webhooks/profile-identity"].post.security, []);
+  assert.equal(
+    spec.paths["/account/identity-profile/verification"].post.operationId,
+    "startOwnProfileIdentityVerification",
+  );
 
   for (const path of generatedPaths) {
     const generated = await readFile(path, "utf8");
     assert.doesNotMatch(
       generated,
-      /didit/i,
-      `${path.pathname} must not expose provider contracts`,
+      /["']\/(?:verifications\/didit|webhooks\/didit)(?:[/"'])|["'](?:session_token|x-api-key)["']/i,
+      `${path.pathname} must not expose legacy routes or provider credentials`,
     );
   }
 });
