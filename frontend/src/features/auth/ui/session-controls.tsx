@@ -10,6 +10,7 @@ import { useAccount } from "@/features/account/ui/use-account";
 import { NotificationBell } from "@/features/notifications/ui/notification-bell";
 import { useAuth } from "./use-auth";
 import { useSessionIdentity } from "./use-session-identity";
+import { useIdentityProfile } from "@/features/identity-profile/ui/use-identity-profile";
 
 export interface SessionControlsProps {
   variant: "workspace" | "public";
@@ -23,7 +24,8 @@ export function SessionControls({
   onNavigate,
 }: SessionControlsProps) {
   const router = useRouter();
-  const { status, accountId, label } = useSessionIdentity();
+  const { status, accountId } = useSessionIdentity();
+  const { snapshot: identityProfile } = useIdentityProfile();
   const { snapshot: accountSnapshot, loadProfilePhoto } = useAccount();
   const { logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -96,8 +98,13 @@ export function SessionControls({
   }
 
   if (status === "authenticated") {
+    const ownIdentity =
+      identityProfile.accountId === accountId ? identityProfile : null;
     const displayIdentity =
-      (label && label.length > 0 ? label : accountId) ?? "";
+      ownIdentity?.summary?.username ??
+      (ownIdentity?.loading || !ownIdentity
+        ? "Cargando perfil…"
+        : "Completa tu perfil");
     const profilePhoto = accountSnapshot.photoUrl;
     const avatar = (
       <span

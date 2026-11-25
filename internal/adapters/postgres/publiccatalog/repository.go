@@ -134,18 +134,7 @@ JOIN LATERAL (SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio
 JOIN public.usuario owner ON owner.id=e.propietario_id AND owner.estado='activo'
 LEFT JOIN LATERAL (
  SELECT
-   EXISTS (
-     SELECT 1 FROM (
-       SELECT * FROM public.document_verification_case
-       WHERE purpose='identity' AND subject_id=owner.id
-         AND state IN ('aprobada','revocada','vencida')
-       ORDER BY updated_at DESC,id DESC LIMIT 1
-     ) identity_case
-     WHERE identity_case.purpose='identity' AND identity_case.subject_id=owner.id
-       AND identity_case.state='aprobada' AND identity_case.verified_at<=now()
-       AND identity_case.verified_until>now() AND identity_case.document_expires_at>now()
-       AND identity_case.revoked_at IS NULL AND identity_case.superseded_at IS NULL
-   ) AS identity_verified,
+   COALESCE((SELECT verified FROM public.account_profile_identity_status(owner.id,now())),false) AS identity_verified,
    EXISTS (
      SELECT 1 FROM (
        SELECT * FROM public.document_verification_case
@@ -158,18 +147,7 @@ LEFT JOIN LATERAL (
        AND space_case.verified_at<=now() AND space_case.verified_until>now()
        AND space_case.document_expires_at>now() AND space_case.revoked_at IS NULL
        AND space_case.superseded_at IS NULL
-       AND EXISTS (
-         SELECT 1 FROM (
-           SELECT * FROM public.document_verification_case
-           WHERE purpose='identity' AND subject_id=owner.id
-             AND state IN ('aprobada','revocada','vencida')
-           ORDER BY updated_at DESC,id DESC LIMIT 1
-         ) identity_case
-         WHERE identity_case.purpose='identity' AND identity_case.subject_id=owner.id
-           AND identity_case.state='aprobada' AND identity_case.verified_at<=now()
-           AND identity_case.verified_until>now() AND identity_case.document_expires_at>now()
-           AND identity_case.revoked_at IS NULL AND identity_case.superseded_at IS NULL
-       )
+       AND COALESCE((SELECT verified FROM public.account_profile_identity_status(owner.id,now())),false)
    ) AS space_verified
 ) verification ON true
 LEFT JOIN public.region_publica r ON r.catalogo_version=e.ubicacion_catalogo_version AND r.codigo=e.region_codigo
@@ -459,7 +437,7 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
 const confirmedLocationSQL = `CASE WHEN e.ubicacion_confirmada_en IS NOT NULL THEN jsonb_build_object('address',CASE WHEN e.ubicacion_visibilidad='approximate' THEN COALESCE(NULLIF(concat_ws(', ',m.nombre,r.nombre),''),'Ubicación aproximada') ELSE e.direccion END,'latitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_latitud ELSE e.ubicacion_latitud END,'longitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_longitud ELSE e.ubicacion_longitud END,'visibility',COALESCE(e.ubicacion_visibilidad,'exact')) END`
 
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.nombre_visible FROM public.perfil_usuario p WHERE p.usuario_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint,e.politica_cancelacion_version` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.username FROM public.account_identity_profile p WHERE p.account_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint,e.politica_cancelacion_version` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {

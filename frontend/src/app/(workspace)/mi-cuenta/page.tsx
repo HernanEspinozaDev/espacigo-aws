@@ -15,12 +15,13 @@ import {
 } from "lucide-react";
 import { useAccount } from "@/features/account/ui/use-account";
 import { useAuth } from "@/features/auth/ui/use-auth";
-import { maskEmail, maskPhone } from "@/components/reveal-email";
 import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
+import { useIdentityProfile } from "@/features/identity-profile/ui/use-identity-profile";
 
 export default function MiCuentaPage() {
   const { snapshot, loadOverview, loadProfilePhoto } = useAccount();
   const { snapshot: authSnapshot } = useAuth();
+  const { snapshot: identityProfile } = useIdentityProfile();
   const { summary: securitySummary } = useSecurityMethodsSummary();
 
   useEffect(() => {
@@ -30,14 +31,13 @@ export default function MiCuentaPage() {
     }
   }, [authSnapshot.status, loadOverview, loadProfilePhoto]);
 
-  const profile = snapshot.profile;
-  const displayName = profile?.displayName?.trim() || "Usuario EspaciGo";
-  const rawEmail =
-    (profile as { email?: string } | null)?.email || "usuario@espacigo.cl";
-  const maskedUserEmail = maskEmail(rawEmail);
-  const maskedUserPhone = profile?.phone
-    ? maskPhone(profile.phone)
-    : "No configurado";
+  const displayName =
+    identityProfile.summary?.username?.trim() ||
+    (identityProfile.loading ? "Cargando perfil…" : "Completa tu perfil");
+  const maskedUserEmail =
+    identityProfile.summary?.masked_email || "Oculto hasta completar el perfil";
+  const maskedUserPhone =
+    identityProfile.summary?.masked_phone || "No configurado";
 
   const initials =
     displayName
@@ -302,7 +302,7 @@ export default function MiCuentaPage() {
           </div>
           <div className="pt-4 mt-2">
             <Link
-              href="/mi-cuenta/verificaciones"
+              href="/mi-cuenta/perfil#identity-verification"
               className="w-full flex items-center justify-between text-xs font-semibold text-primary hover:text-primary/80 transition-colors py-1.5"
             >
               <span>Ver verificaciones</span>

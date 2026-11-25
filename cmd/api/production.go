@@ -26,7 +26,6 @@ import (
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
-	documentverificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documentverification"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
@@ -72,6 +71,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/platform/safelog"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
@@ -145,6 +145,10 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
+	identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, authService, cfg, getenv, true)
+	if err != nil {
+		return nil, err
+	}
 	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv)
 	if err != nil {
 		return nil, err
@@ -213,6 +217,7 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
+	commercialQuoteRepo.UseVerifiedIdentityProfile(profileKeys)
 	availability, err := rentalflow.NewAvailabilityService(commercialQuoteRepo, commercialQuoteRepo, time.Now)
 	if err != nil {
 		return nil, err
@@ -221,7 +226,7 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
-	identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+	identityVerifier, err := identityverification.NewService(identityProfiles)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +313,7 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 		}
 	}
 	startCommercialExpirySweeper(ctx, commercialQuoteRepo)
-	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
+	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer, identityProfiles); err != nil {
 		return nil, err
 	}
 	return authService, nil
@@ -505,15 +510,8 @@ func mountProductionAuth(
 		return nil, errors.New("production verification initialization failed")
 	}
 	baseVerificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins)
-	quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
-			handleQuickVerification(w, r, service, verificationService, verificationRepo)
-			return
-		}
-		baseVerificationHandler.ServeHTTP(w, r)
-	})
-	mux.Handle("/api/v1/verifications", quickVerificationHandler)
-	mux.Handle("/api/v1/verifications/", quickVerificationHandler)
+	mux.Handle("/api/v1/verifications", baseVerificationHandler)
+	mux.Handle("/api/v1/verifications/", baseVerificationHandler)
 	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService)
 	phoneSender, phoneKey, err := phoneDelivery(getenv, false)
 	if err != nil {
@@ -637,6 +635,7 @@ func mountProductionBookingFlow(
 	key []byte,
 	cfg config,
 	mailer identity.AuthenticationMailer,
+	identityProfiles *profilekyc.Service,
 ) error {
 	quoteTTL := 15 * time.Minute
 	payTTL := 15 * time.Minute
@@ -655,7 +654,7 @@ func mountProductionBookingFlow(
 		return errors.New("production booking service initialization failed")
 	}
 
-	identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+	identityVerifier, err := identityverification.NewService(identityProfiles)
 	if err != nil {
 		return errors.New("production identity verifier initialization failed")
 	}

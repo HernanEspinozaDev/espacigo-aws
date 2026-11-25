@@ -18,8 +18,7 @@ import {
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
-import { useAccount } from "@/features/account/ui/use-account";
-import { maskEmail, maskPhone } from "@/components/reveal-email";
+import { useIdentityProfile } from "@/features/identity-profile/ui/use-identity-profile";
 
 interface MethodConfig {
   title: string;
@@ -141,14 +140,10 @@ export default function MetodoDetallePage() {
     technicalDetails: "Arquitectura segura conforme a la norma ISO/IEC 27001.",
   };
 
-  const { snapshot } = useAccount();
-  const profile = snapshot.profile;
-  const rawEmail =
-    (profile as { email?: string } | null)?.email || "usuario@espacigo.cl";
-  const maskedEmailValue = maskEmail(rawEmail);
-  const maskedPhoneValue = profile?.phone
-    ? maskPhone(profile.phone)
-    : "+56 •••• 5678";
+  const { snapshot } = useIdentityProfile();
+  const maskedEmailValue =
+    snapshot.summary?.masked_email ?? "Correo no disponible";
+  const maskedPhoneValue = snapshot.summary?.masked_phone ?? "No configurado";
 
   const Icon = config.icon;
 

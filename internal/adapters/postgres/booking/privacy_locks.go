@@ -68,6 +68,21 @@ func requireLocalKYCEligibility(ctx context.Context, tx pgx.Tx, ids ...string) e
 	return nil
 }
 
+// Call after acquiring the locks of all participants.
+func requireVerifiedIdentity(ctx context.Context, tx pgx.Tx, ids ...string) error {
+	for _, id := range ids {
+		var verified bool
+		err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT verified FROM public.account_profile_identity_status($1,clock_timestamp())),false)`, id).Scan(&verified)
+		if err != nil {
+			return err
+		}
+		if !verified {
+			return booking.ErrIdentityVerificationRequired
+		}
+	}
+	return nil
+}
+
 func lockReservationParties(ctx context.Context, tx pgx.Tx, reservationID string) error {
 	var hostID, renterID string
 	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&hostID, &renterID); err != nil {

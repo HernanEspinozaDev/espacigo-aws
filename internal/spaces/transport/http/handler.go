@@ -828,6 +828,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
 	case errors.Is(e, spaces.ErrLocationRequired):
 		failure(w, 409, "location_confirmation_required", "Confirma la dirección y el pin públicos antes de publicar por primera vez.")
+	case errors.Is(e, spaces.ErrProfileIncomplete):
+		failure(w, 409, "profile_incomplete", "Completa los datos de tu perfil antes de publicar el espacio.")
 	case errors.Is(e, spaces.ErrIdentityRequired):
 		failure(w, 409, "identity_verification_required", "Confirma tu verificación de identidad (KYC) antes de publicar el espacio.")
 	case errors.Is(e, spaces.ErrMercadoPagoRequired):

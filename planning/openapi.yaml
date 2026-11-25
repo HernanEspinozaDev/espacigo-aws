@@ -66,6 +66,266 @@ tags:
   - name: Operational notices
     description: Avisos operativos heredados y recuperación de entrega.
 paths:
+  /account/identity-profile:
+    get:
+      operationId: getOwnIdentityProfile
+      tags: [Account, Identity verification]
+      summary: Consultar el estado y los datos enmascarados del perfil propio
+      responses:
+        "200":
+          description: Estado del perfil y del KYC de su revisión vigente.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { description: Estado de identidad no disponible. }
+    put:
+      operationId: saveOwnIdentityProfile
+      tags: [Account, Identity verification]
+      summary: Validar y guardar el formulario completo de identidad
+      description: Requiere clave de cifrado del perfil. Un RUN verificado queda ligado a la cuenta. Enviar RUN vacío para conservar el existente cuando el estado indica rut_locked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityProfileInput" }
+      responses:
+        "200":
+          description: Perfil guardado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileStatus" }
+        "400": { description: Cuerpo inválido. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Nombre de usuario ocupado o RUN verificado bloqueado. }
+        "422": { description: Campos incompletos o con formato inválido. }
+        "503": { description: Guardado del perfil no disponible. }
+  /account/identity-profile/draft:
+    patch:
+      operationId: saveOwnIdentityProfileDraft
+      tags: [Account]
+      summary: Guardar un borrador cifrado del formulario de perfil
+      description: El borrador admite campos parciales y no habilita la verificación.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityProfileDraft" }
+      responses:
+        "200": { description: Borrador guardado. }
+        "400": { description: Cuerpo inválido. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { description: Borrador no disponible. }
+  /account/identity-profile/draft/restore:
+    post:
+      operationId: restoreOwnIdentityProfileDraft
+      tags: [Account]
+      summary: Restaurar el borrador propio aún incompleto con la contraseña actual
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string, writeOnly: true }
+      responses:
+        "200":
+          description: Borrador propio para continuar la configuración inicial.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileDraft" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Reautenticación rechazada. }
+        "409": { description: Sin borrador inicial disponible. }
+  /account/identity-profile/username:
+    patch:
+      operationId: changeOwnPublicUsername
+      tags: [Account]
+      summary: Cambiar el nombre de usuario público
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username]
+              properties:
+                username: { type: string, pattern: '^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$' }
+      responses:
+        "200":
+          description: Nombre de usuario actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileStatus" }
+        "400": { description: Cuerpo inválido. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Perfil incompleto o nombre ocupado. }
+        "422": { description: Nombre inválido. }
+  /account/identity-profile/verification:
+    post:
+      operationId: startOwnProfileIdentityVerification
+      tags: [Account, Identity verification]
+      summary: Iniciar o continuar la verificación de identidad
+      description: Requiere perfil completo y Didit configurado en el entorno. El intento queda asociado a la revisión actual.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                return_to: { type: string, description: Ruta interna de retorno a la guía o al borrador del anfitrión. }
+      responses:
+        "201":
+          description: URL alojada por Didit para continuar la verificación.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string, format: uri }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Perfil incompleto o verificación ya resuelta o en revisión. }
+        "422": { description: La ruta opcional de retorno no está admitida. }
+        "503": { description: Didit no está configurado o no está disponible. }
+  /account/identity-profile/verification/refresh:
+    post:
+      operationId: refreshOwnProfileIdentityVerification
+      tags: [Account, Identity verification]
+      summary: Conciliar el resultado vigente de Didit para un intento pendiente
+      description: Requiere Didit configurado. Las consultas al proveedor se limitan por intento.
+      responses:
+        "200":
+          description: Estado privado del perfil después de consultar el intento.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { description: No se pudo conciliar el estado. }
+  /webhooks/profile-identity:
+    post:
+      operationId: receiveProfileIdentityWebhook
+      tags: [Identity verification]
+      summary: Recibir cambios de estado firmados por Didit
+      description: Habilitado al configurar el proveedor. Usa firma Didit y comprueba aplicación, workflow, entorno e intento. La entrega duplicada no repite la transición.
+      security: []
+      responses:
+        "204": { description: Entrega aceptada. }
+        "400": { description: Firma o sobre inválido. }
+        "503": { description: Decisión pendiente de conciliación o almacenamiento no disponible. }
+  /account/security/pinpass:
+    get:
+      operationId: getOwnPinpassStatus
+      tags: [Account]
+      summary: Consultar el estado del PIN y del permiso de esta sesión
+      responses:
+        "200":
+          description: Estado privado de Pinpass.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PinpassStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Pinpass no está disponible. }
+    put:
+      operationId: setOwnPinpass
+      tags: [Account]
+      summary: Crear o sustituir el PIN propio con autenticación reciente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/PinpassFactor" }
+                - type: object
+                  required: [pin, confirmation]
+                  properties:
+                    pin: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+                    confirmation: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+      responses:
+        "200": { description: PIN registrado y permisos anteriores revocados. }
+        "400": { description: Configuración inválida. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: No se pudo validar la reautenticación. }
+        "429": { description: Factor temporalmente bloqueado. }
+    delete:
+      operationId: resetOwnPinpass
+      tags: [Account]
+      summary: Eliminar el PIN propio y revocar los permisos activos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PinpassFactor" }
+      responses:
+        "204": { description: PIN y permisos retirados. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: No se pudo validar la reautenticación. }
+        "429": { description: Factor temporalmente bloqueado. }
+  /account/security/pinpass/unlock:
+    post:
+      operationId: unlockOwnSensitiveProfile
+      tags: [Account]
+      summary: Autorizar el acceso a datos propios en esta sesión por 15 minutos
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+      responses:
+        "200":
+          description: Permiso temporal concedido.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_expires_at]
+                properties:
+                  access_expires_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: PIN inválido. }
+        "429": { description: Demasiados intentos. }
+  /account/security/pinpass/reveal/{field}:
+    get:
+      operationId: revealOwnSensitiveProfileField
+      tags: [Account]
+      summary: Leer un dato sensible propio con permiso vigente
+      parameters:
+        - in: path
+          name: field
+          required: true
+          schema: { type: string, enum: [email, run, phone, legal_name, date_of_birth] }
+      responses:
+        "200":
+          description: Valor solicitado. La respuesta no se puede almacenar en caché.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [field, value, access_expires_at]
+                properties:
+                  field: { type: string, enum: [email, run, phone, legal_name, date_of_birth] }
+                  value: { type: string }
+                  access_expires_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Permiso inexistente o vencido. }
+        "404": { description: Campo no configurado. }
   /host/settlements:
     get:
       operationId: listHostSettlements
@@ -4534,7 +4794,7 @@ paths:
     get:
       operationId: getOwnProfile
       tags: [ M02 local ]
-      description: Perfil solo del titular autenticado. La foto sintética se administra mediante /profile/photo.
+      description: Perfil anterior del titular autenticado. El teléfono se devuelve enmascarado. La foto se administra mediante /profile/photo.
       responses:
         "200": { description: Perfil propio., content: { application/json: { schema: { $ref: "#/components/schemas/Profile" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -4542,7 +4802,7 @@ paths:
     put:
       operationId: updateOwnProfile
       tags: [ M02 local ]
-      description: Nombre visible y teléfono opcional de nueve dígitos según CU-07.
+      description: Actualiza nombre visible y teléfono opcional del perfil anterior. Devuelve el teléfono enmascarado.
       requestBody:
         required: true
         content:
@@ -6183,7 +6443,7 @@ paths:
       operationId: setOwnSpacePublicationState
       tags: [ M04 local ]
       description: >-
-        Publica u oculta un espacio propio. Requiere rol arrendador; activar no requiere KYC ni documentos de identidad y no concede ni infiere roles. Solo cambia el estado local del espacio, sin abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
+        Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
       parameters:
         - name: If-Match
           in: header
@@ -8142,6 +8402,50 @@ components:
         type: string
         minLength: 1
   schemas:
+    IdentityProfileDraft:
+      type: object
+      additionalProperties: false
+      properties:
+        username: { type: string }
+        first_name: { type: string }
+        first_last_name: { type: string }
+        second_last_name: { type: string }
+        no_second_last_name: { type: boolean }
+        rut: { type: string }
+        date_of_birth: { type: string }
+        document_type: { type: string }
+        phone: { type: string }
+        consent: { type: boolean }
+    IdentityProfileInput:
+      allOf:
+        - { $ref: "#/components/schemas/IdentityProfileDraft" }
+        - type: object
+          required: [username, first_name, first_last_name, no_second_last_name, rut, date_of_birth, document_type, phone, consent]
+    IdentityProfileStatus:
+      type: object
+      required: [complete, state, rut_locked, draft_saved]
+      properties:
+        username: { type: string }
+        complete: { type: boolean }
+        state: { type: string, enum: [incomplete, ready, in_progress, in_review, needs_correction, verified, expired, revoked] }
+        masked_email: { type: string }
+        masked_rut: { type: string }
+        masked_phone: { type: string }
+        verified_until: { type: string, format: date-time }
+        rut_locked: { type: boolean }
+        draft_saved: { type: boolean }
+    PinpassFactor:
+      type: object
+      required: [current_password]
+      properties:
+        current_password: { type: string, writeOnly: true }
+    PinpassStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured: { type: boolean }
+        blocked_until: { type: [string, "null"], format: date-time }
+        access_expires_at: { type: [string, "null"], format: date-time }
     UserNotification:
       type: object
       additionalProperties: false
@@ -12730,7 +13034,7 @@ components:
       required: [ display_name, updated_at ]
       properties:
         display_name: { type: string, minLength: 1, maxLength: 120 }
-        phone: { type: [ string, "null" ], pattern: "^[0-9]{9}$" }
+        phone: { type: [ string, "null" ], description: Teléfono enmascarado. }
         updated_at: { type: string, format: date-time }
     ProfileUpdate:
       type: object

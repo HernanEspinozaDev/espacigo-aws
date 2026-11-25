@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ChevronRight, FileCheck } from "lucide-react";
-import { AccountVerificationCard } from "@/features/account/ui/account-verification-card";
-import { ProfileCard } from "@/features/account/ui/profile-card";
+import { IdentityProfileCard } from "@/features/identity-profile/ui/identity-profile-card";
 import { ProfilePhotoCard } from "@/features/account/ui/profile-photo-card";
+import { safeHostReturnPath } from "@/features/host-listings/domain/publish-guide";
 
 export const metadata: Metadata = {
   title: "Información de tu perfil | Mi Cuenta | EspaciGo",
@@ -15,7 +15,16 @@ export const metadata: Metadata = {
   },
 };
 
-export default function PerfilDatosPage() {
+export default async function PerfilDatosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    return_to?: string | string[];
+    refresh_identity?: string | string[];
+  }>;
+}) {
+  const { return_to, refresh_identity } = await searchParams;
+  const returnTo = safeHostReturnPath(return_to);
   return (
     <div className="space-y-6">
       <nav
@@ -45,9 +54,23 @@ export default function PerfilDatosPage() {
       </div>
 
       <div className="space-y-6">
-        <ProfileCard />
+        <IdentityProfileCard
+          refreshOnMount={
+            refresh_identity === "1" ||
+            (Array.isArray(refresh_identity) && refresh_identity[0] === "1")
+          }
+          returnTo={returnTo}
+        />
         <ProfilePhotoCard />
-        <AccountVerificationCard />
+        {returnTo ? (
+          <Link
+            href={returnTo}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm font-medium text-primary hover:bg-secondary"
+          >
+            Volver al borrador de publicación
+            <ChevronRight className="size-4" aria-hidden="true" />
+          </Link>
+        ) : null}
 
         <div className="bg-card border border-border rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
