@@ -463,6 +463,15 @@ Resources:
                     - ${Arn}/*
                     - Arn:
                         Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
+        - PolicyName: espacigo-places-geocoding
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - geo-places:Geocode
+                  - geo-places:ReverseGeocode
+                Resource: !Sub 'arn:aws:geo-places:${AWS::Region}::provider/default'
 
   # ============================================================================
   # 4. NLB + TLS 443
@@ -564,6 +573,8 @@ Resources:
               Value: !Ref CorsAllowedOrigins
             - Name: BLOB_STORE_BACKEND
               Value: s3
+            - Name: AWS_PLACES_GEOCODING_ENABLED
+              Value: 'true'
             - Name: S3_STORAGE_BUCKET
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketName

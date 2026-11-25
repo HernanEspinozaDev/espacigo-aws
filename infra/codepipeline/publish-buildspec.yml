@@ -49,8 +49,17 @@ phases:
           docker build --platform linux/amd64 --build-arg BUILDKIT_INLINE_CACHE=1 "${cache_args[@]}" "$@"
         }
 
+        map_key="$(aws ssm get-parameter --name "/espacigo/prod/frontend/amazon_location_map_key" --query "Parameter.Value" --output text 2>/dev/null || true)"
+        web_build_args=()
+        if [[ -n "$map_key" && "$map_key" != "None" ]]; then
+          web_build_args=(
+            --build-arg "NEXT_PUBLIC_AMAZON_LOCATION_REGION=$EXPECTED_AWS_REGION"
+            --build-arg "NEXT_PUBLIC_AMAZON_LOCATION_MAP_KEY=$map_key"
+          )
+        fi
+
         build_with_cache espacigo-api --target api --tag "$api:$tag" .
-        build_with_cache espacigo-web --file frontend/Dockerfile --tag "$web:$tag" frontend
+        build_with_cache espacigo-web --file frontend/Dockerfile "${web_build_args[@]}" --tag "$web:$tag" frontend
         build_with_cache espacigo-dbmigrate --file Dockerfile.dbmigrate --tag "$migrator:$tag" .
         docker run --rm --network none "$migrator:$tag" -inventory-only |
           jq -e '.format == "espacigo.migrations.inventory.v1" and (.migrations | length > 0)' >/dev/null
