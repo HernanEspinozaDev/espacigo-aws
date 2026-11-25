@@ -62,6 +62,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
 	"github.com/HernanEspinozaDev/espaciGo/internal/marketplaceoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"github.com/HernanEspinozaDev/espaciGo/internal/notifications"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
@@ -120,7 +121,7 @@ func validateProductionRuntime(getenv func(string) string, profile runtimeProfil
 
 // Production exposes the public catalog, availability, host space management,
 // profile/privacy, and identity/auth routes backed by Zoho SMTP.
-func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
+func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mux *http.ServeMux, pool *pgxpool.Pool, cfg config, getenv func(string) string) (*identity.AuthenticationService, error) {
 	key, err := productionCursorKey(getenv)
 	if err != nil {
 		return nil, errors.New("production catalog requires a private cursor key file")
@@ -248,7 +249,39 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if !ok {
 		return nil, errors.New("production commercial authorization requires a notice sender")
 	}
+	commercialQuoteRepo.RequireCommercialContracts(true)
 	mountCommercialAuthorization(mux, pool, authService, noticeSender, cfg.allowedOrigins)
+	cipher, proposalErr := mountCommercialContractProposals(mux, pool, authService, commercialQuoteRepo, previewService, identityVerifier, commercialQuoteRepo, cfg.allowedOrigins, getenv)
+	if proposalErr != nil {
+		return nil, proposalErr
+	}
+	commercialAgreementWorkers, serviceErr := mountCommercialAgreementRoutes(workers, mux, pool, authService, identityVerifier, noticeSender, cfg.allowedOrigins)
+	if serviceErr != nil {
+		return nil, errors.New("commercial agreement initialization failed")
+	}
+	notificationsHandler := notifications.NewHandler(authService, pool, cfg.allowedOrigins)
+	mux.Handle("/api/v1/notifications", notificationsHandler)
+	mux.Handle("/api/v1/notifications/", notificationsHandler)
+	contractStore, documentWorker, documentErr := buildCommercialDocumentRuntime(ctx, workers, pool, cipher, getenv)
+	if documentErr != nil {
+		return nil, documentErr
+	}
+	if contractStore != nil {
+		commercialAgreementWorkers = append(commercialAgreementWorkers, documentWorker)
+		if routeErr := mountCommercialReservationDocuments(mux, pool, authService, contractStore, getenv("S3_STORAGE_BUCKET"), cfg.allowedOrigins); routeErr != nil {
+			return nil, routeErr
+		}
+	} else if routeErr := mountCommercialReservationDocuments(mux, pool, authService, nil, "", cfg.allowedOrigins); routeErr != nil {
+		return nil, routeErr
+	}
+	if routeErr := mountLocalRentalTaxDocuments(ctx, mux, pool, authService, cfg.allowedOrigins, getenv); routeErr != nil {
+		return nil, routeErr
+	}
+	for _, w := range commercialAgreementWorkers {
+		if w.launch != nil {
+			w.launch()
+		}
+	}
 	startCommercialExpirySweeper(ctx, commercialQuoteRepo)
 	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
 		return nil, err

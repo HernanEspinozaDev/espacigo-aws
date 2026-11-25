@@ -13,6 +13,13 @@ func loadRentalContractDeclarationKeyring(getenv func(string) string) (*declarat
 		path = strings.TrimSpace(getenv("LOCAL_IDENTITY_DECLARATION_KEYRING_FILE"))
 	}
 	if path == "" {
+		if rawJSON := strings.TrimSpace(getenv("IDENTITY_DECLARATION_KEYRING_JSON")); rawJSON != "" {
+			keyring, err := declarationcrypto.ParseJSON([]byte(rawJSON))
+			if err != nil {
+				return nil, errors.New("rental contract identity keyring configuration is invalid")
+			}
+			return keyring, nil
+		}
 		return nil, nil
 	}
 	keyring, err := declarationcrypto.LoadFile(path)

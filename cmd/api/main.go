@@ -300,7 +300,7 @@ func run() error {
 	} = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if production {
-		authService, prodErr := mountProductionCatalog(context.Background(), mux, pool, cfg, os.Getenv)
+		authService, prodErr := mountProductionCatalog(ctx, trackedWorkers, mux, pool, cfg, os.Getenv)
 		if prodErr != nil {
 			return prodErr
 		}

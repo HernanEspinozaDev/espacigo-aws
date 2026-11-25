@@ -22,6 +22,12 @@ func mountCommercialContractProposals(mux *http.ServeMux, pool *pgxpool.Pool, au
 			return nil, errors.New("commercial contract proposal keyring unavailable")
 		}
 		cipher = keys
+	} else if rawJSON := strings.TrimSpace(getenv("CONTRACT_PROPOSAL_KEYRING_JSON")); rawJSON != "" {
+		keys, err := declarationcrypto.ParseJSON([]byte(rawJSON))
+		if err != nil {
+			return nil, errors.New("commercial contract proposal keyring unavailable")
+		}
+		cipher = keys
 	}
 	policy := commercialproposal.CancellationPolicy{Version: getenv("COMMERCIAL_CONTRACT_CANCELLATION_VERSION"), Text: getenv("COMMERCIAL_CONTRACT_CANCELLATION_TEXT")}
 	service := commercialproposal.New(commercialproposalspg.New(pool), quotes, preview, gate, identities, cipher, policy, time.Now)
