@@ -800,6 +800,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
+	case errors.Is(e, spaces.ErrKYBRequired):
+		failure(w, 409, "kyb_approval_required", "La organización debe tener una verificación KYB aprobada para publicar un espacio B2B.")
 	case errors.Is(e, spaces.ErrInvalid):
 		var validation *spaces.ValidationError
 		if errors.As(e, &validation) {

@@ -142,6 +142,9 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err != nil {
 		return nil, err
 	}
+	if err := mountKYBRoutes(mux, pool, authService, cfg, getenv, true); err != nil {
+		return nil, errors.New("production KYB initialization failed")
+	}
 	marketplaceTokens, err := mountMarketplaceOAuth(mux, pool, authService, cfg, getenv)
 	if err != nil {
 		return nil, err

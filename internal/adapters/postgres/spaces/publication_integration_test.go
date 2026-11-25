@@ -195,6 +195,36 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if err != nil || publishedWithoutIdentity.State != "activa" {
 		t.Fatalf("publication without verified identity=%+v err=%v", publishedWithoutIdentity, err)
 	}
+	b2bInput := in
+	b2bInput.Title = "Oficina empresarial local"
+	isB2B := true
+	b2bInput.IsB2B = &isB2B
+	b2bDraft, err := svc.Create(ctx, owner, b2bInput)
+	if err != nil || b2bDraft.OrganizationID == "" {
+		t.Fatalf("create B2B draft=%+v err=%v", b2bDraft, err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, b2bDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, b2bDraft.ID, "activa", "publish-b2b-without-kyb"); err != spaces.ErrKYBRequired {
+		t.Fatalf("B2B publication without approved KYB error=%v, want %v", err, spaces.ErrKYBRequired)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.kyb_verifications(
+		id,organization_id,submitted_by,idempotency_key,legal_name,company_rut_fingerprint,
+		company_rut_key_version,company_rut_ciphertext,representative_name,
+		representative_rut_fingerprint,representative_rut_key_version,
+		representative_rut_ciphertext,sii_giro_code,status,reviewer_id,submitted_at,
+		reviewed_at,created_at,updated_at
+	) VALUES('dddddddd-dddd-4ddd-8ddd-dddddddddddd',$1,$2,'test-approved-kyb-01',
+		'Empresa de prueba','v1:'||repeat('a',64),'v1',decode(repeat('ab',29),'hex'),
+		'Representante de prueba','v1:'||repeat('b',64),'v1',decode(repeat('cd',29),'hex'),
+		'620100','APPROVED',$3,now(),now(),now(),now())`, b2bDraft.OrganizationID, owner, adminID); err != nil {
+		t.Fatalf("insert approved KYB: %v", err)
+	}
+	publishedB2B, err := svc.SetPublicationState(ctx, owner, b2bDraft.ID, "activa", "publish-b2b-approved-kyb")
+	if err != nil || publishedB2B.State != "activa" {
+		t.Fatalf("B2B publication with approved KYB=%+v err=%v", publishedB2B, err)
+	}
 	if _, err = repo.SetPublicationState(ctx, other, draft.ID, "activa", "foreign-owner"); err != spaces.ErrNotFound {
 		t.Fatalf("foreign owner error=%v", err)
 	}

@@ -2418,6 +2418,123 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/kyb/verifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Devuelve el estado más reciente de KYB del arrendador autenticado sin devolver RUTs ni referencias de almacenamiento. */
+    get: operations["getOwnKYBVerification"];
+    put?: never;
+    /** @description Solo arrendadores. Valida RUT de empresa y representante; exige los tres documentos y almacena sus objetos cifrados en el bucket privado KYB. */
+    post: operations["submitKYBVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Devuelve solicitudes pendientes o en revisión; los RUTs cifrados y las claves de almacenamiento nunca aparecen en la respuesta. */
+    get: operations["listPendingKYBVerifications"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Devuelve RUTs descifrados al revisor autorizado para cotejo documental; no es accesible al titular ni a la lista. */
+    get: operations["getKYBVerificationForReview"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["startKYBReview"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations["decideKYBVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/documents/{documentID}/url": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Emite una URL firmada de cinco minutos hacia el proxy privado de descarga; no entrega URL S3. */
+    get: operations["getKYBDocumentReviewURL"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/documents/{storageRef}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["downloadKYBDocumentWithTemporarySignature"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/document-verification/reviewer/cases": {
     parameters: {
       query?: never;
@@ -6688,6 +6805,8 @@ export interface components {
       region_code?: string;
       /** @description Código de comuna de la región seleccionada; debe enviarse junto con region_code. */
       comuna_code?: string;
+      /** @description Marca un espacio empresarial; requiere una organización asociada y KYB aprobado para publicar. */
+      is_b2b?: boolean;
       /** @description Versión del perfil de atributos; se asume la vigente si se omite. */
       attribute_schema_version?: number;
       /** @description Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. */
@@ -6709,6 +6828,13 @@ export interface components {
       address: string;
       /** @enum {string} */
       state: "borrador" | "activa" | "oculta";
+      /** @description Requiere KYB aprobado para publicar. */
+      is_b2b: boolean;
+      /**
+       * Format: uuid
+       * @description Organización vinculada al propietario autenticado para espacios B2B.
+       */
+      organization_id?: string;
       /** @description Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. */
       time_zone?: string | null;
       /** @description Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. */
@@ -7595,6 +7721,56 @@ export interface components {
       created_at: string;
       /** Format: date-time */
       resolved_at?: string | null;
+    };
+    KYBVerification: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      organization_id: string;
+      legal_name: string;
+      representative_name: string;
+      sii_giro_code: string;
+      /** @enum {string} */
+      status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      rejection_reason?: string;
+      /** Format: date-time */
+      submitted_at: string;
+      /** Format: date-time */
+      reviewed_at?: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      documents?: components["schemas"]["KYBDocument"][];
+      /** @description Presente únicamente en detalle admin; descifrado para revisión */
+      company_rut?: string;
+      /** @description Presente únicamente en detalle admin; descifrado para revisión */
+      representative_rut?: string;
+    };
+    KYBDocument: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      verification_id?: string;
+      /** @enum {string} */
+      kind: "erut" | "power_certificate" | "property_or_sublease_authorization";
+      /** @enum {string} */
+      mime_type: "application/pdf" | "image/jpeg" | "image/png";
+      size_bytes: number;
+    };
+    KYBVerificationList: {
+      items: components["schemas"]["KYBVerification"][];
+    };
+    KYBDecision: {
+      /** @enum {string} */
+      decision: "APPROVE" | "REJECT";
+      rejection_reason?: string;
+    };
+    KYBDocumentReviewURL: {
+      /** Format: uri-reference */
+      download_url: string;
+      /** Format: date-time */
+      expires_at: string;
     };
     VerificationEligibilityList: {
       /** @constant */
@@ -13603,6 +13779,245 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getOwnKYBVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de KYB propio. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  submitKYBVerification: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          legal_name: string;
+          /** @description RUT chileno de la empresa; se cifra y se persiste una huella HMAC versionada. */
+          company_rut: string;
+          representative_name: string;
+          /** @description RUT chileno del representante legal; se cifra y se persiste una huella HMAC versionada. */
+          representative_rut: string;
+          sii_giro_code: string;
+          /**
+           * Format: binary
+           * @description e-RUT en PDF
+           */
+          erut: string;
+          /**
+           * Format: binary
+           * @description Certificado de Vigencia de Poderes en PDF
+           */
+          power_certificate: string;
+          /**
+           * Format: binary
+           * @description Certificado de Dominio Vigente o autorización de subarriendo en PDF
+           */
+          property_or_sublease_authorization: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Solicitud creada en estado PENDING. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listPendingKYBVerifications: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Cola KYB. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerificationList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  getKYBVerificationForReview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle restringido de revisión KYB. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  startKYBReview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Solicitud en estado IN_REVIEW. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  decideKYBVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["KYBDecision"];
+      };
+    };
+    responses: {
+      /** @description Solicitud aprobada o rechazada con auditoría. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getKYBDocumentReviewURL: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        documentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Enlace temporal de revisión. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBDocumentReviewURL"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  downloadKYBDocumentWithTemporarySignature: {
+    parameters: {
+      query: {
+        expires: number | string;
+        key_version: string;
+        signature: string;
+      };
+      header?: never;
+      path: {
+        storageRef: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento descifrado en respuesta privada sin caché. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": unknown;
+          "image/jpeg": unknown;
+          "image/png": unknown;
+        };
+      };
+      /** @description Firma inválida o vencida. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
   };
   listAssignedDocumentCases: {

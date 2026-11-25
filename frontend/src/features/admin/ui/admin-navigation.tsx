@@ -6,6 +6,7 @@ import {
   BarChart3,
   Building2,
   FileText,
+  BriefcaseBusiness,
   Scale,
   Shield,
   UserCheck,
@@ -49,6 +50,14 @@ const NAV_ITEMS: readonly AdminNavItem[] = [
     section: "verifications",
     icon: UserCheck,
     description: "Validación de identidad",
+    exact: false,
+  },
+  {
+    label: "Solicitudes KYB",
+    href: "/administracion/kyb",
+    section: "verifications",
+    icon: BriefcaseBusiness,
+    description: "Validación empresarial",
     exact: false,
   },
   {

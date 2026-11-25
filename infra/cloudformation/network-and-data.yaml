@@ -529,6 +529,32 @@ Resources:
         - Key: Purpose
           Value: kyc_space
 
+  KybDocumentsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-kyb-documents-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: kyb_documents
+
   PrivacyReplayBucket:
     Type: AWS::S3::Bucket
     DeletionPolicy: Retain
@@ -629,6 +655,14 @@ Outputs:
     Value: !GetAtt KycSpaceBucket.Arn
     Export:
       Name: !Sub ${AWS::StackName}-KycSpaceBucketArn
+  KybDocumentsBucketName:
+    Value: !Ref KybDocumentsBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-KybDocumentsBucketName
+  KybDocumentsBucketArn:
+    Value: !GetAtt KybDocumentsBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KybDocumentsBucketArn
   PrivacyReplayBucketName:
     Value: !Ref PrivacyReplayBucket
     Export:

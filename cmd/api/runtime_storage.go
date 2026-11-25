@@ -14,6 +14,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentfs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documents3"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/kybdocuments3"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/mediafs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/s3storage"
 	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
@@ -37,6 +38,60 @@ func newRuntimeDocumentStore(getenv func(string) string, evidenceRoot string) (r
 	return newRuntimeDocumentStoreWithFactory(getenv, evidenceRoot, func(ctx context.Context, bucket, prefix string) (documents3.ObjectStore, error) {
 		return s3storage.NewWithPrefix(ctx, bucket, prefix)
 	})
+}
+
+type kybDocumentObjectFactory func(context.Context, string, string) (documents3.ObjectStore, error)
+
+func newRuntimeKYBDocumentStore(getenv func(string) string) (*kybdocuments3.Store, error) {
+	return newRuntimeKYBDocumentStoreWithFactory(getenv, func(ctx context.Context, bucket, prefix string) (documents3.ObjectStore, error) {
+		return s3storage.NewWithPrefix(ctx, bucket, prefix)
+	})
+}
+
+func newRuntimeKYBDocumentStoreWithFactory(getenv func(string) string, factory kybDocumentObjectFactory) (*kybdocuments3.Store, error) {
+	if getenv == nil {
+		return nil, errors.New("KYB document storage configuration is invalid")
+	}
+	bucket := strings.TrimSpace(getenv("KYB_DOCUMENTS_S3_BUCKET"))
+	if bucket == "" {
+		return nil, nil
+	}
+	keyringPath := strings.TrimSpace(getenv("DOCUMENT_VERIFICATION_ENCRYPTION_KEYRING_FILE"))
+	keyringJSON := strings.TrimSpace(getenv("KYB_DOCUMENT_KEYRING_JSON"))
+	identityBucket := getenv("DOCUMENT_VERIFICATION_IDENTITY_S3_BUCKET")
+	spaceBucket := getenv("DOCUMENT_VERIFICATION_SPACE_S3_BUCKET")
+	privateBucket := getenv("S3_STORAGE_BUCKET")
+	mediaBucket := getenv("S3_MEDIA_BUCKET")
+	if getenv("DOCUMENT_VERIFICATION_STORAGE_BACKEND") != "s3" ||
+		bucket != getenv("KYB_DOCUMENTS_S3_BUCKET") ||
+		(keyringPath == "") == (keyringJSON == "") ||
+		keyringPath != "" && (!filepath.IsAbs(keyringPath) || filepath.Clean(keyringPath) != keyringPath) || factory == nil ||
+		bucket == identityBucket || bucket == spaceBucket || bucket == privateBucket || bucket == mediaBucket {
+		return nil, errors.New("KYB document storage configuration is incomplete or invalid")
+	}
+	var currentVersion string
+	var keys map[string][]byte
+	var err error
+	if keyringPath != "" {
+		currentVersion, keys, err = loadRuntimeDocumentKeyring(keyringPath)
+	} else {
+		currentVersion, keys, err = loadRuntimeDocumentKeyringJSON([]byte(keyringJSON))
+	}
+	if err != nil {
+		return nil, errors.New("KYB document keyring is unavailable or invalid")
+	}
+	backend, err := factory(context.Background(), bucket, "kyb-documents")
+	if err != nil || backend == nil {
+		clearRuntimeDocumentKeys(keys)
+		return nil, errors.New("KYB document object store initialization failed")
+	}
+	store, err := kybdocuments3.New(backend, keys, currentVersion)
+	clearRuntimeDocumentKeys(keys)
+	if err != nil {
+		closeRuntimeDocumentObjectStore(backend)
+		return nil, errors.New("KYB encrypted document store initialization failed")
+	}
+	return store, nil
 }
 
 func newRuntimeDocumentStoreWithFactory(getenv func(string) string, evidenceRoot string, factory runtimeDocumentObjectFactory) (runtimeDocumentStore, error) {
@@ -170,6 +225,13 @@ func loadRuntimeDocumentKeyring(keyringPath string) (string, map[string][]byte, 
 			contents[i] = 0
 		}
 	}()
+	return loadRuntimeDocumentKeyringJSON(contents)
+}
+
+func loadRuntimeDocumentKeyringJSON(contents []byte) (string, map[string][]byte, error) {
+	if len(contents) == 0 || len(contents) > 64<<10 {
+		return "", nil, errors.New("invalid keyring document size")
+	}
 	var config struct {
 		CurrentVersion string            `json:"current_version"`
 		Keys           map[string]string `json:"keys"`

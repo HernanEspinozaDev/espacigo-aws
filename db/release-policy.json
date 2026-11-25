@@ -192,6 +192,12 @@
       "strategy": "expand",
       "automatic": false,
       "reason": "Local early-rental processor receipts extend the V99 audit trail and preserve existing manual receipts."
+    },
+    "V000123__business_kyb_verification.sql": {
+      "checksum": "76330d47fba2a08995a8efd30404a9e5e6f7409df89bba48638e6be19c7b5d03",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds encrypted company/representative RUT data, private KYB document references and the B2B publication gate. Requires exact-target schema/ACL review, fresh and upgrade migration tests, and publication-flow integration evidence before application."
     }
   },
   "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."

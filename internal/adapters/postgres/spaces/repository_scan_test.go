@@ -38,7 +38,7 @@ func TestScanPopulatesUpdatedAtButOmitsItFromJSON(t *testing.T) {
 	row := scanRow{values: []any{
 		"space-id", "CAT", "Category", "Title", "Description", float64(12.5), int32(4),
 		"Rules", "hour", int64(1000), "Address", "borrador", 2, []byte(`{"x":true}`),
-		"America/Santiago", "", "RM", "13101", want,
+		"America/Santiago", "", "RM", "13101", want, false, "",
 	}}
 
 	draft, err := scan(row)

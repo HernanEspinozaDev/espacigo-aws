@@ -10,6 +10,7 @@ BUCKETS=(
   "espacigo-media-local"
   "espacigo-kyc-identity-local"
   "espacigo-kyc-space-local"
+  "espacigo-kyb-documents-local"
   "espacigo-privacy-replay-local"
 )
 
@@ -185,6 +186,7 @@ bootstrap_aws_emulator() {
     put_param "/espacigo/local/s3/media_bucket" "espacigo-media-local"
     put_param "/espacigo/local/s3/kyc_identity_bucket" "espacigo-kyc-identity-local"
     put_param "/espacigo/local/s3/kyc_space_bucket" "espacigo-kyc-space-local"
+    put_param "/espacigo/local/s3/kyb_documents_bucket" "espacigo-kyb-documents-local"
     put_param "/espacigo/local/s3/privacy_replay_bucket" "espacigo-privacy-replay-local"
     echo "PASS: SSM parameters configured under /espacigo/local/"
 

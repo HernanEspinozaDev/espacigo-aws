@@ -32,14 +32,14 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,''),e.region_codigo,e.comuna_codigo,e.actualizado_en`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,''),e.region_codigo,e.comuna_codigo,e.actualizado_en,e.es_b2b,COALESCE(e.organizacion_id::text,'')`
 const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
 	var raw []byte
 	var coverPhotoID string
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID, &d.RegionCode, &d.CommuneCode, &d.UpdatedAt)
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID, &d.RegionCode, &d.CommuneCode, &d.UpdatedAt, &d.IsB2B, &d.OrganizationID)
 	if err == nil {
 		if coverPhotoID != "" {
 			d.CoverPhotoID = &coverPhotoID
@@ -68,6 +68,24 @@ func lockActiveOwner(ctx context.Context, tx pgx.Tx, owner string) error {
 		return spaces.ErrPublicationConflict
 	}
 	return nil
+}
+
+func organizationForSpace(ctx context.Context, tx pgx.Tx, ids identity.CredentialGenerator, owner string, b2b bool) (string, error) {
+	if !b2b {
+		return "", nil
+	}
+	organizationCandidate, err := ids.ID()
+	if err != nil {
+		return "", err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.organizacion(id,usuario_id) VALUES($1,$2) ON CONFLICT(usuario_id) DO NOTHING`, organizationCandidate, owner); err != nil {
+		return "", mapError(err)
+	}
+	var organizationID string
+	if err = tx.QueryRow(ctx, `SELECT id::text FROM public.organizacion WHERE usuario_id=$1`, owner).Scan(&organizationID); err != nil {
+		return "", mapError(err)
+	}
+	return organizationID, nil
 }
 func (r *Repository) Categories(ctx context.Context) ([]spaces.Category, error) {
 	rows, err := r.pool.Query(ctx, `SELECT codigo,nombre FROM public.categoria_espacio WHERE activa ORDER BY orden`)
@@ -115,7 +133,12 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,ubicacion_catalogo_version,region_codigo,comuna_codigo) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,NULLIF($12,''),NULLIF($13,''))`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
+	isB2B := in.IsB2B != nil && *in.IsB2B
+	organizationID, err := organizationForSpace(ctx, tx, r.ids, owner, isB2B)
+	if err != nil {
+		return spaces.Draft{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,ubicacion_catalogo_version,region_codigo,comuna_codigo,es_b2b,organizacion_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,NULLIF($12,''),NULLIF($13,''),$14,NULLIF($15,'')::uuid)`, id, owner, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode, in.IsB2B, organizationID)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -422,6 +445,18 @@ func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, 
 		return spaces.Draft{}, spaces.ErrEnabledFixture
 	}
 	if state == "activa" {
+		if draft.IsB2B {
+			var kybApproved bool
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(
+				SELECT 1 FROM public.kyb_verifications
+				WHERE organization_id=$1 AND status='APPROVED'
+			)`, draft.OrganizationID).Scan(&kybApproved); err != nil {
+				return spaces.Draft{}, err
+			}
+			if !kybApproved {
+				return spaces.Draft{}, spaces.ErrKYBRequired
+			}
+		}
 		// Publication is independent of contractual identity and financial flows,
 		// but must not bypass an outstanding hand-back. Reception releases only
 		// the ended rental's exact occupation; other blocks remain untouched.
@@ -599,7 +634,9 @@ func (r *Repository) updateOwn(ctx context.Context, owner, id string, in spaces.
 	var oldUnit string
 	var oldAmount int64
 	var currentUpdatedAt time.Time
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount, &currentUpdatedAt)
+	var existingB2B bool
+	var existingOrganizationID string
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en,es_b2b,COALESCE(organizacion_id::text,'') FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount, &currentUpdatedAt, &existingB2B, &existingOrganizationID)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -608,11 +645,25 @@ func (r *Repository) updateOwn(ctx context.Context, owner, id string, in spaces.
 			return spaces.Draft{}, err
 		}
 	}
+	isB2B := existingB2B
+	if in.IsB2B != nil {
+		isB2B = *in.IsB2B
+	}
+	organizationID := ""
+	if isB2B {
+		organizationID = existingOrganizationID
+		if !existingB2B {
+			organizationID, err = organizationForSpace(ctx, tx, r.ids, owner, true)
+			if err != nil {
+				return spaces.Draft{}, err
+			}
+		}
+	}
 	_, err = tx.Exec(ctx, `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, id)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,'') WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
+	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,''),es_b2b=$14,organizacion_id=NULLIF($15,'')::uuid WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode, isB2B, organizationID)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}

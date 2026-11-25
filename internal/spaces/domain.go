@@ -16,6 +16,7 @@ var (
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
 	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
+	ErrKYBRequired         = errors.New("spaces: approved KYB verification required before B2B publication")
 	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
 	ErrPreconditionFailed  = errors.New("spaces: draft revision precondition failed")
 )
@@ -59,6 +60,8 @@ type Draft struct {
 	TimeZone               *string        `json:"time_zone,omitempty"`
 	RegionCode             *string        `json:"region_code,omitempty"`
 	CommuneCode            *string        `json:"comuna_code,omitempty"`
+	OrganizationID         string         `json:"organization_id,omitempty"`
+	IsB2B                  bool           `json:"is_b2b"`
 	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version"`
 	Attributes             map[string]any `json:"attributes"`
@@ -77,6 +80,7 @@ type Input struct {
 	Address                string         `json:"address"`
 	RegionCode             string         `json:"region_code,omitempty"`
 	CommuneCode            string         `json:"comuna_code,omitempty"`
+	IsB2B                  *bool          `json:"is_b2b,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version,omitempty"`
 	Attributes             map[string]any `json:"attributes,omitempty"`
 }

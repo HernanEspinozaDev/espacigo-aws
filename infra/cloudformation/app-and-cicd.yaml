@@ -71,6 +71,21 @@ Parameters:
     Default: ''
     Description: ARN completo del secreto espacigo/<env>/payments/mercadopago en Secrets Manager.
 
+  KYBDocumentKeyringSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN del secreto JSON con current_version y keys para cifrado documental KYB.
+
+  KYBRutEncryptionKeyringSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN del secreto JSON con current_version y keys para cifrar RUTs declarados en KYB.
+
+  KYBRutHMACKeyringSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN del secreto JSON con active y keys para huellas HMAC RUT KYB.
+
   MercadoPagoTestMode:
     Type: String
     Default: 'false'
@@ -107,6 +122,9 @@ Conditions:
     - !Condition ProvisionApp
     - !Condition HasPublicTls
   EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
+  HasKYBDocumentKeyringSecret: !Not [!Equals [!Ref KYBDocumentKeyringSecretArn, '']]
+  HasKYBRutEncryptionKeyringSecret: !Not [!Equals [!Ref KYBRutEncryptionKeyringSecretArn, '']]
+  HasKYBRutHMACKeyringSecret: !Not [!Equals [!Ref KYBRutHMACKeyringSecretArn, '']]
   HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
   EnableGitHubCommitStatus: !And
     - !Not [!Equals [!Ref GitHubStatusSsmParameterName, '']]
@@ -206,6 +224,14 @@ Resources:
       Type: String
       Value:
         Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketName
+
+  SsmKybDocumentsBucket:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/kyb_documents_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-KybDocumentsBucketName
 
   SsmPrivacyReplayBucket:
     Type: AWS::SSM::Parameter
@@ -338,6 +364,7 @@ Resources:
                   - Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketArn
                   - Fn::ImportValue: !Sub ${NetworkStackName}-KycIdentityBucketArn
                   - Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketArn
+                  - Fn::ImportValue: !Sub ${NetworkStackName}-KybDocumentsBucketArn
                   - Fn::ImportValue: !Sub ${NetworkStackName}-PrivacyReplayBucketArn
               - Effect: Allow
                 Action:
@@ -361,6 +388,10 @@ Resources:
                     - ${Arn}/*
                     - Arn:
                         Fn::ImportValue: !Sub ${NetworkStackName}-KycSpaceBucketArn
+                  - !Sub
+                    - ${Arn}/*
+                    - Arn:
+                        Fn::ImportValue: !Sub ${NetworkStackName}-KybDocumentsBucketArn
                   - !Sub
                     - ${Arn}/*
                     - Arn:
@@ -420,6 +451,18 @@ Resources:
                   - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/database/api-*'
                   - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/auth/smtp-*'
                   - !Ref TotpKeyringSecret
+                  - !If
+                    - HasKYBDocumentKeyringSecret
+                    - !Ref KYBDocumentKeyringSecretArn
+                    - !Ref AWS::NoValue
+                  - !If
+                    - HasKYBRutEncryptionKeyringSecret
+                    - !Ref KYBRutEncryptionKeyringSecretArn
+                    - !Ref AWS::NoValue
+                  - !If
+                    - HasKYBRutHMACKeyringSecret
+                    - !Ref KYBRutHMACKeyringSecretArn
+                    - !Ref AWS::NoValue
                   - !If
                     - EnableMercadoPago
                     - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
@@ -568,6 +611,11 @@ Resources:
             - Name: S3_MEDIA_BUCKET
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketName
+            - Name: DOCUMENT_VERIFICATION_STORAGE_BACKEND
+              Value: s3
+            - Name: KYB_DOCUMENTS_S3_BUCKET
+              Value:
+                Fn::ImportValue: !Sub ${NetworkStackName}-KybDocumentsBucketName
             - Name: AUTH_SMTP_HOST
               Value: smtp.zoho.com
             - Name: AUTH_SMTP_PORT
@@ -595,6 +643,21 @@ Resources:
               ValueFrom: !Sub '${AuthSmtpSecretArn}:password::'
             - Name: TOTP_KEYRING_JSON
               ValueFrom: !Ref TotpKeyringSecret
+            - !If
+              - HasKYBDocumentKeyringSecret
+              - Name: KYB_DOCUMENT_KEYRING_JSON
+                ValueFrom: !Ref KYBDocumentKeyringSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasKYBRutEncryptionKeyringSecret
+              - Name: KYB_RUT_ENCRYPTION_KEYRING_JSON
+                ValueFrom: !Ref KYBRutEncryptionKeyringSecretArn
+              - !Ref AWS::NoValue
+            - !If
+              - HasKYBRutHMACKeyringSecret
+              - Name: KYB_RUT_HMAC_KEYRING_JSON
+                ValueFrom: !Ref KYBRutHMACKeyringSecretArn
+              - !Ref AWS::NoValue
             - !If
               - EnableMercadoPago
               - Name: MERCADOPAGO_CLIENT_ID

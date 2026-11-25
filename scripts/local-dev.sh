@@ -293,6 +293,7 @@ cmd_api() {
   export DOCUMENT_VERIFICATION_STORAGE_BACKEND="s3"
   export DOCUMENT_VERIFICATION_IDENTITY_S3_BUCKET="espacigo-kyc-identity-local"
   export DOCUMENT_VERIFICATION_SPACE_S3_BUCKET="espacigo-kyc-space-local"
+  export KYB_DOCUMENTS_S3_BUCKET="espacigo-kyb-documents-local"
   export LOCAL_PRIVACY_REPLAY_BACKEND="s3"
   export LOCAL_PRIVACY_REPLAY_BUCKET="espacigo-privacy-replay-local"
 

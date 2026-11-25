@@ -581,6 +581,9 @@ func run() error {
 			return err
 		}
 		verificationHandler := verificationhttp.NewHandlerWithDeclarationWithoutExternalProvider(service, verificationService, cfg.allowedOrigins, evidenceService, declarationService)
+		if err := mountKYBRoutes(mux, pool, service, cfg, os.Getenv, false); err != nil {
+			return errors.New("KYB API initialization failed")
+		}
 		quickVerificationHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSuffix(r.URL.Path, "/") == "/api/v1/verifications" && r.Method == http.MethodPost {
 				handleQuickVerification(w, r, service, verificationService, verificationRepository)
