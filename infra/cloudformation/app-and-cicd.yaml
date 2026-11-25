@@ -575,6 +575,8 @@ Resources:
               Value: s3
             - Name: AWS_PLACES_GEOCODING_ENABLED
               Value: 'true'
+            - Name: ESPACIGO_COMMUNE_BOUNDARIES_FILE
+              Value: /etc/espacigo/geo/dpa_2023_communes.bin.gz
             - Name: S3_STORAGE_BUCKET
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketName
