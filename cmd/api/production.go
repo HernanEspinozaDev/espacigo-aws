@@ -244,6 +244,11 @@ func mountProductionCatalog(ctx context.Context, mux *http.ServeMux, pool *pgxpo
 	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
 		return nil, err
 	}
+	noticeSender, ok := mailer.(productionNoticeSender)
+	if !ok {
+		return nil, errors.New("production commercial authorization requires a notice sender")
+	}
+	mountCommercialAuthorization(mux, pool, authService, noticeSender, cfg.allowedOrigins)
 	startCommercialExpirySweeper(ctx, commercialQuoteRepo)
 	if err := mountProductionBookingFlow(mux, pool, authService, evidence, mediaStore, key, cfg, mailer); err != nil {
 		return nil, err
