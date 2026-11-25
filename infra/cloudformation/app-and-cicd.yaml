@@ -577,6 +577,10 @@ Resources:
               Value: 'true'
             - Name: ESPACIGO_COMMUNE_BOUNDARIES_FILE
               Value: /etc/espacigo/geo/dpa_2023_communes.bin.gz
+            - Name: COMMERCIAL_RENTAL_FLOW_ENABLED
+              Value: '1'
+            - Name: COMMERCIAL_CONTRACTS_ENABLED
+              Value: '1'
             - Name: S3_STORAGE_BUCKET
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-EvidenceBucketName
