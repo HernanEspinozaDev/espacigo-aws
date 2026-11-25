@@ -2683,7 +2683,10 @@ export function ListingEditor({
                     : null,
               }}
             />
-            <CommercialAuthorizationPanel spaceId={listingId} />
+            <CommercialAuthorizationPanel
+              spaceId={listingId}
+              contractPublishedVersion={prerequisites.contractPublishedVersion}
+            />
           </section>
         )}
       </div>
