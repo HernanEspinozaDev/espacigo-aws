@@ -3141,6 +3141,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** @description Inicia la revisión administrativa de una solicitud KYB. */
     post: operations["startKYBReview"];
     delete?: never;
     options?: never;
@@ -3157,6 +3158,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** @description Aprueba o rechaza una solicitud KYB dejando registro de auditoría. */
     post: operations["decideKYBVerification"];
     delete?: never;
     options?: never;
@@ -3188,6 +3190,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
+    /** @description Descarga un documento KYB descifrado mediante firma temporal. */
     get: operations["downloadKYBDocumentWithTemporarySignature"];
     put?: never;
     post?: never;
@@ -8824,8 +8827,6 @@ export interface components {
       region_code?: string;
       /** @deprecated */
       comuna_code?: string;
-      /** @description Marca un espacio empresarial; requiere una organización asociada y KYB aprobado para publicar. */
-      is_b2b?: boolean;
       /** @description Versión del perfil de atributos; se asume la vigente si se omite. */
       attribute_schema_version?: number;
       /** @description Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. */
@@ -8850,13 +8851,7 @@ export interface components {
       address: string;
       /** @enum {string} */
       state: "borrador" | "activa" | "oculta";
-      /** @description Requiere KYB aprobado para publicar. */
-      is_b2b: boolean;
-      /**
-       * Format: uuid
-       * @description Organización vinculada al propietario autenticado para espacios B2B.
-       */
-      organization_id?: string;
+      is_b2b?: boolean;
       /** @description Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. */
       time_zone?: string | null;
       /** @description Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. */

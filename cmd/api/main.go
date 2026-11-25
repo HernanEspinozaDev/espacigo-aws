@@ -835,7 +835,7 @@ func run() error {
 	workers = append(workers, commercialAgreementWorkers...)
 	if commercialQuoteRepository != nil {
 		workers = append(workers, namedWorker{"commercial-rental-quote-expiry", func() {
-			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(error) {
+			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(workerErr error) { log.Printf("DEBUG_WORKER_ERR: %v", workerErr)
 				log.Print("commercial rental quote expiry pass failed")
 			}, func() {
 				log.Print("commercial rental quote expiry worker stopped")

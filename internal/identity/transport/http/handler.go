@@ -1290,6 +1290,7 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 	if len(paths) > 0 {
 		requestPath = paths[0]
 	}
+	println("DEBUG_IDENTITY_ERR:", err.Error())
 	status, code, message := 500, "internal_error", "Ocurrió un error inesperado."
 	var blocked *identity.LoginBlockedError
 	switch {
