@@ -6292,6 +6292,13 @@ export interface components {
       };
     };
     CommercialProviderSettlement: {
+      payment_type?: string;
+      /** @enum {string} */
+      payment_status?: "approved" | "refunded" | "charged_back";
+      /** Format: date-time */
+      approved_at?: string;
+      /** Format: date-time */
+      synced_at?: string;
       /** Format: int64 */
       net_clp?: number | string;
       /** Format: int64 */

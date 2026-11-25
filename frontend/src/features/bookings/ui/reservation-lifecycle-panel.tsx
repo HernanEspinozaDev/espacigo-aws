@@ -549,13 +549,20 @@ export function ReservationLifecyclePanel({
               </div>
             )}
             {(currentReservation.state === "pagada" ||
-              currentReservation.checkout_status === "approved") && (
+              currentReservation.checkout_status === "approved" ||
+              (isHost &&
+                currentReservation.provider_settlement?.payment_status ===
+                  "charged_back")) && (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-800 dark:text-emerald-300">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <span className="font-medium">
-                    Pago aprobado y confirmado en Mercado Pago. El horario del
-                    espacio quedó reservado y bloqueado en agenda.
+                    {currentReservation.provider_settlement?.payment_status ===
+                    "charged_back"
+                      ? "Mercado Pago informó un contracargo para este pago."
+                      : currentReservation.state === "reembolsada"
+                        ? "Mercado Pago confirmó el reembolso del pago."
+                        : "Pago aprobado en Mercado Pago."}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

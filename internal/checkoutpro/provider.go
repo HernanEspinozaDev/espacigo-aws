@@ -179,6 +179,7 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 		Charges            json.RawMessage `json:"charges_details"`
 		Refunded           json.RawMessage `json:"transaction_amount_refunded"`
 		ReleaseAt          json.RawMessage `json:"money_release_date"`
+		ApprovedAt         json.RawMessage `json:"date_approved"`
 		ReleaseStatus      json.RawMessage `json:"money_release_status"`
 	}
 	d := json.NewDecoder(bytes.NewReader(body))
@@ -242,6 +243,7 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 		NetCLP: optionalCLP(transactionDetails.Net), ProcessingFeeCLP: settlementFee(fees, charges, "mercadopago_fee", "mercadopago_fee", "mp"),
 		MarketplaceCLP: settlementFee(fees, charges, "application_fee", "third_payment", "marketplace_owner"), RefundedCLP: optionalCLP(p.Refunded),
 		ProviderUpdated: p.DateLastUpdated.UTC(),
+		PaymentType:     paymentType,
 	}
 	if settlement.MarketplaceCLP == nil {
 		settlement.MarketplaceCLP = applicationFee
@@ -249,12 +251,22 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 	if releaseStatus == "released" || releaseStatus == "pending" {
 		settlement.ReleaseStatus = releaseStatus
 	}
+	status := strings.ToLower(strings.TrimSpace(p.Status))
+	switch status {
+	case "approved", "refunded", "charged_back":
+		settlement.PaymentStatus = status
+	}
+	var approved time.Time
+	if json.Unmarshal(p.ApprovedAt, &approved) == nil && !approved.IsZero() {
+		settlement.ApprovedAt = &approved
+	}
 	var release time.Time
 	if json.Unmarshal(p.ReleaseAt, &release) == nil && !release.IsZero() {
 		settlement.ReleaseAt = &release
 	}
 	var financial *Settlement
-	if settlement.NetCLP != nil || settlement.ProcessingFeeCLP != nil || settlement.MarketplaceCLP != nil || settlement.ReleaseStatus != "" || settlement.ReleaseAt != nil {
+	if settlement.NetCLP != nil || settlement.ProcessingFeeCLP != nil || settlement.MarketplaceCLP != nil || settlement.ReleaseStatus != "" || settlement.ReleaseAt != nil ||
+		settlement.RefundedCLP != nil || status == "charged_back" || status == "refunded" {
 		financial = &settlement
 	}
 	return VerifiedPayment{OperationID: p.Metadata.OperationID, ProviderPaymentID: p.ID.String(), SellerID: sellerID, ExternalReference: p.ExternalReference, Status: p.Status, TransactionAmountCLP: int64(amount), Currency: p.Currency, PaymentType: paymentType, LiveMode: p.LiveMode, ObservedAt: p.DateLastUpdated, PaymentUpdatedAt: p.DateLastUpdated, ApplicationFeeCLP: applicationFee, Settlement: financial}, nil

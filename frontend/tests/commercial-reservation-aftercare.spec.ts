@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test, type Page } from "@playwright/test";
 
 const reservationId = "30000000-0000-4000-8000-000000000001";
@@ -475,6 +476,15 @@ test("host invoice discloses both EspaciGo charges and the net read from Mercado
     dialog.getByText(/Fondos liberados en Mercado Pago/),
   ).toBeVisible();
   await expect(dialog.getByText("$964 CLP", { exact: true })).toHaveCount(0);
+  const downloadReady = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Descargar (.txt)" }).click();
+  const download = await downloadReady;
+  const receipt = await readFile(await download.path(), "utf8");
+  expect(receipt).toContain("Neto informado por Mercado Pago: $925 CLP");
+  expect(receipt).toContain(
+    "Comisión de procesamiento de Mercado Pago: −$39 CLP",
+  );
+  expect(receipt).toContain("$36 CLP arrendatario + $36 CLP anfitrión");
 });
 
 test("host finance calculator estimates the same amounts by fee or percentage", async ({
@@ -484,17 +494,71 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
     role: "anfitrion",
     reviewEligible: false,
   });
-  await page.route("**/api/backend/commercial-reservations?**", (route) =>
-    route.fulfill(json({ items: [] })),
+  await page.route(/\/api\/backend\/commercial-reservations(?:\?|$)/, (route) =>
+    route.fulfill(
+      json({
+        items: [
+          {
+            id: reservationId,
+            quote_id: caseId,
+            space_id: messageId,
+            space_title: "Sala sintética",
+            participant_role: "anfitrion",
+            status: "pagada",
+            checkout_status: "approved",
+            checkout_method: "checkout_pro",
+            rate_unit: "hora",
+            unit_price_clp: 1000,
+            units: 1,
+            subtotal_clp: 1000,
+            currency: "CLP",
+            start_at: startsAt,
+            end_at: endsAt,
+            time_zone: "America/Santiago",
+            payment_expires_at: startsAt,
+            created_at: startsAt,
+            updated_at: startsAt,
+            provider_settlement: {
+              net_clp: 925,
+              processing_fee_clp: 39,
+              marketplace_fee_clp: 72,
+              payment_type: "debit_card",
+              payment_status: "approved",
+              approved_at: startsAt,
+              synced_at: startsAt,
+              provider_updated_at: startsAt,
+              reconciliation: "reconciled",
+            },
+          },
+        ],
+      }),
+    ),
   );
   await page.goto("/anfitrion/reservas");
   await page.getByRole("tab", { name: "Finanzas" }).click();
+  const netSummary = page
+    .getByText("Neto informado para el anfitrión")
+    .locator("..");
+  await expect(netSummary.getByText("$925 CLP", { exact: true })).toBeVisible();
+
   const calculator = page
     .locator("details")
     .filter({ hasText: "Calculadora de comisiones" });
   await calculator
     .getByText("Calculadora de comisiones", { exact: true })
     .click();
+  await expect(
+    calculator.getByText(/Cargo confirmado.*39 CLP.*Débito/),
+  ).toBeVisible();
+  await calculator
+    .getByRole("button", { name: "Usar como referencia" })
+    .click();
+  await expect(calculator.getByLabel("Valor del arriendo en CLP")).toHaveValue(
+    "1000",
+  );
+  await expect(
+    calculator.getByLabel("Costo de Mercado Pago en CLP"),
+  ).toHaveValue("39");
   await calculator.getByLabel("Valor del arriendo en CLP").fill("1000");
   await calculator.getByLabel("Costo de Mercado Pago en CLP").fill("39");
   await expect(

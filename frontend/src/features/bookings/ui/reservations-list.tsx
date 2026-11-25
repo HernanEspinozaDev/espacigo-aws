@@ -1164,7 +1164,7 @@ export function ReservationsList({
             </div>
           </div>
 
-          <HostCommissionCalculator />
+          <HostCommissionCalculator reservations={kpiStats.paidList} />
 
           <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1411,7 +1411,12 @@ export function ReservationsList({
                   const Icon = config.icon;
                   const financial =
                     getReservationFinancialBreakdown(reservation);
-                  const canViewInvoice = isReservationPaid(reservation);
+                  const canViewInvoice =
+                    isReservationPaid(reservation) ||
+                    reservation.provider_settlement?.payment_status ===
+                      "charged_back" ||
+                    reservation.provider_settlement?.payment_status ===
+                      "refunded";
 
                   return (
                     <article

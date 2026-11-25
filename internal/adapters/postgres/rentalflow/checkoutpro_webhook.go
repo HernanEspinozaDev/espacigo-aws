@@ -92,6 +92,12 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		return true, nil
 	}
 	status := strings.ToLower(strings.TrimSpace(p.Status))
+	if checkoutMethod == "checkout_pro" && opState == "approved" &&
+		providerPaymentID == p.ProviderPaymentID && (status == "approved" || status == "refunded" || status == "charged_back") {
+		if err := r.storePaymentSettlement(ctx, tx, p, fee); err != nil {
+			return false, err
+		}
+	}
 	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" && status != "refunded" {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "unsupported_provider_status")
 	}
@@ -104,12 +110,6 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	}
 	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=matched application_fee_expected_set=%t application_fee_present=%t",
 		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
-	if checkoutMethod == "checkout_pro" && opState == "approved" &&
-		providerPaymentID == p.ProviderPaymentID && (status == "approved" || status == "refunded") {
-		if err := r.storePaymentSettlement(ctx, tx, p, fee); err != nil {
-			return false, err
-		}
-	}
 	if status == "refunded" {
 		return r.applyCommercialRefundedPayment(ctx, tx, p, r.now().UTC())
 	}

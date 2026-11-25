@@ -112,4 +112,53 @@ CREATE TABLE public.mercadopago_seller_connection (
 	if reported == nil || reported.NetCLP == nil || *reported.NetCLP != 925 || reported.Reconciliation != "reconciled" || reported.ReleaseStatus != "released" {
 		t.Fatalf("unexpected persisted settlement: %+v", reported)
 	}
+	if reported.SyncedAt == nil || reported.PaymentStatus != "approved" {
+		t.Fatalf("expected source readback and payment status: %+v", reported)
+	}
+
+	p.PaymentUpdatedAt = now.Add(time.Minute)
+	p.Settlement = &checkoutpro.Settlement{
+		ProviderUpdated: p.PaymentUpdatedAt,
+		ReleaseStatus:   "pending",
+	}
+	if err = repo.SyncPaymentSettlement(ctx, candidates[0], p); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT provider_settlement FROM public.checkout_preferencia_comercial WHERE id=$1`, id).Scan(&reported); err != nil {
+		t.Fatal(err)
+	}
+	if reported.ReleaseStatus != "pending" || reported.Reconciliation != "reconciled" || reported.NetCLP == nil || *reported.NetCLP != 925 {
+		t.Fatalf("expected updated release status and preserved figures: %+v", reported)
+	}
+
+	p.PaymentUpdatedAt = now.Add(2 * time.Minute)
+	refund := int64(500)
+	p.Settlement = &checkoutpro.Settlement{
+		ProviderUpdated: p.PaymentUpdatedAt,
+		RefundedCLP:     &refund,
+	}
+	if err = repo.SyncPaymentSettlement(ctx, candidates[0], p); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT provider_settlement FROM public.checkout_preferencia_comercial WHERE id=$1`, id).Scan(&reported); err != nil {
+		t.Fatal(err)
+	}
+	if reported.Reconciliation != "discrepancy" || reported.RefundedCLP == nil || *reported.RefundedCLP != 500 ||
+		reported.NetCLP == nil || *reported.NetCLP != 925 {
+		t.Fatalf("expected explicit partial refund and last reported net: %+v", reported)
+	}
+
+	p.Status = "charged_back"
+	p.PaymentUpdatedAt = now.Add(3 * time.Minute)
+	p.Settlement = &checkoutpro.Settlement{ProviderUpdated: p.PaymentUpdatedAt}
+	if err = repo.SyncPaymentSettlement(ctx, candidates[0], p); err != nil {
+		t.Fatal(err)
+	}
+	var checkoutStatus string
+	if err = pool.QueryRow(ctx, `SELECT provider_settlement,estado FROM public.checkout_preferencia_comercial WHERE id=$1`, id).Scan(&reported, &checkoutStatus); err != nil {
+		t.Fatal(err)
+	}
+	if reported.PaymentStatus != "charged_back" || reported.Reconciliation != "discrepancy" || checkoutStatus != "approved" {
+		t.Fatalf("unexpected chargeback projection or checkout mutation: %+v, %s", reported, checkoutStatus)
+	}
 }

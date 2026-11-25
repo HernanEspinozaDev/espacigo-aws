@@ -48,7 +48,7 @@ FROM due WHERE c.id=due.id RETURNING c.id::text,c.provider_payment_id,c.host_id:
 // Checkout Pro payment. Historical reads do not replay reservation transitions.
 func (r *Repository) SyncPaymentSettlement(ctx context.Context, candidate SettlementCandidate, p checkoutpro.VerifiedPayment) error {
 	if p.Settlement == nil || p.OperationID != candidate.OperationID || p.ExternalReference != candidate.OperationID ||
-		p.ProviderPaymentID != candidate.PaymentID || p.Currency != "CLP" || (p.Status != "approved" && p.Status != "refunded") {
+		p.ProviderPaymentID != candidate.PaymentID || p.Currency != "CLP" || (p.Status != "approved" && p.Status != "refunded" && p.Status != "charged_back") {
 		return checkoutpro.ErrInvalid
 	}
 	tx, err := r.beginner.Begin(ctx)
@@ -76,7 +76,11 @@ func (r *Repository) storePaymentSettlement(ctx context.Context, tx pgx.Tx, p ch
 	if p.Settlement == nil {
 		return nil
 	}
-	snapshot := p.Settlement.WithReconciliation(p.TransactionAmountCLP, marketplace)
+	snapshot := *p.Settlement
+	snapshot.PaymentStatus = p.Status
+	syncedAt := r.now().UTC()
+	snapshot.SyncedAt = &syncedAt
+	snapshot = snapshot.WithReconciliation(p.TransactionAmountCLP, marketplace)
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return err

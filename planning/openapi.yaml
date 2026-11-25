@@ -9094,6 +9094,10 @@ components:
       additionalProperties: false
       required: [ provider_updated_at, reconciliation ]
       properties:
+        payment_type: { type: string }
+        payment_status: { type: string, enum: [ approved, refunded, charged_back ] }
+        approved_at: { type: string, format: date-time }
+        synced_at: { type: string, format: date-time }
         net_clp: { type: integer, format: int64, minimum: 0 }
         processing_fee_clp: { type: integer, format: int64, minimum: 0 }
         marketplace_fee_clp: { type: integer, format: int64, minimum: 0 }

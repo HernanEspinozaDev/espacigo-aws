@@ -7,6 +7,10 @@ import (
 
 // Settlement contains the financial facts returned for a payment by Mercado Pago.
 type Settlement struct {
+	PaymentType      string     `json:"payment_type,omitempty"`
+	PaymentStatus    string     `json:"payment_status,omitempty"`
+	ApprovedAt       *time.Time `json:"approved_at,omitempty"`
+	SyncedAt         *time.Time `json:"synced_at,omitempty"`
 	NetCLP           *int64     `json:"net_clp,omitempty"`
 	ProcessingFeeCLP *int64     `json:"processing_fee_clp,omitempty"`
 	MarketplaceCLP   *int64     `json:"marketplace_fee_clp,omitempty"`
@@ -19,12 +23,14 @@ type Settlement struct {
 
 func (s Settlement) WithReconciliation(charged, expectedMarketplace int64) Settlement {
 	s.Reconciliation = "pending"
+	if s.PaymentStatus == "charged_back" || s.PaymentStatus == "refunded" || (s.RefundedCLP != nil && *s.RefundedCLP > 0) {
+		s.Reconciliation = "discrepancy"
+		return s
+	}
 	if s.NetCLP == nil || s.ProcessingFeeCLP == nil || s.MarketplaceCLP == nil {
 		return s
 	}
 	s.Reconciliation = "discrepancy"
-	// Refunded amounts can change the effective net. Keep that adjustment
-	// explicit when the original sale equation no longer matches.
 	marketplace, processing := *s.MarketplaceCLP, *s.ProcessingFeeCLP
 	if marketplace == expectedMarketplace && marketplace <= charged &&
 		processing <= charged-marketplace && *s.NetCLP == charged-marketplace-processing {

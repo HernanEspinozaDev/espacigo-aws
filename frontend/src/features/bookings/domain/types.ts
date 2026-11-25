@@ -84,6 +84,10 @@ export interface BookingReservation {
   readonly checkout_method?: "checkout_pro" | "payments_api";
   readonly provider_payment_id?: string;
   readonly provider_settlement?: {
+    readonly payment_type?: string;
+    readonly payment_status?: "approved" | "refunded" | "charged_back";
+    readonly approved_at?: string;
+    readonly synced_at?: string;
     readonly net_clp?: number;
     readonly processing_fee_clp?: number;
     readonly marketplace_fee_clp?: number;

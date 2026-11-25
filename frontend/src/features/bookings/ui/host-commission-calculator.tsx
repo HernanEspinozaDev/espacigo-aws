@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { calculateBuyerFeeBreakdown } from "@/features/rental-checkout/domain/fee-breakdown";
+import type { BookingReservation } from "../domain/types";
 import { formatBookingClp } from "./format";
 
 function parseWholeCLP(value: string): number | undefined {
@@ -22,10 +23,42 @@ function parseRateBps(value: string): bigint | undefined {
 
 const inputStyle = "w-full rounded-md border border-input bg-background p-2";
 
-export function HostCommissionCalculator() {
+const paymentMethodLabels: Record<string, string> = {
+  debit_card: "Débito",
+  credit_card: "Crédito",
+  prepaid_card: "Prepago",
+  account_money: "Saldo de Mercado Pago",
+};
+
+export function HostCommissionCalculator({
+  reservations,
+}: {
+  reservations: readonly BookingReservation[];
+}) {
+  const reference = reservations
+    .flatMap(({ participant_role, provider_settlement, subtotal_clp }) => {
+      if (
+        participant_role !== "anfitrion" ||
+        provider_settlement?.reconciliation !== "reconciled" ||
+        provider_settlement.processing_fee_clp === undefined
+      )
+        return [];
+      return [
+        {
+          amount: subtotal_clp,
+          fee: provider_settlement.processing_fee_clp,
+          method: provider_settlement.payment_type,
+          date:
+            provider_settlement.approved_at ??
+            provider_settlement.provider_updated_at,
+        },
+      ];
+    })
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))[0];
   const id = useId();
   const [rent, setRent] = useState("");
   const [value, setValue] = useState("");
+  const [other, setOther] = useState("");
   const [kind, setKind] = useState("amount");
   const [basis, setBasis] = useState("charged");
   const [includesVAT, setIncludesVAT] = useState(true);
@@ -46,6 +79,7 @@ export function HostCommissionCalculator() {
       );
     }
   }
+  const otherCharges = other === "" ? 0 : parseWholeCLP(other);
   const money = (amount: number) => `${formatBookingClp(amount)} CLP`;
 
   return (
@@ -53,6 +87,28 @@ export function HostCommissionCalculator() {
       <summary className="cursor-pointer font-semibold">
         Calculadora de comisiones
       </summary>
+      {reference && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <p>
+            Cargo confirmado {money(reference.fee)} ·{" "}
+            {paymentMethodLabels[reference.method ?? ""] ?? "Mercado Pago"} ·{" "}
+            {new Date(reference.date).toLocaleDateString("es-CL", {
+              timeZone: "America/Santiago",
+            })}
+          </p>
+          <button
+            type="button"
+            className="rounded-md border border-input px-3 py-2"
+            onClick={() => {
+              setRent(String(reference.amount));
+              setKind("amount");
+              setValue(String(reference.fee));
+            }}
+          >
+            Usar como referencia
+          </button>
+        </div>
+      )}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <label htmlFor={`${id}-rent`} className="grid gap-1 text-sm">
           Valor del arriendo en CLP
@@ -91,6 +147,16 @@ export function HostCommissionCalculator() {
             onChange={(event) => setValue(event.target.value)}
           />
         </label>
+        <label htmlFor={`${id}-other`} className="grid gap-1 text-sm">
+          Otros cargos estimados en CLP (opcional)
+          <input
+            id={`${id}-other`}
+            className={inputStyle}
+            inputMode="numeric"
+            value={other}
+            onChange={(event) => setOther(event.target.value)}
+          />
+        </label>
         {kind === "rate" && (
           <>
             <label htmlFor={`${id}-basis`} className="grid gap-1 text-sm">
@@ -118,7 +184,7 @@ export function HostCommissionCalculator() {
           </>
         )}
       </div>
-      {amounts && providerFee !== undefined ? (
+      {amounts && providerFee !== undefined && otherCharges !== undefined ? (
         <dl className="mt-4 grid gap-2 text-sm" aria-live="polite">
           <div className="flex justify-between gap-2">
             <dt>EspaciGo del arrendatario (3 % + IVA)</dt>
@@ -143,7 +209,12 @@ export function HostCommissionCalculator() {
           <div className="flex justify-between gap-2 border-t pt-2 font-semibold">
             <dt>Neto estimado del anfitrión</dt>
             <dd>
-              {money(amounts.baseClp - amounts.serviceFeeClp - providerFee)}
+              {money(
+                amounts.baseClp -
+                  amounts.serviceFeeClp -
+                  providerFee -
+                  otherCharges,
+              )}
             </dd>
           </div>
         </dl>

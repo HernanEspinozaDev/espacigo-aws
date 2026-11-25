@@ -31,4 +31,15 @@ func TestDecodeVerifiedCheckoutProSplitSettlement(t *testing.T) {
 	if got := s.WithReconciliation(1036, 72); got.Reconciliation != "pending" {
 		t.Fatalf("a missing fee must remain pending, got %+v", got)
 	}
+	zero := optionalCLP([]byte("0"))
+	if zero == nil || *zero != 0 || optionalCLP([]byte("39.5")) != nil {
+		t.Fatal("CLP amounts must preserve explicit zero and reject fractional values")
+	}
+	s.ProcessingFeeCLP = zero
+	withoutProcessing := int64(964)
+	s.NetCLP = &withoutProcessing
+	if got := s.WithReconciliation(1036, 72); got.Reconciliation != "reconciled" {
+		t.Fatalf("expected explicit zero fee to reconcile: %+v", got)
+	}
+
 }

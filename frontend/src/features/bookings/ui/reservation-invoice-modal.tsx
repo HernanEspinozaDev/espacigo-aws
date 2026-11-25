@@ -101,6 +101,19 @@ export function ReservationInvoiceModal({
     : "Confirmada";
 
   const settlement = reservation.provider_settlement;
+  const paymentLabel =
+    settlement?.payment_status === "charged_back"
+      ? "Contracargo informado por Mercado Pago"
+      : settlement?.payment_status === "refunded" ||
+          (reservation.commercial_refund_status === "aprobado" &&
+            reservation.state === "reembolsada")
+        ? "Pago reembolsado"
+        : "Pago aprobado";
+  const sourceDate = settlement?.synced_at
+    ? new Date(settlement.synced_at).toLocaleString("es-CL", {
+        timeZone: "America/Santiago",
+      })
+    : undefined;
   const money = (amount: number) => `${formatBookingClp(amount)} CLP`;
   const netLabel =
     confirmedNetHostClp === undefined
@@ -119,12 +132,15 @@ export function ReservationInvoiceModal({
     : undefined;
   const releaseDescription =
     releaseLabel + (releaseDate ? ` · ${releaseDate}` : "");
-  const settlementNote =
+  const reconciliationNote =
     settlement?.reconciliation === "discrepancy"
       ? "El desglose de Mercado Pago presenta una diferencia pendiente de conciliar."
       : settlement?.reconciliation === "reconciled"
         ? "Importes conciliados con el pago de Mercado Pago."
         : "Conciliación de cargos de Mercado Pago pendiente.";
+  const settlementNote = sourceDate
+    ? `${reconciliationNote} Consulta de Mercado Pago: ${sourceDate}.`
+    : reconciliationNote;
   const hostRows = [
     ["Valor del arriendo", money(baseClp)],
     [
@@ -188,7 +204,7 @@ export function ReservationInvoiceModal({
       "============================================================",
       `N° Comprobante:      ${invoiceNumber}`,
       `Fecha de Emisión:    ${issuedAtFormatted}`,
-      `Estado:              Pago Aprobado y Confirmado`,
+      `Estado:              ${paymentLabel}`,
       "------------------------------------------------------------",
       "DATOS DEL ESPACIO Y RESERVA",
       `Espacio:             ${reservation.space_title || reservation.space_id}`,
@@ -597,7 +613,7 @@ export function ReservationInvoiceModal({
             <div class="doc-number">${escapeHtml(invoiceNumber)}</div>
             <div class="status-pill">
               <span class="status-dot"></span>
-              Pago Aprobado y Confirmado
+              ${escapeHtml(paymentLabel)}
             </div>
             <div class="issued">Emitido: ${escapeHtml(issuedAtFormatted)}</div>
           </div>
@@ -735,7 +751,7 @@ export function ReservationInvoiceModal({
               <div className="order-1 text-left sm:order-2 sm:text-right">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Pago Aprobado
+                  {paymentLabel}
                 </span>
                 <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
                   Emitido: {issuedAtFormatted}
