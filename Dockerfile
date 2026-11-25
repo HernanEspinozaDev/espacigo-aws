@@ -20,6 +20,7 @@ COPY --from=api-build --chown=65532:65532 /out/api /api
 COPY --from=api-build /out/rds-ca.pem /etc/ssl/rds-ca.pem
 COPY --from=go-deps /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY db/migrations /migrations
+COPY geo /etc/espacigo/geo
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/api"]
