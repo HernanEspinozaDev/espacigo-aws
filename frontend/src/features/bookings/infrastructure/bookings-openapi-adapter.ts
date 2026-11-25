@@ -38,6 +38,8 @@ type CommercialReservationWithBuyerFees = CommercialReservationSchema & {
   buyer_vat_clp?: number | string;
   buyer_fee_clp?: number | string;
   total_charged_clp?: number | string;
+  cancellation_policy_version?: string | null;
+  cancellation_policy_text?: string | null;
 };
 
 function optionalNumber(
@@ -45,7 +47,7 @@ function optionalNumber(
 ): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function mapCommercialToBookingReservation(
@@ -63,12 +65,23 @@ function mapCommercialToBookingReservation(
     checkout_status: item.checkout_status,
     checkout_method: item.checkout_method,
     provider_payment_id: item.provider_payment_id,
+    provider_settlement: item.provider_settlement && {
+      ...item.provider_settlement,
+      net_clp: optionalNumber(item.provider_settlement.net_clp),
+      processing_fee_clp: optionalNumber(
+        item.provider_settlement.processing_fee_clp,
+      ),
+      marketplace_fee_clp: optionalNumber(
+        item.provider_settlement.marketplace_fee_clp,
+      ),
+      refunded_clp: optionalNumber(item.provider_settlement.refunded_clp),
+    },
     commission_clp: optionalNumber(item.commission_clp),
     vat_clp: optionalNumber(item.vat_clp),
     marketplace_fee_clp: optionalNumber(item.marketplace_fee_clp),
     net_host_amount_clp: optionalNumber(item.net_host_amount_clp),
     buyer_commission_clp: optionalNumber(extended.buyer_commission_clp),
-    buyer_vat_clp: optionalNumber(extended.buyer_vat_clp),
+    buyer_vat_clp: optionalNumber(item.buyer_iva_clp ?? extended.buyer_vat_clp),
     buyer_fee_clp: optionalNumber(extended.buyer_fee_clp),
     total_charged_clp: optionalNumber(extended.total_charged_clp),
     is_commercial: true,
@@ -96,8 +109,10 @@ function mapCommercialToBookingReservation(
           })),
         }
       : {}),
-    conditions: "",
-    cancellation_policy_version: "v1",
+    conditions: extended.cancellation_policy_text ?? "",
+    cancellation_policy_version: extended.cancellation_policy_version ?? "",
+    cancellation_policy_text: extended.cancellation_policy_text,
+    commercial_refund_status: item.refund_status,
     pay_expires_at: item.payment_expires_at,
     created_at: item.created_at,
     updated_at: item.updated_at,
@@ -281,7 +296,47 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   async previewCancellation(
     reservationId: string,
     signal?: AbortSignal,
+    commercial = false,
   ): Promise<CancellationPreview> {
+    if (commercial) {
+      const result = await apiClient.GET(
+        "/commercial-reservations/{reservationID}/cancellation-preview",
+        { params: { path: { reservationID: reservationId } }, signal },
+      );
+      if (!result.response.ok) {
+        throw normalizeApiError(result.response, result.error);
+      }
+      if (!result.data?.data) throw new ApiProtocolError();
+      const d = result.data.data;
+      const percent = Number(d.refund_percent);
+      const total = Number(d.total_charged_clp);
+      const amount = Number(d.refund_amount_clp);
+      if (
+        ![percent, total, amount].every(Number.isSafeInteger) ||
+        percent < 0 ||
+        percent > 100 ||
+        amount < 0 ||
+        total < amount
+      ) {
+        throw new ApiProtocolError();
+      }
+      return {
+        reservation_id: d.reservation_id,
+        policy_version: d.cancellation_policy_version ?? "",
+        policy_text: d.cancellation_policy_text,
+        eligible: d.can_cancel,
+        refund_percent: percent,
+        refund_status: d.refund_status,
+        total_charged_clp: total,
+        currency: d.currency,
+        starts_at: d.starts_at,
+        refund_ratio: percent / 100,
+        refund_amount_clp: amount,
+        penalty_amount_clp: total - amount,
+        reason: d.reason ?? "",
+      };
+    }
+
     const result = await apiClient.GET(
       "/local/booking-trial/reservations/{reservationId}/cancellation-preview",
       {
@@ -310,7 +365,47 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     reservationId: string,
     reason?: string,
     signal?: AbortSignal,
+    commercial = false,
+    expectedRefundCLP?: number,
   ): Promise<BookingReservation> {
+    if (commercial) {
+      if (
+        expectedRefundCLP === undefined ||
+        !Number.isSafeInteger(expectedRefundCLP) ||
+        expectedRefundCLP < 0
+      ) {
+        throw new ApiProtocolError();
+      }
+      const result = await apiClient.POST(
+        "/commercial-reservations/{reservationID}/cancel",
+        {
+          params: { path: { reservationID: reservationId } },
+          body: {
+            reason: reason ?? "",
+            expected_refund_amount_clp: expectedRefundCLP,
+          },
+          bodySerializer: serializeExactJson,
+          signal,
+        },
+      );
+      if (!result.response.ok) {
+        throw normalizeApiError(result.response, result.error);
+      }
+      if (!result.data?.data) throw new ApiProtocolError();
+      const cancellation = result.data.data as unknown as {
+        status?: string;
+        refund_status?: "pendiente" | "aprobado" | "fallido" | "no_aplica";
+      };
+      const reservation = await this.getReservation(reservationId, signal);
+      if (!reservation) throw new ApiProtocolError();
+      const updated = {
+        ...reservation,
+        cancellation_status: cancellation.status,
+        commercial_refund_status: cancellation.refund_status,
+      };
+      return updated;
+    }
+
     const result = await apiClient.POST(
       "/local/booking-trial/reservations/{reservationId}/cancel",
       {

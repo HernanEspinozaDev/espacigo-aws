@@ -40,6 +40,44 @@ func (s *Service) List(ctx context.Context, actor, reservationID string, before 
 	return s.repo.List(ctx, actor, reservationID, before, limit)
 }
 
+func (s *Service) ListCommercial(ctx context.Context, actor, reservationID string, before *int64, limit int) (Page, error) {
+	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || (before != nil && *before < 1) || limit < 1 || limit > MaxPageSize {
+		return Page{}, ErrInvalid
+	}
+	repo, ok := s.repo.(CommercialRepository)
+	if !ok {
+		return Page{}, ErrRepository
+	}
+	return repo.ListCommercial(ctx, strings.ToLower(actor), strings.ToLower(reservationID), before, limit)
+}
+
+func (s *Service) MarkCommercialRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
+	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || throughSequence < 1 {
+		return 0, ErrInvalid
+	}
+	repo, ok := s.repo.(CommercialRepository)
+	if !ok {
+		return 0, ErrRepository
+	}
+	return repo.MarkCommercialRead(ctx, strings.ToLower(actor), strings.ToLower(reservationID), throughSequence)
+}
+
+func (s *Service) SendCommercial(ctx context.Context, actor, reservationID, key, body string) (Message, error) {
+	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || !validKey(key) || !validBody(body) {
+		return Message{}, ErrInvalid
+	}
+	repo, ok := s.repo.(CommercialRepository)
+	if !ok {
+		return Message{}, ErrRepository
+	}
+	id, err := s.ids.ID()
+	if err != nil {
+		return Message{}, err
+	}
+	fingerprint := sha256.Sum256([]byte(body))
+	return repo.SendCommercial(ctx, strings.ToLower(actor), strings.ToLower(reservationID), key, body, fingerprint[:], id, s.now)
+}
+
 func (s *Service) MarkRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
 	if !uuidPattern.MatchString(actor) || !uuidPattern.MatchString(reservationID) || throughSequence < 1 {
 		return 0, ErrInvalid

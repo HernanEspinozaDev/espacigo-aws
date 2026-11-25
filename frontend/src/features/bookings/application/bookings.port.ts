@@ -49,6 +49,7 @@ export interface BookingsPort {
   previewCancellation(
     reservationId: string,
     signal?: AbortSignal,
+    commercial?: boolean,
   ): Promise<CancellationPreview>;
 
   cancelReservation(
@@ -56,6 +57,8 @@ export interface BookingsPort {
     reservationId: string,
     reason?: string,
     signal?: AbortSignal,
+    commercial?: boolean,
+    expectedRefundCLP?: number,
   ): Promise<BookingReservation>;
 
   simulatePayment(

@@ -105,7 +105,7 @@ func TestReleasePolicyRejectsUnsafeOwnerTarget(t *testing.T) {
 	}
 }
 
-func TestBaselineReleasePolicyMatchesDiscoveredBaselineAndAllowsV2Expand(t *testing.T) {
+func TestReleasePolicyMatchesDiscoveredMigrations(t *testing.T) {
 	bytes, err := os.ReadFile(filepath.Join("..", "..", "db", "release-policy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -117,14 +117,11 @@ func TestBaselineReleasePolicyMatchesDiscoveredBaselineAndAllowsV2Expand(t *test
 	if policy.Format != "espacigo.initial-migration-policy.v1" || policy.Baseline != 1 {
 		t.Fatalf("unexpected release policy header: %+v", policy)
 	}
-	if len(policy.Automatic) != 0 {
-		t.Fatalf("expected empty automatic_migrations at baseline 1, got %d", len(policy.Automatic))
-	}
 	migrations, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 1 || migrations[0].Version != 1 || migrations[0].Name != "V000001__baseline.sql" {
+	if len(migrations) == 0 || migrations[0].Version != 1 || migrations[0].Name != "V000001__baseline.sql" {
 		t.Fatalf("unexpected baseline migration discovery: %+v", migrations)
 	}
 	rawReview, ok := policy.ReviewRequired["V000001__baseline.sql"]
@@ -143,18 +140,23 @@ func TestBaselineReleasePolicyMatchesDiscoveredBaselineAndAllowsV2Expand(t *test
 		t.Fatalf("unexpected V000001 review rule: %+v (file checksum %s)", reviewRule, migrations[0].Checksum)
 	}
 
-	// Verify V000002+ expand migration is allowed once V000001 is applied.
-	policy.Automatic["V000002__expand_example.sql"] = struct {
-		Checksum            string   `json:"checksum"`
-		Strategy            string   `json:"strategy"`
-		RequiresSchemaOwner []string `json:"requires_schema_owner,omitempty"`
-	}{Checksum: "abc123", Strategy: "expand"}
 	plan := PlanResult{
 		HistoryExists: true,
 		Applied:       []HistoryEntry{{Version: 1, Name: migrations[0].Name, Checksum: migrations[0].Checksum}},
-		Pending:       []MigrationSummary{{Version: 2, Name: "V000002__expand_example.sql", Checksum: "abc123"}},
+	}
+	for _, migration := range migrations[1:] {
+		if _, automatic := policy.Automatic[migration.Name]; automatic {
+			plan.Pending = append(plan.Pending, MigrationSummary{
+				Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum,
+			})
+		} else if _, reviewed := policy.ReviewRequired[migration.Name]; !reviewed {
+			t.Fatalf("missing release rule for %s", migration.Name)
+		}
+	}
+	if len(plan.Pending) != len(policy.Automatic) {
+		t.Fatalf("automatic rules do not match discovered migrations: %+v", policy.Automatic)
 	}
 	if err := policy.checkPending(plan); err != nil {
-		t.Fatalf("expected V2 expand migration to pass after baseline 1: %v", err)
+		t.Fatalf("registered expansion migrations should pass once the baseline is applied: %v", err)
 	}
 }

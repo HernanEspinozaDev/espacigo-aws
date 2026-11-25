@@ -1,8 +1,6 @@
 import { notFound } from "next/navigation";
 import { ReservationLifecyclePanel } from "@/features/bookings/ui/reservation-lifecycle-panel";
-import { BookingConversationPanel } from "@/features/bookings/ui/booking-conversation-panel";
-import { BookingReviewsPanel } from "@/features/bookings/ui/booking-reviews-panel";
-import { BookingDisputesPanel } from "@/features/bookings/ui/booking-disputes-panel";
+import { CommercialReservationTabs } from "@/features/bookings/ui/commercial-reservation-tabs";
 import { CommercialReservationDocuments } from "@/features/commercial-contracts/ui/commercial-reservation-documents";
 
 interface PageProps {
@@ -19,12 +17,12 @@ export default async function ReservationDetailPage({ params }: PageProps) {
   return (
     <div className="space-y-10">
       <CommercialReservationDocuments key={id} reservationId={id} />
-      <ReservationLifecyclePanel reservationId={id} role="arrendatario" />
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-        <BookingConversationPanel reservationId={id} />
-        <BookingReviewsPanel reservationId={id} />
-      </div>
-      <BookingDisputesPanel reservationId={id} />
+      <ReservationLifecyclePanel
+        key={id}
+        reservationId={id}
+        role="arrendatario"
+      />
+      <CommercialReservationTabs key={id} reservationId={id} />
     </div>
   );
 }

@@ -3,40 +3,47 @@ package rentalflow
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
 )
 
 var ErrReservationUnavailable = errors.New("rental flow: commercial reservations unavailable")
 
 type CommercialReservation struct {
-	ID                 string `json:"id"`
-	QuoteID            string `json:"quote_id"`
-	SpaceID            string `json:"space_id"`
-	SpaceTitle         string `json:"space_title"`
-	ParticipantRole    string `json:"participant_role"`
-	Status             string `json:"status"`
-	CheckoutStatus     string `json:"checkout_status"`
-	CheckoutMethod     string `json:"checkout_method,omitempty"`
-	ProviderPaymentID  string `json:"provider_payment_id,omitempty"`
-	CommissionCLP      int64  `json:"commission_clp,omitempty"`
-	VATCLP             int64  `json:"vat_clp,omitempty"`
-	BuyerCommissionCLP int64  `json:"buyer_commission_clp,omitempty"`
-	BuyerVATCLP        int64  `json:"buyer_vat_clp,omitempty"`
-	BuyerFeeCLP        int64  `json:"buyer_fee_clp,omitempty"`
-	TotalChargedCLP    int64  `json:"total_charged_clp,omitempty"`
-	MarketplaceFeeCLP  int64  `json:"marketplace_fee_clp,omitempty"`
-	NetHostAmountCLP   int64  `json:"net_host_amount_clp,omitempty"`
-	RateUnit           string `json:"rate_unit"`
-	UnitPriceCLP       int64  `json:"unit_price_clp"`
-	Units              int64  `json:"units"`
-	SubtotalCLP        int64  `json:"subtotal_clp"`
-	Currency           string `json:"currency"`
-	StartAt            string          `json:"start_at"`
-	EndAt              string          `json:"end_at"`
-	TimeZone           string          `json:"time_zone"`
-	PaymentExpiresAt   string          `json:"payment_expires_at"`
-	CreatedAt          string          `json:"created_at"`
-	UpdatedAt          string          `json:"updated_at"`
-	Intervals          []QuoteInterval `json:"intervals,omitempty"`
+	ID                        string                  `json:"id"`
+	QuoteID                   string                  `json:"quote_id"`
+	SpaceID                   string                  `json:"space_id"`
+	SpaceTitle                string                  `json:"space_title"`
+	ParticipantRole           string                  `json:"participant_role"`
+	Status                    string                  `json:"status"`
+	CheckoutStatus            string                  `json:"checkout_status"`
+	CheckoutMethod            string                  `json:"checkout_method,omitempty"`
+	ProviderSettlement        *checkoutpro.Settlement `json:"provider_settlement,omitempty"`
+	ProviderPaymentID         string                  `json:"provider_payment_id,omitempty"`
+	CommissionCLP             int64                   `json:"commission_clp,omitempty"`
+	VATCLP                    int64                   `json:"vat_clp,omitempty"`
+	BuyerCommissionCLP        int64                   `json:"buyer_commission_clp,omitempty"`
+	BuyerVATCLP               int64                   `json:"buyer_vat_clp,omitempty"`
+	BuyerFeeCLP               int64                   `json:"buyer_fee_clp,omitempty"`
+	TotalChargedCLP           int64                   `json:"total_charged_clp,omitempty"`
+	CancellationPolicyVersion *string                 `json:"cancellation_policy_version,omitempty"`
+	CancellationPolicyText    *string                 `json:"cancellation_policy_text,omitempty"`
+	RefundStatus              *string                 `json:"refund_status,omitempty"`
+	MarketplaceFeeCLP         int64                   `json:"marketplace_fee_clp,omitempty"`
+	NetHostAmountCLP          int64                   `json:"net_host_amount_clp,omitempty"`
+	RateUnit                  string                  `json:"rate_unit"`
+	UnitPriceCLP              int64                   `json:"unit_price_clp"`
+	Units                     int64                   `json:"units"`
+	SubtotalCLP               int64                   `json:"subtotal_clp"`
+	Currency                  string                  `json:"currency"`
+	StartAt                   string                  `json:"start_at"`
+	EndAt                     string                  `json:"end_at"`
+	TimeZone                  string                  `json:"time_zone"`
+	PaymentExpiresAt          string                  `json:"payment_expires_at"`
+	CreatedAt                 string                  `json:"created_at"`
+	UpdatedAt                 string                  `json:"updated_at"`
+	Intervals                 []QuoteInterval         `json:"intervals,omitempty"`
 }
 
 type CommercialReservationPage struct {
@@ -65,8 +72,12 @@ type CommercialPassVerifier interface {
 type CommercialReservationReconcilerFunc func(ctx context.Context, actor, quoteID string)
 
 type CommercialReservationService struct {
-	reader     CommercialReservationReader
-	reconciler CommercialReservationReconcilerFunc
+	reader             CommercialReservationReader
+	reconciler         CommercialReservationReconcilerFunc
+	cancellations      CommercialCancellationRepository
+	cancellationTokens CommercialSellerTokenProvider
+	refundGateway      CommercialRefundGateway
+	cancellationNow    func() time.Time
 }
 
 func NewCommercialReservationService(reader CommercialReservationReader) (*CommercialReservationService, error) {

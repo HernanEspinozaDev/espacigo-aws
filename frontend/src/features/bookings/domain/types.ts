@@ -14,6 +14,8 @@ export type BookingState =
   | "vencida_pago"
   | "vencida_host"
   | "cancelada_arrendatario"
+  | "cancelada"
+  | "reembolsada"
   | "reconciliation_required";
 
 export type RateUnit = "hora" | "dia" | "mes";
@@ -36,6 +38,7 @@ export interface BookingQuote {
   readonly profile_version: number;
   readonly profile_values: Readonly<Record<string, unknown>>;
   readonly cancellation_policy_version: string;
+  readonly cancellation_policy_text?: string | null;
   readonly guarantee_policy_version: string;
   readonly guarantee_currency: "CLP";
   readonly guarantee_expected_clp: number;
@@ -80,6 +83,20 @@ export interface BookingReservation {
   readonly checkout_status?: string;
   readonly checkout_method?: "checkout_pro" | "payments_api";
   readonly provider_payment_id?: string;
+  readonly provider_settlement?: {
+    readonly payment_type?: string;
+    readonly payment_status?: "approved" | "refunded" | "charged_back";
+    readonly approved_at?: string;
+    readonly synced_at?: string;
+    readonly net_clp?: number;
+    readonly processing_fee_clp?: number;
+    readonly marketplace_fee_clp?: number;
+    readonly refunded_clp?: number;
+    readonly release_status?: "pending" | "released";
+    readonly release_at?: string;
+    readonly provider_updated_at: string;
+    readonly reconciliation: "pending" | "reconciled" | "discrepancy";
+  };
   readonly commission_clp?: number;
   readonly vat_clp?: number;
   readonly marketplace_fee_clp?: number;
@@ -101,11 +118,15 @@ export interface BookingReservation {
   readonly intervals?: readonly BookingInterval[];
   readonly conditions: string;
   readonly cancellation_policy_version: string;
+  readonly cancellation_policy_text?: string | null;
   readonly guarantee_policy_version?: string | null;
   readonly guarantee_currency?: "CLP" | null;
   readonly guarantee_expected_clp?: number | null;
   readonly settlement_policy_version?: string | null;
   readonly settlement_commission_bps?: number | null;
+  readonly cancellation_status?: string;
+  readonly commercial_refund_status?:
+    "pendiente" | "aprobado" | "fallido" | "no_aplica";
   readonly refund_id?: string;
   readonly refund_operation_id?: string;
   readonly refund_amount_clp?: number;
@@ -127,11 +148,18 @@ export interface BookingDetail extends BookingReservation {
 export interface CancellationPreview {
   readonly reservation_id: string;
   readonly policy_version: string;
+  readonly policy_text?: string;
   readonly eligible: boolean;
+  readonly refund_percent?: number;
+  readonly total_charged_clp?: number;
+  readonly currency?: string;
+  readonly starts_at?: string;
   readonly refund_ratio: number;
   readonly refund_amount_clp: number;
   readonly penalty_amount_clp: number;
   readonly reason: string;
+  readonly status?: string;
+  readonly refund_status?: "pendiente" | "aprobado" | "fallido" | "no_aplica";
 }
 
 export type SimulatedPaymentOutcome = "exito" | "rechazo" | "sin_respuesta";
@@ -269,7 +297,7 @@ export interface DamageClaimEvidence {
 }
 
 export interface DamageClaimDefense {
-  readonly comments?: string;
+  readonly description?: string;
   readonly evidence: readonly DamageClaimEvidence[];
 }
 

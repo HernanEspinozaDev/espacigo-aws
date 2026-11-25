@@ -382,6 +382,7 @@ export class BookingsFacade {
   }
   async previewCancellation(
     reservationId: string,
+    commercial = false,
   ): Promise<CancellationPreview> {
     const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
@@ -390,6 +391,7 @@ export class BookingsFacade {
         this.#port.previewCancellation(
           reservationId,
           this.#sessionSignal(_sessionScope, undefined),
+          commercial,
         ),
         _sessionScope,
       );
@@ -415,6 +417,8 @@ export class BookingsFacade {
     reservationId: string,
     reason?: string,
     idempotencyKey = generateIdempotencyKey(),
+    commercial = false,
+    expectedRefundCLP?: number,
   ): Promise<BookingReservation> {
     const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
@@ -425,6 +429,8 @@ export class BookingsFacade {
           reservationId,
           reason,
           this.#sessionSignal(_sessionScope, undefined),
+          commercial,
+          expectedRefundCLP,
         ),
         _sessionScope,
       );
@@ -1389,10 +1395,11 @@ export class BookingsFacade {
   }
   async requestCancellationPreview(
     reservationId: string,
+    commercial = false,
   ): Promise<CancellationPreview> {
     const _sessionScope = this.#captureSession();
     return await this.#waitSession(
-      this.previewCancellation(reservationId),
+      this.previewCancellation(reservationId, commercial),
       _sessionScope,
     );
   }
