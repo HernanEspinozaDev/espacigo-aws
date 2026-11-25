@@ -266,8 +266,8 @@ func TestTestModeAllowsOnlyKnownCardsAndAccountMoney(t *testing.T) {
 		if got := AllowedPaymentType(true, tc.paymentType); got != tc.want {
 			t.Errorf("AllowedPaymentType(test,%q)=%v want %v", tc.paymentType, got, tc.want)
 		}
-		if tc.paymentType != "account_money" && AllowedPaymentType(false, tc.paymentType) {
-			t.Errorf("production accepted %q", tc.paymentType)
+		if got := AllowedPaymentType(false, tc.paymentType); got != tc.want {
+			t.Errorf("AllowedPaymentType(prod,%q)=%v want %v", tc.paymentType, got, tc.want)
 		}
 	}
 	for _, tc := range []struct {

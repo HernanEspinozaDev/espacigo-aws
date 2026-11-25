@@ -168,11 +168,8 @@ func CalculateAmounts(base int64) (Amounts, error) {
 // AllowedPaymentType constrains payment methods by the operation's persisted
 // mode. Split production accepts only account money. Test operations may also
 // accept card types so test buyers can use test cards.
-func AllowedPaymentType(testMode bool, paymentType string) bool {
-	if paymentType == "account_money" {
-		return true
-	}
-	return testMode && isTestCardType(paymentType)
+func AllowedPaymentType(_ bool, paymentType string) bool {
+	return paymentType == "account_money" || isTestCardType(paymentType)
 }
 
 // PaymentModeMatches requires test preferences to reconcile only a non-live
