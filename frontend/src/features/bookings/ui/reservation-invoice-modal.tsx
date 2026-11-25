@@ -72,6 +72,10 @@ export function ReservationInvoiceModal({
     hostVatClp,
     hostFeeClp,
     netHostClp,
+    confirmedNetHostClp,
+    processingFeeClp,
+    buyerFeeClp,
+    marketplaceFeeClp,
     buyerCommissionClp,
     buyerVatClp,
     totalChargedClp,
@@ -96,14 +100,87 @@ export function ReservationInvoiceModal({
     ? `#${reservation.provider_payment_id}`
     : "Confirmada";
 
+  const settlement = reservation.provider_settlement;
+  const paymentLabel =
+    settlement?.payment_status === "charged_back"
+      ? "Contracargo informado por Mercado Pago"
+      : settlement?.payment_status === "refunded" ||
+          (reservation.commercial_refund_status === "aprobado" &&
+            reservation.state === "reembolsada")
+        ? "Pago reembolsado"
+        : "Pago aprobado";
+  const sourceDate = settlement?.synced_at
+    ? new Date(settlement.synced_at).toLocaleString("es-CL", {
+        timeZone: "America/Santiago",
+      })
+    : undefined;
+  const money = (amount: number) => `${formatBookingClp(amount)} CLP`;
+  const netLabel =
+    confirmedNetHostClp === undefined
+      ? "Importe antes de tarifa Mercado Pago"
+      : "Neto informado por Mercado Pago";
+  const releaseLabel =
+    settlement?.release_status === "released"
+      ? "Fondos liberados en Mercado Pago"
+      : settlement?.release_status === "pending"
+        ? "Fondos pendientes de liberación"
+        : "Disponibilidad de fondos sin confirmar";
+  const releaseDate = settlement?.release_at
+    ? new Date(settlement.release_at).toLocaleString("es-CL", {
+        timeZone: "America/Santiago",
+      })
+    : undefined;
+  const releaseDescription =
+    releaseLabel + (releaseDate ? ` · ${releaseDate}` : "");
+  const reconciliationNote =
+    settlement?.reconciliation === "discrepancy"
+      ? "El desglose de Mercado Pago presenta una diferencia pendiente de conciliar."
+      : settlement?.reconciliation === "reconciled"
+        ? "Importes conciliados con el pago de Mercado Pago."
+        : "Conciliación de cargos de Mercado Pago pendiente.";
+  const settlementNote = sourceDate
+    ? `${reconciliationNote} Consulta de Mercado Pago: ${sourceDate}.`
+    : reconciliationNote;
+  const hostRows = [
+    ["Valor del arriendo", money(baseClp)],
+    [
+      "Cargo EspaciGo al arrendatario (3% + IVA)",
+      `+${money(buyerFeeClp)} (${money(buyerCommissionClp)} + ${money(buyerVatClp)} de IVA)`,
+    ],
+    ["Total pagado por el arrendatario", money(totalChargedClp)],
+    [
+      "Cargo EspaciGo al anfitrión (3% + IVA)",
+      `−${money(hostFeeClp)} (${money(hostCommissionClp)} + ${money(hostVatClp)} de IVA)`,
+    ],
+    [
+      "Comisión EspaciGo en el split",
+      `${money(marketplaceFeeClp)} en total · ${money(buyerFeeClp)} arrendatario + ${money(hostFeeClp)} anfitrión`,
+    ],
+    ...(settlement?.marketplace_fee_clp !== undefined &&
+    settlement.marketplace_fee_clp !== marketplaceFeeClp
+      ? [
+          [
+            "Comisión del split informada por Mercado Pago",
+            money(settlement.marketplace_fee_clp),
+          ],
+        ]
+      : []),
+    [
+      "Comisión de procesamiento de Mercado Pago",
+      processingFeeClp === undefined
+        ? "Pendiente de confirmar"
+        : `−${money(processingFeeClp)}`,
+    ],
+    ...(settlement?.refunded_clp
+      ? [["Reembolso informado", money(settlement.refunded_clp)]]
+      : []),
+  ];
+
   const handleDownloadTxt = () => {
     const economicLines = isHost
       ? [
-          `Tarifa Base del Espacio:     ${formatBookingClp(baseClp)} CLP`,
-          `Comisión EspaciGo (3%):     -${formatBookingClp(hostCommissionClp)} CLP`,
-          `IVA Comisión (19%):         -${formatBookingClp(hostVatClp)} CLP`,
-          `Total Comisión EspaciGo:    -${formatBookingClp(hostFeeClp)} CLP`,
-          `Ingreso Neto Anfitrión:      ${formatBookingClp(netHostClp)} CLP`,
+          ...hostRows.map(([label, value]) => `${label}: ${value}`),
+          `${netLabel}: ${money(netHostClp)}`,
         ]
       : [
           `Precio Original del Espacio: ${formatBookingClp(baseClp)} CLP`,
@@ -113,11 +190,7 @@ export function ReservationInvoiceModal({
         ];
 
     const footerLines = isHost
-      ? [
-          "Nota: Los cargos propios de procesamiento de Mercado Pago",
-          "se liquidan directamente en la cuenta del anfitrión según",
-          "la tarifa vigente de Mercado Pago Chile.",
-        ]
+      ? [settlementNote, releaseDescription]
       : [
           "Nota: Este comprobante refleja el cobro total confirmado",
           "en EspaciGo y procesado a través de Mercado Pago Chile.",
@@ -131,7 +204,7 @@ export function ReservationInvoiceModal({
       "============================================================",
       `N° Comprobante:      ${invoiceNumber}`,
       `Fecha de Emisión:    ${issuedAtFormatted}`,
-      `Estado:              Pago Aprobado y Confirmado`,
+      `Estado:              ${paymentLabel}`,
       "------------------------------------------------------------",
       "DATOS DEL ESPACIO Y RESERVA",
       `Espacio:             ${reservation.space_title || reservation.space_id}`,
@@ -191,29 +264,12 @@ export function ReservationInvoiceModal({
       : "COMPROBANTE DE PAGO CLIENTE";
 
     const rowsHtml = isHost
-      ? `
-        <tr>
-          <td>
-            <div class="row-title">Tarifa base del espacio</div>
-            <div class="row-sub">${escapeHtml(unitsLabel)}</div>
-          </td>
-          <td class="amount">${escapeHtml(formatBookingClp(baseClp))} CLP</td>
-        </tr>
-        <tr>
-          <td>
-            <div class="row-title">Comisión Anfitrión EspaciGo (3%)</div>
-            <div class="row-sub">Comisión de intermediación marketplace</div>
-          </td>
-          <td class="amount deduction">-${escapeHtml(formatBookingClp(hostCommissionClp))} CLP</td>
-        </tr>
-        <tr>
-          <td>
-            <div class="row-title">IVA sobre comisión (19%)</div>
-            <div class="row-sub">Impuesto legal sobre comisión de servicio</div>
-          </td>
-          <td class="amount deduction">-${escapeHtml(formatBookingClp(hostVatClp))} CLP</td>
-        </tr>
-      `
+      ? hostRows
+          .map(
+            ([label, value]) =>
+              `<tr><td><div class="row-title">${escapeHtml(label)}</div></td><td class="amount">${escapeHtml(value)}</td></tr>`,
+          )
+          .join("")
       : `
         <tr>
           <td>
@@ -238,18 +294,16 @@ export function ReservationInvoiceModal({
         </tr>
       `;
 
-    const summaryLabel = isHost
-      ? "Ingreso Neto Anfitrión (antes de tarifa MP)"
-      : "Total Pagado";
+    const summaryLabel = isHost ? netLabel : "Total Pagado";
     const summarySub = isHost
-      ? `Descuento total EspaciGo: -${formatBookingClp(hostFeeClp)} CLP · Liquidado vía Mercado Pago`
+      ? releaseDescription
       : "Cobro confirmado vía Mercado Pago Chile";
     const summaryAmount = isHost
       ? `${formatBookingClp(netHostClp)} CLP`
       : `${formatBookingClp(totalChargedClp)} CLP`;
 
     const legalNote = isHost
-      ? "Este documento refleja los importes verificados y persistidos en EspaciGo tras la confirmación de Mercado Pago. La tarifa de procesamiento propia de Mercado Pago Chile (según medio de pago y plazo de acreditación del vendedor) se descuenta directamente en la liquidación de tu cuenta Mercado Pago."
+      ? settlementNote
       : "Este comprobante refleja los importes confirmados de tu pago en EspaciGo tras la aprobación en Mercado Pago Chile.";
 
     const groupedDays = groupReservationIntervalsByDay(reservation);
@@ -559,7 +613,7 @@ export function ReservationInvoiceModal({
             <div class="doc-number">${escapeHtml(invoiceNumber)}</div>
             <div class="status-pill">
               <span class="status-dot"></span>
-              Pago Aprobado y Confirmado
+              ${escapeHtml(paymentLabel)}
             </div>
             <div class="issued">Emitido: ${escapeHtml(issuedAtFormatted)}</div>
           </div>
@@ -697,7 +751,7 @@ export function ReservationInvoiceModal({
               <div className="order-1 text-left sm:order-2 sm:text-right">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Pago Aprobado
+                  {paymentLabel}
                 </span>
                 <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
                   Emitido: {issuedAtFormatted}
@@ -789,42 +843,19 @@ export function ReservationInvoiceModal({
                 </thead>
                 {isHost ? (
                   <tbody className="divide-y divide-border bg-background">
-                    <tr>
-                      <td className="px-4 py-3 font-medium text-foreground">
-                        Tarifa base del espacio
-                        <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground sm:hidden">
-                          {unitsLabel}
-                        </span>
-                      </td>
-                      <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">
-                        {unitsLabel}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums text-foreground">
-                        {formatBookingClp(baseClp)} CLP
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        Comisión Anfitrión EspaciGo (3%)
-                      </td>
-                      <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">
-                        Intermediación marketplace
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">
-                        -{formatBookingClp(hostCommissionClp)} CLP
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        IVA sobre comisión (19%)
-                      </td>
-                      <td className="hidden px-4 py-3 text-right text-muted-foreground sm:table-cell">
-                        Impuesto legal sobre comisión
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-amber-700 dark:text-amber-400">
-                        -{formatBookingClp(hostVatClp)} CLP
-                      </td>
-                    </tr>
+                    {hostRows.map(([label, value]) => (
+                      <tr key={label}>
+                        <td
+                          className="px-4 py-3 text-foreground sm:table-cell"
+                          colSpan={2}
+                        >
+                          {label}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-foreground">
+                          {value}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 ) : (
                   <tbody className="divide-y divide-border bg-background">
@@ -873,13 +904,11 @@ export function ReservationInvoiceModal({
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3.5">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
-                  {isHost
-                    ? "Ingreso Neto Anfitrión (antes de tarifa MP)"
-                    : "Total Pagado"}
+                  {isHost ? netLabel : "Total Pagado"}
                 </p>
                 <p className="mt-0.5 text-[11px] text-emerald-700/90 dark:text-emerald-300/80">
                   {isHost
-                    ? `Descuento EspaciGo: -${formatBookingClp(hostFeeClp)} CLP · Liquidado vía Mercado Pago`
+                    ? releaseDescription
                     : "Cobro confirmado vía Mercado Pago Chile"}
                 </p>
               </div>
@@ -895,7 +924,7 @@ export function ReservationInvoiceModal({
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#D46236]" />
               <p>
                 {isHost
-                  ? "Este comprobante refleja los importes verificados y persistidos en EspaciGo tras la confirmación de Mercado Pago. La tarifa de procesamiento propia de Mercado Pago Chile (según medio de pago y plazo de acreditación del vendedor) se descuenta directamente en la liquidación de tu cuenta Mercado Pago."
+                  ? settlementNote
                   : "Este comprobante refleja los importes confirmados de tu pago en EspaciGo tras la aprobación en Mercado Pago."}
               </p>
             </div>

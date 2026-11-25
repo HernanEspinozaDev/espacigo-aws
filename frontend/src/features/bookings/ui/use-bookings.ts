@@ -83,12 +83,18 @@ export interface BookingsView {
   ): Promise<BookingReservation>;
   requestCancellationPreview(
     reservationId: string,
+    commercial?: boolean,
   ): Promise<CancellationPreview>;
-  previewCancellation(reservationId: string): Promise<CancellationPreview>;
+  previewCancellation(
+    reservationId: string,
+    commercial?: boolean,
+  ): Promise<CancellationPreview>;
   cancelReservation(
     reservationId: string,
     reason?: string,
     idempotencyKey?: string,
+    commercial?: boolean,
+    expectedRefundCLP?: number,
   ): Promise<BookingReservation>;
   submitSimulatedPayment(
     reservationId: string,
@@ -285,23 +291,35 @@ export function useBookings(): BookingsView {
     [],
   );
   const requestCancellationPreview = useCallback(
-    (reservationId: string) =>
+    (reservationId: string, commercial = false) =>
       withConfirmedAuth(() =>
-        bookingsFacade.requestCancellationPreview(reservationId),
+        bookingsFacade.requestCancellationPreview(reservationId, commercial),
       ),
     [],
   );
   const previewCancellation = useCallback(
-    (reservationId: string) =>
+    (reservationId: string, commercial = false) =>
       withConfirmedAuth(() =>
-        bookingsFacade.previewCancellation(reservationId),
+        bookingsFacade.previewCancellation(reservationId, commercial),
       ),
     [],
   );
   const cancelReservation = useCallback(
-    (reservationId: string, reason?: string, idempotencyKey?: string) =>
+    (
+      reservationId: string,
+      reason?: string,
+      idempotencyKey?: string,
+      commercial = false,
+      expectedRefundCLP?: number,
+    ) =>
       withConfirmedAuth(() =>
-        bookingsFacade.cancelReservation(reservationId, reason, idempotencyKey),
+        bookingsFacade.cancelReservation(
+          reservationId,
+          reason,
+          idempotencyKey,
+          commercial,
+          expectedRefundCLP,
+        ),
       ),
     [],
   );

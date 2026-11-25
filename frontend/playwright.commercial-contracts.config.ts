@@ -6,6 +6,7 @@ export default defineConfig({
   testMatch: [
     "commercial-agreement-checkout.spec.ts",
     "commercial-reservation-documents.spec.ts",
+    "commercial-reservation-aftercare.spec.ts",
   ],
   fullyParallel: false,
   reporter: "list",

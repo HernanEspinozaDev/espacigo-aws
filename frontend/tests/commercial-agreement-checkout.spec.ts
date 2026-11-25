@@ -6,6 +6,8 @@ const proposalId = "10000000-0000-4000-8000-000000000003";
 const agreementId = "10000000-0000-4000-8000-000000000004";
 const accountId = "10000000-0000-4000-8000-000000000005";
 const reservationId = "10000000-0000-4000-8000-000000000007";
+const otpChallengeId = "10000000-0000-4000-8000-000000000008";
+const otpCode = "123456";
 const snapshot = "a".repeat(64);
 const cancellationPolicy = {
   version: "flexible_v1",
@@ -210,6 +212,23 @@ async function fixture(
     else if (path === `/api/backend/rental-contract-proposals/${proposalId}`)
       body = { data: proposal() };
     else if (
+      path === "/api/backend/commercial-agreements/otp-challenge" &&
+      r.method() === "POST"
+    ) {
+      expect(r.postDataJSON()).toEqual({
+        proposal_id: proposalId,
+        snapshot_sha256: snapshot,
+        role: actor,
+        ...(actor === "arrendador" ? { agreement_id: agreementId } : {}),
+      });
+      status = 201;
+      body = {
+        challenge_id: otpChallengeId,
+        channel: "email",
+        masked_email: "s***@example.test",
+        expires_at: future(),
+      };
+    } else if (
       path === "/api/backend/commercial-agreements" &&
       r.method() === "GET"
     )
@@ -226,6 +245,8 @@ async function fixture(
         snapshot_sha256: snapshot,
         consent: true,
         consent_version: "commercial-agreement-v1",
+        otp_challenge_id: otpChallengeId,
+        otp_code: otpCode,
       });
       keys.push(r.headers()["idempotency-key"]);
       expect(r.headers()["authorization"]).toBeUndefined();
@@ -251,6 +272,8 @@ async function fixture(
         snapshot_sha256: snapshot,
         consent: true,
         consent_version: "commercial-agreement-v1",
+        otp_challenge_id: otpChallengeId,
+        otp_code: otpCode,
       });
       expect(r.headers()["if-match"]).toBe(
         `"commercial-agreement-${agreementId}-1"`,
@@ -300,22 +323,32 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
     page.getByText(cancellationPolicy.text, { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Revisar contrato", exact: true })
+    .getByRole("button", { name: "Revisar y firmar contrato", exact: true })
     .click();
   await expect(
-    page.getByText("Dirección sintética 123", { exact: true }),
+    page.getByText(/ubicado en Dirección sintética 123/),
   ).toBeVisible();
-  await expect(page.getByText("Uso permitido", { exact: true })).toBeVisible();
   await expect(
-    page.getByText(cancellationPolicy.text, { exact: true }),
-  ).toHaveCount(2);
-  const send = page.getByRole("button", { name: "Firmar y enviar solicitud" });
-  await expect(send).toBeDisabled();
+    page.getByText("SEGUNDO. OBJETO Y USO PERMITIDO:", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(cancellationPolicy.text)).toHaveCount(2);
+  const requestCode = page.getByRole("button", {
+    name: "Enviar código de firma al correo",
+  });
+  await expect(requestCode).toBeDisabled();
   await page.getByRole("checkbox").check();
+  await requestCode.click();
+  await expect(page.getByText("Código enviado a")).toBeVisible();
+  const send = page.getByRole("button", {
+    name: "Confirmar y firmar (FES)",
+  });
+  await expect(send).toBeDisabled();
+  await page.getByPlaceholder("Código de 6 dígitos").fill(otpCode);
+  await expect(send).toBeEnabled();
   await send.click();
-  await expect(
-    page.getByText("Esperando la firma del anfitrión", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("status")).toHaveText(
+    "Esperando la firma del anfitrión",
+  );
   await expect(
     page.getByRole("link", { name: "Ir a pagar", exact: true }),
   ).toHaveCount(0);
@@ -327,7 +360,7 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
     .getByRole("button", { name: "Actualizar estado", exact: true })
     .click();
   await expect(
-    page.getByText("Firmado por ambas partes", { exact: true }),
+    page.getByText("Firmado por ambas partes", { exact: true }).first(),
   ).toBeVisible();
   await expect(page.getByText(/Plazo para pagar:/)).toBeVisible();
   const pay = page
@@ -339,7 +372,7 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
     new RegExp(`/reservas/contratos/${agreementId}$`),
   );
   await expect(
-    page.getByText("Firmado por ambas partes", { exact: true }),
+    page.getByText("Firmado por ambas partes", { exact: true }).first(),
   ).toBeVisible();
 });
 
@@ -365,17 +398,21 @@ test("an uncertain send retries the same signed payload and idempotency key", as
   const f = await fixture(page, { failFirstSend: true });
   await page.goto(`/reservas/nueva?${selection()}`);
   await page
-    .getByRole("button", { name: "Revisar contrato", exact: true })
+    .getByRole("button", { name: "Revisar y firmar contrato", exact: true })
     .click();
   await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Firmar y enviar solicitud" }).click();
+  await page
+    .getByRole("button", { name: "Enviar código de firma al correo" })
+    .click();
+  await page.getByPlaceholder("Código de 6 dígitos").fill(otpCode);
+  await page.getByRole("button", { name: "Confirmar y firmar (FES)" }).click();
   await expect(
     page.getByRole("alert").filter({ hasText: "No pudimos confirmar" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Firmar y enviar solicitud" }).click();
-  await expect(
-    page.getByText("Esperando la firma del anfitrión", { exact: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Confirmar y firmar (FES)" }).click();
+  await expect(page.getByRole("status")).toHaveText(
+    "Esperando la firma del anfitrión",
+  );
   expect(f.keys).toHaveLength(2);
   expect(f.keys[0]).toBe(f.keys[1]);
 });
@@ -385,34 +422,48 @@ test("landlord reviews the private proposal and signs it before both signatures 
 }) => {
   await fixture(page, { actor: "arrendador" });
   await page.goto("/anfitrion/reservas");
-  await page.getByRole("button", { name: /Revisar solicitud/ }).click();
+  await page
+    .getByRole("button", { name: "Revisar y firmar", exact: true })
+    .click();
 
   await expect(
-    page.getByRole("heading", { name: "Revisión del contrato" }),
+    page.getByRole("heading", { name: "Revisión del contrato (Arrendador)" }),
   ).toBeVisible();
   await expect(page.getByText("Dirección sintética 123")).toBeVisible();
-  await expect(page.getByText("••••2222")).toBeVisible();
+  await expect(page.getByText("••••2222", { exact: true })).toBeVisible();
   await expect(
-    page.getByText(/Los datos personales y contactos se habilitan después/),
+    page.getByText(/datos completos se completan al confirmar el pago/),
   ).toBeVisible();
   await expect(page.getByText(/@|\+56\s?9/)).toHaveCount(0);
 
-  const sign = page.getByRole("button", { name: "Aceptar y firmar" });
-  await expect(sign).toBeDisabled();
+  const requestCode = page.getByRole("button", {
+    name: "Enviar código de firma al correo",
+  });
+  await expect(requestCode).toBeDisabled();
   await page.getByRole("checkbox").check();
+  await requestCode.click();
+  await expect(page.getByText("Código enviado a")).toBeVisible();
+  const sign = page.getByRole("button", { name: "Aceptar y firmar (FES)" });
+  await expect(sign).toBeDisabled();
+  await page.getByPlaceholder("Código de 6 dígitos").fill(otpCode);
+  await expect(sign).toBeEnabled();
   await sign.click();
 
   await expect(
-    page.getByText(
-      "Firma registrada. El horario quedó retenido hasta el plazo de pago indicado.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+    page
+      .getByRole("status")
+      .filter({
+        hasText:
+          "Firma registrada. El horario quedó retenido hasta el plazo de pago indicado.",
+      })
+      .first(),
+  ).toHaveText(
+    "Firma registrada. El horario quedó retenido hasta el plazo de pago indicado.",
+  );
   await expect(
-    page.getByText("Firmado por ambas partes", { exact: true }),
+    page.getByText("Firmado por ambas partes", { exact: true }).first(),
   ).toBeVisible();
-  await expect(page.getByText(/Firma arrendatario:/)).toBeVisible();
-  await expect(page.getByText(/Firma arrendador:/)).toBeVisible();
+  await expect(page.getByText(/Firmado el .*· v1/)).toHaveCount(2);
   await expect(page.getByText(/Plazo de pago:/)).toBeVisible();
 });
 

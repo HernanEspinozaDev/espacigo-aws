@@ -95,6 +95,114 @@ RETURNING ultima_secuencia_leida`, reservationID, actor, throughSequence).Scan(&
 	return cursor, err
 }
 
+func (r *Repository) ListCommercial(ctx context.Context, actor, reservationID string, before *int64, limit int) (conversation.Page, error) {
+	var participant bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))`, reservationID, actor).Scan(&participant); err != nil {
+		return conversation.Page{}, err
+	}
+	if !participant {
+		return conversation.Page{}, conversation.ErrNotFound
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id::text,reserva_id::text,COALESCE(autor_id::text,''),secuencia,cuerpo,creada_en FROM public.mensaje_reserva_comercial WHERE reserva_id=$1 AND ($2::bigint IS NULL OR secuencia<$2) ORDER BY secuencia DESC LIMIT $3`, reservationID, before, limit+1)
+	if err != nil {
+		return conversation.Page{}, err
+	}
+	defer rows.Close()
+	descending := make([]conversation.Message, 0, limit+1)
+	for rows.Next() {
+		var item conversation.Message
+		if err = rows.Scan(&item.ID, &item.ReservationID, &item.AuthorID, &item.Sequence, &item.Body, &item.CreatedAt); err != nil {
+			return conversation.Page{}, err
+		}
+		descending = append(descending, item)
+	}
+	if err = rows.Err(); err != nil {
+		return conversation.Page{}, err
+	}
+	hasOlder := len(descending) > limit
+	if hasOlder {
+		descending = descending[:limit]
+	}
+	items := make([]conversation.Message, len(descending))
+	for i := range descending {
+		items[len(descending)-1-i] = descending[i]
+	}
+	page := conversation.Page{Items: items}
+	if hasOlder && len(items) > 0 {
+		cursor := items[0].Sequence
+		page.OlderCursor = &cursor
+	}
+	return page, nil
+}
+
+func (r *Repository) MarkCommercialRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
+	var cursor int64
+	err := r.pool.QueryRow(ctx, `INSERT INTO public.reserva_comercial_mensaje_lectura(reserva_id,usuario_id,ultima_secuencia_leida,actualizada_en)
+SELECT $1,$2,$3,clock_timestamp() WHERE EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))
+AND EXISTS(SELECT 1 FROM public.mensaje_reserva_comercial WHERE reserva_id=$1 AND secuencia=$3)
+ON CONFLICT(reserva_id,usuario_id) DO UPDATE SET ultima_secuencia_leida=GREATEST(reserva_comercial_mensaje_lectura.ultima_secuencia_leida,EXCLUDED.ultima_secuencia_leida),actualizada_en=CASE WHEN EXCLUDED.ultima_secuencia_leida>reserva_comercial_mensaje_lectura.ultima_secuencia_leida THEN EXCLUDED.actualizada_en ELSE reserva_comercial_mensaje_lectura.actualizada_en END
+RETURNING ultima_secuencia_leida`, reservationID, actor, throughSequence).Scan(&cursor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var participant bool
+		if readErr := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))`, reservationID, actor).Scan(&participant); readErr != nil {
+			return 0, readErr
+		}
+		if !participant {
+			return 0, conversation.ErrNotFound
+		}
+		return 0, conversation.ErrInvalid
+	}
+	return cursor, err
+}
+
+func (r *Repository) SendCommercial(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, now func() time.Time) (conversation.Message, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return conversation.Message{}, err
+	}
+	defer tx.Rollback(ctx)
+	var host, renter string
+	err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id FOR UPDATE`, reservationID).Scan(&host, &renter)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actor != host && actor != renter) {
+		return conversation.Message{}, conversation.ErrNotFound
+	}
+	if err != nil {
+		return conversation.Message{}, err
+	}
+	var item conversation.Message
+	var priorHash []byte
+	err = tx.QueryRow(ctx, `SELECT id::text,reserva_id::text,COALESCE(autor_id::text,''),secuencia,cuerpo,creada_en,huella_solicitud FROM public.mensaje_reserva_comercial WHERE reserva_id=$1 AND autor_id=$2 AND clave_idempotencia=$3`, reservationID, actor, key).Scan(&item.ID, &item.ReservationID, &item.AuthorID, &item.Sequence, &item.Body, &item.CreatedAt, &priorHash)
+	if err == nil {
+		if !equalHash(priorHash, fingerprint) {
+			return conversation.Message{}, conversation.ErrConflict
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return conversation.Message{}, err
+		}
+		return item, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return conversation.Message{}, err
+	}
+	createdAt := now().UTC()
+	err = tx.QueryRow(ctx, `INSERT INTO public.mensaje_reserva_comercial(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id::text,reserva_id::text,COALESCE(autor_id::text,''),secuencia,cuerpo,creada_en`, id, reservationID, actor, key, fingerprint, body, createdAt).Scan(&item.ID, &item.ReservationID, &item.AuthorID, &item.Sequence, &item.Body, &item.CreatedAt)
+	if err != nil {
+		return conversation.Message{}, err
+	}
+	recipient, href, recipientLabel := host, "/anfitrion/reservas/"+reservationID, "Arrendatario"
+	if actor == host {
+		recipient, href, recipientLabel = renter, "/reservas/"+reservationID, "Anfitrión"
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en) VALUES(gen_random_uuid(),$1,'mensaje_reserva','Nuevo mensaje de ' || $2,'Tienes un nuevo mensaje sobre tu reserva.',$3,$4,$5)`, recipient, recipientLabel, href, reservationID, createdAt)
+	if err != nil {
+		return conversation.Message{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return conversation.Message{}, err
+	}
+	return item, nil
+}
+
 func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, now func() time.Time) (conversation.Message, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

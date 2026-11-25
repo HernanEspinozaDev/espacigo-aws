@@ -10,13 +10,30 @@ import {
 import { Button } from "@/components/workspace/ui/button";
 import { Star, Flag, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 
+import { CommercialReviewsPanel } from "./commercial-community-panels";
+
 interface BookingReviewsPanelProps {
   reservationId: string;
+  commercial?: boolean;
+  participantRole?: "anfitrion" | "arrendatario";
 }
 
 export function BookingReviewsPanel({
   reservationId,
+  commercial,
+  participantRole,
 }: BookingReviewsPanelProps) {
+  return commercial ? (
+    <CommercialReviewsPanel
+      reservationId={reservationId}
+      participantRole={participantRole}
+    />
+  ) : (
+    <TrialPanel reservationId={reservationId} />
+  );
+}
+
+function TrialPanel({ reservationId }: BookingReviewsPanelProps) {
   const { snapshot: authSnapshot } = useAuth();
   const isAuthenticated = authSnapshot.status === "authenticated";
   const accountId = authSnapshot.accountId;

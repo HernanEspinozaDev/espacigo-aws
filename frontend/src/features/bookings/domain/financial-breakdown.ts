@@ -7,6 +7,9 @@ export interface ReservationFinancialBreakdown {
   readonly hostVatClp: number;
   readonly hostFeeClp: number;
   readonly netHostClp: number;
+  readonly confirmedNetHostClp?: number;
+  readonly beforeProcessingClp: number;
+  readonly processingFeeClp?: number;
   readonly buyerCommissionClp: number;
   readonly buyerVatClp: number;
   readonly buyerFeeClp: number;
@@ -25,7 +28,11 @@ export function getReservationFinancialBreakdown(
   const hostCommissionClp = reservation.commission_clp ?? 0;
   const hostVatClp = reservation.vat_clp ?? 0;
   const hostFeeClp = hostCommissionClp + hostVatClp;
-  const netHostClp = reservation.net_host_amount_clp ?? baseClp - hostFeeClp;
+  const beforeProcessingClp =
+    reservation.net_host_amount_clp ?? baseClp - hostFeeClp;
+  const settlement = reservation.provider_settlement;
+  const confirmedNetHostClp = settlement?.net_clp;
+  const netHostClp = confirmedNetHostClp ?? beforeProcessingClp;
 
   const explicitBuyerFee = reservation.buyer_fee_clp;
   const explicitTotalCharged = reservation.total_charged_clp;
@@ -64,6 +71,9 @@ export function getReservationFinancialBreakdown(
     hostVatClp,
     hostFeeClp,
     netHostClp,
+    confirmedNetHostClp,
+    beforeProcessingClp,
+    processingFeeClp: settlement?.processing_fee_clp,
     buyerCommissionClp: resolvedBuyerCommission,
     buyerVatClp: resolvedBuyerVat,
     buyerFeeClp,

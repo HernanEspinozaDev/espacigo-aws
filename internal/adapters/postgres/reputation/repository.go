@@ -115,7 +115,11 @@ func (r *Repository) CreateReview(ctx context.Context, id, actor, reservation st
 func (r *Repository) ListSpaceReviews(ctx context.Context, space string) (domain.SpaceReviews, error) {
 	var out domain.SpaceReviews
 	out.Items = []domain.Review{}
-	e := r.pool.QueryRow(ctx, `SELECT count(*),COALESCE(avg(puntuacion),0) FROM public.resena_ensayo_local r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada')`, space).Scan(&out.Count, &out.Average)
+	e := r.pool.QueryRow(ctx, `SELECT count(*),COALESCE(avg(puntuacion),0) FROM (
+SELECT r.puntuacion FROM public.resena_ensayo_local r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada')
+UNION ALL
+SELECT r.calificacion FROM public.resena_reserva_comercial r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada')
+) visible`, space).Scan(&out.Count, &out.Average)
 	if e != nil {
 		return out, e
 	}
@@ -129,7 +133,11 @@ func (r *Repository) ListSpaceReviews(ctx context.Context, space string) (domain
 			return out, e
 		}
 	}
-	rows, e := r.pool.Query(ctx, `SELECT r.id::text,r.destinatario_tipo,r.puntuacion,r.comentario,r.estado,r.creada_en FROM public.resena_ensayo_local r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada') ORDER BY r.creada_en DESC,r.id`, space)
+	rows, e := r.pool.Query(ctx, `SELECT id,destinatario_tipo,puntuacion,comentario,estado,creada_en FROM (
+SELECT r.id::text,r.destinatario_tipo,r.puntuacion,r.comentario,r.estado,r.creada_en FROM public.resena_ensayo_local r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada')
+UNION ALL
+SELECT r.id::text,r.destinatario_tipo,r.calificacion,r.comentario,r.estado,r.creada_en FROM public.resena_reserva_comercial r JOIN public.espacio s ON s.id=r.espacio_id WHERE r.espacio_id=$1 AND s.estado='activa' AND r.destinatario_tipo='espacio' AND r.estado IN ('publicada','reportada')
+) visible ORDER BY creada_en DESC,id`, space)
 	if e != nil {
 		return out, e
 	}
@@ -141,6 +149,94 @@ func (r *Repository) ListSpaceReviews(ctx context.Context, space string) (domain
 		}
 		v.Comment = sanitizePublicComment(v.Comment)
 		v.State = "" // Moderation/report status is participant/admin metadata, not public listing data.
+		out.Items = append(out.Items, v)
+	}
+	return out, rows.Err()
+}
+
+func (r *Repository) CreateCommercialReview(ctx context.Context, id, actor, reservation string, in domain.ReviewInput, key string, hash []byte, at time.Time) (domain.Review, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return domain.Review{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var host, renter, space, state string
+	var endsAt time.Time
+	err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,espacio_id::text,estado,termino FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id FOR UPDATE`, reservation).Scan(&host, &renter, &space, &state, &endsAt)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actor != host && actor != renter) {
+		return domain.Review{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Review{}, err
+	}
+	if state != "pagada" || endsAt.After(at) {
+		return domain.Review{}, domain.ErrConflict
+	}
+	targetType, targetID := "espacio", ""
+	if actor == host {
+		targetType, targetID = "arrendatario", renter
+	}
+	var old domain.Review
+	var oldHash []byte
+	var oldComment string
+	err = tx.QueryRow(ctx, `SELECT id::text,calificacion,comentario,creada_en,huella_solicitud,destinatario_tipo,estado FROM public.resena_reserva_comercial WHERE reserva_id=$1 AND autor_id=$2`, reservation, actor).Scan(&old.ID, &old.Rating, &oldComment, &old.CreatedAt, &oldHash, &old.TargetType, &old.State)
+	if err == nil {
+		if string(oldHash) != string(hash) {
+			return domain.Review{}, domain.ErrConflict
+		}
+		old.Comment, old.Reused = oldComment, true
+		return old, tx.Commit(ctx)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return domain.Review{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.resena_reserva_comercial(id,reserva_id,espacio_id,autor_id,destinatario_tipo,destinatario_id,calificacion,comentario,estado,creada_en,retirar_en,clave_idempotencia,huella_solicitud) VALUES($1,$2,$3,$4,$5,NULLIF($6,'')::uuid,$7,$8,'publicada',$9,$9::timestamptz+interval '24 months',$10,$11)`, id, reservation, space, actor, targetType, targetID, in.Rating, in.Comment, at, key, hash)
+	if err != nil {
+		return domain.Review{}, mapReviewError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return domain.Review{}, err
+	}
+	return domain.Review{ID: id, TargetType: targetType, Rating: in.Rating, Comment: in.Comment, State: "publicada", CreatedAt: at}, nil
+}
+
+func (r *Repository) ListCommercialReservationReviews(ctx context.Context, actor, reservation string, at time.Time) (domain.CommercialReviewPage, error) {
+	var out domain.CommercialReviewPage
+	out.Items = []domain.Review{}
+	var host, renter, state string
+	err := r.pool.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,estado,termino FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id)`, reservation, actor).Scan(&host, &renter, &state, &out.ReservationEndsAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, domain.ErrNotFound
+	}
+	if err != nil {
+		return out, err
+	}
+	if state != "pagada" {
+		out.ReviewUnavailableReason = "reservation_not_paid"
+	} else if out.ReservationEndsAt.After(at) {
+		out.ReviewUnavailableReason = "reservation_not_ended"
+	}
+	if out.ReviewUnavailableReason == "" {
+		var exists bool
+		if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_reserva_comercial WHERE reserva_id=$1 AND autor_id=$2)`, reservation, actor).Scan(&exists); err != nil {
+			return out, err
+		}
+		if exists {
+			out.ReviewUnavailableReason = "already_reviewed"
+		} else {
+			out.CanReview = true
+		}
+	}
+	rows, err := r.pool.Query(ctx, `SELECT id::text,destinatario_tipo,calificacion,comentario,estado,creada_en FROM public.resena_reserva_comercial WHERE reserva_id=$1 AND estado<>'oculta' ORDER BY creada_en,id`, reservation)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v domain.Review
+		if err = rows.Scan(&v.ID, &v.TargetType, &v.Rating, &v.Comment, &v.State, &v.CreatedAt); err != nil {
+			return out, err
+		}
 		out.Items = append(out.Items, v)
 	}
 	return out, rows.Err()

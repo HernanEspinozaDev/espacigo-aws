@@ -8,6 +8,8 @@ export const TERMINAL_BOOKING_STATES: ReadonlySet<BookingState> = new Set([
   "vencida_pago",
   "vencida_host",
   "cancelada_arrendatario",
+  "cancelada",
+  "reembolsada",
 ]);
 
 export function isTerminalBookingState(state: BookingState): boolean {
@@ -54,6 +56,8 @@ export const ALLOWED_TRANSITIONS: Readonly<
   vencida_pago: [],
   vencida_host: [],
   cancelada_arrendatario: [],
+  cancelada: [],
+  reembolsada: [],
   reconciliation_required: [],
 };
 

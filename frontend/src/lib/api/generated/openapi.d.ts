@@ -776,6 +776,230 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/commercial-reservations/{reservationID}/cancellation-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar el importe previsto para cancelar una reserva comercial */
+    get: operations["previewCommercialCancellation"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/cancel": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Solicitar la cancelación y el reembolso de la reserva comercial */
+    post: operations["cancelCommercialReservation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/messages": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Leer mensajes privados de la reserva comercial */
+    get: operations["listCommercialMessages"];
+    put?: never;
+    /** Enviar un mensaje privado a la contraparte */
+    post: operations["sendCommercialMessage"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/messages/read": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Avanzar el cursor de lectura de mensajes */
+    post: operations["readCommercialMessages"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/reviews": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar reseñas y elegibilidad de la reserva comercial */
+    get: operations["listCommercialReviews"];
+    put?: never;
+    /** Publicar una reseña para el destinatario que corresponde al rol */
+    post: operations["writeCommercialReview"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/post-sale-summary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar indicadores de posventa de la reserva comercial */
+    get: operations["getCommercialPostSaleSummary"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/support-cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar casos de soporte de reservas comerciales */
+    get: operations["listCommercialSupportParticipant"];
+    put?: never;
+    /** Abrir un caso de soporte para una reserva comercial */
+    post: operations["openCommercialSupportCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/support-cases/{caseID}/actions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Registrar una acción en un caso de soporte */
+    post: operations["actCommercialSupportParticipant"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/support-cases/{caseID}/evidence/{evidenceID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Descargar una evidencia privada del caso */
+    get: operations["downloadCommercialSupportParticipantEvidence"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/reservation-support-cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar casos de soporte de reservas comerciales */
+    get: operations["listCommercialSupportAdmin"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/reservation-support-cases/{caseID}/actions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Registrar una acción en un caso de soporte */
+    post: operations["actCommercialSupportAdmin"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/reservation-support-cases/{caseID}/evidence/{evidenceID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Descargar una evidencia privada del caso */
+    get: operations["downloadCommercialSupportAdminEvidence"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/support-cases/{caseID}/evidence": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Adjuntar evidencia privada a un caso de soporte */
+    post: operations["attachCommercialSupportEvidence"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/commercial-reservations/{reservationID}/documents": {
     parameters: {
       query?: never;
@@ -5671,7 +5895,7 @@ export interface components {
     };
     /** @enum {string} */
     CommercialCancellationPolicyVersion:
-      "flexible_v1" | "moderada_v1" | "estricta_v1";
+      "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
     CommercialCancellationPolicy: {
       version: components["schemas"]["CommercialCancellationPolicyVersion"];
       text: string;
@@ -5987,6 +6211,111 @@ export interface components {
       };
       access_instructions: null;
     };
+    CommercialCancellationPreview: {
+      /** Format: uuid */
+      reservation_id: string;
+      can_cancel: boolean;
+      reason?: string;
+      cancellation_policy_version?: string;
+      cancellation_policy_text?: string;
+      /** Format: int64 */
+      refund_percent: number | string;
+      /** Format: int64 */
+      total_charged_clp: number | string;
+      /** Format: int64 */
+      refund_amount_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      starts_at: string;
+      status?: string;
+      /** @enum {string} */
+      refund_status?: "pendiente" | "aprobado" | "fallido" | "no_aplica";
+    };
+    CommercialCancellationResult: {
+      /** Format: uuid */
+      reservation_id: string;
+      can_cancel: boolean;
+      reason?: string;
+      cancellation_policy_version?: string;
+      cancellation_policy_text?: string;
+      /** Format: int64 */
+      refund_percent: number | string;
+      /** Format: int64 */
+      total_charged_clp: number | string;
+      /** Format: int64 */
+      refund_amount_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      starts_at: string;
+      status: string;
+      /** @enum {string} */
+      refund_status: "pendiente" | "aprobado" | "fallido" | "no_aplica";
+    };
+    CommercialSupportCase: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      reservation_id: string;
+      /** @enum {string} */
+      initiator_role: "anfitrion" | "arrendatario";
+      category: string;
+      /** @enum {string} */
+      routed_to: "contraparte" | "espacigo";
+      status: string;
+      description: string;
+      /** Format: date-time */
+      defense_deadline?: string;
+      /** Format: date-time */
+      created_at: string;
+      actions: string[];
+      events: {
+        action: string;
+        description: string;
+        /** Format: date-time */
+        created_at: string;
+      }[];
+      evidence: components["schemas"]["CommercialSupportEvidence"][];
+    };
+    CommercialSupportEvidence: {
+      /** Format: uuid */
+      id: string;
+      mime: string;
+      /** Format: int64 */
+      size: number | string;
+    };
+    CommercialSupportCaseList: {
+      data: {
+        items: components["schemas"]["CommercialSupportCase"][];
+        can_claim_damage: boolean;
+      };
+    };
+    CommercialProviderSettlement: {
+      payment_type?: string;
+      /** @enum {string} */
+      payment_status?: "approved" | "refunded" | "charged_back";
+      /** Format: date-time */
+      approved_at?: string;
+      /** Format: date-time */
+      synced_at?: string;
+      /** Format: int64 */
+      net_clp?: number | string;
+      /** Format: int64 */
+      processing_fee_clp?: number | string;
+      /** Format: int64 */
+      marketplace_fee_clp?: number | string;
+      /** Format: int64 */
+      refunded_clp?: number | string;
+      /** @enum {string} */
+      release_status?: "pending" | "released";
+      /** Format: date-time */
+      release_at?: string;
+      /** Format: date-time */
+      provider_updated_at: string;
+      /** @enum {string} */
+      reconciliation: "pending" | "reconciled" | "discrepancy";
+    };
     CommercialReservation: {
       /** Format: uuid */
       id: string;
@@ -5998,10 +6327,15 @@ export interface components {
       /** @enum {string} */
       participant_role: "anfitrion" | "arrendatario";
       status: string;
+      cancellation_policy_version?: string | null;
+      cancellation_policy_text?: string | null;
+      /** @enum {string} */
+      refund_status?: "pendiente" | "aprobado" | "fallido" | "no_aplica";
       checkout_status: string;
       /** @enum {string} */
       checkout_method?: "checkout_pro" | "payments_api";
       provider_payment_id?: string;
+      provider_settlement?: components["schemas"]["CommercialProviderSettlement"];
       /** Format: int64 */
       commission_clp?: number | string;
       /** Format: int64 */
@@ -8669,7 +9003,7 @@ export interface components {
     SpaceCreateInput: {
       /** @enum {string} */
       cancellation_policy_version?:
-        "flexible_v1" | "moderada_v1" | "estricta_v1";
+        "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
       category_code: string;
       title: string;
       description?: string;
@@ -8688,7 +9022,7 @@ export interface components {
     SpaceDraftInput: {
       /** @enum {string} */
       cancellation_policy_version?:
-        "flexible_v1" | "moderada_v1" | "estricta_v1";
+        "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
       category_code: string;
       title: string;
       description?: string;
@@ -8715,7 +9049,7 @@ export interface components {
     SpaceDraft: {
       /** @enum {string} */
       cancellation_policy_version?:
-        "flexible_v1" | "moderada_v1" | "estricta_v1";
+        "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
       /** Format: uuid */
       id: string;
       category_code: string;
@@ -8837,7 +9171,7 @@ export interface components {
     PublishedSpaceContentInput: {
       /** @enum {string} */
       cancellation_policy_version?:
-        "flexible_v1" | "moderada_v1" | "estricta_v1";
+        "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
       title?: string;
       description?: string;
       /** Format: int32 */
@@ -12322,6 +12656,597 @@ export interface operations {
       401: components["responses"]["RentalUnauthorized"];
       403: components["responses"]["RentalForbidden"];
       404: components["responses"]["RentalNotFound"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  previewCommercialCancellation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialCancellationPreview"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  cancelCommercialReservation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          reason: string;
+          /** Format: int64 */
+          expected_refund_amount_clp: number | string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialCancellationResult"];
+          };
+        };
+      };
+      /** @description Operación registrada */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialCancellationResult"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialMessages: {
+    parameters: {
+      query?: {
+        before?: number | string;
+        limit?: number;
+      };
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              items: components["schemas"]["LocalReservationMessage"][];
+              /** Format: int64 */
+              older_cursor: number | string | null;
+            };
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  sendCommercialMessage: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          body: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["LocalReservationMessage"];
+          };
+        };
+      };
+      /** @description Operación registrada */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["LocalReservationMessage"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  readCommercialMessages: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: int64 */
+          through_sequence: number | string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              /** Format: int64 */
+              read_through_sequence: number | string;
+            };
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialReviews: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              items: components["schemas"]["LocalReview"][];
+              can_review: boolean;
+              review_unavailable_reason?: string;
+              /** Format: date-time */
+              reservation_ends_at: string;
+            };
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  writeCommercialReview: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          rating: number;
+          comment?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["LocalReview"];
+          };
+        };
+      };
+      /** @description Operación registrada */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["LocalReview"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  getCommercialPostSaleSummary: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Cantidades de mensajes sin leer, reseñas y casos activos */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              unread_messages: number;
+              reviews: number;
+              open_cases: number;
+            };
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialSupportParticipant: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialSupportCaseList"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  openCommercialSupportCase: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          category: string;
+          description: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialSupportCase"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  actCommercialSupportParticipant: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        reservationID: string;
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          action: string;
+          description?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialSupportCase"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialSupportParticipantEvidence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+        caseID: string;
+        evidenceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  listCommercialSupportAdmin: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["CommercialSupportCaseList"];
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  actCommercialSupportAdmin: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          action: string;
+          description?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialSupportCase"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  downloadCommercialSupportAdminEvidence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        evidenceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/octet-stream": string;
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  attachCommercialSupportEvidence: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          content: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialSupportEvidence"];
+          };
+        };
+      };
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };

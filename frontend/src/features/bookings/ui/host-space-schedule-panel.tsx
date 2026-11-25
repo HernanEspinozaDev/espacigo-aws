@@ -149,7 +149,9 @@ export function HostSpaceSchedulePanel({
         const breakdown = getReservationFinancialBreakdown(r);
         existing.confirmedGrossClp += breakdown.baseClp;
         existing.confirmedFeeClp += breakdown.hostFeeClp;
-        existing.confirmedNetClp += breakdown.netHostClp;
+        existing.confirmedNetClp += r.is_commercial
+          ? (breakdown.confirmedNetHostClp ?? 0)
+          : breakdown.netHostClp;
       } else if (r.state === "pendiente_de_pago") {
         existing.pendingCount += 1;
       } else {
@@ -486,7 +488,7 @@ export function HostSpaceSchedulePanel({
                     </strong>
                   </div>
                   <div className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                    Neto anfitrión: {formatBookingClp(space.confirmedNetClp)}{" "}
+                    Neto informado: {formatBookingClp(space.confirmedNetClp)}{" "}
                     CLP
                   </div>
                 </div>
@@ -650,12 +652,10 @@ export function HostSpaceSchedulePanel({
                           </strong>{" "}
                           · Neto:{" "}
                           <strong className="text-emerald-700 dark:text-emerald-400">
-                            {formatBookingClp(
-                              res.net_host_amount_clp ??
-                                res.subtotal_clp -
-                                  (res.marketplace_fee_clp ?? 0),
-                            )}{" "}
-                            CLP
+                            {res.is_commercial &&
+                            res.provider_settlement?.net_clp === undefined
+                              ? "Pendiente de confirmar"
+                              : `${formatBookingClp(getReservationFinancialBreakdown(res).netHostClp)} CLP`}
                           </strong>
                         </p>
                       </div>

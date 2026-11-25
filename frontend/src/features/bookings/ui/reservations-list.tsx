@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
+import { HostCommissionCalculator } from "./host-commission-calculator";
 import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
 import { formatBookingClp } from "./format";
 import { HostSpaceSchedulePanel } from "./host-space-schedule-panel";
@@ -156,6 +157,13 @@ export function getBookingStateConfig(state: BookingState): {
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
       };
+    case "cancelada":
+      return {
+        label: "Reserva cancelada",
+        group: "cancelada",
+        badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
+        icon: XCircle,
+      };
     case "vencida_pago":
       return {
         label: "Reserva cancelada por tiempo (no pagada)",
@@ -171,6 +179,14 @@ export function getBookingStateConfig(state: BookingState): {
         group: "cancelada",
         badgeClass: "bg-destructive/10 text-destructive border-destructive/20",
         icon: XCircle,
+      };
+    case "reembolsada":
+      return {
+        label: "Reserva reembolsada",
+        group: "cancelada",
+        badgeClass:
+          "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
+        icon: CheckCircle,
       };
     default:
       return {
@@ -388,6 +404,7 @@ export function ReservationsList({
     let totalChargedClp = 0;
     let marketplaceFeeClp = 0;
     let netClp = 0;
+    let pendingSettlementCount = 0;
     const paidList: BookingReservation[] = [];
 
     for (const r of scopedReservations) {
@@ -401,7 +418,11 @@ export function ReservationsList({
         buyerFeeClp += financial.buyerFeeClp;
         totalChargedClp += financial.totalChargedClp;
         marketplaceFeeClp += financial.marketplaceFeeClp;
-        netClp += financial.netHostClp;
+        if (r.is_commercial && financial.confirmedNetHostClp === undefined) {
+          pendingSettlementCount += 1;
+        } else {
+          netClp += financial.netHostClp;
+        }
         paidList.push(r);
       } else if (r.state === "pendiente_de_pago") {
         pending += 1;
@@ -423,6 +444,7 @@ export function ReservationsList({
       totalChargedClp,
       marketplaceFeeClp,
       netClp,
+      pendingSettlementCount,
       paidList,
     };
   }, [scopedReservations]);
@@ -1129,16 +1151,20 @@ export function ReservationsList({
 
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-xs">
               <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                Ingreso Neto Anfitrión
+                Neto informado para el anfitrión
               </p>
               <p className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-200">
                 {formatBookingClp(kpiStats.netClp)} CLP
               </p>
               <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
-                Liquidado vía Mercado Pago (antes de su tarifa de procesamiento)
+                {kpiStats.pendingSettlementCount > 0
+                  ? `${kpiStats.pendingSettlementCount} pagos con neto por confirmar`
+                  : "Importes de las transacciones registradas"}
               </p>
             </div>
           </div>
+
+          <HostCommissionCalculator reservations={kpiStats.paidList} />
 
           <div className="space-y-4 rounded-2xl border border-border bg-card p-5 shadow-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1218,7 +1244,10 @@ export function ReservationsList({
                             -{formatBookingClp(financial.hostFeeClp)}
                           </td>
                           <td className="py-3 pr-3 text-right font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                            {formatBookingClp(financial.netHostClp)}
+                            {tx.is_commercial &&
+                            financial.confirmedNetHostClp === undefined
+                              ? "Pendiente"
+                              : formatBookingClp(financial.netHostClp)}
                           </td>
                           <td className="py-3 text-right">
                             <Button
@@ -1382,7 +1411,12 @@ export function ReservationsList({
                   const Icon = config.icon;
                   const financial =
                     getReservationFinancialBreakdown(reservation);
-                  const canViewInvoice = isReservationPaid(reservation);
+                  const canViewInvoice =
+                    isReservationPaid(reservation) ||
+                    reservation.provider_settlement?.payment_status ===
+                      "charged_back" ||
+                    reservation.provider_settlement?.payment_status ===
+                      "refunded";
 
                   return (
                     <article
@@ -1462,7 +1496,10 @@ export function ReservationsList({
                             </p>
                             {canViewInvoice && (
                               <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                                Neto anfitrión:{" "}
+                                {reservation.is_commercial &&
+                                financial.confirmedNetHostClp === undefined
+                                  ? "Importe antes de tarifa Mercado Pago:"
+                                  : "Neto anfitrión:"}{" "}
                                 {formatBookingClp(financial.netHostClp)} CLP
                               </p>
                             )}

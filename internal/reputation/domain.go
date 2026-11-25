@@ -36,6 +36,16 @@ type SpaceReviews struct {
 	Average float64  `json:"average"`
 	Count   int      `json:"count"`
 }
+type CommercialReviewPage struct {
+	Items                   []Review  `json:"items"`
+	CanReview               bool      `json:"can_review"`
+	ReviewUnavailableReason string    `json:"review_unavailable_reason,omitempty"`
+	ReservationEndsAt       time.Time `json:"reservation_ends_at"`
+}
+type CommercialRepository interface {
+	CreateCommercialReview(context.Context, string, string, string, ReviewInput, string, []byte, time.Time) (Review, error)
+	ListCommercialReservationReviews(context.Context, string, string, time.Time) (CommercialReviewPage, error)
+}
 type ReportInput struct {
 	Reason string `json:"reason_code"`
 }
@@ -97,6 +107,36 @@ func (s *Service) Create(ctx context.Context, actor, reservation, key string, in
 	}
 	sum := fingerprint(in)
 	return s.repo.CreateReview(ctx, id, actor, reservation, in, key, sum, s.now().UTC())
+}
+func (s *Service) CreateCommercial(ctx context.Context, actor, reservation, key string, in ReviewInput) (Review, error) {
+	actor = strings.ToLower(strings.TrimSpace(actor))
+	reservation = strings.ToLower(strings.TrimSpace(reservation))
+	key = strings.TrimSpace(key)
+	in.Comment = strings.TrimSpace(in.Comment)
+	if !validUUID(actor) || !validUUID(reservation) || len(key) < 8 || len(key) > 200 || in.Rating < 1 || in.Rating > 5 {
+		return Review{}, ErrInvalid
+	}
+	repo, ok := s.repo.(CommercialRepository)
+	if !ok {
+		return Review{}, ErrInvalid
+	}
+	id, err := s.ids.ID()
+	if err != nil {
+		return Review{}, ErrInvalid
+	}
+	return repo.CreateCommercialReview(ctx, id, actor, reservation, in, key, fingerprint(in), s.now().UTC())
+}
+func (s *Service) ListCommercial(ctx context.Context, actor, reservation string) (CommercialReviewPage, error) {
+	actor = strings.ToLower(strings.TrimSpace(actor))
+	reservation = strings.ToLower(strings.TrimSpace(reservation))
+	if !validUUID(actor) || !validUUID(reservation) {
+		return CommercialReviewPage{}, ErrNotFound
+	}
+	repo, ok := s.repo.(CommercialRepository)
+	if !ok {
+		return CommercialReviewPage{}, ErrInvalid
+	}
+	return repo.ListCommercialReservationReviews(ctx, actor, reservation, s.now().UTC())
 }
 func (s *Service) ListSpace(ctx context.Context, id string) (SpaceReviews, error) {
 	if !validUUID(id) {
