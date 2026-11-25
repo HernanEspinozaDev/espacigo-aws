@@ -32,6 +32,13 @@ ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT S
 SET ROLE espacigo_schema_owner;
 CREATE TABLE public.usuario(id uuid PRIMARY KEY, correo_original text NOT NULL, hash_clave text NOT NULL DEFAULT '', estado text NOT NULL);
 CREATE TABLE public.sesion(id uuid PRIMARY KEY, usuario_id uuid NOT NULL REFERENCES public.usuario(id), expira_en timestamptz NOT NULL, ultima_actividad_en timestamptz NOT NULL, revocada_en timestamptz);
+CREATE TABLE public.cuenta_totp(
+    account_id uuid PRIMARY KEY REFERENCES public.usuario(id),
+    secret_ciphertext bytea, key_version text, pending_secret_ciphertext bytea, pending_key_version text,
+    enabled_at timestamptz, last_verified_step bigint, created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.cuenta_totp_backup_code(account_id uuid NOT NULL, used_at timestamptz);
 CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY, propietario_id uuid NOT NULL, arrendatario_id uuid NOT NULL);
 SQL
 { printf 'SET ROLE espacigo_schema_owner;\n'; cat db/migrations/V000007__perfil_identidad_didit.sql db/migrations/V000008__espacigo_pinpass.sql; } | profile_test_psql -q
