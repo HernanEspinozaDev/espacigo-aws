@@ -25,7 +25,7 @@ func TestPaymentSettlementPostgres(t *testing.T) {
 	switch cfg.ConnConfig.Host {
 	case "127.0.0.1", "localhost", "::1":
 	default:
-		t.Fatal("requires loopback PostgreSQL")
+		t.Skip("requires loopback PostgreSQL")
 	}
 	ctx := t.Context()
 	admin, err := pgx.ConnectConfig(ctx, cfg.ConnConfig.Copy())

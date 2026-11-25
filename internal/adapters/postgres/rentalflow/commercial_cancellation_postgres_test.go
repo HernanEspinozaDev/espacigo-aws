@@ -25,7 +25,7 @@ func TestCommercialCancellationPostgres(t *testing.T) {
 	switch adminConfig.Host {
 	case "127.0.0.1", "localhost", "::1":
 	default:
-		t.Fatal("cancellation integration requires loopback PostgreSQL")
+		t.Skip("cancellation integration requires loopback PostgreSQL")
 	}
 
 	ctx := t.Context()
