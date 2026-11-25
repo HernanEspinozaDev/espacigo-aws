@@ -272,7 +272,7 @@ func run() error {
 	defer trackedWorkers.StopAndWait()
 
 	mux := http.NewServeMux()
-	mountCommercialContractCapabilities(mux, commercialContractsEnabled)
+	mountCommercialContractCapabilities(mux, commercialContractsEnabled || os.Getenv("APP_PROFILE") == productionAppProfile)
 	var localPaymentService *booking.Service
 	var marketplaceTokens *marketplaceoauth.Service
 	var localIdentityService *identity.AuthenticationService
