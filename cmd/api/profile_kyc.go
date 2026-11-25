@@ -125,7 +125,7 @@ func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth profileky
 			return profilekyc.Notice{ID: event.EventID, SessionID: event.SessionID, AttemptID: event.VendorData, OccurredAt: time.Unix(timestamp, 0)}, nil
 		}
 	}
-	profilekyc.Register(mux, auth, profilekyc.NewVerifier(service, provider), decoder, pinpassPasswordStepUp{pool: pool})
+	profilekyc.Register(mux, auth, profilekyc.NewVerifier(service, provider), decoder, pinpassStepUp{pool: pool})
 	if err := mountPinpass(mux, pool, auth, service, getenv); err != nil {
 		return nil, nil, err
 	}

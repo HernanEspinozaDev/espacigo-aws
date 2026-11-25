@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/argon2"
 )
@@ -56,10 +57,19 @@ type Store interface {
 	WithActiveGrant(context.Context, string, string, time.Time, string, func(context.Context) error) (Access, error)
 }
 
+type Proof struct {
+	CurrentPassword identity.Secret
+	OTPCode         identity.Secret
+}
+
+func (p Proof) Present() bool {
+	return p.CurrentPassword != "" || p.OTPCode != ""
+}
+
 // StepUp validates an account-owned recent authentication proof. Implementors
 // must consume/bind the proof to accountID and sessionID and reject replay.
 type StepUp interface {
-	Verify(context.Context, string, string, string) error
+	Verify(context.Context, string, string, Proof) error
 }
 
 // SensitiveProfileProvider returns only the authenticated account's decrypted
@@ -103,7 +113,7 @@ func NewService(store Store, stepUp StepUp, profiles SensitiveProfileProvider, p
 }
 
 // Set requires a recent account factor for both enrollment and replacement.
-func (s *Service) Set(ctx context.Context, accountID, sessionID, pin, confirmation, proof string) error {
+func (s *Service) Set(ctx context.Context, accountID, sessionID, pin, confirmation string, proof Proof) error {
 	if accountID == "" || sessionID == "" || !pinPattern.MatchString(pin) || subtle.ConstantTimeCompare([]byte(pin), []byte(confirmation)) != 1 {
 		return ErrInvalidInput
 	}
@@ -208,7 +218,7 @@ func (s *Service) Reveal(ctx context.Context, accountID, sessionID, field string
 	return value, grant.ExpiresAt, nil
 }
 
-func (s *Service) Reset(ctx context.Context, accountID, sessionID, proof string) error {
+func (s *Service) Reset(ctx context.Context, accountID, sessionID string, proof Proof) error {
 	if err := s.stepUp.Verify(ctx, accountID, sessionID, proof); err != nil {
 		return ErrStepUpRejected
 	}

@@ -4,9 +4,9 @@ export interface PinpassStatus {
   access_expires_at: string | null;
 }
 
-export interface PinpassProof {
-  current_password: string;
-}
+export type PinpassProof =
+  | { current_password: string; otp_code?: string }
+  | { current_password?: string; otp_code: string };
 
 export interface PinpassSensitiveValue {
   field: PinpassField;
@@ -61,7 +61,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         "Completa y guarda los datos obligatorios de tu perfil antes de crear Pinpass.",
       pinpass_access_required: "Ingresa tu Pinpass para consultar este dato.",
       reauthentication_required: "Confirma tu identidad para continuar.",
-      reauthentication_failed: "No se pudo confirmar tu identidad.",
+      reauthentication_failed:
+        "Revisa la contraseña o usa un código nuevo de tu autenticador.",
       unauthorized: "Tu sesión venció. Vuelve a iniciar sesión.",
     };
     throw new PinpassApiError(

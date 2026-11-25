@@ -30,6 +30,28 @@ func NewHandler(auth Authorizer, service *Service) http.Handler {
 	return &Handler{auth: auth, service: service, now: time.Now}
 }
 
+type proofInput struct {
+	CurrentPassword *identity.Secret `json:"current_password"`
+	OTPCode         *identity.Secret `json:"otp_code"`
+}
+
+func (in proofInput) proof() (Proof, bool) {
+	var proof Proof
+	if in.CurrentPassword != nil {
+		if *in.CurrentPassword == "" {
+			return Proof{}, false
+		}
+		proof.CurrentPassword = *in.CurrentPassword
+	}
+	if in.OTPCode != nil {
+		if *in.OTPCode == "" {
+			return Proof{}, false
+		}
+		proof.OTPCode = *in.OTPCode
+	}
+	return proof, proof.Present()
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, private")
 	w.Header().Set("Pragma", "no-cache")
@@ -66,18 +88,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"configured": configured, "blocked_until": nullableTime(failure.BlockedUntil), "access_expires_at": expires})
 	case path == "/api/v1/account/security/pinpass" && r.Method == http.MethodPut:
 		var in struct {
-			PIN             string `json:"pin"`
-			Confirmation    string `json:"confirmation"`
-			CurrentPassword string `json:"current_password"`
+			PIN          string `json:"pin"`
+			Confirmation string `json:"confirmation"`
+			proofInput
 		}
 		if !decodeJSON(w, r, &in) {
 			return
 		}
-		if in.CurrentPassword == "" {
+		proof, valid := in.proof()
+		if !valid {
 			writeError(w, 400, "reauthentication_required")
 			return
 		}
-		if err := h.service.Set(r.Context(), principal.AccountID, principal.SessionID, in.PIN, in.Confirmation, "password:"+in.CurrentPassword); err != nil {
+		if err := h.service.Set(r.Context(), principal.AccountID, principal.SessionID, in.PIN, in.Confirmation, proof); err != nil {
 			writeServiceError(w, err)
 			return
 		}
@@ -96,17 +119,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"access_expires_at": expires.UTC()})
 	case path == "/api/v1/account/security/pinpass" && r.Method == http.MethodDelete:
-		var in struct {
-			CurrentPassword string `json:"current_password"`
-		}
+		var in proofInput
 		if !decodeJSON(w, r, &in) {
 			return
 		}
-		if in.CurrentPassword == "" {
+		proof, valid := in.proof()
+		if !valid {
 			writeError(w, 400, "reauthentication_required")
 			return
 		}
-		if err := h.service.Reset(r.Context(), principal.AccountID, principal.SessionID, "password:"+in.CurrentPassword); err != nil {
+		if err := h.service.Reset(r.Context(), principal.AccountID, principal.SessionID, proof); err != nil {
 			writeServiceError(w, err)
 			return
 		}

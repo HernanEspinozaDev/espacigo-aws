@@ -45,8 +45,8 @@ func (p *syntheticProvider) Decision(_ context.Context, id string) (profilekyc.D
 
 type testStepUp struct{}
 
-func (testStepUp) Verify(_ context.Context, _, _, proof string) error {
-	if proof != "synthetic factor" {
+func (testStepUp) Verify(_ context.Context, _, _ string, proof profilepin.Proof) error {
+	if proof.CurrentPassword != "synthetic factor" {
 		return profilepin.ErrStepUpRejected
 	}
 	return nil
@@ -258,7 +258,7 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := pin.Set(ctx, first, session, "361909", "361909", "synthetic factor"); err != nil {
+	if err := pin.Set(ctx, first, session, "361909", "361909", profilepin.Proof{CurrentPassword: "synthetic factor"}); err != nil {
 		t.Fatal(err)
 	}
 	before := time.Now()
@@ -282,7 +282,7 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 	if _, err := pin.Unlock(ctx, first, session, "361909"); err != nil {
 		t.Fatal(err)
 	}
-	if err := pin.Reset(ctx, first, session, "synthetic factor"); err != nil {
+	if err := pin.Reset(ctx, first, session, profilepin.Proof{CurrentPassword: "synthetic factor"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := pin.Reveal(ctx, first, session, "run"); !errors.Is(err, profilepin.ErrNoAccess) {

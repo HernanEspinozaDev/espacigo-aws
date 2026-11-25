@@ -183,10 +183,16 @@ export interface paths {
     };
     /** Consultar el estado del PIN y del permiso de esta sesión */
     get: operations["getOwnPinpassStatus"];
-    /** Crear o sustituir el PIN propio con autenticación reciente */
+    /**
+     * Crear o sustituir el PIN propio con autenticación reciente
+     * @description Acepta contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos. El código TOTP se consume una sola vez.
+     */
     put: operations["setOwnPinpass"];
     post?: never;
-    /** Eliminar el PIN propio y revocar los permisos activos */
+    /**
+     * Eliminar el PIN propio y revocar los permisos activos
+     * @description Requiere contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos.
+     */
     delete: operations["resetOwnPinpass"];
     options?: never;
     head?: never;
@@ -5766,9 +5772,13 @@ export interface components {
       rut_locked: boolean;
       draft_saved: boolean;
     };
-    PinpassFactor: {
-      current_password: $Write<string>;
-    };
+    PinpassFactor:
+      | {
+          current_password?: $Write<string>;
+          otp_code?: $Write<string>;
+        }
+      | unknown
+      | unknown;
     PinpassStatus: {
       configured: boolean;
       /** Format: date-time */

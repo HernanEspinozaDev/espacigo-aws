@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { useSecurityMethodsSummary } from "./use-security-methods-summary";
 import {
   getPinpassStatus,
   PinpassApiError,
@@ -38,7 +39,7 @@ import {
 } from "../pinpass-api";
 
 interface PinpassCardProps {
-  /** Requests the current password for account reauthentication. */
+  /** Requests an account factor for reauthentication. */
   readonly reauthenticate: () => Promise<PinpassProof>;
   /** Change this when the authenticated account/session changes to clear local values. */
   readonly sessionKey: string;
@@ -491,6 +492,9 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
 /** Account-bound wrapper with an accessible password step-up dialog. */
 export function PinpassAccountSection() {
   const { snapshot } = useAuth();
+  const { summary } = useSecurityMethodsSummary();
+  const otpAvailable = summary?.methods.totp.enabled !== false;
+  const [otpCode, setOTPCode] = useState("");
   const [reauthOpen, setReauthOpen] = useState(false);
   const [password, setPassword] = useState("");
   const pending = useRef<{
@@ -517,6 +521,7 @@ export function PinpassAccountSection() {
       pending.current = null;
       setReauthOpen(false);
       setPassword("");
+      setOTPCode("");
     };
     return () => {
       channel.close();
@@ -532,17 +537,28 @@ export function PinpassAccountSection() {
       new Promise<PinpassProof>((resolve, reject) => {
         pending.current = { resolve, reject };
         setPassword("");
+        setOTPCode("");
         setReauthOpen(true);
       }),
     [],
   );
 
-  const submitPassword = (event: FormEvent<HTMLFormElement>) => {
+  const hasValidOTP = /^\d{6}$/.test(otpCode);
+  const ready =
+    (password.length > 0 || (otpAvailable && hasValidOTP)) &&
+    (!otpAvailable || otpCode === "" || hasValidOTP);
+  const submitProof = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!password || !pending.current) return;
-    pending.current.resolve({ current_password: password });
+    if (!ready || !pending.current) return;
+    const code = otpAvailable ? otpCode : "";
+    pending.current.resolve(
+      password
+        ? { current_password: password, ...(code ? { otp_code: code } : {}) }
+        : { otp_code: code },
+    );
     pending.current = null;
     setPassword("");
+    setOTPCode("");
     setReauthOpen(false);
   };
 
@@ -554,6 +570,7 @@ export function PinpassAccountSection() {
       );
       pending.current = null;
       setPassword("");
+      setOTPCode("");
     }
   };
 
@@ -570,11 +587,12 @@ export function PinpassAccountSection() {
           <DialogHeader>
             <DialogTitle>Confirma tu identidad</DialogTitle>
             <DialogDescription>
-              Vuelve a ingresar la contraseña de tu cuenta para crear o cambiar
-              EspaciGo Pinpass.
+              {otpAvailable
+                ? "Usa tu contraseña actual, un código de tu autenticador o ambos para confirmar el cambio."
+                : "Usa tu contraseña actual para confirmar el cambio. Puedes activar un autenticador en Seguridad."}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={submitPassword} className="space-y-4">
+          <form onSubmit={submitProof} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="pinpass-current-password">
                 Contraseña actual
@@ -585,11 +603,34 @@ export function PinpassAccountSection() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                required
+                maxLength={72}
               />
             </div>
+            {otpAvailable ? (
+              <div className="space-y-2">
+                <Label htmlFor="pinpass-otp">Código del autenticador</Label>
+                <Input
+                  id="pinpass-otp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(event) =>
+                    setOTPCode(event.target.value.replace(/\D/g, ""))
+                  }
+                  aria-describedby="pinpass-otp-hint"
+                />
+                <p
+                  id="pinpass-otp-hint"
+                  className="text-xs text-muted-foreground"
+                >
+                  Ingresa los seis dígitos de tu autenticador TOTP activo.
+                </p>
+              </div>
+            ) : null}
             <DialogFooter>
-              <Button type="submit" disabled={!password}>
+              <Button type="submit" disabled={!ready}>
                 Confirmar
               </Button>
             </DialogFooter>

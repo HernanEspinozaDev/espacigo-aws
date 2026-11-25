@@ -75,7 +75,7 @@ El recorrido de Mi perfil será **completar y guardar todos los datos obligatori
 
 - El perfil guarda una revisión cifrada por UUID, mantiene un borrador recuperable con la contraseña actual y permite cambiar el nombre público por separado. Go reserva el RUN verificado de forma transaccional. El correo y el RUN se consultan desde la interfaz privada de Pinpass.
 - Publicación y reservas usan la revisión de identidad vigente. Los contratos nuevos toman el nombre legal y el RUN de esa revisión y conservan la instantánea que se usa para emitir la propuesta y el PDF. La plantilla actual fija el domicilio contractual en la comuna del inmueble. Para recoger un domicilio personal, primero debe definirse ese requisito en la plantilla.
-- Pinpass solicita la contraseña actual para crearlo o restablecerlo. El permiso dura 15 minutos con un vencimiento preciso fijado por el servidor y queda ligado a la sesión. Se exige el perfil completo antes de crear el PIN.
+- Pinpass acepta la contraseña actual, un código TOTP de un autenticador activo o ambos para crear, cambiar o restablecer el PIN. Si se envían ambos, valida los dos. El código se consume una sola vez y comparte el control contra reutilización con el inicio de sesión. El permiso dura 15 minutos con un vencimiento preciso fijado por el servidor y queda ligado a la sesión. Se exige el perfil completo antes de crear el PIN.
 - Las migraciones V000007 y V000008 incluyen permisos acotados. El comando `bash scripts/test-profile-identity-postgres.sh` prueba el guardado, el KYC sintético, la unicidad concurrente, la lectura de identidad y el vencimiento y la revocación de Pinpass en un PostgreSQL desechable.
 
 ### Activación de Didit

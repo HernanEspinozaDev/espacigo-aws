@@ -94,10 +94,10 @@ func (f *fakeStore) WithActiveGrant(_ context.Context, account, session string, 
 
 type fakeStepUp struct {
 	err      error
-	received string
+	received Proof
 }
 
-func (f *fakeStepUp) Verify(_ context.Context, _, _, proof string) error {
+func (f *fakeStepUp) Verify(_ context.Context, _, _ string, proof Proof) error {
 	f.received = proof
 	return f.err
 }
@@ -136,11 +136,11 @@ func TestSetRequiresCompleteProfileAndRecentProof(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 123456000, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", "password:secret"); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
 		t.Fatal(err)
 	}
-	if stepUp.received != "password:secret" {
-		t.Fatalf("step-up proof = %q", stepUp.received)
+	if stepUp.received != (Proof{CurrentPassword: "secret"}) {
+		t.Fatal("incorrect step-up proof")
 	}
 	if !store.configured || len(store.credential.Salt) != 16 || len(store.credential.Hash) != 32 {
 		t.Fatal("credential was not stored as a salted Argon2id verifier")
@@ -150,7 +150,7 @@ func TestSetRequiresCompleteProfileAndRecentProof(t *testing.T) {
 	}
 
 	profiles.profile = map[string]string{"email": "own@example.cl"}
-	err = svc.Set(ctx, "account-1", "session-1", "654321", "654321", "factor:verified")
+	err = svc.Set(ctx, "account-1", "session-1", "654321", "654321", Proof{OTPCode: "123456"})
 	if !errors.Is(err, ErrProfileIncomplete) {
 		t.Fatalf("Set error = %v, want profile incomplete", err)
 	}
@@ -166,7 +166,7 @@ func TestUnlockRevealIsSessionBoundAndExpiresWithoutExtension(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 123456789, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", "password:secret"); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
 		t.Fatal(err)
 	}
 	expires, err := svc.Unlock(ctx, "account-1", "session-1", "012345")
@@ -201,7 +201,7 @@ func TestFailedPINUsesPersistentThrottleAndResetRevokesGrant(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", "password:secret"); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Unlock(ctx, "account-1", "session-2", "012345"); err != nil {
@@ -218,7 +218,7 @@ func TestFailedPINUsesPersistentThrottleAndResetRevokesGrant(t *testing.T) {
 	if _, err = svc.Unlock(ctx, "account-1", "session-2", "012345"); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second session must inherit account bucket lock: %v", err)
 	}
-	if err = svc.Reset(ctx, "account-1", "session-2", "password:secret"); err != nil {
+	if err = svc.Reset(ctx, "account-1", "session-2", Proof{CurrentPassword: "secret"}); err != nil {
 		t.Fatal(err)
 	}
 	if store.configured || len(store.grants) != 0 {
@@ -236,7 +236,7 @@ func TestHTTPHandlerAuthorizesAndNeverCachesSensitiveResponses(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", "password:secret"); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Unlock(ctx, "account-1", "session-1", "012345"); err != nil {
@@ -268,5 +268,37 @@ func TestHTTPHandlerAuthorizesAndNeverCachesSensitiveResponses(t *testing.T) {
 	unauthenticated.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "12.345.678-5") {
 		t.Fatalf("unauthorized reveal response: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPinpassChangeAcceptsEitherFactorAndPassesBoth(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		body   string
+		proof  Proof
+		status int
+	}{
+		{"password", `{"pin":"012345","confirmation":"012345","current_password":"example"}`, Proof{CurrentPassword: "example"}, http.StatusOK},
+		{"otp", `{"pin":"012345","confirmation":"012345","otp_code":"042673"}`, Proof{OTPCode: "042673"}, http.StatusOK},
+		{"both", `{"pin":"012345","confirmation":"012345","current_password":"example","otp_code":"042673"}`, Proof{CurrentPassword: "example", OTPCode: "042673"}, http.StatusOK},
+		{"missing password in combined request", `{"pin":"012345","confirmation":"012345","current_password":"","otp_code":"042673"}`, Proof{}, http.StatusBadRequest},
+		{"missing", `{"pin":"012345","confirmation":"012345"}`, Proof{}, http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stepUp := &fakeStepUp{}
+			service, err := NewService(newFakeStore(), stepUp, &fakeProfiles{profile: completeSensitiveProfile()}, make([]byte, 32))
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := NewHandler(fakeAuthorizer{principal: identity.Principal{AccountID: "account-1", SessionID: "session-1"}}, service)
+			request := httptest.NewRequest(http.MethodPut, "/api/v1/account/security/pinpass", strings.NewReader(test.body))
+			request.Header.Set("Authorization", "Bearer synthetic-session")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.status || stepUp.received != test.proof {
+				t.Fatalf("unexpected verification request or status (%d)", response.Code)
+			}
+		})
 	}
 }

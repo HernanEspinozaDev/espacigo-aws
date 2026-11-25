@@ -25,7 +25,7 @@ type Authorizer interface {
 type DecodeNotice func(http.Header, []byte) (Notice, error)
 
 type RecentAuthentication interface {
-	Verify(context.Context, string, string, string) error
+	VerifyPassword(context.Context, string, string, identity.Secret) error
 }
 
 func Register(mux *http.ServeMux, auth Authorizer, s *Verifier, decodeNotice DecodeNotice, recent RecentAuthentication) {
@@ -50,12 +50,12 @@ func Register(mux *http.ServeMux, auth Authorizer, s *Verifier, decodeNotice Dec
 	}))
 	mux.HandleFunc("POST "+BaseRoute+"/draft/restore", withPrincipal(auth, func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 		var input struct {
-			CurrentPassword string `json:"current_password"`
+			CurrentPassword identity.Secret `json:"current_password"`
 		}
 		if !readJSON(w, r, &input) {
 			return
 		}
-		if recent == nil || recent.Verify(r.Context(), p.AccountID, p.SessionID, "password:"+input.CurrentPassword) != nil {
+		if recent == nil || recent.VerifyPassword(r.Context(), p.AccountID, p.SessionID, input.CurrentPassword) != nil {
 			writeError(w, 403, "reauthentication_required", nil)
 			return
 		}

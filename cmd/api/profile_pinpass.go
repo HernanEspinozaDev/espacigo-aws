@@ -9,6 +9,7 @@ import (
 	"time"
 
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	profilepinpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/profilepin"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilepin"
@@ -18,11 +19,17 @@ import (
 
 const pinpassBaseRoute = "/api/v1/account/security/pinpass"
 
-type pinpassPasswordStepUp struct{ pool *pgxpool.Pool }
+type pinpassStepUp struct {
+	pool *pgxpool.Pool
+	totp *identity.TOTPKeyring
+}
 
-func (x pinpassPasswordStepUp) Verify(ctx context.Context, account, session, proof string) error {
-	secret, ok := strings.CutPrefix(proof, "password:")
-	if !ok || secret == "" || len(secret) > 72 {
+func (x pinpassStepUp) VerifyPassword(ctx context.Context, account, session string, password identity.Secret) error {
+	return x.Verify(ctx, account, session, profilepin.Proof{CurrentPassword: password})
+}
+
+func (x pinpassStepUp) Verify(ctx context.Context, account, session string, proof profilepin.Proof) error {
+	if !proof.Present() || len(proof.CurrentPassword) > 72 || len(proof.OTPCode) > 6 {
 		return profilepin.ErrStepUpRejected
 	}
 	tx, err := x.pool.Begin(ctx)
@@ -52,9 +59,23 @@ func (x pinpassPasswordStepUp) Verify(ctx context.Context, account, session, pro
 		}
 		attempts = 0
 	}
-	matches, err := (password.Hasher{}).Matches(identity.Secret(hash), identity.Secret(secret))
-	if err != nil {
-		return profilepin.ErrStepUpRejected
+	matches := true
+	if proof.CurrentPassword != "" {
+		matches, err = (password.Hasher{}).Matches(identity.Secret(hash), proof.CurrentPassword)
+		if err != nil {
+			return profilepin.ErrStepUpRejected
+		}
+	}
+	// Verify the password first so a rejected password cannot consume a valid OTP.
+	if matches && proof.OTPCode != "" {
+		err = identitypg.VerifyAuthenticatorCode(ctx, tx, x.totp, account, proof.OTPCode, time.Now().UTC())
+		switch {
+		case err == nil:
+		case errors.Is(err, identity.ErrTOTPInvalidCode), errors.Is(err, identity.ErrTOTPReplayDetected):
+			matches = false
+		default:
+			return err
+		}
 	}
 	if matches {
 		if _, err := tx.Exec(ctx, `DELETE FROM public.profile_pinpass_reauth WHERE account_id=$1`, account); err != nil {
@@ -87,7 +108,11 @@ func mountPinpass(mux *http.ServeMux, pool *pgxpool.Pool, auth profilepin.Author
 		if err != nil || len(pepper) != 32 {
 			return errors.New("profile Pinpass configuration is invalid")
 		}
-		service, err = profilepin.NewService(profilepinpg.New(pool), pinpassPasswordStepUp{pool: pool}, profiles, pepper)
+		keyring, err := identity.LoadTOTPKeyring(getenv)
+		if err != nil {
+			return err
+		}
+		service, err = profilepin.NewService(profilepinpg.New(pool), pinpassStepUp{pool: pool, totp: keyring}, profiles, pepper)
 		if err != nil {
 			return err
 		}

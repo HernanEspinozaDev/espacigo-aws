@@ -241,6 +241,7 @@ paths:
       operationId: setOwnPinpass
       tags: [Account]
       summary: Crear o sustituir el PIN propio con autenticación reciente
+      description: Acepta contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos. El código TOTP se consume una sola vez.
       requestBody:
         required: true
         content:
@@ -263,6 +264,7 @@ paths:
       operationId: resetOwnPinpass
       tags: [Account]
       summary: Eliminar el PIN propio y revocar los permisos activos
+      description: Requiere contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos.
       requestBody:
         required: true
         content:
@@ -8436,9 +8438,12 @@ components:
         draft_saved: { type: boolean }
     PinpassFactor:
       type: object
-      required: [current_password]
+      anyOf:
+        - required: [current_password]
+        - required: [otp_code]
       properties:
-        current_password: { type: string, writeOnly: true }
+        current_password: { type: string, minLength: 1, writeOnly: true }
+        otp_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
     PinpassStatus:
       type: object
       required: [configured]
