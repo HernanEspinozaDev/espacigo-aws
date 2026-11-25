@@ -173,7 +173,13 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 		Metadata      struct {
 			OperationID string `json:"operation_id"`
 		} `json:"metadata"`
-		DateLastUpdated time.Time `json:"date_last_updated"`
+		DateLastUpdated    time.Time       `json:"date_last_updated"`
+		TransactionDetails json.RawMessage `json:"transaction_details"`
+		Fees               json.RawMessage `json:"fee_details"`
+		Charges            json.RawMessage `json:"charges_details"`
+		Refunded           json.RawMessage `json:"transaction_amount_refunded"`
+		ReleaseAt          json.RawMessage `json:"money_release_date"`
+		ReleaseStatus      json.RawMessage `json:"money_release_status"`
 	}
 	d := json.NewDecoder(bytes.NewReader(body))
 	d.UseNumber()
@@ -218,7 +224,40 @@ func decodeVerifiedPaymentJSON(body []byte) (VerifiedPayment, error) {
 	if paymentType == "" {
 		paymentType = p.PaymentMethod.Type
 	}
-	return VerifiedPayment{OperationID: p.Metadata.OperationID, ProviderPaymentID: p.ID.String(), SellerID: sellerID, ExternalReference: p.ExternalReference, Status: p.Status, TransactionAmountCLP: int64(amount), Currency: p.Currency, PaymentType: paymentType, LiveMode: p.LiveMode, ObservedAt: p.DateLastUpdated, PaymentUpdatedAt: p.DateLastUpdated, ApplicationFeeCLP: applicationFee}, nil
+	var transactionDetails struct {
+		Net json.RawMessage `json:"net_received_amount"`
+	}
+	var fees []paymentFee
+	var charges []paymentCharge
+	var releaseStatus string
+	_ = json.Unmarshal(p.TransactionDetails, &transactionDetails)
+	if json.Unmarshal(p.Fees, &fees) != nil {
+		fees = nil
+	}
+	if json.Unmarshal(p.Charges, &charges) != nil {
+		charges = nil
+	}
+	_ = json.Unmarshal(p.ReleaseStatus, &releaseStatus)
+	settlement := Settlement{
+		NetCLP: optionalCLP(transactionDetails.Net), ProcessingFeeCLP: settlementFee(fees, charges, "mercadopago_fee", "mercadopago_fee", "mp"),
+		MarketplaceCLP: settlementFee(fees, charges, "application_fee", "third_payment", "marketplace_owner"), RefundedCLP: optionalCLP(p.Refunded),
+		ProviderUpdated: p.DateLastUpdated.UTC(),
+	}
+	if settlement.MarketplaceCLP == nil {
+		settlement.MarketplaceCLP = applicationFee
+	}
+	if releaseStatus == "released" || releaseStatus == "pending" {
+		settlement.ReleaseStatus = releaseStatus
+	}
+	var release time.Time
+	if json.Unmarshal(p.ReleaseAt, &release) == nil && !release.IsZero() {
+		settlement.ReleaseAt = &release
+	}
+	var financial *Settlement
+	if settlement.NetCLP != nil || settlement.ProcessingFeeCLP != nil || settlement.MarketplaceCLP != nil || settlement.ReleaseStatus != "" || settlement.ReleaseAt != nil {
+		financial = &settlement
+	}
+	return VerifiedPayment{OperationID: p.Metadata.OperationID, ProviderPaymentID: p.ID.String(), SellerID: sellerID, ExternalReference: p.ExternalReference, Status: p.Status, TransactionAmountCLP: int64(amount), Currency: p.Currency, PaymentType: paymentType, LiveMode: p.LiveMode, ObservedAt: p.DateLastUpdated, PaymentUpdatedAt: p.DateLastUpdated, ApplicationFeeCLP: applicationFee, Settlement: financial}, nil
 }
 
 // HTTPGateway is deliberately injectable for offline httptest coverage. It

@@ -47,7 +47,7 @@ function optionalNumber(
 ): number | undefined {
   if (value === undefined) return undefined;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function mapCommercialToBookingReservation(
@@ -65,12 +65,23 @@ function mapCommercialToBookingReservation(
     checkout_status: item.checkout_status,
     checkout_method: item.checkout_method,
     provider_payment_id: item.provider_payment_id,
+    provider_settlement: item.provider_settlement && {
+      ...item.provider_settlement,
+      net_clp: optionalNumber(item.provider_settlement.net_clp),
+      processing_fee_clp: optionalNumber(
+        item.provider_settlement.processing_fee_clp,
+      ),
+      marketplace_fee_clp: optionalNumber(
+        item.provider_settlement.marketplace_fee_clp,
+      ),
+      refunded_clp: optionalNumber(item.provider_settlement.refunded_clp),
+    },
     commission_clp: optionalNumber(item.commission_clp),
     vat_clp: optionalNumber(item.vat_clp),
     marketplace_fee_clp: optionalNumber(item.marketplace_fee_clp),
     net_host_amount_clp: optionalNumber(item.net_host_amount_clp),
     buyer_commission_clp: optionalNumber(extended.buyer_commission_clp),
-    buyer_vat_clp: optionalNumber(extended.buyer_vat_clp),
+    buyer_vat_clp: optionalNumber(item.buyer_iva_clp ?? extended.buyer_vat_clp),
     buyer_fee_clp: optionalNumber(extended.buyer_fee_clp),
     total_charged_clp: optionalNumber(extended.total_charged_clp),
     is_commercial: true,

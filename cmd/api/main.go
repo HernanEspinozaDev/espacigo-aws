@@ -465,6 +465,7 @@ func run() error {
 			configureCommercialCancellation(commercialReservationService, commercialQuoteRepository, marketplaceTokens)
 			if marketplaceTokens != nil {
 				runCommercialCancellationReconciler(ctx, commercialReservationService)
+				go runCommercialPaymentSettlement(ctx, commercialQuoteRepository, marketplaceTokens)
 			}
 			if checkoutService != nil {
 				commercialReservationService.SetReconciler(func(ctx context.Context, actor, quoteID string) {

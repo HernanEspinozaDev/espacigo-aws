@@ -261,6 +261,9 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	configureCommercialCancellation(commercialReservationService, commercialQuoteRepo, marketplaceTokens)
 	if marketplaceTokens != nil {
 		runCommercialCancellationReconciler(ctx, commercialReservationService)
+		workers.Go(func(workerCtx context.Context) {
+			runCommercialPaymentSettlement(workerCtx, commercialQuoteRepo, marketplaceTokens)
+		})
 	}
 	rentalHandler := rentalflowhttp.New(authService, availability, quoteService, previewService, cfg.allowedOrigins, checkoutService, commercialReservationService)
 	if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {

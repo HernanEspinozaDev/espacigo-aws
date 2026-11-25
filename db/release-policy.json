@@ -25,6 +25,13 @@
     "V000005__disputas_reclamos_comerciales.sql": {
       "checksum": "89cc4b67a64f21d29058c5665531554e68803b6634acfde58b6771f318976263",
       "strategy": "expand"
+    },
+    "V000006__conciliacion_financiera_mercado_pago.sql": {
+      "checksum": "a894179efaf0e6086a861d12013f539bfd6e7c19cdeb3ddb5f3c0d8424b6f9ae",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.checkout_preferencia_comercial"
+      ]
     }
   },
   "review_required_migrations": {

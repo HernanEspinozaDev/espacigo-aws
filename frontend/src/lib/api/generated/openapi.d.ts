@@ -6291,6 +6291,24 @@ export interface components {
         can_claim_damage: boolean;
       };
     };
+    CommercialProviderSettlement: {
+      /** Format: int64 */
+      net_clp?: number | string;
+      /** Format: int64 */
+      processing_fee_clp?: number | string;
+      /** Format: int64 */
+      marketplace_fee_clp?: number | string;
+      /** Format: int64 */
+      refunded_clp?: number | string;
+      /** @enum {string} */
+      release_status?: "pending" | "released";
+      /** Format: date-time */
+      release_at?: string;
+      /** Format: date-time */
+      provider_updated_at: string;
+      /** @enum {string} */
+      reconciliation: "pending" | "reconciled" | "discrepancy";
+    };
     CommercialReservation: {
       /** Format: uuid */
       id: string;
@@ -6310,6 +6328,7 @@ export interface components {
       /** @enum {string} */
       checkout_method?: "checkout_pro" | "payments_api";
       provider_payment_id?: string;
+      provider_settlement?: components["schemas"]["CommercialProviderSettlement"];
       /** Format: int64 */
       commission_clp?: number | string;
       /** Format: int64 */

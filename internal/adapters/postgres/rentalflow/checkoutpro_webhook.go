@@ -104,6 +104,12 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 	}
 	log.Printf("mercadopago_checkout_api_reconciliation stage=provider_facts_verified operation_id=%s payment_id=%s result=matched application_fee_expected_set=%t application_fee_present=%t",
 		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
+	if checkoutMethod == "checkout_pro" && opState == "approved" &&
+		providerPaymentID == p.ProviderPaymentID && (status == "approved" || status == "refunded") {
+		if err := r.storePaymentSettlement(ctx, tx, p, fee); err != nil {
+			return false, err
+		}
+	}
 	if status == "refunded" {
 		return r.applyCommercialRefundedPayment(ctx, tx, p, r.now().UTC())
 	}
@@ -195,6 +201,11 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 			}
 		} else {
 			return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "payment_after_hold_expiry")
+		}
+		if checkoutMethod == "checkout_pro" {
+			if err := r.storePaymentSettlement(ctx, tx, p, fee); err != nil {
+				return false, err
+			}
 		}
 		if r.contractsRequired {
 			if err = enqueueCommercialContractDocument(ctx, tx, p.OperationID, r.now().UTC()); err != nil {

@@ -478,7 +478,9 @@ export function ReservationLifecyclePanel({
                     </div>
                     <div>
                       <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                        Ingreso Neto Anfitrión
+                        {financial.confirmedNetHostClp !== undefined
+                          ? "Neto informado por Mercado Pago"
+                          : "Importe antes de tarifa Mercado Pago"}
                       </p>
                       <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
                         {formatBookingClp(financial.netHostClp)} CLP

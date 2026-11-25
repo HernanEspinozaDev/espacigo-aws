@@ -33,7 +33,12 @@ async function installAftercareFixture(
   {
     role,
     reviewEligible,
-  }: { role: Participant["role"]; reviewEligible: boolean },
+    invoiceFixture,
+  }: {
+    role: Participant["role"];
+    reviewEligible: boolean;
+    invoiceFixture?: boolean;
+  },
 ) {
   const calls: string[] = [];
   let reservationStatus = "pagada";
@@ -97,6 +102,29 @@ async function installAftercareFixture(
           payment_expires_at: startsAt,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          ...(invoiceFixture
+            ? {
+                unit_price_clp: 1000,
+                subtotal_clp: 1000,
+                commission_clp: 30,
+                vat_clp: 6,
+                buyer_commission_clp: 30,
+                buyer_iva_clp: 6,
+                buyer_fee_clp: 36,
+                marketplace_fee_clp: 72,
+                net_host_amount_clp: 964,
+                total_charged_clp: 1036,
+                provider_settlement: {
+                  net_clp: 925,
+                  marketplace_fee_clp: 72,
+                  processing_fee_clp: 39,
+                  release_status: "released",
+                  release_at: startsAt,
+                  provider_updated_at: startsAt,
+                  reconciliation: "reconciled",
+                },
+              }
+            : {}),
         }),
       );
       return;
@@ -420,3 +448,63 @@ for (const participant of participants) {
     ).toBeVisible();
   });
 }
+
+test("host invoice discloses both EspaciGo charges and the net read from Mercado Pago", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+    invoiceFixture: true,
+  });
+  await page.goto(`/anfitrion/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver Invoice Anfitrión" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByText("Cargo EspaciGo al arrendatario (3% + IVA)"),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("Cargo EspaciGo al anfitrión (3% + IVA)"),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText(/72 CLP en total.*36 CLP arrendatario.*36 CLP anfitrión/),
+  ).toBeVisible();
+  await expect(dialog.getByText("−$39 CLP", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("$925 CLP", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText(/Fondos liberados en Mercado Pago/),
+  ).toBeVisible();
+  await expect(dialog.getByText("$964 CLP", { exact: true })).toHaveCount(0);
+});
+
+test("host finance calculator estimates the same amounts by fee or percentage", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+  });
+  await page.route("**/api/backend/commercial-reservations?**", (route) =>
+    route.fulfill(json({ items: [] })),
+  );
+  await page.goto("/anfitrion/reservas");
+  await page.getByRole("tab", { name: "Finanzas" }).click();
+  const calculator = page
+    .locator("details")
+    .filter({ hasText: "Calculadora de comisiones" });
+  await calculator
+    .getByText("Calculadora de comisiones", { exact: true })
+    .click();
+  await calculator.getByLabel("Valor del arriendo en CLP").fill("1000");
+  await calculator.getByLabel("Costo de Mercado Pago en CLP").fill("39");
+  await expect(
+    calculator.getByText("$1.036 CLP", { exact: true }),
+  ).toBeVisible();
+  await expect(calculator.getByText("$925 CLP", { exact: true })).toBeVisible();
+  await calculator
+    .getByLabel("Forma de ingresar el costo de Mercado Pago")
+    .selectOption("rate");
+  await calculator.getByLabel("Tasa de Mercado Pago (%)").fill("3,76");
+  await expect(calculator.getByText("−$39 CLP", { exact: true })).toBeVisible();
+  await expect(calculator.getByText("$925 CLP", { exact: true })).toBeVisible();
+});

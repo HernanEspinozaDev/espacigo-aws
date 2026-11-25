@@ -74,7 +74,8 @@ r.estado,c.estado,c.checkout_method,COALESCE(c.provider_payment_id,''),
 c.commission_clp,c.iva_clp,c.buyer_commission_clp,c.buyer_iva_clp,c.buyer_fee_clp,c.total_charged_clp,c.marketplace_fee_clp,(c.base_clp - (c.commission_clp + c.iva_clp)),
 r.modalidad,r.precio_unitario_clp,r.unidades,r.subtotal_clp,r.moneda,
 r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en,
-COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,'')
+COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,''),
+CASE WHEN r.anfitrion_id=$1 THEN c.provider_settlement END
 FROM public.reserva_arriendo_comercial r
 JOIN public.checkout_preferencia_comercial c ON c.id=r.operacion_checkout_id
 JOIN public.cotizacion_arriendo_comercial q ON q.id=r.cotizacion_id
@@ -95,7 +96,7 @@ ORDER BY r.actualizada_en DESC,r.id DESC LIMIT $4`, actor, lastUpdated, lastID, 
 			&item.Status, &item.CheckoutStatus, &item.CheckoutMethod, &item.ProviderPaymentID,
 			&item.CommissionCLP, &item.VATCLP, &item.BuyerCommissionCLP, &item.BuyerVATCLP, &item.BuyerFeeCLP, &item.TotalChargedCLP, &item.MarketplaceFeeCLP, &item.NetHostAmountCLP,
 			&item.RateUnit, &item.UnitPriceCLP, &item.Units, &item.SubtotalCLP, &item.Currency,
-			&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText,
+			&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText, &item.ProviderSettlement,
 		); err != nil {
 			return rentalflow.CommercialReservationPage{}, err
 		}
@@ -196,7 +197,7 @@ r.estado,c.estado,c.checkout_method,COALESCE(c.provider_payment_id,''),
 c.commission_clp,c.iva_clp,c.buyer_commission_clp,c.buyer_iva_clp,c.buyer_fee_clp,c.total_charged_clp,c.marketplace_fee_clp,(c.base_clp - (c.commission_clp + c.iva_clp)),
 r.modalidad,r.precio_unitario_clp,r.unidades,r.subtotal_clp,r.moneda,
 r.inicio,r.termino,r.zona_horaria,r.pago_vence_en,r.creada_en,r.actualizada_en,
-COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,''),COALESCE(cc.refund_status,'')
+COALESCE(q.politica_cancelacion_version,''),COALESCE(q.politica_cancelacion_texto,''),COALESCE(cc.refund_status,''),CASE WHEN r.anfitrion_id=$2 THEN c.provider_settlement END
 FROM public.reserva_arriendo_comercial r
 JOIN public.checkout_preferencia_comercial c ON c.id=r.operacion_checkout_id
 JOIN public.cotizacion_arriendo_comercial q ON q.id=r.cotizacion_id
@@ -206,7 +207,7 @@ WHERE r.id=$1 AND (r.anfitrion_id=$2 OR r.arrendatario_id=$2)`, reservationID, a
 		&item.Status, &item.CheckoutStatus, &item.CheckoutMethod, &item.ProviderPaymentID,
 		&item.CommissionCLP, &item.VATCLP, &item.BuyerCommissionCLP, &item.BuyerVATCLP, &item.BuyerFeeCLP, &item.TotalChargedCLP, &item.MarketplaceFeeCLP, &item.NetHostAmountCLP,
 		&item.RateUnit, &item.UnitPriceCLP, &item.Units, &item.SubtotalCLP, &item.Currency,
-		&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText, &item.RefundStatus,
+		&start, &end, &item.TimeZone, &paymentExpires, &created, &updated, &policyVersion, &policyText, &item.RefundStatus, &item.ProviderSettlement,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rentalflow.CommercialReservation{}, rentalflow.ErrNotFound

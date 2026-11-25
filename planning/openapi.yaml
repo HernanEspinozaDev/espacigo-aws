@@ -9089,6 +9089,19 @@ components:
     CommercialSupportCase: { type: object, additionalProperties: false, required: [ id, reservation_id, initiator_role, category, routed_to, status, description, created_at, actions, events, evidence ], properties: { id: { type: string, format: uuid }, reservation_id: { type: string, format: uuid }, initiator_role: { type: string, enum: [ anfitrion, arrendatario ] }, category: { type: string }, routed_to: { type: string, enum: [ contraparte, espacigo ] }, status: { type: string }, description: { type: string }, defense_deadline: { type: string, format: date-time }, created_at: { type: string, format: date-time }, actions: { type: array, items: { type: string } }, events: { type: array, items: { type: object, additionalProperties: false, required: [ action, description, created_at ], properties: { action: { type: string }, description: { type: string }, created_at: { type: string, format: date-time } } } }, evidence: { type: array, items: { $ref: "#/components/schemas/CommercialSupportEvidence" } } } }
     CommercialSupportEvidence: { type: object, additionalProperties: false, required: [ id, mime, size ], properties: { id: { type: string, format: uuid }, mime: { type: string }, size: { type: integer, format: int64 } } }
     CommercialSupportCaseList: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ items, can_claim_damage ], properties: { items: { type: array, items: { $ref: "#/components/schemas/CommercialSupportCase" } }, can_claim_damage: { type: boolean } } } } }
+    CommercialProviderSettlement:
+      type: object
+      additionalProperties: false
+      required: [ provider_updated_at, reconciliation ]
+      properties:
+        net_clp: { type: integer, format: int64, minimum: 0 }
+        processing_fee_clp: { type: integer, format: int64, minimum: 0 }
+        marketplace_fee_clp: { type: integer, format: int64, minimum: 0 }
+        refunded_clp: { type: integer, format: int64, minimum: 0 }
+        release_status: { type: string, enum: [ pending, released ] }
+        release_at: { type: string, format: date-time }
+        provider_updated_at: { type: string, format: date-time }
+        reconciliation: { type: string, enum: [ pending, reconciled, discrepancy ] }
     CommercialReservation:
       type: object
       additionalProperties: false
@@ -9124,6 +9137,7 @@ components:
         checkout_status: { type: string }
         checkout_method: { type: string, enum: [ checkout_pro, payments_api ] }
         provider_payment_id: { type: string }
+        provider_settlement: { $ref: "#/components/schemas/CommercialProviderSettlement" }
         commission_clp: { type: integer, format: int64 }
         vat_clp: { type: integer, format: int64 }
         buyer_commission_clp: { type: integer, format: int64 }
