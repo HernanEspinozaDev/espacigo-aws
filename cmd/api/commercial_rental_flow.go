@@ -40,6 +40,12 @@ func commercialRentalFlowEnabled(getenv func(string) string, profile runtimeProf
 	if value != "1" {
 		return false, errors.New("COMMERCIAL_RENTAL_FLOW_ENABLED must be 1 when configured")
 	}
+	if getenv("APP_PROFILE") == "production" {
+		if !authenticationEnabled || profile != runtimeProfileStandard || isolatedDatasetClock || getenv("LOCAL_BOOKING_TRIAL") == "1" {
+			return false, errors.New("commercial rental flow requires the standard production runtime")
+		}
+		return true, nil
+	}
 	if getenv("APP_PROFILE") != "" {
 		return false, errors.New("commercial rental flow cannot use a cloud prototype authentication profile")
 	}
