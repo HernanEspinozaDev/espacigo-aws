@@ -28,6 +28,8 @@
 - [ ] Si existe un reembolso hecho en el portal, vincularlo por ID después de verificar pago, vendedor, monto, moneda y estado. Si no hay coincidencia suficiente, ponerlo en revisión operativa antes de permitir un nuevo POST.
 - [ ] Para falta de saldo confirmada, permitir que el arrendador reponga su parte y reintente desde la reserva. Definir el procedimiento de soporte para devoluciones externas excepcionales con comprobante y control de doble pago. Hotosoft puede tramitar su parte conforme a las capacidades del split. La diferencia pertenece al flujo de cobro del vendedor.
 
+**Avance local.** El reembolso consulta el pago con OAuth del arrendador y contrasta ID, referencia, vendedor vinculado, moneda, ambiente e importe. Antes de emitirlo consulta el historial. Una devolución sin vincular o con monto inesperado bloquea otro envío y devuelve `refund_requires_reconciliation`. Si el proveedor confirma un reembolso asociado, la base finaliza la reserva con el mismo estado que usa el servicio y protege el intento contra respuestas tardías o de otro ID. El saldo reembolsable con devoluciones previas y la resolución asistida de esos casos siguen pendientes.
+
 **Salida.** Pruebas de total, parcial, remanente, falta de saldo, OAuth revocado, webhook repetido, disputa, devolución externa y ausencia de doble abono. Validar que el estado de reserva y la ocupación solo se cierran una vez conforme al resultado confirmado. [API de creación de reembolso](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-api-payments/create-refund/post)
 
 ## Fase 4 · Conciliar Finanzas, reportes y operación

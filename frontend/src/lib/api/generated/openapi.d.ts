@@ -1084,7 +1084,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Solicitar la cancelación y el reembolso de la reserva comercial */
+    /**
+     * Solicitar la cancelación y el reembolso de la reserva comercial
+     * @description Confirma el monto de la vista previa para una reserva comercial de la que forma parte la cuenta autenticada. Si corresponde un reembolso, comprueba el pago y consulta su historial con el OAuth del vendedor. Responde 409 con el código refund_requires_reconciliation si Mercado Pago informa una devolución que no se puede asociar al intento guardado o cuyo monto no coincide.
+     */
     post: operations["cancelCommercialReservation"];
     delete?: never;
     options?: never;

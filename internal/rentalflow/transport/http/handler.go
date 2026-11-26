@@ -845,6 +845,10 @@ func (h *Handler) cancelCommercialReservation(w http.ResponseWriter, r *http.Req
 		return
 	}
 	result, err := service.Cancel(r.Context(), principal.AccountID, reservationID, body.Reason, *body.ExpectedRefundAmountCLP)
+	if errors.Is(err, rentalflow.ErrRefundRequiresReconciliation) {
+		writeError(w, http.StatusConflict, "refund_requires_reconciliation")
+		return
+	}
 	if err != nil {
 		writeReservationError(w, err)
 		return

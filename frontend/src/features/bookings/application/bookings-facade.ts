@@ -452,8 +452,16 @@ export class BookingsFacade {
         throw new DOMException("Session changed", "AbortError");
       }
       this.#sessionError(err);
-      const error =
-        err instanceof Error ? err.message : "Error al cancelar reserva";
+      const requiresReconciliation =
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        err.code === "refund_requires_reconciliation";
+      const error = requiresReconciliation
+        ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
+        : err instanceof Error
+          ? err.message
+          : "Error al cancelar reserva";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }

@@ -16,6 +16,7 @@ type cancellationHandlerStub struct {
 	*commercialReservationStub
 	previewCalls int
 	cancelCalls  int
+	cancelErr    error
 	preview      rentalflow.CommercialCancellation
 }
 
@@ -25,6 +26,9 @@ func (s *cancellationHandlerStub) PreviewCancellation(context.Context, string, s
 }
 func (s *cancellationHandlerStub) Cancel(_ context.Context, _, _, reason string, expected int64) (rentalflow.CommercialCancellation, error) {
 	s.cancelCalls++
+	if s.cancelErr != nil {
+		return rentalflow.CommercialCancellation{}, s.cancelErr
+	}
 	s.preview.Reason = reason + ":" + fmt.Sprint(expected)
 	s.preview.RefundStatus = "aprobado"
 	return s.preview, nil
@@ -56,6 +60,15 @@ func TestCommercialCancellationHTTPRoutesAreAuthenticatedAndStrict(t *testing.T)
 	h.ServeHTTP(w, invalid)
 	if w.Code != http.StatusBadRequest || service.cancelCalls != 1 {
 		t.Fatalf("invalid cancel status=%d calls=%d", w.Code, service.cancelCalls)
+	}
+	service.cancelErr = rentalflow.ErrRefundRequiresReconciliation
+	manual := httptest.NewRequest(http.MethodPost, "/api/v1/commercial-reservations/"+reservationID+"/cancel", strings.NewReader(`{"reason":"Cambio de planes","expected_refund_amount_clp":12000}`))
+	manual.Header.Set("Authorization", "Bearer token")
+	manual.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, manual)
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `"code":"refund_requires_reconciliation"`) {
+		t.Fatalf("reconciliation conflict status=%d body=%s", w.Code, w.Body.String())
 	}
 	head := httptest.NewRequest(http.MethodHead, "/api/v1/commercial-reservations/"+reservationID+"/cancellation-preview", nil)
 	w = httptest.NewRecorder()

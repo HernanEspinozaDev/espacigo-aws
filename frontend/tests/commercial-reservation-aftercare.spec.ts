@@ -333,6 +333,42 @@ async function installAftercareFixture(
   return calls;
 }
 
+test("an unlinked Mercado Pago refund directs the participant to support", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "arrendatario",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancel`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: { error: { code: "refund_requires_reconciliation" } },
+      }),
+  );
+  await page.goto(`/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await page.getByLabel("Motivo de la cancelación").fill("Cambio de planes");
+  await page
+    .getByLabel(
+      "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirmar cancelación" }).click();
+  await expect(
+    page.getByText(
+      "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "La cancelación y el reembolso se registraron correctamente.",
+    ),
+  ).toHaveCount(0);
+});
+
 for (const participant of participants) {
   test(`${participant.role} can cancel, message, see review eligibility and route a support case`, async ({
     page,

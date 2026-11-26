@@ -30,7 +30,10 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 	if lock {
 		locking = " FOR UPDATE OF r,c,o"
 	}
-	query := `SELECT r.id::text,r.estado,c.estado,COALESCE(c.provider_payment_id,''),c.total_charged_clp,o.activo,c.payment_verified_at,
+	query := `SELECT r.id::text,r.estado,c.estado,COALESCE(c.provider_payment_id,''),c.total_charged_clp,o.activo,c.payment_verified_at,c.id::text,c.test_mode,
+ COALESCE((SELECT s.seller_id FROM public.mercadopago_seller_connection s
+  WHERE s.anfitrion_id=c.host_id AND s.connection_state='active' AND s.live_mode<>c.test_mode),''),
+
  r.inicio,r.anfitrion_id::text,r.arrendatario_id::text,
  COALESCE(x.politica_version,q.politica_cancelacion_version,''),COALESCE(x.politica_texto,q.politica_cancelacion_texto,''),
  CASE WHEN r.anfitrion_id=$2 THEN 'anfitrion' ELSE 'arrendatario' END,
@@ -50,7 +53,7 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 	var paymentVerifiedAt sql.NullTime
 	var oldPercent int
 	var oldAmount int64
-	err := q.QueryRow(ctx, query, reservationID, actor).Scan(&out.ReservationID, &reservationState, &checkoutState, &paymentID, &total, &occupancyActive, &paymentVerifiedAt,
+	err := q.QueryRow(ctx, query, reservationID, actor).Scan(&out.ReservationID, &reservationState, &checkoutState, &paymentID, &total, &occupancyActive, &paymentVerifiedAt, &out.CheckoutOperationID, &out.TestMode, &out.SellerID,
 		&start, &hostID, &renterID, &version, &policyText, &role,
 		&existingStatus, &oldPercent, &oldAmount, &existingActor, &existingReason, &idempotency, &providerRefundID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -219,8 +222,9 @@ VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,$11,'pendiente',1,$12,$
 	return preview, nil
 }
 
-func (r *Repository) FinishCommercialCancellation(ctx context.Context, reservationID, providerRefundID, status string, now time.Time) (rentalflow.CommercialCancellation, error) {
-	if r == nil || r.beginner == nil || ctx == nil || !rentalflow.ValidUUID(reservationID) || now.IsZero() || status != "approved" && status != "pendiente" && status != "no_aplica" {
+func (r *Repository) FinishCommercialCancellation(ctx context.Context, reservationID, idempotencyKey, providerRefundID, status string, now time.Time) (rentalflow.CommercialCancellation, error) {
+	if r == nil || r.beginner == nil || ctx == nil || (!rentalflow.ValidUUID(reservationID) || !rentalflow.ValidUUID(idempotencyKey)) || now.IsZero() || !validProviderRefundID(providerRefundID) ||
+		(status != rentalflow.CommercialRefundApproved && status != rentalflow.CommercialRefundPending) {
 		return rentalflow.CommercialCancellation{}, rentalflow.ErrInvalid
 	}
 	tx, err := r.beginner.Begin(ctx)
@@ -242,17 +246,21 @@ FROM public.reserva_comercial_cancelacion c JOIN public.reserva_arriendo_comerci
 	}
 	out.ActorID, out.HostID = actorID, hostID
 	out.StartsAt, out.Currency, out.RefundAmountCLP = start.UTC().Format(time.RFC3339Nano), "CLP", refundAmount
-	if out.RefundStatus == "aprobado" || out.RefundStatus == "no_aplica" {
+	if out.IdempotencyKey != idempotencyKey || (out.ProviderRefundID != "" && out.ProviderRefundID != providerRefundID) {
+		return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
+	}
+	if out.RefundStatus == rentalflow.CommercialRefundApproved || out.RefundStatus == "no_aplica" {
 		out.Status = reservationState
 		if err = tx.Commit(ctx); err != nil {
 			return rentalflow.CommercialCancellation{}, err
 		}
 		return out, nil
 	}
-	if providerRefundID != "" && !validProviderRefundID(providerRefundID) {
-		return rentalflow.CommercialCancellation{}, rentalflow.ErrInvalid
+	if out.RefundStatus != rentalflow.CommercialRefundPending || refundAmount <= 0 {
+		return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
 	}
-	if status == "pendiente" {
+	out.ProviderRefundID = providerRefundID
+	if status == rentalflow.CommercialRefundPending {
 		_, err = tx.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET provider_refund_id=COALESCE(NULLIF($2,''),provider_refund_id),refund_status='pendiente',actualizada_en=$3 WHERE reserva_id=$1::uuid`, reservationID, providerRefundID, now.UTC())
 		if err != nil {
 			return rentalflow.CommercialCancellation{}, err
@@ -281,11 +289,13 @@ FROM public.reserva_comercial_cancelacion c JOIN public.reserva_arriendo_comerci
 	return out, nil
 }
 
-func (r *Repository) FailCommercialCancellation(ctx context.Context, reservationID string, now time.Time) error {
-	if r == nil || r.db == nil || ctx == nil || !rentalflow.ValidUUID(reservationID) || now.IsZero() {
+func (r *Repository) FailCommercialCancellation(ctx context.Context, reservationID, idempotencyKey, providerRefundID string, now time.Time) error {
+	if r == nil || r.db == nil || ctx == nil || (!rentalflow.ValidUUID(reservationID) || !rentalflow.ValidUUID(idempotencyKey)) || now.IsZero() {
 		return rentalflow.ErrInvalid
 	}
-	_, err := r.db.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET refund_status='fallido',actualizada_en=$2 WHERE reserva_id=$1::uuid AND refund_status='pendiente'`, reservationID, now.UTC())
+	_, err := r.db.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET refund_status='fallido',actualizada_en=$2
+WHERE reserva_id=$1::uuid AND refund_status='pendiente' AND clave_idempotencia=$3 AND COALESCE(provider_refund_id,'')=$4`,
+		reservationID, now.UTC(), idempotencyKey, providerRefundID)
 	return err
 }
 

@@ -61,7 +61,8 @@ func TestCommercialCancellationPostgres(t *testing.T) {
 	END$$;
 	CREATE TABLE public.usuario(id uuid PRIMARY KEY);
 	CREATE TABLE public.espacio(politica_cancelacion_version text);
-	CREATE TABLE public.checkout_preferencia_comercial(id uuid PRIMARY KEY, estado text, provider_payment_id text, total_charged_clp bigint, payment_verified_at timestamptz, provider_payment_status text);
+	CREATE TABLE public.checkout_preferencia_comercial(id uuid PRIMARY KEY, estado text, provider_payment_id text, total_charged_clp bigint, payment_verified_at timestamptz, provider_payment_status text,test_mode boolean NOT NULL DEFAULT false,host_id uuid NOT NULL);
+	CREATE TABLE public.mercadopago_seller_connection(anfitrion_id uuid PRIMARY KEY,seller_id text,connection_state text,live_mode boolean);
 	CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY, politica_cancelacion_version text, politica_cancelacion_texto text);
 	CREATE TABLE public.reserva_arriendo_comercial(id uuid PRIMARY KEY, estado text, pago_vence_en timestamptz, operacion_checkout_id uuid, cotizacion_id uuid, ocupacion_id uuid, inicio timestamptz, anfitrion_id uuid, arrendatario_id uuid, actualizada_en timestamptz);
 	CREATE TABLE public.ocupacion(id uuid PRIMARY KEY, activo boolean, desactivada_en timestamptz, reserva_arriendo_comercial_id uuid);
@@ -82,7 +83,8 @@ func TestCommercialCancellationPostgres(t *testing.T) {
 	host, renter, reservationID, quote, firstHold, secondHold := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	batch := &pgx.Batch{}
 	batch.Queue(`INSERT INTO public.usuario VALUES($1),($2)`, host, renter)
-	batch.Queue(`INSERT INTO public.checkout_preferencia_comercial VALUES($1,'approved','10001',12000,$2,'approved')`, reservationID, now)
+	batch.Queue(`INSERT INTO public.checkout_preferencia_comercial VALUES($1,'approved','10001',12000,$2,'approved',false,$3)`, reservationID, now, host)
+	batch.Queue(`INSERT INTO public.mercadopago_seller_connection VALUES($1,'91','active',true)`, host)
 	batch.Queue(`INSERT INTO public.cotizacion_arriendo_comercial VALUES($1,'facil_v1','Devolución completa antes del inicio.')`, quote)
 	batch.Queue(`INSERT INTO public.reserva_arriendo_comercial VALUES($1,'pagada',$2,$1,$3,$4,$5,$6,$7,$2)`, reservationID, now, quote, firstHold, now.Add(48*time.Hour), host, renter)
 	batch.Queue(`INSERT INTO public.ocupacion VALUES($1,true,NULL,$3),($2,true,NULL,$3)`, firstHold, secondHold, reservationID)
@@ -102,11 +104,28 @@ func TestCommercialCancellationPostgres(t *testing.T) {
 		t.Fatalf("wrong expected refund should be rejected: %v", err)
 	}
 	operation, err := repo.BeginCommercialCancellation(ctx, renter, reservationID, "Cambio de planes", 12000, now, uuid.NewString())
-	if err != nil || operation.RefundStatus != "pendiente" || operation.IdempotencyKey == "" {
+	if err != nil || operation.RefundStatus != "pendiente" || operation.IdempotencyKey == "" || operation.SellerID != "91" {
 		t.Fatalf("expected durable intent: %+v, %v", operation, err)
 	}
+	staleKey := uuid.NewString()
+	if err := repo.FailCommercialCancellation(ctx, reservationID, staleKey, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FinishCommercialCancellation(ctx, reservationID, staleKey, "20001", rentalflow.CommercialRefundApproved, now); !errors.Is(err, rentalflow.ErrConflict) {
+		t.Fatalf("stale attempt was accepted: %v", err)
+	}
+	pendingResult, err := repo.FinishCommercialCancellation(ctx, reservationID, operation.IdempotencyKey, "20001", rentalflow.CommercialRefundPending, now)
+	if err != nil || pendingResult.Status != "pagada" || pendingResult.ProviderRefundID != "20001" {
+		t.Fatalf("expected pending result bound to refund: %+v, %v", pendingResult, err)
+	}
+	if err := repo.FailCommercialCancellation(ctx, reservationID, operation.IdempotencyKey, "", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.FinishCommercialCancellation(ctx, reservationID, operation.IdempotencyKey, "20002", rentalflow.CommercialRefundApproved, now); !errors.Is(err, rentalflow.ErrConflict) {
+		t.Fatalf("different refund ID was accepted: %v", err)
+	}
 	for range 2 {
-		result, err := repo.FinishCommercialCancellation(ctx, reservationID, "20001", "approved", now)
+		result, err := repo.FinishCommercialCancellation(ctx, reservationID, operation.IdempotencyKey, "20001", rentalflow.CommercialRefundApproved, now)
 		if err != nil || result.Status != "reembolsada" || result.RefundStatus != "aprobado" {
 			t.Fatalf("expected approved result: %+v, %v", result, err)
 		}

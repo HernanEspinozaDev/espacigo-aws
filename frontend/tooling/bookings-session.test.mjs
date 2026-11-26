@@ -95,6 +95,26 @@ test("loadReservations demorado -> clear -> resolve no comitea datos ni sobrescr
   assert.deepEqual(result, []);
 });
 
+test("un reembolso sin vincular indica que se debe contactar a soporte", async () => {
+  const BookingsFacade = await loadFacade();
+  const conflict = Object.assign(new Error("provider conflict"), {
+    code: "refund_requires_reconciliation",
+    status: 409,
+  });
+  const facade = new BookingsFacade({
+    cancelReservation: async () => {
+      throw conflict;
+    },
+  });
+
+  await assert.rejects(
+    facade.cancelReservation("res-1", "Cambio", "request-1", true, 1036),
+    (error) => error === conflict,
+  );
+  assert.match(facade.getSnapshot().error, /Contacta a soporte/);
+  assert.equal(facade.getSnapshot().actionLoading, false);
+});
+
 test("loadReservationDetail demorado -> clear -> resolve no altera currentReservation", async () => {
   const BookingsFacade = await loadFacade();
   let resolveDetail;
