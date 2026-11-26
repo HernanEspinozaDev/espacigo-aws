@@ -77,6 +77,86 @@ const commercialCancellationReason: Record<string, string> = {
     "Según la política de esta reserva, la cancelación no tiene devolución.",
 };
 
+function cancellationPolicyStyle(version?: string | null): {
+  label: string;
+  badgeClass: string;
+  boxClass: string;
+} {
+  switch (version) {
+    case "facil_v1":
+      return {
+        label: "Fácil · 100% antes del inicio",
+        badgeClass:
+          "border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+        boxClass:
+          "border-emerald-500/25 bg-emerald-500/5 text-emerald-950 dark:text-emerald-100",
+      };
+    case "flexible_v1":
+      return {
+        label: "Flexible · 100% hasta 24 h antes",
+        badgeClass:
+          "border-sky-500/30 bg-sky-500/15 text-sky-700 dark:text-sky-300",
+        boxClass:
+          "border-sky-500/25 bg-sky-500/5 text-sky-950 dark:text-sky-100",
+      };
+    case "moderada_v1":
+      return {
+        label: "Moderada · 50% hasta 48 h antes",
+        badgeClass:
+          "border-amber-500/30 bg-amber-500/15 text-amber-800 dark:text-amber-300",
+        boxClass:
+          "border-amber-500/25 bg-amber-500/5 text-amber-950 dark:text-amber-100",
+      };
+    case "estricta_v1":
+      return {
+        label: "Estricta · Sin reembolso",
+        badgeClass:
+          "border-rose-500/30 bg-rose-500/15 text-rose-700 dark:text-rose-300",
+        boxClass:
+          "border-rose-500/25 bg-rose-500/5 text-rose-950 dark:text-rose-100",
+      };
+    default:
+      return {
+        label: "Política registrada",
+        badgeClass: "border-border bg-muted text-muted-foreground",
+        boxClass: "border-border bg-muted/30 text-foreground",
+      };
+  }
+}
+
+function commercialRefundBannerStyle(
+  status: keyof typeof commercialRefundLabel,
+): {
+  boxClass: string;
+  icon: typeof CheckCircle;
+} {
+  switch (status) {
+    case "aprobado":
+      return {
+        boxClass:
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+        icon: CheckCircle,
+      };
+    case "pendiente":
+      return {
+        boxClass:
+          "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+        icon: Clock,
+      };
+    case "fallido":
+      return {
+        boxClass:
+          "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300",
+        icon: AlertTriangle,
+      };
+    case "no_aplica":
+      return {
+        boxClass: "border-border bg-muted/60 text-foreground",
+        icon: Info,
+      };
+  }
+}
+
 export function ReservationLifecyclePanel({
   reservationId,
   role,
@@ -842,339 +922,468 @@ export function ReservationLifecyclePanel({
         )}
       </section>
 
-      {currentReservation.is_commercial && (
-        <section className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
-          <div className="flex items-center gap-2 border-b border-border pb-3">
-            <ShieldCheck className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">
-              Política de cancelación
-            </h2>
-          </div>
-          <p className="mt-3 text-sm text-foreground">
-            {currentReservation.cancellation_policy_text ||
-              "La política de cancelación no está disponible para esta reserva."}
-          </p>
-          {currentReservation.cancellation_policy_version && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {currentReservation.cancellation_policy_version}
-            </p>
-          )}
-          {currentReservation.commercial_refund_status && (
-            <p role="status" className="mt-3 rounded-lg bg-muted p-3 text-sm">
-              Estado del reembolso:{" "}
-              {
-                commercialRefundLabel[
-                  currentReservation.commercial_refund_status
-                ]
-              }
-            </p>
-          )}
+      {currentReservation.is_commercial &&
+        (() => {
+          const policyStyle = cancellationPolicyStyle(
+            currentReservation.cancellation_policy_version,
+          );
+          const refundStatusKey = currentReservation.commercial_refund_status;
+          const refundBanner = refundStatusKey
+            ? commercialRefundBannerStyle(refundStatusKey)
+            : null;
+          const RefundBannerIcon = refundBanner?.icon;
+          const previewPercent = cancellationPreview
+            ? (cancellationPreview.refund_percent ??
+              Math.round(cancellationPreview.refund_ratio * 100))
+            : 0;
+          const previewRetainedClp =
+            cancellationPreview?.total_charged_clp !== undefined
+              ? Math.max(
+                  0,
+                  cancellationPreview.total_charged_clp -
+                    cancellationPreview.refund_amount_clp,
+                )
+              : 0;
+          const cancelResultClass =
+            currentReservation.commercial_refund_status === "fallido"
+              ? "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300"
+              : currentReservation.commercial_refund_status === "pendiente"
+                ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300";
 
-          {currentReservation.state === "pagada" && (
-            <div className="mt-5 border-t border-border pt-5">
-              <h3 className="text-base font-semibold text-foreground">
-                Cancelar reserva y solicitar devolución
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Consulta el monto antes de confirmar. El reembolso depende de la
-                política de la reserva y del saldo disponible en Mercado Pago
-                para cubrir la devolución.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-3"
-                onClick={async () => {
-                  setCancelConfirmed(false);
-                  setCancelResult(null);
-                  setCancelError(null);
-                  try {
-                    await requestCancellationPreview(
-                      currentReservation.id,
-                      true,
-                    );
-                  } catch {
-                    // The shared operation banner exposes the API error.
-                  }
-                }}
-                disabled={actionLoading}
+          return (
+            <section className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-primary" />
+                  <h2 className="text-lg font-semibold text-foreground">
+                    Política de cancelación
+                  </h2>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${policyStyle.badgeClass}`}
+                  >
+                    {policyStyle.label}
+                  </span>
+                  <span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    Incluida en el contrato
+                  </span>
+                </div>
+              </div>
+
+              <div
+                className={`mt-4 rounded-xl border p-4 ${policyStyle.boxClass}`}
               >
-                {actionLoading ? "Consultando…" : "Ver monto de devolución"}
-              </Button>
+                <p className="text-sm font-medium">
+                  {currentReservation.cancellation_policy_text ||
+                    "La política de cancelación no está disponible para esta reserva."}
+                </p>
+                {currentReservation.cancellation_policy_version && (
+                  <p className="mt-2 font-mono text-xs opacity-75">
+                    {currentReservation.cancellation_policy_version}
+                  </p>
+                )}
+              </div>
 
-              {cancellationPreview?.reservation_id ===
-                currentReservation.id && (
-                <div className="mt-4 space-y-3 rounded-xl border border-border bg-muted/30 p-4">
-                  <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                    <div>
-                      <dt className="text-muted-foreground">
-                        ¿Puedes cancelar?
-                      </dt>
-                      <dd className="font-medium">
-                        {cancellationPreview.eligible ? "Sí" : "No"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-muted-foreground">
-                        Porcentaje de devolución
-                      </dt>
-                      <dd className="font-medium">
-                        {cancellationPreview.refund_percent ??
-                          Math.round(cancellationPreview.refund_ratio * 100)}
-                        %
-                      </dd>
-                    </div>
-                    {cancellationPreview.total_charged_clp !== undefined && (
-                      <div>
-                        <dt className="text-muted-foreground">Total pagado</dt>
-                        <dd className="font-medium">
-                          {formatBookingClp(
-                            cancellationPreview.total_charged_clp,
-                          )}{" "}
-                          {cancellationPreview.currency ?? "CLP"}
-                        </dd>
-                      </div>
+              {refundStatusKey && refundBanner && RefundBannerIcon && (
+                <div
+                  role="status"
+                  className={`mt-3 flex items-start gap-2.5 rounded-xl border p-3.5 text-sm ${refundBanner.boxClass}`}
+                >
+                  <RefundBannerIcon className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">
+                      Estado del reembolso:{" "}
+                      {commercialRefundLabel[refundStatusKey]}
+                    </p>
+                    {(refundStatusKey === "aprobado" ||
+                      refundStatusKey === "no_aplica") && (
+                      <p className="text-xs opacity-90">
+                        El horario asociado quedó liberado automáticamente en la
+                        disponibilidad del espacio.
+                      </p>
                     )}
-                    {cancellationPreview.refunded_amount_clp !== undefined &&
-                      cancellationPreview.refunded_amount_clp > 0 && (
-                        <div>
-                          <dt className="text-muted-foreground">
-                            Ya reembolsado
+                  </div>
+                </div>
+              )}
+
+              {currentReservation.state === "pagada" && (
+                <div className="mt-5 border-t border-border pt-5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Cancelar reserva y solicitar devolución
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Consulta el monto antes de confirmar. El reembolso depende
+                    de la política congelada en el contrato y del saldo
+                    disponible en Mercado Pago; al confirmarse la cancelación,
+                    el horario se libera inmediatamente.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={async () => {
+                      setCancelConfirmed(false);
+                      setCancelResult(null);
+                      setCancelError(null);
+                      try {
+                        await requestCancellationPreview(
+                          currentReservation.id,
+                          true,
+                        );
+                      } catch {
+                        // The shared operation banner exposes the API error.
+                      }
+                    }}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? "Consultando…" : "Ver monto de devolución"}
+                  </Button>
+
+                  {cancellationPreview?.reservation_id ===
+                    currentReservation.id && (
+                    <div className="mt-4 space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+                      <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <dt className="text-xs text-muted-foreground">
+                            ¿Puedes cancelar?
                           </dt>
-                          <dd className="font-medium">
+                          <dd
+                            className={`mt-1 text-sm font-semibold ${
+                              cancellationPreview.eligible
+                                ? "text-emerald-700 dark:text-emerald-400"
+                                : "text-rose-700 dark:text-rose-400"
+                            }`}
+                          >
+                            {cancellationPreview.eligible ? "Sí" : "No"}
+                          </dd>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <dt className="text-xs text-muted-foreground">
+                            Porcentaje de devolución
+                          </dt>
+                          <dd className="mt-1 text-sm font-semibold text-foreground">
+                            {previewPercent}%
+                          </dd>
+                        </div>
+                        {cancellationPreview.total_charged_clp !==
+                          undefined && (
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <dt className="text-xs text-muted-foreground">
+                              Total pagado
+                            </dt>
+                            <dd className="mt-1 text-sm font-semibold text-foreground">
+                              {formatBookingClp(
+                                cancellationPreview.total_charged_clp,
+                              )}{" "}
+                              {cancellationPreview.currency ?? "CLP"}
+                            </dd>
+                          </div>
+                        )}
+                        {cancellationPreview.refunded_amount_clp !==
+                          undefined &&
+                          cancellationPreview.refunded_amount_clp > 0 && (
+                            <div className="rounded-lg border border-border bg-background p-3">
+                              <dt className="text-xs text-muted-foreground">
+                                Ya reembolsado
+                              </dt>
+                              <dd className="mt-1 text-sm font-semibold text-foreground">
+                                {formatBookingClp(
+                                  cancellationPreview.refunded_amount_clp,
+                                )}{" "}
+                                {cancellationPreview.currency ?? "CLP"}
+                              </dd>
+                            </div>
+                          )}
+                        {cancellationPreview.refundable_balance_clp !==
+                          undefined && (
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <dt className="text-xs text-muted-foreground">
+                              Saldo reembolsable
+                            </dt>
+                            <dd className="mt-1 text-sm font-semibold text-sky-700 dark:text-sky-400">
+                              {formatBookingClp(
+                                cancellationPreview.refundable_balance_clp,
+                              )}{" "}
+                              {cancellationPreview.currency ?? "CLP"}
+                            </dd>
+                          </div>
+                        )}
+                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                          <dt className="text-xs text-emerald-800 dark:text-emerald-300">
+                            Devolución estimada
+                          </dt>
+                          <dd className="mt-1 text-sm font-bold text-emerald-800 dark:text-emerald-200">
                             {formatBookingClp(
-                              cancellationPreview.refunded_amount_clp,
+                              cancellationPreview.refund_amount_clp,
                             )}{" "}
                             {cancellationPreview.currency ?? "CLP"}
                           </dd>
                         </div>
+                        {previewRetainedClp > 0 && (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                            <dt className="text-xs text-amber-800 dark:text-amber-300">
+                              Monto retenido por política
+                            </dt>
+                            <dd className="mt-1 text-sm font-bold text-amber-900 dark:text-amber-200">
+                              {formatBookingClp(previewRetainedClp)}{" "}
+                              {cancellationPreview.currency ?? "CLP"}
+                            </dd>
+                          </div>
+                        )}
+                      </dl>
+
+                      {cancellationPreview.eligible &&
+                        previewPercent > 0 &&
+                        previewPercent < 100 && (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+                            Reembolso parcial del {previewPercent}% según el
+                            contrato firmado. Se devolverán{" "}
+                            <strong>
+                              {formatBookingClp(
+                                cancellationPreview.refund_amount_clp,
+                              )}{" "}
+                              {cancellationPreview.currency ?? "CLP"}
+                            </strong>{" "}
+                            y se retendrán{" "}
+                            <strong>
+                              {formatBookingClp(previewRetainedClp)}{" "}
+                              {cancellationPreview.currency ?? "CLP"}
+                            </strong>
+                            .
+                          </div>
+                        )}
+                      {cancellationPreview.eligible && previewPercent === 0 && (
+                        <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-900 dark:text-rose-200">
+                          Cancelación sin reembolso según la política del
+                          contrato firmado: si confirmas, el horario quedará
+                          liberado inmediatamente sin devolución de dinero.
+                        </div>
                       )}
-                    {cancellationPreview.refundable_balance_clp !==
-                      undefined && (
-                      <div>
-                        <dt className="text-muted-foreground">
-                          Saldo reembolsable
-                        </dt>
-                        <dd className="font-medium">
-                          {formatBookingClp(
-                            cancellationPreview.refundable_balance_clp,
-                          )}{" "}
-                          {cancellationPreview.currency ?? "CLP"}
-                        </dd>
-                      </div>
-                    )}
-                    <div>
-                      <dt className="text-muted-foreground">
-                        Devolución estimada
-                      </dt>
-                      <dd className="font-semibold">
-                        {formatBookingClp(
-                          cancellationPreview.refund_amount_clp,
-                        )}{" "}
-                        {cancellationPreview.currency ?? "CLP"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {cancellationPreview.policy_text && (
-                    <p className="text-xs text-muted-foreground">
-                      {cancellationPreview.policy_text}
-                    </p>
-                  )}
-                  {commercialCancellationReason[cancellationPreview.reason] && (
-                    <p className="text-sm text-muted-foreground">
-                      {commercialCancellationReason[cancellationPreview.reason]}
-                    </p>
-                  )}
-                  {cancellationPreview.eligible && (
-                    <>
-                      <label className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={cancelConfirmed}
-                          onChange={(event) =>
-                            setCancelConfirmed(event.target.checked)
+
+                      {cancellationPreview.policy_text && (
+                        <p className="text-xs text-muted-foreground">
+                          {cancellationPreview.policy_text}
+                        </p>
+                      )}
+                      {commercialCancellationReason[
+                        cancellationPreview.reason
+                      ] && (
+                        <p
+                          className={`rounded-lg border p-3 text-sm ${
+                            cancellationPreview.reason ===
+                            "host_post_start_refund"
+                              ? "border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200"
+                              : cancellationPreview.eligible
+                                ? "border-border bg-background text-muted-foreground"
+                                : "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300"
+                          }`}
+                        >
+                          {
+                            commercialCancellationReason[
+                              cancellationPreview.reason
+                            ]
                           }
-                          className="mt-1"
-                        />
-                        <span>
-                          {cancellationPreview.reason ===
-                          "host_post_start_refund"
-                            ? "Confirmo que, aunque la hora de inicio ya pasó, quiero reembolsar esta reserva igualmente."
-                            : "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada."}
-                        </span>
-                      </label>
-                      <label
-                        htmlFor="commercial-cancel-reason"
-                        className="block text-xs font-medium text-foreground"
-                      >
-                        Motivo de la cancelación
-                      </label>
-                      <textarea
-                        id="commercial-cancel-reason"
-                        value={cancelReason}
-                        onChange={(event) =>
-                          setCancelReason(event.target.value)
-                        }
-                        maxLength={500}
-                        rows={2}
-                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                      />
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        disabled={
-                          actionLoading ||
-                          !cancelConfirmed ||
-                          !cancelReason.trim()
-                        }
-                        onClick={async () => {
-                          setCancelResult(null);
-                          setCancelError(null);
-                          try {
-                            const updated = await cancelReservation(
-                              currentReservation.id,
-                              cancelReason.trim(),
-                              undefined,
-                              true,
-                              cancellationPreview.refund_amount_clp,
-                            );
-                            setCancelConfirmed(false);
-                            const refundStatus =
-                              updated.commercial_refund_status ??
-                              cancellationPreview.refund_status ??
-                              updated.refund_state;
-                            setCancelResult(
-                              refundStatus === "fallido"
-                                ? "Mercado Pago rechazó el reembolso. La reserva sigue activa. Consulta nuevamente antes de volver a intentarlo."
-                                : refundStatus === "pendiente"
-                                  ? "La solicitud quedó registrada. La reserva sigue activa hasta que se confirme el reembolso."
-                                  : cancellationPreview.refund_amount_clp > 0
-                                    ? "La cancelación y el reembolso se registraron correctamente."
-                                    : "La cancelación se registró sin reembolso aplicable.",
-                            );
-                          } catch (err) {
-                            const code =
-                              typeof err === "object" &&
-                              err !== null &&
-                              "code" in err
-                                ? (err as { code?: unknown }).code
-                                : undefined;
-                            setCancelError(
-                              code === "refund_requires_reconciliation"
-                                ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
-                                : code === "refund_insufficient_funds"
-                                  ? "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva."
-                                  : err instanceof Error && err.message
-                                    ? err.message
-                                    : "No se pudo procesar la cancelación o el reembolso. Intenta nuevamente.",
-                            );
-                          }
-                        }}
-                      >
-                        {actionLoading
-                          ? "Procesando…"
-                          : cancellationPreview.reason ===
+                        </p>
+                      )}
+                      {cancellationPreview.eligible && (
+                        <>
+                          <label className="flex items-start gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={cancelConfirmed}
+                              onChange={(event) =>
+                                setCancelConfirmed(event.target.checked)
+                              }
+                              className="mt-1"
+                            />
+                            <span>
+                              {cancellationPreview.reason ===
                               "host_post_start_refund"
-                            ? "Reembolsar igualmente"
-                            : "Confirmar cancelación"}
-                      </Button>
-                    </>
+                                ? "Confirmo que, aunque la hora de inicio ya pasó, quiero reembolsar esta reserva igualmente."
+                                : "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada."}
+                            </span>
+                          </label>
+                          <label
+                            htmlFor="commercial-cancel-reason"
+                            className="block text-xs font-medium text-foreground"
+                          >
+                            Motivo de la cancelación
+                          </label>
+                          <textarea
+                            id="commercial-cancel-reason"
+                            value={cancelReason}
+                            onChange={(event) =>
+                              setCancelReason(event.target.value)
+                            }
+                            maxLength={500}
+                            rows={2}
+                            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            disabled={
+                              actionLoading ||
+                              !cancelConfirmed ||
+                              !cancelReason.trim()
+                            }
+                            onClick={async () => {
+                              setCancelResult(null);
+                              setCancelError(null);
+                              try {
+                                const updated = await cancelReservation(
+                                  currentReservation.id,
+                                  cancelReason.trim(),
+                                  undefined,
+                                  true,
+                                  cancellationPreview.refund_amount_clp,
+                                );
+                                setCancelConfirmed(false);
+                                const refundStatus =
+                                  updated.commercial_refund_status ??
+                                  cancellationPreview.refund_status ??
+                                  updated.refund_state;
+                                setCancelResult(
+                                  refundStatus === "fallido"
+                                    ? "Mercado Pago rechazó el reembolso. La reserva sigue activa. Consulta nuevamente antes de volver a intentarlo."
+                                    : refundStatus === "pendiente"
+                                      ? "La solicitud quedó registrada. La reserva sigue activa hasta que se confirme el reembolso."
+                                      : cancellationPreview.refund_amount_clp >
+                                          0
+                                        ? "La cancelación y el reembolso se registraron correctamente."
+                                        : "La cancelación se registró sin reembolso aplicable.",
+                                );
+                              } catch (err) {
+                                const code =
+                                  typeof err === "object" &&
+                                  err !== null &&
+                                  "code" in err
+                                    ? (err as { code?: unknown }).code
+                                    : undefined;
+                                setCancelError(
+                                  code === "refund_requires_reconciliation"
+                                    ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
+                                    : code === "refund_insufficient_funds"
+                                      ? "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva."
+                                      : err instanceof Error && err.message
+                                        ? err.message
+                                        : "No se pudo procesar la cancelación o el reembolso. Intenta nuevamente.",
+                                );
+                              }
+                            }}
+                          >
+                            {actionLoading
+                              ? "Procesando…"
+                              : cancellationPreview.reason ===
+                                  "host_post_start_refund"
+                                ? "Reembolsar igualmente"
+                                : "Confirmar cancelación"}
+                          </Button>
+                        </>
+                      )}
+                      {cancellationPreview.refund_status &&
+                        !cancellationPreview.eligible && (
+                          <p className="text-sm font-medium" role="status">
+                            Estado del reembolso:{" "}
+                            {cancellationPreview.refund_status}
+                          </p>
+                        )}
+                    </div>
                   )}
-                  {cancellationPreview.refund_status &&
-                    !cancellationPreview.eligible && (
-                      <p className="text-sm font-medium" role="status">
-                        Estado del reembolso:{" "}
-                        {cancellationPreview.refund_status}
-                      </p>
-                    )}
                 </div>
               )}
-            </div>
-          )}
-          {cancelError && (
-            <p
-              role="alert"
-              data-testid="commercial-cancellation-error"
-              className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              {cancelError}
-            </p>
-          )}
-          {canReconcileExternalRefund && (
-            <details className="mt-5 rounded-xl border border-border p-4">
-              <summary className="cursor-pointer text-sm font-medium text-foreground">
-                Vincular un reembolso ya realizado
-              </summary>
-              <form
-                className="mt-3 space-y-3"
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  try {
-                    setLocalFeedback(null);
-                    await reconcileCommercialRefund(
-                      reservationId,
-                      externalRefundId,
-                    );
-                    setExternalRefundId("");
-                    setCancelResult(
-                      "Mercado Pago confirmó el reembolso y quedó vinculado a la reserva.",
-                    );
-                  } catch {
-                    // The bookings facade reports the failure for the current session.
-                  }
-                }}
-              >
+              {cancelError && (
                 <p
-                  id="external-refund-help"
-                  className="text-sm text-muted-foreground"
+                  role="alert"
+                  data-testid="commercial-cancellation-error"
+                  className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
                 >
-                  Copia el ID del reembolso desde el detalle del pago en Mercado
-                  Pago. EspaciGo comprobará que corresponde a esta reserva.
+                  {cancelError}
                 </p>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="w-full sm:w-auto">
-                    <label
-                      htmlFor="external-refund-id"
-                      className="block text-sm font-medium"
-                    >
-                      ID del reembolso
-                    </label>
-                    <input
-                      id="external-refund-id"
-                      inputMode="numeric"
-                      pattern="[0-9]{1,64}"
-                      maxLength={64}
-                      required
-                      autoComplete="off"
-                      aria-describedby="external-refund-help"
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      value={externalRefundId}
-                      onChange={(event) =>
-                        setExternalRefundId(event.currentTarget.value)
+              )}
+              {canReconcileExternalRefund && (
+                <details className="mt-5 rounded-xl border border-border p-4">
+                  <summary className="cursor-pointer text-sm font-medium text-foreground">
+                    Vincular un reembolso ya realizado
+                  </summary>
+                  <form
+                    className="mt-3 space-y-3"
+                    onSubmit={async (event) => {
+                      event.preventDefault();
+                      try {
+                        setLocalFeedback(null);
+                        await reconcileCommercialRefund(
+                          reservationId,
+                          externalRefundId,
+                        );
+                        setExternalRefundId("");
+                        setCancelResult(
+                          "Mercado Pago confirmó el reembolso y quedó vinculado a la reserva.",
+                        );
+                      } catch {
+                        // The bookings facade reports the failure for the current session.
                       }
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    disabled={
-                      actionLoading || !/^[0-9]{1,64}$/.test(externalRefundId)
-                    }
+                    }}
                   >
-                    Verificar y vincular
-                  </Button>
-                </div>
-              </form>
-            </details>
-          )}
-          {cancelResult && (
-            <p role="status" className="mt-3 rounded-lg bg-muted p-3 text-sm">
-              {cancelResult}
-            </p>
-          )}
-        </section>
-      )}
+                    <p
+                      id="external-refund-help"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Copia el ID del reembolso desde el detalle del pago en
+                      Mercado Pago. EspaciGo comprobará que corresponde a esta
+                      reserva.
+                    </p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="w-full sm:w-auto">
+                        <label
+                          htmlFor="external-refund-id"
+                          className="block text-sm font-medium"
+                        >
+                          ID del reembolso
+                        </label>
+                        <input
+                          id="external-refund-id"
+                          inputMode="numeric"
+                          pattern="[0-9]{1,64}"
+                          maxLength={64}
+                          required
+                          autoComplete="off"
+                          aria-describedby="external-refund-help"
+                          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={externalRefundId}
+                          onChange={(event) =>
+                            setExternalRefundId(event.currentTarget.value)
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        disabled={
+                          actionLoading ||
+                          !/^[0-9]{1,64}$/.test(externalRefundId)
+                        }
+                      >
+                        Verificar y vincular
+                      </Button>
+                    </div>
+                  </form>
+                </details>
+              )}
+              {cancelResult && (
+                <p
+                  role="status"
+                  className={`mt-3 rounded-lg border p-3 text-sm font-medium ${cancelResultClass}`}
+                >
+                  {cancelResult}
+                </p>
+              )}
+            </section>
+          );
+        })()}
 
       {!currentReservation.is_commercial && (
         <>

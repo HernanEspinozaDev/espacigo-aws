@@ -211,6 +211,10 @@ func TestReadProviderErrorDetailsCapturesCauseCodeAndMessageBalance(t *testing.T
 	if code2 != "insufficient_funds" || cause2 != "3011" {
 		t.Fatalf("got code2=%q cause2=%q", code2, cause2)
 	}
+	code3, cause3 := readProviderErrorDetails(strings.NewReader(`{"error":"bad_request","message":"Collector hasn't enough available money","cause":[{"code":2031,"description":"Collector hasn't enough available money"}]}`))
+	if code3 != "insufficient_funds" || cause3 != "2031" {
+		t.Fatalf("got code3=%q cause3=%q", code3, cause3)
+	}
 }
 
 func TestHTTPGatewayListsRefundsForReconciliation(t *testing.T) {
