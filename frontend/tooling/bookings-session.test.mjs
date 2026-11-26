@@ -95,6 +95,69 @@ test("loadReservations demorado -> clear -> resolve no comitea datos ni sobrescr
   assert.deepEqual(result, []);
 });
 
+test("un reembolso sin vincular indica que se debe contactar a soporte", async () => {
+  const BookingsFacade = await loadFacade();
+  const conflict = Object.assign(new Error("provider conflict"), {
+    code: "refund_requires_reconciliation",
+    status: 409,
+  });
+  const facade = new BookingsFacade({
+    cancelReservation: async () => {
+      throw conflict;
+    },
+  });
+
+  await assert.rejects(
+    facade.cancelReservation("res-1", "Cambio", "request-1", true, 1036),
+    (error) => error === conflict,
+  );
+  assert.match(facade.getSnapshot().error, /Contacta a soporte/);
+  assert.equal(facade.getSnapshot().actionLoading, false);
+});
+
+test("falta de saldo confirmada orienta a reponer fondos y reintentar", async () => {
+  const BookingsFacade = await loadFacade();
+  const insufficientFunds = Object.assign(new Error("insufficient funds"), {
+    code: "refund_insufficient_funds",
+    status: 409,
+  });
+  const facade = new BookingsFacade({
+    cancelReservation: async () => {
+      throw insufficientFunds;
+    },
+  });
+
+  await assert.rejects(
+    facade.cancelReservation("res-1", "Cambio", "request-1", true, 1036),
+    (error) => error === insufficientFunds,
+  );
+  assert.equal(
+    facade.getSnapshot().error,
+    "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva.",
+  );
+  assert.equal(facade.getSnapshot().actionLoading, false);
+});
+
+test("error genérico 503 no muestra mensaje de falta de saldo", async () => {
+  const BookingsFacade = await loadFacade();
+  const unavailable = Object.assign(new Error("service unavailable"), {
+    code: "service_unavailable",
+    status: 503,
+  });
+  const facade = new BookingsFacade({
+    cancelReservation: async () => {
+      throw unavailable;
+    },
+  });
+
+  await assert.rejects(
+    facade.cancelReservation("res-1", "Cambio", "request-1", true, 1036),
+    (error) => error === unavailable,
+  );
+  assert.doesNotMatch(facade.getSnapshot().error ?? "", /falta de saldo/i);
+  assert.equal(facade.getSnapshot().actionLoading, false);
+});
+
 test("loadReservationDetail demorado -> clear -> resolve no altera currentReservation", async () => {
   const BookingsFacade = await loadFacade();
   let resolveDetail;

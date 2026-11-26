@@ -72,12 +72,13 @@ type CommercialPassVerifier interface {
 type CommercialReservationReconcilerFunc func(ctx context.Context, actor, quoteID string)
 
 type CommercialReservationService struct {
-	reader             CommercialReservationReader
-	reconciler         CommercialReservationReconcilerFunc
-	cancellations      CommercialCancellationRepository
-	cancellationTokens CommercialSellerTokenProvider
-	refundGateway      CommercialRefundGateway
-	cancellationNow    func() time.Time
+	pendingPaymentCancellation *pendingPaymentCancellationService
+	reader                     CommercialReservationReader
+	reconciler                 CommercialReservationReconcilerFunc
+	cancellations              CommercialCancellationRepository
+	cancellationTokens         CommercialSellerTokenProvider
+	refundGateway              CommercialRefundGateway
+	cancellationNow            func() time.Time
 }
 
 func NewCommercialReservationService(reader CommercialReservationReader) (*CommercialReservationService, error) {

@@ -45,6 +45,6 @@
 - [ ] Con autorización para una compra controlada, crear una preferencia y un pago productivos nuevos con un arrendador vinculado. Guardar en la evidencia solo identificadores operativos, estados, presencia de campos e importes.
 - [ ] Ejecutar **Calidad de la integración → Medir de nuevo** para la aplicación que procesó ese pago. Registrar fecha, nuevo Payment ID, puntaje y estado de cada acción. La medición oficial de este flujo se confirma en el panel productivo. Un pago histórico conserva el payload con el que se creó.
 - [ ] Corregir los criterios pendientes de puntuación de la nueva medición. Si un campo figura enviado y el panel lo marca pendiente, contrastar la preferencia y la versión desplegada antes de aplicar otro cambio. Escalar al soporte de Mercado Pago con el ID y evidencia de presencia si el panel sigue sin reconocerlo.
-- [ ] Cerrar al obtener **100/100** en el panel. Registrar aparte cancelaciones, devoluciones, disputas y reportes financieros para que su entrega pueda verificarse de forma independiente.
+- [ ] Cerrar al obtener **100/100** en el panel. Registrar aparte cancelaciones, devoluciones, disputas y reportes financieros para que su entrega pueda verificarse de forma independiente. [Plan operativo de cancelaciones y reembolsos](./plan-cancelaciones-y-reembolsos-mercado-pago.md)
 
 **Salida.** El panel registra 100/100 para un pago nuevo y la evidencia identifica la versión de EspaciGo que lo procesó.

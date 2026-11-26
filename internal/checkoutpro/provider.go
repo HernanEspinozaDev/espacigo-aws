@@ -507,7 +507,7 @@ func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, pat
 	if idempotencyKey != "" {
 		req.Header.Set("X-Idempotency-Key", idempotencyKey)
 	}
-	if method == http.MethodPost {
+	if method == http.MethodPost || method == http.MethodPut {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := client.Do(req)
@@ -531,24 +531,87 @@ func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, pat
 
 func readProviderErrorCode(body io.Reader) string {
 	const maxErrorBody = 8 << 10
+	const maxErrorCauses = 16
 	raw, err := io.ReadAll(io.LimitReader(body, maxErrorBody+1))
 	if err != nil || len(raw) > maxErrorBody {
 		return "other"
 	}
 	var payload struct {
 		Error string `json:"error"`
+		Cause []struct {
+			Code        any    `json:"code"`
+			Description string `json:"description"`
+		} `json:"cause"`
 	}
-	if json.Unmarshal(raw, &payload) != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if decoder.Decode(&payload) != nil {
 		return "other"
 	}
-	switch payload.Error {
+	normalizedError := strings.ToLower(strings.TrimSpace(payload.Error))
+	if isInsufficientFundsError(normalizedError) {
+		return "insufficient_funds"
+	}
+	for i, cause := range payload.Cause {
+		if i >= maxErrorCauses {
+			break
+		}
+		if isInsufficientFundsCause(cause.Code, cause.Description) {
+			return "insufficient_funds"
+		}
+	}
+	switch normalizedError {
 	case "invalid_access_token", "invalid_marketplace_fee", "invalid_items", "invalid_back_urls",
 		"invalid_payment_methods", "invalid_expiration_date_from", "invalid_expiration_date_to",
 		"invalid_date", "invalid_collector_id", "collector_does_not_comply_with_current_regulation",
 		"invalid_operation_type", "unauthorized", "bad_request", "internal_error":
-		return payload.Error
+		return normalizedError
 	default:
 		return "other"
+	}
+}
+
+func isInsufficientFundsError(code string) bool {
+	switch code {
+	case "insufficient_funds", "insufficient_amount", "not_enough_balance":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInsufficientFundsCause(rawCode any, rawDescription string) bool {
+	var code string
+	if rawCode != nil {
+		code = strings.ToLower(strings.TrimSpace(fmt.Sprint(rawCode)))
+	}
+	if isInsufficientFundsError(code) {
+		return true
+	}
+	if len(rawDescription) > 512 {
+		rawDescription = rawDescription[:512]
+	}
+	desc := strings.ToLower(strings.TrimSpace(rawDescription))
+	if strings.Contains(desc, "insufficient_funds") ||
+		strings.Contains(desc, "insufficient_amount") ||
+		strings.Contains(desc, "not_enough_balance") {
+		return true
+	}
+	hasBalanceOrFundsWord := strings.Contains(desc, "balance") ||
+		strings.Contains(desc, "fund") ||
+		strings.Contains(desc, "saldo") ||
+		strings.Contains(desc, "fondos")
+	hasShortageWord := strings.Contains(desc, "insufficient") ||
+		strings.Contains(desc, "not enough") ||
+		strings.Contains(desc, "insuficiente")
+	if hasBalanceOrFundsWord && hasShortageWord {
+		return true
+	}
+	switch code {
+	case "2017", "3006", "3011":
+		return hasBalanceOrFundsWord || (strings.Contains(desc, "insufficient") && strings.Contains(desc, "amount"))
+	default:
+		return false
 	}
 }
 func (g *HTTPGateway) String() string {

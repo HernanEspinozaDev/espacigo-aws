@@ -98,7 +98,7 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 			return false, err
 		}
 	}
-	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" && status != "refunded" {
+	if status != "approved" && status != "rejected" && status != "cancelled" && status != "pending" && status != "in_process" && status != "authorized" && status != "refunded" && status != "charged_back" {
 		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, status, p.PaymentUpdatedAt, "unsupported_provider_status")
 	}
 	if checkoutMethod == "payments_api" && status == "approved" && p.ApplicationFeeCLP != nil {
@@ -112,6 +112,9 @@ func (r *Repository) ApplyVerifiedPayment(ctx context.Context, p checkoutpro.Ver
 		p.OperationID, p.ProviderPaymentID, fee > 0, p.ApplicationFeeCLP != nil)
 	if status == "refunded" {
 		return r.applyCommercialRefundedPayment(ctx, tx, p, r.now().UTC())
+	}
+	if status == "charged_back" {
+		return r.applyCommercialChargebackPayment(ctx, tx, p, opState, providerPaymentID, r.now().UTC())
 	}
 	recoverableExpiredApproval := (opState == "expired" || opState == "reconciliation_required") && status == "approved"
 	if !recoverableExpiredApproval && (opState == "approved" || opState == "rejected" || opState == "cancelled" || opState == "expired" || opState == "reconciliation_required") {
@@ -282,6 +285,28 @@ WHERE r.operacion_checkout_id=$1::uuid FOR UPDATE OF r`, p.OperationID).Scan(&re
 		return false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Repository) applyCommercialChargebackPayment(ctx context.Context, tx pgx.Tx, p checkoutpro.VerifiedPayment, opState, providerPaymentID string, now time.Time) (bool, error) {
+	if opState != "approved" || providerPaymentID != p.ProviderPaymentID {
+		return r.markCheckoutReconciliation(ctx, tx, p.OperationID, p.ProviderPaymentID, "charged_back", p.PaymentUpdatedAt, "late_or_conflicting_payment_state")
+	}
+	if _, err := tx.Exec(ctx, `UPDATE public.checkout_preferencia_comercial SET provider_payment_status='charged_back',provider_payment_updated_at=$2,payment_verified_at=$3,actualizada_en=$3 WHERE id=$1::uuid`, p.OperationID, p.PaymentUpdatedAt.UTC(), now); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+SELECT gen_random_uuid(), booking.anfitrion_id, 'contracargo_reserva', 'Contracargo informado',
+ 'Mercado Pago informó un contracargo para el pago de esta reserva. Revisa el detalle para aportar evidencia.',
+ '/anfitrion/reservas/' || booking.id::text, booking.id, $2
+FROM public.reserva_arriendo_comercial booking
+WHERE booking.operacion_checkout_id=$1::uuid
+ON CONFLICT (referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING`, p.OperationID, now); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
 	return true, nil

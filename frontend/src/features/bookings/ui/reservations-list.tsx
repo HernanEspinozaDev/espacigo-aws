@@ -6,7 +6,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
 import { HostCommissionCalculator } from "./host-commission-calculator";
-import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
+import {
+  getRecordedProcessingFee,
+  getReservationFinancialBreakdown,
+  getReservationFinancialMovement,
+  type ReservationFinancialAdjustment,
+} from "../domain/financial-breakdown";
 import { formatBookingClp } from "./format";
 import { HostSpaceSchedulePanel } from "./host-space-schedule-panel";
 import { ReservationScheduleBreakdown } from "./reservation-schedule-breakdown";
@@ -43,7 +48,6 @@ import {
   QrCode,
   XCircle,
   HelpCircle,
-  Info,
   Receipt,
   RefreshCw,
   Wallet,
@@ -51,6 +55,11 @@ import {
 
 export type ReservationFilterGroup =
   "todas" | "solicitada" | "confirmada" | "activa" | "completada" | "cancelada";
+
+const processingRateFormatter = new Intl.NumberFormat("es-CL", {
+  style: "percent",
+  maximumFractionDigits: 2,
+});
 
 export type ReservationSectionTab = "general" | "finanzas" | "lista";
 
@@ -207,6 +216,15 @@ const PAID_OR_APPROVED_STATES: ReadonlySet<BookingState> = new Set([
   "cerrada",
 ]);
 
+const FINANCE_ADJUSTMENT_LABEL: Record<ReservationFinancialAdjustment, string> =
+  {
+    none: "Sin reembolso",
+    refund_pending: "Reembolso pendiente",
+    refund_confirmed: "Reembolso confirmado",
+    refund_failed: "Reembolso no confirmado",
+    chargeback: "Contracargo",
+  };
+
 function isReservationPaid(reservation: BookingReservation): boolean {
   return (
     reservation.state === "pagada" || reservation.checkout_status === "approved"
@@ -243,16 +261,26 @@ export function ReservationsList({
     useState<BookingReservation | null>(null);
   const [receptionOpen, setReceptionOpen] = useState(false);
 
-  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
-  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+  const identityKey =
+    authSnapshot.status === "checking"
+      ? null
+      : `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevIdentityKey, setPrevIdentityKey] = useState<string | null>(
+    identityKey,
+  );
 
-  if (prevAccountKey !== accountKey) {
-    setPrevAccountKey(accountKey);
-    setActiveSection(initialSection ?? (initialSpaceId ? "lista" : "general"));
-    setSelectedSpaceId(initialSpaceId || "all");
-    setActiveTab("todas");
-    setSearchQuery("");
-    setInvoiceReservation(null);
+  if (identityKey !== null && prevIdentityKey !== identityKey) {
+    const wasChecking = prevIdentityKey === null;
+    setPrevIdentityKey(identityKey);
+    if (!wasChecking) {
+      setActiveSection(
+        initialSection ?? (initialSpaceId ? "lista" : "general"),
+      );
+      setSelectedSpaceId(initialSpaceId || "all");
+      setActiveTab("todas");
+      setSearchQuery("");
+      setInvoiceReservation(null);
+    }
   }
 
   const effectiveMode: "renter" | "host" = mode;
@@ -397,38 +425,69 @@ export function ReservationsList({
     let pending = 0;
     let rejected = 0;
     let grossClp = 0;
+    let financeGrossClp = 0;
     let espacigoCommissionClp = 0;
     let espacigoVatClp = 0;
     let hostFeeClp = 0;
-    let buyerFeeClp = 0;
-    let totalChargedClp = 0;
-    let marketplaceFeeClp = 0;
+    let confirmedRefundClp = 0;
+    let confirmedRefundCount = 0;
+    let refundAmountPendingCount = 0;
+    let chargebackCount = 0;
     let netClp = 0;
     let pendingSettlementCount = 0;
+    let mercadoPagoPaymentCount = 0;
+    let processingFeeCount = 0;
+    let processingFeeClp = 0;
+    let processingFeeChargedClp = 0;
     const paidList: BookingReservation[] = [];
 
     for (const r of scopedReservations) {
-      if (PAID_OR_APPROVED_STATES.has(r.state)) {
-        const financial = getReservationFinancialBreakdown(r);
+      const paid = PAID_OR_APPROVED_STATES.has(r.state);
+      if (paid) {
         approved += 1;
-        grossClp += financial.baseClp;
-        espacigoCommissionClp += financial.hostCommissionClp;
-        espacigoVatClp += financial.hostVatClp;
-        hostFeeClp += financial.hostFeeClp;
-        buyerFeeClp += financial.buyerFeeClp;
-        totalChargedClp += financial.totalChargedClp;
-        marketplaceFeeClp += financial.marketplaceFeeClp;
-        if (r.is_commercial && financial.confirmedNetHostClp === undefined) {
-          pendingSettlementCount += 1;
-        } else {
-          netClp += financial.netHostClp;
-        }
-        paidList.push(r);
+        grossClp += getReservationFinancialBreakdown(r).baseClp;
       } else if (r.state === "pendiente_de_pago") {
         pending += 1;
       } else {
         rejected += 1;
       }
+
+      const hasCommercialPayment =
+        r.is_commercial &&
+        (r.checkout_status === "approved" ||
+          r.state === "reembolsada" ||
+          r.commercial_refund_status === "aprobado" ||
+          r.provider_settlement?.payment_status !== undefined);
+      if (!paid && !hasCommercialPayment) continue;
+
+      const financial = getReservationFinancialBreakdown(r);
+      const movement = getReservationFinancialMovement(r, financial);
+      financeGrossClp += financial.baseClp;
+      espacigoCommissionClp += financial.hostCommissionClp;
+      espacigoVatClp += financial.hostVatClp;
+      hostFeeClp += financial.hostFeeClp;
+      if (movement.reconciledNetClp === undefined) {
+        pendingSettlementCount += 1;
+      } else {
+        netClp += movement.reconciledNetClp;
+      }
+      if (movement.adjustment === "chargeback") {
+        chargebackCount += 1;
+      }
+      if (movement.confirmedRefundClp !== undefined) {
+        confirmedRefundCount += 1;
+        confirmedRefundClp += movement.confirmedRefundClp;
+      } else if (movement.adjustment === "refund_confirmed") {
+        refundAmountPendingCount += 1;
+      }
+      if (r.provider_payment_id) mercadoPagoPaymentCount += 1;
+      const processing = getRecordedProcessingFee(r, financial);
+      if (processing) {
+        processingFeeCount += 1;
+        processingFeeClp += processing.amountClp;
+        processingFeeChargedClp += processing.chargedClp;
+      }
+      paidList.push(r);
     }
 
     return {
@@ -437,14 +496,20 @@ export function ReservationsList({
       pending,
       rejected,
       grossClp,
+      financeGrossClp,
       espacigoCommissionClp,
       espacigoVatClp,
       hostFeeClp,
-      buyerFeeClp,
-      totalChargedClp,
-      marketplaceFeeClp,
+      confirmedRefundClp,
+      confirmedRefundCount,
+      refundAmountPendingCount,
+      chargebackCount,
       netClp,
       pendingSettlementCount,
+      mercadoPagoPaymentCount,
+      processingFeeCount,
+      processingFeeClp,
+      processingFeeChargedClp,
       paidList,
     };
   }, [scopedReservations]);
@@ -1121,24 +1186,24 @@ export function ReservationsList({
       {/* SECCIÓN 2: FINANZAS (Liquidación Anfitrión) */}
       {activeSection === "finanzas" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <div className="rounded-2xl border border-border bg-card p-5 shadow-xs">
               <p className="text-xs font-medium text-muted-foreground">
                 Tarifa Base de Espacios
               </p>
               <p className="mt-2 text-2xl font-bold text-foreground">
-                {formatBookingClp(kpiStats.grossClp)} CLP
+                {formatBookingClp(kpiStats.financeGrossClp)} CLP
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {kpiStats.approved} transacción
-                {kpiStats.approved === 1 ? "" : "es"} aprobada
-                {kpiStats.approved === 1 ? "" : "s"}
+                {kpiStats.paidList.length} cobro
+                {kpiStats.paidList.length === 1 ? "" : "s"} registrado
+                {kpiStats.paidList.length === 1 ? "" : "s"}
               </p>
             </div>
 
             <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 shadow-xs">
               <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
-                Comisión EspaciGo (3% + IVA)
+                Comisión original EspaciGo (3% + IVA)
               </p>
               <p className="mt-2 text-2xl font-bold text-amber-900 dark:text-amber-200">
                 -{formatBookingClp(kpiStats.hostFeeClp)} CLP
@@ -1149,20 +1214,76 @@ export function ReservationsList({
               </p>
             </div>
 
+            <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 p-5 shadow-xs">
+              <p className="text-xs font-medium text-sky-800 dark:text-sky-300">
+                Comisión Mercado Pago
+              </p>
+              <p className="mt-2 text-2xl font-bold text-sky-900 dark:text-sky-200">
+                {kpiStats.processingFeeCount === 0
+                  ? "Sin datos"
+                  : `${formatBookingClp(kpiStats.processingFeeClp)} CLP`}
+              </p>
+              <p className="mt-1 text-xs text-sky-800 dark:text-sky-300">
+                {kpiStats.processingFeeCount === 0
+                  ? "Sin cargos informados para los pagos del filtro"
+                  : `${processingRateFormatter.format(kpiStats.processingFeeClp / kpiStats.processingFeeChargedClp)} del total cobrado · ${kpiStats.processingFeeCount} de ${kpiStats.mercadoPagoPaymentCount} pagos con cargo informado`}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-5 shadow-xs">
+              <p className="text-xs font-medium text-muted-foreground">
+                Reembolsos confirmados
+              </p>
+              <p className="mt-2 text-2xl font-bold text-foreground">
+                {kpiStats.confirmedRefundCount > 0
+                  ? `${formatBookingClp(kpiStats.confirmedRefundClp)} CLP`
+                  : "Sin montos confirmados"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {kpiStats.refundAmountPendingCount > 0
+                  ? `${kpiStats.confirmedRefundCount} con monto informado · ${kpiStats.refundAmountPendingCount} por confirmar`
+                  : "Montos devueltos al arrendatario"}
+              </p>
+            </div>
+
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-xs">
               <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
                 Neto informado para el anfitrión
               </p>
               <p className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-200">
-                {formatBookingClp(kpiStats.netClp)} CLP
+                {kpiStats.paidList.length > 0 &&
+                kpiStats.pendingSettlementCount === kpiStats.paidList.length
+                  ? "Por confirmar"
+                  : `${formatBookingClp(kpiStats.netClp)} CLP`}
               </p>
               <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
                 {kpiStats.pendingSettlementCount > 0
-                  ? `${kpiStats.pendingSettlementCount} pagos con neto por confirmar`
+                  ? `${kpiStats.paidList.length - kpiStats.pendingSettlementCount} de ${kpiStats.paidList.length} pagos con neto informado`
                   : "Importes de las transacciones registradas"}
               </p>
             </div>
           </div>
+
+          {kpiStats.chargebackCount > 0 && (
+            <div
+              role="status"
+              className="flex items-start gap-2.5 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-900 dark:text-rose-200"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+              <div>
+                <p className="font-semibold">
+                  Contracargo en curso ({kpiStats.chargebackCount}{" "}
+                  {kpiStats.chargebackCount === 1 ? "operación" : "operaciones"}
+                  )
+                </p>
+                <p className="mt-0.5 text-xs">
+                  Los contracargos informados por Mercado Pago se registran como
+                  incidencia independiente y su neto queda pendiente de
+                  conciliar hasta la resolución del proveedor.
+                </p>
+              </div>
+            </div>
+          )}
 
           <HostCommissionCalculator reservations={kpiStats.paidList} />
 
@@ -1171,12 +1292,11 @@ export function ReservationsList({
               <div>
                 <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
                   <DollarSign className="h-4 w-4 text-primary" />
-                  Detalle de Transacciones Aprobadas e Invoices EspaciGo
+                  Detalle de cobros y reembolsos
                 </h2>
                 <p className="text-xs text-muted-foreground">
-                  Cada reserva pagada genera una liquidación EspaciGo con la
-                  tarifa base de tu espacio, la comisión aplicada, el monto neto
-                  y el N° de operación.
+                  Consulta el cobro original, sus comisiones y los ajustes
+                  confirmados de cada operación.
                 </p>
               </div>
             </div>
@@ -1202,7 +1322,16 @@ export function ReservationsList({
                         Comisión EspaciGo
                       </th>
                       <th className="py-2.5 pr-3 text-right font-semibold">
-                        Neto Anfitrión
+                        Comisión Mercado Pago
+                      </th>
+                      <th className="py-2.5 pr-3 text-right font-semibold">
+                        Cobro original
+                      </th>
+                      <th className="py-2.5 pr-3 text-right font-semibold">
+                        Reembolso
+                      </th>
+                      <th className="py-2.5 pr-3 text-right font-semibold">
+                        Neto anfitrión
                       </th>
                       <th className="py-2.5 text-right font-semibold">
                         Acción
@@ -1212,6 +1341,14 @@ export function ReservationsList({
                   <tbody className="divide-y divide-border">
                     {kpiStats.paidList.map((tx) => {
                       const financial = getReservationFinancialBreakdown(tx);
+                      const processing = getRecordedProcessingFee(
+                        tx,
+                        financial,
+                      );
+                      const movement = getReservationFinancialMovement(
+                        tx,
+                        financial,
+                      );
                       return (
                         <tr key={tx.id} className="hover:bg-muted/30">
                           <td className="py-3 pr-3 font-mono font-semibold text-foreground">
@@ -1242,12 +1379,68 @@ export function ReservationsList({
                           </td>
                           <td className="py-3 pr-3 text-right tabular-nums text-amber-700 dark:text-amber-400">
                             -{formatBookingClp(financial.hostFeeClp)}
+                            {financial.marketplaceFeeClp >
+                              financial.hostFeeClp && (
+                              <span className="block text-[10px] text-muted-foreground">
+                                Split{" "}
+                                {formatBookingClp(financial.marketplaceFeeClp)}
+                              </span>
+                            )}
                           </td>
-                          <td className="py-3 pr-3 text-right font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                            {tx.is_commercial &&
-                            financial.confirmedNetHostClp === undefined
-                              ? "Pendiente"
-                              : formatBookingClp(financial.netHostClp)}
+                          <td className="py-3 pr-3 text-right tabular-nums text-sky-800 dark:text-sky-300">
+                            {processing ? (
+                              <>
+                                {formatBookingClp(processing.amountClp)}
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {processingRateFormatter.format(
+                                    processing.amountClp /
+                                      processing.chargedClp,
+                                  )}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                Sin datos
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 pr-3 text-right font-medium tabular-nums text-foreground">
+                            {movement.originalChargeClp === undefined
+                              ? "Sin registro"
+                              : formatBookingClp(movement.originalChargeClp)}
+                          </td>
+                          <td className="py-3 pr-3 text-right tabular-nums">
+                            {movement.confirmedRefundClp !== undefined && (
+                              <span className="block font-semibold text-foreground">
+                                {formatBookingClp(movement.confirmedRefundClp)}
+                              </span>
+                            )}
+                            <span
+                              className={
+                                movement.adjustment === "chargeback"
+                                  ? "inline-block rounded-full border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-300"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {FINANCE_ADJUSTMENT_LABEL[movement.adjustment]}
+                            </span>
+                            {movement.adjustment === "refund_confirmed" &&
+                              movement.confirmedRefundClp === undefined && (
+                                <span className="block text-muted-foreground">
+                                  Monto por confirmar
+                                </span>
+                              )}
+                          </td>
+                          <td className="py-3 pr-3 text-right font-bold tabular-nums">
+                            {movement.reconciledNetClp === undefined ? (
+                              <span className="text-muted-foreground">
+                                Pendiente de conciliar
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 dark:text-emerald-400">
+                                {formatBookingClp(movement.reconciledNetClp)}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 text-right">
                             <Button
@@ -1411,12 +1604,18 @@ export function ReservationsList({
                   const Icon = config.icon;
                   const financial =
                     getReservationFinancialBreakdown(reservation);
+                  const movement = getReservationFinancialMovement(
+                    reservation,
+                    financial,
+                  );
                   const canViewInvoice =
                     isReservationPaid(reservation) ||
-                    reservation.provider_settlement?.payment_status ===
-                      "charged_back" ||
-                    reservation.provider_settlement?.payment_status ===
-                      "refunded";
+                    movement.adjustment !== "none";
+                  const netPending =
+                    movement.reconciledNetClp === undefined &&
+                    (movement.adjustment !== "none" ||
+                      reservation.provider_settlement?.reconciliation ===
+                        "discrepancy");
 
                   return (
                     <article
@@ -1494,7 +1693,12 @@ export function ReservationsList({
                             <p className="text-lg font-bold text-foreground">
                               {formatBookingClp(financial.baseClp)} CLP
                             </p>
-                            {canViewInvoice && (
+                            {canViewInvoice && netPending && (
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Neto pendiente de conciliar
+                              </p>
+                            )}
+                            {canViewInvoice && !netPending && (
                               <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                                 {reservation.is_commercial &&
                                 financial.confirmedNetHostClp === undefined

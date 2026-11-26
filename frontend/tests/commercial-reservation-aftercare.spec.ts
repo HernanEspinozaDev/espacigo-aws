@@ -35,15 +35,25 @@ async function installAftercareFixture(
     role,
     reviewEligible,
     invoiceFixture,
+    pendingPaymentResults,
+    externalRefund,
   }: {
     role: Participant["role"];
     reviewEligible: boolean;
     invoiceFixture?: boolean;
+    pendingPaymentResults?: Array<"approved" | "cancelled" | "pending">;
+    externalRefund?: boolean;
   },
 ) {
   const calls: string[] = [];
-  let reservationStatus = "pagada";
+  let reservationStatus = pendingPaymentResults
+    ? "pendiente_de_pago"
+    : externalRefund
+      ? "reconciliation_required"
+      : "pagada";
   let cancellationPosted = false;
+  let pendingCancellation = false;
+  let externalRefundApproved = false;
   let messages: Array<Record<string, unknown>> = [
     {
       id: "30000000-0000-4000-8000-000000000006",
@@ -88,9 +98,18 @@ async function installAftercareFixture(
           status: reservationStatus,
           cancellation_policy_version: "facil_v1",
           cancellation_policy_text: policyText,
-          checkout_status: "approved",
+          checkout_status:
+            reservationStatus === "pendiente_de_pago"
+              ? "pending"
+              : reservationStatus === "cancelada_por_pago"
+                ? "cancelled"
+                : "approved",
+          pending_payment_cancellation: pendingCancellation,
+          refund_status: externalRefundApproved ? "aprobado" : undefined,
           checkout_method: "checkout_pro",
-          provider_payment_id: "synthetic-payment-reference",
+          provider_payment_id: pendingPaymentResults
+            ? undefined
+            : "synthetic-payment-reference",
           unit_price_clp: 12000,
           units: 1,
           subtotal_clp: 12000,
@@ -175,6 +194,44 @@ async function installAftercareFixture(
           refund_amount_clp: 12000,
           currency: "CLP",
           starts_at: startsAt,
+        }),
+      );
+      return;
+    }
+
+    if (
+      path ===
+        `/api/backend/commercial-reservations/${reservationId}/cancel-pending-payment` &&
+      request.method() === "POST"
+    ) {
+      expect(request.postData()).toBeNull();
+      const status = pendingPaymentResults?.shift();
+      expect(status).toBeDefined();
+      pendingCancellation = status === "pending";
+      if (status === "cancelled") reservationStatus = "cancelada_por_pago";
+      if (status === "approved") reservationStatus = "pagada";
+      await route.fulfill({
+        ...json({ payment_status: status }),
+        status: pendingCancellation ? 202 : 200,
+      });
+      return;
+    }
+
+    if (
+      path ===
+        `/api/backend/commercial-reservations/${reservationId}/reconcile-refund` &&
+      request.method() === "POST"
+    ) {
+      expect(request.postDataJSON()).toEqual({ refund_id: "9007199254740993" });
+      expect(role).toBe("anfitrion");
+      expect(externalRefund).toBe(true);
+      externalRefundApproved = true;
+      reservationStatus = "reembolsada";
+      await route.fulfill(
+        json({
+          reservation_id: reservationId,
+          status: "reembolsada",
+          refund_status: "aprobado",
         }),
       );
       return;
@@ -332,6 +389,115 @@ async function installAftercareFixture(
   });
   return calls;
 }
+
+test("an unlinked Mercado Pago refund directs the participant to support", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "arrendatario",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancel`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: { error: { code: "refund_requires_reconciliation" } },
+      }),
+  );
+  await page.goto(`/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await page.getByLabel("Motivo de la cancelación").fill("Cambio de planes");
+  await page
+    .getByLabel(
+      "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirmar cancelación" }).click();
+  await expect(
+    page.getByText(
+      "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "La cancelación y el reembolso se registraron correctamente.",
+    ),
+  ).toHaveCount(0);
+});
+
+test("insufficient funds 409 shows dedicated guidance and keeps reservation active", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancellation-preview`,
+    (route) =>
+      route.fulfill(
+        json({
+          reservation_id: reservationId,
+          can_cancel: true,
+          reason: "host_cancellation",
+          cancellation_policy_version: "facil_v1",
+          cancellation_policy_text: policyText,
+          refund_percent: 100,
+          total_charged_clp: 12000,
+          refund_amount_clp: 10000,
+          refunded_amount_clp: 2000,
+          refundable_balance_clp: 10000,
+          currency: "CLP",
+          starts_at: startsAt,
+        }),
+      ),
+  );
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancel`,
+    (route) =>
+      route.fulfill({
+        status: 409,
+        json: { error: { code: "refund_insufficient_funds" } },
+      }),
+  );
+  await page.goto(`/anfitrion/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await expect(page.getByText("Ya reembolsado")).toBeVisible();
+  await expect(
+    page.getByText("Ya reembolsado").locator("..").getByText("$2.000 CLP"),
+  ).toBeVisible();
+  await expect(page.getByText("Saldo reembolsable")).toBeVisible();
+  await expect(
+    page.getByText("Saldo reembolsable").locator("..").getByText("$10.000 CLP"),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByText("Devolución estimada")
+      .locator("..")
+      .getByText("$10.000 CLP"),
+  ).toBeVisible();
+  await page.getByLabel("Motivo de la cancelación").fill("Falta de saldo");
+  await page
+    .getByLabel(
+      "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Confirmar cancelación" }).click();
+  await expect(
+    page.getByText(
+      "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Pago Aprobado · Reserva Guardada"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "La cancelación y el reembolso se registraron correctamente.",
+    ),
+  ).toHaveCount(0);
+});
 
 for (const participant of participants) {
   test(`${participant.role} can cancel, message, see review eligibility and route a support case`, async ({
@@ -507,6 +673,8 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
             status: "pagada",
             checkout_status: "approved",
             checkout_method: "checkout_pro",
+            provider_payment_id: "123456789",
+            total_charged_clp: 1036,
             rate_unit: "hora",
             unit_price_clp: 1000,
             units: 1,
@@ -530,12 +698,55 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
               reconciliation: "reconciled",
             },
           },
+          {
+            id: messageId,
+            quote_id: caseId,
+            space_id: messageId,
+            space_title: "Sala sin conciliar",
+            participant_role: "anfitrion",
+            status: "pagada",
+            checkout_status: "approved",
+            checkout_method: "checkout_pro",
+            provider_payment_id: "123456790",
+            total_charged_clp: 5179,
+            rate_unit: "hora",
+            unit_price_clp: 5000,
+            units: 1,
+            subtotal_clp: 5000,
+            currency: "CLP",
+            start_at: startsAt,
+            end_at: endsAt,
+            time_zone: "America/Santiago",
+            payment_expires_at: startsAt,
+            created_at: startsAt,
+            updated_at: startsAt,
+          },
         ],
       }),
     ),
   );
   await page.goto("/anfitrion/reservas");
   await page.getByRole("tab", { name: "Finanzas" }).click();
+  const providerSummary = page
+    .getByText("Comisión Mercado Pago", { exact: true })
+    .filter({ visible: true })
+    .first()
+    .locator("..");
+  await expect(
+    providerSummary.getByText("$39 CLP", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    providerSummary.getByText(/3,76\s*%.*1 de 2 pagos/),
+  ).toBeVisible();
+  const payment = page.getByRole("row").filter({ hasText: "#123456789" });
+  await expect(payment.getByText(/3,76\s*%/)).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "#123456790" })
+      .getByText("Sin datos"),
+  ).toBeVisible();
+
   const netSummary = page
     .getByText("Neto informado para el anfitrión")
     .locator("..");
@@ -571,4 +782,253 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
   await calculator.getByLabel("Tasa de Mercado Pago (%)").fill("3,76");
   await expect(calculator.getByText("−$39 CLP", { exact: true })).toBeVisible();
   await expect(calculator.getByText("$925 CLP", { exact: true })).toBeVisible();
+});
+
+test("el arrendatario consulta la cancelación pendiente después de recargar", async ({
+  page,
+}) => {
+  const calls = await installAftercareFixture(page, {
+    role: "arrendatario",
+    reviewEligible: false,
+    pendingPaymentResults: ["pending", "cancelled"],
+  });
+  await page.goto(participants[0].path);
+  const checkout = page.getByRole("link", {
+    name: "Ir al Checkout de Mercado Pago",
+  });
+  await expect(checkout).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ver monto de devolución" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Cancelar pago pendiente" }).click();
+  await page.getByRole("button", { name: "Volver", exact: true }).click();
+  expect(calls).not.toContain(
+    `POST /api/backend/commercial-reservations/${reservationId}/cancel-pending-payment`,
+  );
+  await page.getByRole("button", { name: "Cancelar pago pendiente" }).click();
+  await page
+    .getByRole("button", { name: "Confirmar cancelación del pago" })
+    .click();
+  await expect(
+    page.getByText(
+      "Solicitud registrada. Mercado Pago aún está confirmando la cancelación.",
+    ),
+  ).toBeVisible();
+  await expect(checkout).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByText(
+      "Solicitud registrada. Mercado Pago aún está confirmando la cancelación.",
+    ),
+  ).toBeVisible();
+  await expect(checkout).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Consultar estado de la cancelación" })
+    .click();
+  await expect(
+    page.getByText("Mercado Pago confirmó la cancelación del pago."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ver monto de devolución" }),
+  ).toHaveCount(0);
+  expect(calls).not.toContain(
+    `POST /api/backend/commercial-reservations/${reservationId}/cancel`,
+  );
+});
+
+test("el anfitrión distingue un pago aprobado durante la cancelación", async ({
+  page,
+}) => {
+  const calls = await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+    pendingPaymentResults: ["approved"],
+  });
+  await page.goto(participants[1].path);
+  await page.getByRole("button", { name: "Cancelar pago pendiente" }).click();
+  await page
+    .getByRole("button", { name: "Confirmar cancelación del pago" })
+    .click();
+  await expect(
+    page.getByText(/Mercado Pago ya aprobó este pago/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ver monto de devolución" }),
+  ).toBeVisible();
+  expect(calls).not.toContain(
+    `POST /api/backend/commercial-reservations/${reservationId}/cancel`,
+  );
+});
+
+test("el anfitrión vincula un reembolso externo con el identificador exacto", async ({
+  page,
+}) => {
+  const calls = await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+    externalRefund: true,
+  });
+  await page.goto(participants[1].path);
+  await page.getByText("Vincular un reembolso ya realizado").click();
+  const id = page.getByLabel("ID del reembolso");
+  const submit = page.getByRole("button", { name: "Verificar y vincular" });
+  await id.fill("900a");
+  await expect(submit).toBeDisabled();
+  await id.fill("9007199254740993");
+  await submit.click();
+  await expect(
+    page.getByText(
+      "Mercado Pago confirmó el reembolso y quedó vinculado a la reserva.",
+    ),
+  ).toBeVisible();
+  expect(calls).not.toContain(
+    `POST /api/backend/commercial-reservations/${reservationId}/cancel`,
+  );
+});
+
+test("el arrendatario no puede vincular un reembolso externo", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "arrendatario",
+    reviewEligible: false,
+    externalRefund: true,
+  });
+  await page.goto(participants[0].path);
+  await expect(
+    page.getByRole("heading", { name: "Política de cancelación" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Vincular un reembolso ya realizado"),
+  ).toHaveCount(0);
+});
+
+test("finanzas isolates chargebacks and confirmed refunds without showing unreconciled net", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+  });
+  await page.route(/\/api\/backend\/commercial-reservations(?:\?|$)/, (route) =>
+    route.fulfill(
+      json({
+        items: [
+          {
+            id: reservationId,
+            quote_id: caseId,
+            space_id: messageId,
+            space_title: "Sala con reembolso",
+            participant_role: "anfitrion",
+            status: "reembolsada",
+            checkout_status: "approved",
+            refund_status: "aprobado",
+            checkout_method: "checkout_pro",
+            provider_payment_id: "555001",
+            commission_clp: 30,
+            vat_clp: 6,
+            buyer_commission_clp: 30,
+            buyer_iva_clp: 6,
+            buyer_fee_clp: 36,
+            marketplace_fee_clp: 72,
+            net_host_amount_clp: 964,
+            total_charged_clp: 1036,
+            rate_unit: "hora",
+            unit_price_clp: 1000,
+            units: 1,
+            subtotal_clp: 1000,
+            currency: "CLP",
+            start_at: startsAt,
+            end_at: endsAt,
+            time_zone: "America/Santiago",
+            payment_expires_at: startsAt,
+            created_at: startsAt,
+            updated_at: startsAt,
+            provider_settlement: {
+              net_clp: 925,
+              processing_fee_clp: 39,
+              marketplace_fee_clp: 72,
+              refunded_clp: 1036,
+              payment_type: "debit_card",
+              payment_status: "refunded",
+              approved_at: startsAt,
+              synced_at: startsAt,
+              provider_updated_at: startsAt,
+              reconciliation: "discrepancy",
+            },
+          },
+          {
+            id: messageId,
+            quote_id: caseId,
+            space_id: messageId,
+            space_title: "Sala en contracargo",
+            participant_role: "anfitrion",
+            status: "pagada",
+            checkout_status: "approved",
+            checkout_method: "checkout_pro",
+            provider_payment_id: "555002",
+            commission_clp: 60,
+            vat_clp: 11,
+            buyer_commission_clp: 60,
+            buyer_iva_clp: 11,
+            buyer_fee_clp: 71,
+            marketplace_fee_clp: 142,
+            net_host_amount_clp: 1929,
+            total_charged_clp: 2071,
+            rate_unit: "hora",
+            unit_price_clp: 2000,
+            units: 1,
+            subtotal_clp: 2000,
+            currency: "CLP",
+            start_at: startsAt,
+            end_at: endsAt,
+            time_zone: "America/Santiago",
+            payment_expires_at: startsAt,
+            created_at: startsAt,
+            updated_at: startsAt,
+            provider_settlement: {
+              net_clp: 1850,
+              processing_fee_clp: 79,
+              marketplace_fee_clp: 142,
+              payment_type: "credit_card",
+              payment_status: "charged_back",
+              approved_at: startsAt,
+              synced_at: startsAt,
+              provider_updated_at: startsAt,
+              reconciliation: "discrepancy",
+            },
+          },
+        ],
+      }),
+    ),
+  );
+  await page.goto("/anfitrion/reservas");
+  await page.getByRole("tab", { name: "Finanzas" }).click();
+
+  await expect(
+    page.getByText("Contracargo en curso (1 operación)"),
+  ).toBeVisible();
+  const refundSummary = page
+    .getByText("Reembolsos confirmados", { exact: true })
+    .locator("..");
+  await expect(refundSummary.getByText("$1.036 CLP")).toBeVisible();
+
+  const netSummary = page
+    .getByText("Neto informado para el anfitrión")
+    .locator("..");
+  await expect(netSummary.getByText("Por confirmar")).toBeVisible();
+
+  const refundedRow = page.getByRole("row").filter({ hasText: "#555001" });
+  await expect(refundedRow.getByText("Split $72")).toBeVisible();
+  await expect(refundedRow.getByText("$1.036", { exact: true })).toHaveCount(2);
+  await expect(refundedRow.getByText("Reembolso confirmado")).toBeVisible();
+  await expect(refundedRow.getByText("Pendiente de conciliar")).toBeVisible();
+  await expect(refundedRow.getByText("$925")).toHaveCount(0);
+
+  const chargebackRow = page.getByRole("row").filter({ hasText: "#555002" });
+  await expect(
+    chargebackRow.getByText("Contracargo", { exact: true }),
+  ).toBeVisible();
+  await expect(chargebackRow.getByText("Pendiente de conciliar")).toBeVisible();
+  await expect(chargebackRow.getByText("$1.850")).toHaveCount(0);
 });

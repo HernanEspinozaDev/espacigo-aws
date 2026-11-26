@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { BookingReservation } from "../domain/types";
-import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
+import {
+  getReservationFinancialBreakdown,
+  getReservationFinancialMovement,
+} from "../domain/financial-breakdown";
 import { formatBookingClp } from "./format";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -147,10 +150,11 @@ export function HostSpaceSchedulePanel({
       ) {
         existing.confirmedCount += 1;
         const breakdown = getReservationFinancialBreakdown(r);
+        const movement = getReservationFinancialMovement(r, breakdown);
         existing.confirmedGrossClp += breakdown.baseClp;
         existing.confirmedFeeClp += breakdown.hostFeeClp;
         existing.confirmedNetClp += r.is_commercial
-          ? (breakdown.confirmedNetHostClp ?? 0)
+          ? (movement.reconciledNetClp ?? 0)
           : breakdown.netHostClp;
       } else if (r.state === "pendiente_de_pago") {
         existing.pendingCount += 1;
@@ -652,10 +656,20 @@ export function HostSpaceSchedulePanel({
                           </strong>{" "}
                           · Neto:{" "}
                           <strong className="text-emerald-700 dark:text-emerald-400">
-                            {res.is_commercial &&
-                            res.provider_settlement?.net_clp === undefined
-                              ? "Pendiente de confirmar"
-                              : `${formatBookingClp(getReservationFinancialBreakdown(res).netHostClp)} CLP`}
+                            {(() => {
+                              const breakdown =
+                                getReservationFinancialBreakdown(res);
+                              const movement = getReservationFinancialMovement(
+                                res,
+                                breakdown,
+                              );
+                              if (res.is_commercial) {
+                                return movement.reconciledNetClp === undefined
+                                  ? "Pendiente de confirmar"
+                                  : `${formatBookingClp(movement.reconciledNetClp)} CLP`;
+                              }
+                              return `${formatBookingClp(breakdown.netHostClp)} CLP`;
+                            })()}
                           </strong>
                         </p>
                       </div>

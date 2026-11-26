@@ -12,6 +12,7 @@ import type {
   CancellationPreview,
   DamageClaim,
   Guarantee,
+  PendingPaymentCancellationStatus,
   RentalOperation,
   ReservationMessage,
   ReservationReview,
@@ -89,6 +90,13 @@ export interface BookingsView {
     reservationId: string,
     commercial?: boolean,
   ): Promise<CancellationPreview>;
+  cancelPendingPayment(
+    reservationId: string,
+  ): Promise<PendingPaymentCancellationStatus>;
+  reconcileCommercialRefund(
+    reservationId: string,
+    refundId: string,
+  ): Promise<BookingReservation>;
   cancelReservation(
     reservationId: string,
     reason?: string,
@@ -301,6 +309,20 @@ export function useBookings(): BookingsView {
     (reservationId: string, commercial = false) =>
       withConfirmedAuth(() =>
         bookingsFacade.previewCancellation(reservationId, commercial),
+      ),
+    [],
+  );
+  const cancelPendingPayment = useCallback(
+    (reservationId: string) =>
+      withConfirmedAuth(() =>
+        bookingsFacade.cancelPendingPayment(reservationId),
+      ),
+    [],
+  );
+  const reconcileCommercialRefund = useCallback(
+    (reservationId: string, refundId: string) =>
+      withConfirmedAuth(() =>
+        bookingsFacade.reconcileCommercialRefund(reservationId, refundId),
       ),
     [],
   );
@@ -641,6 +663,8 @@ export function useBookings(): BookingsView {
     rejectReservation,
     requestCancellationPreview,
     previewCancellation,
+    cancelPendingPayment,
+    reconcileCommercialRefund,
     cancelReservation,
     submitSimulatedPayment,
     simulatePayment,

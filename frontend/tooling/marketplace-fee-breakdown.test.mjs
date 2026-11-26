@@ -163,6 +163,42 @@ test("getReservationFinancialBreakdown resolves double-sided marketplace fees an
   });
 });
 
+test("Mercado Pago fees use the confirmed charged amount and preserve a recorded zero", async () => {
+  const feeModule = await loadTsModule(
+    "src/features/rental-checkout/domain/fee-breakdown.ts",
+  );
+  const { getRecordedProcessingFee, getReservationFinancialBreakdown } =
+    await loadTsModule("src/features/bookings/domain/financial-breakdown.ts", {
+      "@/features/rental-checkout/domain/fee-breakdown": feeModule,
+    });
+  const payment = {
+    provider_payment_id: "123456789",
+    subtotal_clp: 1000,
+    total_charged_clp: 1036,
+    provider_settlement: { processing_fee_clp: 39 },
+  };
+  const recordedFee = (value) =>
+    getRecordedProcessingFee(value, getReservationFinancialBreakdown(value));
+
+  assert.deepEqual(recordedFee(payment), { amountClp: 39, chargedClp: 1036 });
+  assert.deepEqual(
+    recordedFee({ ...payment, provider_settlement: { processing_fee_clp: 0 } }),
+    { amountClp: 0, chargedClp: 1036 },
+  );
+  assert.equal(
+    recordedFee({ ...payment, provider_settlement: undefined }),
+    undefined,
+  );
+  assert.equal(
+    recordedFee({ ...payment, total_charged_clp: undefined }),
+    undefined,
+  );
+  assert.equal(
+    recordedFee({ ...payment, provider_payment_id: undefined }),
+    undefined,
+  );
+});
+
 test("UI files never prepend extra dollar sign to formatBookingClp or formatPublicClp", async () => {
   const files = [
     "src/features/public-catalog/ui/marketplace-rental-checkout.tsx",

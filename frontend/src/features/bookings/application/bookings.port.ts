@@ -6,6 +6,7 @@ import type {
   CancellationPreview,
   DamageClaim,
   Guarantee,
+  PendingPaymentCancellationStatus,
   RentalOperation,
   ReservationMessage,
   ReservationReview,
@@ -51,6 +52,17 @@ export interface BookingsPort {
     signal?: AbortSignal,
     commercial?: boolean,
   ): Promise<CancellationPreview>;
+
+  cancelPendingPayment(
+    reservationId: string,
+    signal?: AbortSignal,
+  ): Promise<PendingPaymentCancellationStatus>;
+
+  reconcileCommercialRefund(
+    reservationId: string,
+    refundId: string,
+    signal?: AbortSignal,
+  ): Promise<BookingReservation>;
 
   cancelReservation(
     idempotencyKey: string,

@@ -1075,6 +1075,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/commercial-reservations/{reservationID}/cancel-pending-payment": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Solicitar la cancelación de un pago pendiente de Checkout Pro
+     * @description Registra la solicitud de un participante autenticado para la misma reserva y consulta el estado del pago con Mercado Pago. Si el pago ya fue aprobado, conserva la reserva pagada. Una solicitud pendiente puede volver a consultarse mediante esta operación sin duplicar la cancelación. La operación no genera reembolsos.
+     */
+    post: operations["cancelCommercialPendingPayment"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/commercial-reservations/{reservationID}/cancel": {
     parameters: {
       query?: never;
@@ -1084,8 +1104,31 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Solicitar la cancelación y el reembolso de la reserva comercial */
+    /**
+     * Solicitar la cancelación y el reembolso de la reserva comercial
+     * @description Confirma el monto de la vista previa para una reserva comercial de la que forma parte la cuenta autenticada. Si corresponde un reembolso, comprueba el pago y consulta su historial con el OAuth del vendedor. Responde 409 con el código refund_requires_reconciliation si Mercado Pago informa una devolución que no se puede asociar al intento guardado o cuyo monto no coincide, o 409 con refund_insufficient_funds si Mercado Pago confirma falta de saldo del vendedor para ejecutar el reembolso.
+     */
     post: operations["cancelCommercialReservation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/commercial-reservations/{reservationID}/reconcile-refund": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Vincular un reembolso de Mercado Pago a la reserva comercial
+     * @description El anfitrión puede vincular un reembolso aprobado tras comprobar el pago y el historial con su OAuth. EspaciGo registra el resultado verificado en la reserva sin emitir un nuevo reembolso.
+     */
+    post: operations["reconcileCommercialReservationRefund"];
     delete?: never;
     options?: never;
     head?: never;
@@ -6564,6 +6607,10 @@ export interface components {
       total_charged_clp: number | string;
       /** Format: int64 */
       refund_amount_clp: number | string;
+      /** Format: int64 */
+      refunded_amount_clp?: number | string;
+      /** Format: int64 */
+      refundable_balance_clp?: number | string;
       /** @constant */
       currency: "CLP";
       /** Format: date-time */
@@ -6585,6 +6632,10 @@ export interface components {
       total_charged_clp: number | string;
       /** Format: int64 */
       refund_amount_clp: number | string;
+      /** Format: int64 */
+      refunded_amount_clp?: number | string;
+      /** Format: int64 */
+      refundable_balance_clp?: number | string;
       /** @constant */
       currency: "CLP";
       /** Format: date-time */
@@ -6672,6 +6723,8 @@ export interface components {
       /** @enum {string} */
       refund_status?: "pendiente" | "aprobado" | "fallido" | "no_aplica";
       checkout_status: string;
+      /** @description Indica si hay una solicitud de cancelación de pago pendiente de confirmación */
+      pending_payment_cancellation?: boolean;
       /** @enum {string} */
       checkout_method?: "checkout_pro" | "payments_api";
       provider_payment_id?: string;
@@ -13774,6 +13827,53 @@ export interface operations {
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };
+  cancelCommercialPendingPayment: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Mercado Pago confirmó la cancelación o el pago ya estaba aprobado */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              /** @enum {string} */
+              payment_status: "cancelled" | "approved";
+            };
+          };
+        };
+      };
+      /** @description La solicitud quedó registrada y espera confirmación de Mercado Pago */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              /** @constant */
+              payment_status: "pending";
+            };
+          };
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
   cancelCommercialReservation: {
     parameters: {
       query?: never;
@@ -13820,6 +13920,42 @@ export interface operations {
       404: components["responses"]["RentalNotFound"];
       409: components["responses"]["RentalConflict"];
       422: components["responses"]["RentalUnprocessableEntity"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  reconcileCommercialReservationRefund: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        reservationID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          refund_id: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Reembolso confirmado por Mercado Pago y vinculado a la reserva. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["CommercialCancellationResult"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      409: components["responses"]["RentalConflict"];
       503: components["responses"]["RentalServiceUnavailable"];
     };
   };

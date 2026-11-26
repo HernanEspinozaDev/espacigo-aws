@@ -18,6 +18,7 @@ import type {
   CancellationPreview,
   DamageClaim,
   Guarantee,
+  PendingPaymentCancellationStatus,
   RentalOperation,
   ReservationMessage,
   ReservationReview,
@@ -63,6 +64,7 @@ function mapCommercialToBookingReservation(
     renter_id: item.participant_role === "arrendatario" ? "me" : "",
     participant_role: item.participant_role,
     checkout_status: item.checkout_status,
+    pending_payment_cancellation: item.pending_payment_cancellation,
     checkout_method: item.checkout_method,
     provider_payment_id: item.provider_payment_id,
     provider_settlement: item.provider_settlement && {
@@ -311,12 +313,22 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       const percent = Number(d.refund_percent);
       const total = Number(d.total_charged_clp);
       const amount = Number(d.refund_amount_clp);
+      const refundedAmount = optionalNumber(d.refunded_amount_clp);
+      const refundableBalance = optionalNumber(d.refundable_balance_clp);
       if (
         ![percent, total, amount].every(Number.isSafeInteger) ||
         percent < 0 ||
         percent > 100 ||
         amount < 0 ||
-        total < amount
+        total < amount ||
+        (d.refunded_amount_clp !== undefined &&
+          (refundedAmount === undefined ||
+            refundedAmount < 0 ||
+            refundedAmount > total)) ||
+        (d.refundable_balance_clp !== undefined &&
+          (refundableBalance === undefined ||
+            refundableBalance < 0 ||
+            refundableBalance > total))
       ) {
         throw new ApiProtocolError();
       }
@@ -328,6 +340,8 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         refund_percent: percent,
         refund_status: d.refund_status,
         total_charged_clp: total,
+        refunded_amount_clp: refundedAmount,
+        refundable_balance_clp: refundableBalance,
         currency: d.currency,
         starts_at: d.starts_at,
         refund_ratio: percent / 100,
@@ -357,6 +371,57 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       refund_amount_clp: d.amount_clp,
       penalty_amount_clp: 0,
       reason: d.reason_code ?? d.refund_label,
+    };
+  }
+
+  async cancelPendingPayment(
+    reservationId: string,
+    signal?: AbortSignal,
+  ): Promise<PendingPaymentCancellationStatus> {
+    const { response, data, error } = await apiClient.POST(
+      "/commercial-reservations/{reservationID}/cancel-pending-payment",
+      { params: { path: { reservationID: reservationId } }, signal },
+    );
+    if (!response.ok) {
+      throw normalizeApiError(response, error);
+    }
+    const status = data?.data?.payment_status;
+    if (response.status === 202 && status === "pending") return status;
+    if (
+      response.status === 200 &&
+      (status === "cancelled" || status === "approved")
+    ) {
+      return status;
+    }
+    throw new ApiProtocolError();
+  }
+
+  async reconcileCommercialRefund(
+    reservationId: string,
+    refundId: string,
+    signal?: AbortSignal,
+  ): Promise<BookingReservation> {
+    const result = await apiClient.POST(
+      "/commercial-reservations/{reservationID}/reconcile-refund",
+      {
+        params: { path: { reservationID: reservationId } },
+        body: { refund_id: refundId },
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (result.data?.data?.refund_status !== "aprobado") {
+      throw new ApiProtocolError();
+    }
+    const reservation = await this.getReservation(reservationId, signal);
+    if (!reservation) throw new ApiProtocolError();
+    return {
+      ...reservation,
+      cancellation_status: result.data.data.status,
+      commercial_refund_status: result.data.data.refund_status,
     };
   }
 

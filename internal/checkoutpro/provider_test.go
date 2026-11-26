@@ -36,6 +36,47 @@ func TestHTTPGatewayUnknownProviderCodeIsRedacted(t *testing.T) {
 	}
 }
 
+func TestHTTPGatewayInsufficientFundsErrorClassification(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "top level insufficient_funds", body: `{"error":"insufficient_funds","message":"secret"}`, want: "insufficient_funds"},
+		{name: "top level insufficient_amount", body: `{"error":"insufficient_amount"}`, want: "insufficient_funds"},
+		{name: "top level not_enough_balance", body: `{"error":"not_enough_balance"}`, want: "insufficient_funds"},
+		{name: "cause code 2017 with balance context", body: `{"error":"bad_request","cause":[{"code":2017,"description":"Insufficient balance in collector account"}]}`, want: "insufficient_funds"},
+		{name: "cause code 3011 string with balance context", body: `{"error":"bad_request","cause":[{"code":"3011","description":"Not enough balance for refund"}]}`, want: "insufficient_funds"},
+		{name: "cause code 3006 with funds context", body: `{"error":"bad_request","cause":[{"code":3006,"description":"Insufficient funds"}]}`, want: "insufficient_funds"},
+		{name: "cause code 2017 with insufficient amount", body: `{"error":"bad_request","cause":[{"code":2017,"description":"Insufficient amount"}]}`, want: "insufficient_funds"},
+		{name: "cause code 2017 without balance context stays bad_request", body: `{"error":"bad_request","cause":[{"code":2017,"description":"Invalid amount parameter"}]}`, want: "bad_request"},
+		{name: "unrelated cause stays bad_request", body: `{"error":"bad_request","cause":[{"code":2000,"description":"Payment not found"}]}`, want: "bad_request"},
+		{name: "oversized payload redacted", body: `{"error":"insufficient_funds","padding":"` + strings.Repeat("a", 9000) + `"}`, want: "other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := readProviderErrorCode(strings.NewReader(tc.body)); got != tc.want {
+				t.Fatalf("readProviderErrorCode()=%q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	g := &HTTPGateway{BaseURL: "https://api.test", Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"error":"bad_request","message":"seller_balance=0 token=secret","cause":[{"code":3011,"description":"Not enough balance"}]}`)),
+		}, nil
+	})}}
+	_, err := g.RefundPayment(context.Background(), []byte("seller-token"), "123456", nil, "0e4561a7-e89b-42d3-a456-426614174000")
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.Stage != "refund_create" || providerErr.HTTPStatus != http.StatusBadRequest || providerErr.ProviderCode != "insufficient_funds" {
+		t.Fatalf("unexpected provider error: %+v (%v)", providerErr, err)
+	}
+	if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "seller_balance") {
+		t.Fatalf("provider error leaked payload detail: %v", err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
