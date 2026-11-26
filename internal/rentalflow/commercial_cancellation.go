@@ -186,7 +186,7 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 	if err != nil {
 		var providerErr *checkoutpro.ProviderError
 		if errors.As(err, &providerErr) {
-			log.Printf("mercadopago_refund stage=refund_create payment_id=%q provider_http_status=%d provider_code=%q", operation.ProviderPaymentID, providerErr.HTTPStatus, providerErr.ProviderCode)
+			log.Printf("mercadopago_refund stage=refund_create payment_id=%q provider_http_status=%d provider_code=%q provider_cause_code=%q", operation.ProviderPaymentID, providerErr.HTTPStatus, providerErr.ProviderCode, providerErr.CauseCode)
 			if providerErr.ProviderCode == "insufficient_funds" {
 				_ = s.cancellations.FailCommercialCancellation(ctx, operation.ReservationID, operation.IdempotencyKey, operation.ProviderRefundID, s.cancellationNow().UTC())
 				return CommercialCancellation{}, ErrRefundInsufficientFunds
