@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var (
@@ -116,9 +117,11 @@ func New(repo Repository, tokens SellerTokens, gateway Gateway, config Config, n
 		return nil, ErrInvalid
 	}
 	u, err := url.Parse(config.FrontendOrigin)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
 		return nil, ErrNotConfigured
 	}
+	config.FrontendOrigin = (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()
 	return &Service{repo: repo, tokens: tokens, gateway: gateway, config: config, now: now, newID: newID}, nil
 }
 
@@ -279,6 +282,7 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 	}
 	returnURL := s.config.FrontendOrigin + "/reservas/checkout/" + quote.ID
 	notificationURL := s.config.FrontendOrigin + "/api/v1/webhooks/mercadopago"
+	title := cleanTitle(quote.Title)
 	request := PreferenceRequest{
 		Purpose: func() string {
 			if walletPurchase {
@@ -289,7 +293,7 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 		ExternalReference: op.ID, MarketplaceFee: float64(amounts.MarketplaceFeeCLP),
 		StatementDescriptor: "ESPACIGO",
 		Items: []PreferenceItem{{
-			ID: quote.SpaceID, Title: cleanTitle(quote.Title), Description: "Arriendo de espacio reservado en EspaciGo",
+			ID: quote.SpaceID, Title: title, Description: "Arriendo de espacio en EspaciGo · " + title,
 			CategoryID: "services", Quantity: 1, UnitPrice: float64(amounts.TotalChargedCLP), CurrencyID: "CLP",
 		}},
 		Metadata:        map[string]any{"quote_id": quote.ID, "operation_id": op.ID, "space_id": quote.SpaceID, "host_id": quote.HostID, "renter_id": quote.RenterID, "commission_base_clp": amounts.BaseCLP, "commission_clp": amounts.CommissionCLP, "vat_clp": amounts.VATCLP, "host_fee_clp": amounts.CommissionCLP + amounts.VATCLP, "buyer_fee_clp": amounts.BuyerFeeCLP, "total_charged_clp": amounts.TotalChargedCLP, "marketplace_fee_clp": amounts.MarketplaceFeeCLP},
@@ -444,7 +448,11 @@ func validInitPoint(v string, _ bool) bool {
 func cleanTitle(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) > 200 {
-		s = s[:200]
+		end := 200
+		for end > 0 && !utf8.RuneStart(s[end]) {
+			end--
+		}
+		s = strings.TrimSpace(s[:end])
 	}
 	if s == "" {
 		return "Arriendo EspaciGo"

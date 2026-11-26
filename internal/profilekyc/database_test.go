@@ -172,6 +172,19 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 		t.Fatal(err)
 	}
 	contracts.UseVerifiedIdentityProfile(keys)
+	for _, tc := range []struct {
+		name, account, email, firstName, surname string
+	}{
+		{name: "verified", account: first, email: "first@example.test", firstName: "María", surname: "Ejemplo"},
+		{name: "unverified", account: second, email: "second@example.test"},
+	} {
+		t.Run("checkout buyer "+tc.name, func(t *testing.T) {
+			buyer, err := contracts.CheckoutBuyer(ctx, tc.account)
+			if err != nil || buyer.Email != tc.email || buyer.Name != tc.firstName || buyer.Surname != tc.surname {
+				t.Fatalf("unexpected checkout buyer projection for %s: %v", tc.name, err)
+			}
+		})
+	}
 	party, err := contracts.CurrentForRentalContract(ctx, second, quote, first, time.Now())
 	if err != nil || party.LegalName != "María Ejemplo" || party.RUT != "12345678-5" {
 		t.Fatalf("contract party from KYC: %v", err)

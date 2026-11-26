@@ -65,6 +65,16 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 				t.Errorf("request body contains obsolete field %s: %s", obsolete, raw)
 			}
 		}
+		var payerFields struct {
+			Payer map[string]string `json:"payer"`
+		}
+		if err := json.Unmarshal(body, &payerFields); err != nil {
+			t.Fatal(err)
+		}
+		if len(payerFields.Payer) != 3 || payerFields.Payer["name"] != "Ana" ||
+			payerFields.Payer["surname"] != "Pérez" || payerFields.Payer["email"] != "ana@example.test" {
+			t.Fatal("preference must serialize only the expected payer fields")
+		}
 		if strings.Contains(raw, `"id":"account_money"`) {
 			t.Errorf("account money was excluded: %s", raw)
 		}

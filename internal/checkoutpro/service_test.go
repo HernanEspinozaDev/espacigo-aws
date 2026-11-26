@@ -3,8 +3,11 @@ package checkoutpro
 import (
 	"bytes"
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestCommissionUsesPesosAndRoundsHalfUp(t *testing.T) {
@@ -255,6 +258,29 @@ func TestStartPersistsAndReusesQuotePreferenceWithoutTrustingClientAmounts(t *te
 	}
 }
 
+func TestCheckoutTitleKeepsUTF8AtProviderLimit(t *testing.T) {
+	title := strings.Repeat("A", 199) + "ñ"
+	got := cleanTitle(title)
+	if len(got) != 199 || !utf8.ValidString(got) {
+		t.Fatalf("checkout title cut an accented character")
+	}
+}
+
+func TestCheckoutOriginRejectsInvalidReturnAndWebhookBases(t *testing.T) {
+	for _, origin := range []string{
+		"http://espacigo.test", "https://espacigo.test/acceso", "https://espacigo.test/%2F",
+		"https://espacigo.test?return=1", "https://espacigo.test/?",
+		"https://espacigo.test#checkout", "https://user@espacigo.test", "https://:443",
+	} {
+		t.Run(origin, func(t *testing.T) {
+			_, err := New(&memoryRepository{}, memoryTokens{}, &memoryGateway{}, Config{FrontendOrigin: origin}, time.Now, func() string { return "" })
+			if !errors.Is(err, ErrNotConfigured) {
+				t.Fatalf("invalid origin accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestStartUsesVerifiedBuyerOnlyForLivePreferences(t *testing.T) {
 	now := time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
 	buyer := PreferencePayer{Name: "Ana", Surname: "Pérez Muñoz", Email: "ana@example.test"}
@@ -264,7 +290,7 @@ func TestStartUsesVerifiedBuyerOnlyForLivePreferences(t *testing.T) {
 		gateway := &memoryGateway{}
 		calls := 0
 		svc, err := New(repo, memoryTokens{}, gateway, Config{
-			FrontendOrigin: "https://espacigo.test", TestMode: testMode,
+			FrontendOrigin: "https://espacigo.test/", TestMode: testMode,
 			BuyerForPreference: func(_ context.Context, account string) (PreferencePayer, error) {
 				calls++
 				if account != quote.RenterID {
@@ -280,8 +306,18 @@ func TestStartUsesVerifiedBuyerOnlyForLivePreferences(t *testing.T) {
 			t.Fatal(err)
 		}
 		req := gateway.preferenceRequest
-		if len(req.Items) != 1 || req.Items[0].ID != quote.SpaceID || req.Items[0].Description == "" || req.Items[0].CategoryID != "services" || req.StatementDescriptor != "ESPACIGO" {
+		if len(req.Items) != 1 || req.Items[0].ID != quote.SpaceID || req.Items[0].Description != "Arriendo de espacio en EspaciGo · Sala" || req.Items[0].CategoryID != "services" || req.StatementDescriptor != "ESPACIGO" {
 			t.Fatalf("missing Checkout Pro quality fields: %+v", req.Items)
+		}
+		wantReturn := "https://espacigo.test/reservas/checkout/" + quote.ID
+		if req.BackURLs != (BackURLs{Success: wantReturn, Pending: wantReturn, Failure: wantReturn}) ||
+			req.NotificationURL != "https://espacigo.test/api/v1/webhooks/mercadopago" {
+			t.Fatalf("incorrect checkout return or notification URLs")
+		}
+		if req.Items[0].Quantity != 1 || req.Items[0].UnitPrice != 1036 || req.Items[0].CurrencyID != "CLP" ||
+			req.MarketplaceFee != 72 || !req.Expires || req.ExpirationDateFrom != now.Format(time.RFC3339) ||
+			req.ExpirationDateTo != quote.ExpiresAt.Format(time.RFC3339) || req.PaymentMethods.Installments != 1 {
+			t.Fatalf("incorrect quote, split, or validity in preference")
 		}
 		if testMode {
 			if calls != 0 || req.Payer != nil {
