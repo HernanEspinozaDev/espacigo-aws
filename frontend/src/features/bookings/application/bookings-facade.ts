@@ -12,6 +12,7 @@ import type {
   CancellationPreview,
   DamageClaim,
   Guarantee,
+  PendingPaymentCancellationStatus,
   RentalOperation,
   ReservationMessage,
   ReservationReview,
@@ -413,6 +414,91 @@ export class BookingsFacade {
       throw err;
     }
   }
+  async cancelPendingPayment(
+    reservationId: string,
+  ): Promise<PendingPaymentCancellationStatus> {
+    const scope = this.#captureSession();
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      return await this.#waitSession(
+        this.#port.cancelPendingPayment(
+          reservationId,
+          this.#sessionSignal(scope, undefined),
+        ),
+        scope,
+      );
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? err.code
+          : undefined;
+      const error =
+        code === "conflict"
+          ? "Este pago cambió de estado o no admite la cancelación. Actualiza la reserva."
+          : "No pudimos confirmar el estado del pago. Consulta de nuevo antes de iniciar otro pago.";
+      this.#setSnapshot({ error });
+      throw err;
+    } finally {
+      if (this.#isSessionCurrent(scope)) {
+        this.#setSnapshot({ actionLoading: false });
+      }
+    }
+  }
+  async reconcileCommercialRefund(
+    reservationId: string,
+    refundId: string,
+  ): Promise<BookingReservation> {
+    const scope = this.#captureSession();
+    this.#setSnapshot({ actionLoading: true, error: null });
+    try {
+      const updated = await this.#waitSession(
+        this.#port.reconcileCommercialRefund(
+          reservationId,
+          refundId,
+          this.#sessionSignal(scope, undefined),
+        ),
+        scope,
+      );
+      this.#applyUpdatedReservation(updated);
+      return updated;
+    } catch (err) {
+      if (!this.#isSessionCurrent(scope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? err.code
+          : undefined;
+      const error =
+        code === "conflict"
+          ? "El reembolso no coincide con la reserva o no permite la vinculación. Revisa el ID y el importe en Mercado Pago."
+          : "No pudimos comprobar el reembolso. Revisa el estado en Mercado Pago y vuelve a intentarlo.";
+      this.#setSnapshot({ error });
+      throw err;
+    } finally {
+      if (this.#isSessionCurrent(scope)) {
+        this.#setSnapshot({ actionLoading: false });
+      }
+    }
+  }
+  #applyUpdatedReservation(updated: BookingReservation): void {
+    const reservations = this.#snapshot.reservations.map((r) =>
+      r.id === updated.id ? updated : r,
+    );
+    const currentReservation =
+      this.#snapshot.currentReservation?.id === updated.id
+        ? { ...this.#snapshot.currentReservation, ...updated }
+        : this.#snapshot.currentReservation;
+    this.#setSnapshot({
+      reservations: Object.freeze(reservations),
+      currentReservation,
+    });
+  }
   async cancelReservation(
     reservationId: string,
     reason?: string,
@@ -434,34 +520,26 @@ export class BookingsFacade {
         ),
         _sessionScope,
       );
-      const nextReservations = this.#snapshot.reservations.map((r) =>
-        r.id === updated.id ? updated : r,
-      );
-      const nextCurrent =
-        this.#snapshot.currentReservation?.id === updated.id
-          ? { ...this.#snapshot.currentReservation, ...updated }
-          : this.#snapshot.currentReservation;
-      this.#setSnapshot({
-        reservations: Object.freeze(nextReservations),
-        currentReservation: nextCurrent,
-        actionLoading: false,
-      });
+      this.#applyUpdatedReservation(updated);
+      this.#setSnapshot({ actionLoading: false });
       return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
       if (!this.#isSessionCurrent(_sessionScope)) {
         throw new DOMException("Session changed", "AbortError");
       }
       this.#sessionError(err);
-      const requiresReconciliation =
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        err.code === "refund_requires_reconciliation";
-      const error = requiresReconciliation
-        ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
-        : err instanceof Error
-          ? err.message
-          : "Error al cancelar reserva";
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? err.code
+          : undefined;
+      const error =
+        code === "refund_requires_reconciliation"
+          ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
+          : code === "refund_insufficient_funds"
+            ? "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva."
+            : err instanceof Error
+              ? err.message
+              : "Error al cancelar reserva";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }

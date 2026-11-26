@@ -102,3 +102,78 @@ export function getRecordedProcessingFee(
   }
   return { amountClp, chargedClp };
 }
+
+export type ReservationFinancialAdjustment =
+  | "none"
+  | "refund_pending"
+  | "refund_confirmed"
+  | "refund_failed"
+  | "chargeback";
+
+export interface ReservationFinancialMovement {
+  readonly adjustment: ReservationFinancialAdjustment;
+  readonly originalChargeClp?: number;
+  readonly confirmedRefundClp?: number;
+  readonly reconciledNetClp?: number;
+}
+
+export function getReservationFinancialMovement(
+  reservation: BookingReservation,
+  financial: ReservationFinancialBreakdown,
+): ReservationFinancialMovement {
+  if (!reservation.is_commercial)
+    return { adjustment: "none", reconciledNetClp: financial.netHostClp };
+
+  const total = reservation.total_charged_clp;
+  const originalChargeClp =
+    total !== undefined && Number.isSafeInteger(total) && total > 0
+      ? total
+      : undefined;
+  const settlement = reservation.provider_settlement;
+  const refunded = settlement?.refunded_clp;
+  const confirmedRefundClp =
+    reservation.provider_payment_id &&
+    refunded !== undefined &&
+    originalChargeClp !== undefined &&
+    Number.isSafeInteger(refunded) &&
+    refunded > 0 &&
+    refunded <= originalChargeClp
+      ? refunded
+      : undefined;
+
+  const refundStatus = reservation.commercial_refund_status;
+  let adjustment: ReservationFinancialAdjustment = "none";
+  if (settlement?.payment_status === "charged_back") {
+    adjustment = "chargeback";
+  } else if (
+    confirmedRefundClp !== undefined ||
+    settlement?.payment_status === "refunded" ||
+    reservation.state === "reembolsada" ||
+    refundStatus === "aprobado"
+  ) {
+    adjustment = "refund_confirmed";
+  } else if (refundStatus === "pendiente") {
+    adjustment = "refund_pending";
+  } else if (refundStatus === "fallido") {
+    adjustment = "refund_failed";
+  }
+
+  // The merged provider snapshot can still hold the original net after
+  // recording a reversal. It cannot establish the final balance of that sale.
+  const net = financial.confirmedNetHostClp;
+  const reconciledNetClp =
+    (adjustment === "none" || adjustment === "refund_failed") &&
+    settlement?.reconciliation === "reconciled" &&
+    net !== undefined &&
+    Number.isSafeInteger(net) &&
+    net >= 0
+      ? net
+      : undefined;
+
+  return {
+    adjustment,
+    originalChargeClp,
+    confirmedRefundClp,
+    reconciledNetClp,
+  };
+}

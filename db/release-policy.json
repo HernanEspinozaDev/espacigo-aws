@@ -56,6 +56,14 @@
         "public.sesion",
         "public.usuario"
       ]
+    },
+    "V000010__cancelacion_checkout_pendiente.sql": {
+      "checksum": "31cd7e29577c02cfe3cd9d0c0e8a66c4677716567b64dd6f8b8ae24db7c5768b",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.checkout_preferencia_comercial",
+        "public.usuario"
+      ]
     }
   },
   "review_required_migrations": {

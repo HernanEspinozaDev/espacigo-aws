@@ -114,6 +114,8 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations/{reservationID}", h.getCommercialReservation)
 	h.mux.HandleFunc("GET /api/v1/commercial-reservations/{reservationID}/cancellation-preview", h.previewCommercialCancellation)
 	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/cancel", h.cancelCommercialReservation)
+	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/reconcile-refund", h.reconcileCommercialRefund)
+	h.mountPendingPaymentCancellation()
 	h.mux.HandleFunc("POST /api/v1/commercial-reservations/verify-pass", h.verifyCommercialPass)
 	h.mux.HandleFunc("POST /api/v1/commercial-reservations/{reservationID}/intervals/{intervalID}/usage", h.updateCommercialIntervalUsage)
 	h.mux.HandleFunc("OPTIONS /api/v1/spaces/{spaceID}/rental-availability", func(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +143,7 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	})
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, r *http.Request) { h.options(w, r, http.MethodGet) })
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/cancel", func(w http.ResponseWriter, r *http.Request) { h.options(w, r, http.MethodPost) })
+	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/{reservationID}/reconcile-refund", func(w http.ResponseWriter, r *http.Request) { h.options(w, r, http.MethodPost) })
 	h.mux.HandleFunc("OPTIONS /api/v1/commercial-reservations/verify-pass", func(w http.ResponseWriter, r *http.Request) {
 		h.options(w, r, http.MethodPost)
 	})
@@ -171,6 +174,7 @@ func New(auth Authenticator, availability AvailabilityService, quotes QuoteServi
 	h.mux.HandleFunc("HEAD /api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "GET, OPTIONS") })
 	h.mux.HandleFunc("/api/v1/commercial-reservations/{reservationID}/cancellation-preview", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "GET, OPTIONS") })
 	h.mux.HandleFunc("/api/v1/commercial-reservations/{reservationID}/cancel", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "POST, OPTIONS") })
+	h.mux.HandleFunc("/api/v1/commercial-reservations/{reservationID}/reconcile-refund", func(w http.ResponseWriter, _ *http.Request) { methodNotAllowed(w, "POST, OPTIONS") })
 	h.mux.HandleFunc("/api/v1/commercial-reservations", func(w http.ResponseWriter, _ *http.Request) {
 		methodNotAllowed(w, "GET, OPTIONS")
 	})
@@ -956,6 +960,10 @@ func writeReservationError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, rentalflow.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, rentalflow.ErrRefundInsufficientFunds):
+		writeError(w, http.StatusConflict, "refund_insufficient_funds")
+	case errors.Is(err, rentalflow.ErrRefundRequiresReconciliation):
+		writeError(w, http.StatusConflict, "refund_requires_reconciliation")
 	case errors.Is(err, rentalflow.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict")
 	case errors.Is(err, rentalflow.ErrInvalid):

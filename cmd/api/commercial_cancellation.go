@@ -17,7 +17,9 @@ func configureCommercialCancellation(service *rentalflow.CommercialReservationSe
 	if service == nil || repository == nil || tokens == nil {
 		return
 	}
-	service.SetCancellationDependencies(repository, tokens, &checkoutpro.HTTPGateway{}, time.Now)
+	gateway := &checkoutpro.HTTPGateway{}
+	service.SetCancellationDependencies(repository, tokens, gateway, time.Now)
+	service.SetPendingPaymentCancellation(repository, tokens, gateway, time.Now)
 }
 
 func runCommercialCancellationReconciler(ctx context.Context, service *rentalflow.CommercialReservationService) {
@@ -30,6 +32,9 @@ func runCommercialCancellationReconciler(ctx context.Context, service *rentalflo
 		for {
 			if err := service.ReconcilePendingCancellations(ctx, 20); err != nil && ctx.Err() == nil {
 				log.Print("commercial cancellation reconciliation deferred")
+			}
+			if err := service.ReconcilePendingPaymentCancellations(ctx, 20); err != nil && ctx.Err() == nil {
+				log.Print("pending Checkout Pro payment cancellation reconciliation deferred")
 			}
 			select {
 			case <-ctx.Done():

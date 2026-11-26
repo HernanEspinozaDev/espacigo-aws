@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
-import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
+import {
+  getReservationFinancialBreakdown,
+  getReservationFinancialMovement,
+} from "../domain/financial-breakdown";
+import type { PendingPaymentCancellationStatus } from "../domain/types";
 import { formatBookingClp } from "./format";
 import { getBookingStateConfig } from "./reservations-list";
 import { ReservationInvoiceModal } from "./reservation-invoice-modal";
@@ -46,11 +50,22 @@ const commercialRefundLabel = {
   no_aplica: "Sin reembolso",
 };
 
+const pendingPaymentMessages: Record<PendingPaymentCancellationStatus, string> =
+  {
+    pending:
+      "Solicitud registrada. Mercado Pago aún está confirmando la cancelación.",
+    cancelled: "Mercado Pago confirmó la cancelación del pago.",
+    approved:
+      "Mercado Pago ya aprobó este pago. Consulta la política de cancelación si quieres solicitar una devolución.",
+  };
+
 const commercialCancellationReason: Record<string, string> = {
   cancellation_started:
     "Ya hay una solicitud de cancelación para esta reserva.",
   refund_failed:
     "Mercado Pago rechazó el reembolso anterior. Revisa el historial del pago y el saldo disponible antes de reintentar.",
+  refund_requires_reconciliation:
+    "El pago registra devoluciones o disputas que requieren revisión antes de emitir otro reembolso.",
   refund_window_expired:
     "El pago está fuera del plazo de reembolso de Mercado Pago.",
   reservation_not_paid:
@@ -86,6 +101,8 @@ export function ReservationLifecyclePanel({
     acceptReservation,
     rejectReservation,
     requestCancellationPreview,
+    cancelPendingPayment,
+    reconcileCommercialRefund,
     cancelReservation,
     simulateRefund,
     loadContract,
@@ -108,6 +125,11 @@ export function ReservationLifecyclePanel({
   const [rejectReason, setRejectReason] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [cancelConfirmed, setCancelConfirmed] = useState(false);
+  const [pendingPaymentConfirmation, setPendingPaymentConfirmation] =
+    useState(false);
+  const [pendingPaymentStatus, setPendingPaymentStatus] =
+    useState<PendingPaymentCancellationStatus | null>(null);
+  const [externalRefundId, setExternalRefundId] = useState("");
   const [cancelResult, setCancelResult] = useState<string | null>(null);
   const [operationComments, setOperationComments] = useState("");
   const [receptionObservations, setReceptionObservations] = useState("");
@@ -122,7 +144,7 @@ export function ReservationLifecyclePanel({
   const [passesOpen, setPassesOpen] = useState(false);
   const [receptionOpen, setReceptionOpen] = useState(false);
 
-  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}:${reservationId}`;
   const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
 
   if (prevAccountKey !== accountKey) {
@@ -130,6 +152,9 @@ export function ReservationLifecyclePanel({
     setRejectReason("");
     setCancelReason("");
     setCancelConfirmed(false);
+    setPendingPaymentConfirmation(false);
+    setPendingPaymentStatus(null);
+    setExternalRefundId("");
     setCancelResult(null);
     setOperationComments("");
     setReceptionObservations("");
@@ -182,10 +207,48 @@ export function ReservationLifecyclePanel({
   const effectiveRole =
     currentReservation.participant_role ?? role ?? "arrendatario";
   const isHost = effectiveRole === "anfitrion";
+  const resolvedPendingPaymentStatus =
+    pendingPaymentStatus ??
+    (currentReservation.state === "pendiente_de_pago" &&
+    currentReservation.pending_payment_cancellation
+      ? "pending"
+      : null);
+  const canCancelPendingPayment =
+    isAuthenticated &&
+    Boolean(currentReservation.participant_role) &&
+    currentReservation.is_commercial &&
+    currentReservation.checkout_method === "checkout_pro" &&
+    currentReservation.state === "pendiente_de_pago" &&
+    currentReservation.checkout_status !== "approved" &&
+    (resolvedPendingPaymentStatus === null ||
+      resolvedPendingPaymentStatus === "pending");
+  const canReconcileExternalRefund =
+    isAuthenticated &&
+    currentReservation.participant_role === "anfitrion" &&
+    (currentReservation.commercial_refund_status === "pendiente" ||
+      currentReservation.state === "reconciliation_required");
   const financial = getReservationFinancialBreakdown(currentReservation);
+  const financialMovement = getReservationFinancialMovement(
+    currentReservation,
+    financial,
+  );
   const checkoutApiTestEnabled =
     process.env.NEXT_PUBLIC_MP_CHECKOUT_API_TEST_ENABLED === "1" &&
     Boolean(process.env.NEXT_PUBLIC_MP_PUBLIC_KEY?.startsWith("TEST-"));
+
+  const handleCancelPendingPayment = async () => {
+    try {
+      setLocalFeedback(null);
+      const status = await cancelPendingPayment(reservationId);
+      setPendingPaymentConfirmation(false);
+      setPendingPaymentStatus(status);
+      if (status !== "pending") {
+        await loadReservationDetail(reservationId);
+      }
+    } catch {
+      // The bookings facade reports the failure for the current session.
+    }
+  };
 
   // Download contract PDF with private Blob cleanup
   const handleDownloadPdf = async () => {
@@ -478,12 +541,18 @@ export function ReservationLifecyclePanel({
                     </div>
                     <div>
                       <p className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                        {financial.confirmedNetHostClp !== undefined
+                        {financialMovement.reconciledNetClp !== undefined
                           ? "Neto informado por Mercado Pago"
-                          : "Importe antes de tarifa Mercado Pago"}
+                          : financialMovement.adjustment !== "none"
+                            ? "Neto posterior a ajuste"
+                            : "Importe antes de tarifa Mercado Pago"}
                       </p>
                       <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                        {formatBookingClp(financial.netHostClp)} CLP
+                        {financialMovement.reconciledNetClp !== undefined
+                          ? `${formatBookingClp(financialMovement.reconciledNetClp)} CLP`
+                          : financialMovement.adjustment !== "none"
+                            ? "Pendiente de conciliar"
+                            : `${formatBookingClp(financial.beforeProcessingClp)} CLP`}
                       </p>
                     </div>
                   </div>
@@ -529,21 +598,75 @@ export function ReservationLifecyclePanel({
                     expiresAt={currentReservation.pay_expires_at}
                   />
                 )}
-                {!isHost && currentReservation.quote_id && (
-                  <Button
-                    asChild
-                    className="bg-sky-600 text-white hover:bg-sky-700"
-                  >
-                    <Link
-                      href={
-                        checkoutApiTestEnabled
-                          ? `/reservas/checkout/tarjeta/${currentReservation.quote_id}`
-                          : `/reservas/checkout/${currentReservation.quote_id}`
-                      }
+                {!isHost &&
+                  currentReservation.quote_id &&
+                  !resolvedPendingPaymentStatus && (
+                    <Button
+                      asChild
+                      className="bg-sky-600 text-white hover:bg-sky-700"
                     >
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      Ir al Checkout de Mercado Pago
-                    </Link>
+                      <Link
+                        href={
+                          checkoutApiTestEnabled
+                            ? `/reservas/checkout/tarjeta/${currentReservation.quote_id}`
+                            : `/reservas/checkout/${currentReservation.quote_id}`
+                        }
+                      >
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Ir al Checkout de Mercado Pago
+                      </Link>
+                    </Button>
+                  )}
+              </div>
+            )}
+            {resolvedPendingPaymentStatus && (
+              <p role="status" className="mt-3 rounded-lg bg-muted p-3 text-sm">
+                {pendingPaymentMessages[resolvedPendingPaymentStatus]}
+              </p>
+            )}
+            {canCancelPendingPayment && (
+              <div className="mt-3">
+                {pendingPaymentConfirmation ? (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4">
+                    <p className="text-sm text-foreground">
+                      Solicitaremos a Mercado Pago que cancele el pago
+                      pendiente. Si ya lo aprobó, la reserva seguirá pagada.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        disabled={actionLoading}
+                        onClick={handleCancelPendingPayment}
+                      >
+                        Confirmar cancelación del pago
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={actionLoading}
+                        onClick={() => setPendingPaymentConfirmation(false)}
+                      >
+                        Volver
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={actionLoading}
+                    onClick={() => {
+                      if (resolvedPendingPaymentStatus === "pending") {
+                        void handleCancelPendingPayment();
+                      } else {
+                        setPendingPaymentConfirmation(true);
+                      }
+                    }}
+                  >
+                    {resolvedPendingPaymentStatus === "pending"
+                      ? "Consultar estado de la cancelación"
+                      : "Cancelar pago pendiente"}
                   </Button>
                 )}
               </div>
@@ -553,9 +676,21 @@ export function ReservationLifecyclePanel({
               (isHost &&
                 currentReservation.provider_settlement?.payment_status ===
                   "charged_back")) && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-800 dark:text-emerald-300">
+              <div
+                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3.5 text-sm ${
+                  currentReservation.provider_settlement?.payment_status ===
+                  "charged_back"
+                    ? "border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-300"
+                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                }`}
+              >
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  {currentReservation.provider_settlement?.payment_status ===
+                  "charged_back" ? (
+                    <AlertTriangle className="h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" />
+                  ) : (
+                    <CheckCircle className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  )}
                   <span className="font-medium">
                     {currentReservation.provider_settlement?.payment_status ===
                     "charged_back"
@@ -731,7 +866,7 @@ export function ReservationLifecyclePanel({
             </p>
           )}
 
-          {!["cancelada", "reembolsada"].includes(currentReservation.state) && (
+          {currentReservation.state === "pagada" && (
             <div className="mt-5 border-t border-border pt-5">
               <h3 className="text-base font-semibold text-foreground">
                 Cancelar reserva y solicitar devolución
@@ -791,6 +926,34 @@ export function ReservationLifecyclePanel({
                         <dd className="font-medium">
                           {formatBookingClp(
                             cancellationPreview.total_charged_clp,
+                          )}{" "}
+                          {cancellationPreview.currency ?? "CLP"}
+                        </dd>
+                      </div>
+                    )}
+                    {cancellationPreview.refunded_amount_clp !== undefined &&
+                      cancellationPreview.refunded_amount_clp > 0 && (
+                        <div>
+                          <dt className="text-muted-foreground">
+                            Ya reembolsado
+                          </dt>
+                          <dd className="font-medium">
+                            {formatBookingClp(
+                              cancellationPreview.refunded_amount_clp,
+                            )}{" "}
+                            {cancellationPreview.currency ?? "CLP"}
+                          </dd>
+                        </div>
+                      )}
+                    {cancellationPreview.refundable_balance_clp !==
+                      undefined && (
+                      <div>
+                        <dt className="text-muted-foreground">
+                          Saldo reembolsable
+                        </dt>
+                        <dd className="font-medium">
+                          {formatBookingClp(
+                            cancellationPreview.refundable_balance_clp,
                           )}{" "}
                           {cancellationPreview.currency ?? "CLP"}
                         </dd>
@@ -903,6 +1066,73 @@ export function ReservationLifecyclePanel({
                 </div>
               )}
             </div>
+          )}
+          {canReconcileExternalRefund && (
+            <details className="mt-5 rounded-xl border border-border p-4">
+              <summary className="cursor-pointer text-sm font-medium text-foreground">
+                Vincular un reembolso ya realizado
+              </summary>
+              <form
+                className="mt-3 space-y-3"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  try {
+                    setLocalFeedback(null);
+                    await reconcileCommercialRefund(
+                      reservationId,
+                      externalRefundId,
+                    );
+                    setExternalRefundId("");
+                    setCancelResult(
+                      "Mercado Pago confirmó el reembolso y quedó vinculado a la reserva.",
+                    );
+                  } catch {
+                    // The bookings facade reports the failure for the current session.
+                  }
+                }}
+              >
+                <p
+                  id="external-refund-help"
+                  className="text-sm text-muted-foreground"
+                >
+                  Copia el ID del reembolso desde el detalle del pago en Mercado
+                  Pago. EspaciGo comprobará que corresponde a esta reserva.
+                </p>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-full sm:w-auto">
+                    <label
+                      htmlFor="external-refund-id"
+                      className="block text-sm font-medium"
+                    >
+                      ID del reembolso
+                    </label>
+                    <input
+                      id="external-refund-id"
+                      inputMode="numeric"
+                      pattern="[0-9]{1,64}"
+                      maxLength={64}
+                      required
+                      autoComplete="off"
+                      aria-describedby="external-refund-help"
+                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={externalRefundId}
+                      onChange={(event) =>
+                        setExternalRefundId(event.currentTarget.value)
+                      }
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={
+                      actionLoading || !/^[0-9]{1,64}$/.test(externalRefundId)
+                    }
+                  >
+                    Verificar y vincular
+                  </Button>
+                </div>
+              </form>
+            </details>
           )}
           {cancelResult && (
             <p role="status" className="mt-3 rounded-lg bg-muted p-3 text-sm">

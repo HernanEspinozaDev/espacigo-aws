@@ -2102,12 +2102,34 @@ paths:
         "409": { $ref: "#/components/responses/RentalConflict" }
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/cancel-pending-payment:
+    post:
+      operationId: cancelCommercialPendingPayment
+      tags: [ Rental ]
+      summary: Solicitar la cancelación de un pago pendiente de Checkout Pro
+      description: Registra la solicitud de un participante autenticado para la misma reserva y consulta el estado del pago con Mercado Pago. Si el pago ya fue aprobado, conserva la reserva pagada. Una solicitud pendiente puede volver a consultarse mediante esta operación sin duplicar la cancelación. La operación no genera reembolsos.
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Mercado Pago confirmó la cancelación o el pago ya estaba aprobado
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ payment_status ], properties: { payment_status: { type: string, enum: [ cancelled, approved ] } } } } } } }
+        "202":
+          description: La solicitud quedó registrada y espera confirmación de Mercado Pago
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ payment_status ], properties: { payment_status: { type: string, const: pending } } } } } } }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /commercial-reservations/{reservationID}/cancel:
     post:
       operationId: cancelCommercialReservation
       tags: [ Rental ]
       summary: Solicitar la cancelación y el reembolso de la reserva comercial
-      description: Confirma el monto de la vista previa para una reserva comercial de la que forma parte la cuenta autenticada. Si corresponde un reembolso, comprueba el pago y consulta su historial con el OAuth del vendedor. Responde 409 con el código refund_requires_reconciliation si Mercado Pago informa una devolución que no se puede asociar al intento guardado o cuyo monto no coincide.
+      description: Confirma el monto de la vista previa para una reserva comercial de la que forma parte la cuenta autenticada. Si corresponde un reembolso, comprueba el pago y consulta su historial con el OAuth del vendedor. Responde 409 con el código refund_requires_reconciliation si Mercado Pago informa una devolución que no se puede asociar al intento guardado o cuyo monto no coincide, o 409 con refund_insufficient_funds si Mercado Pago confirma falta de saldo del vendedor para ejecutar el reembolso.
       security: [ { bearerAuth: [] } ]
       parameters:
         - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2126,6 +2148,28 @@ paths:
         "404": { $ref: "#/components/responses/RentalNotFound" }
         "409": { $ref: "#/components/responses/RentalConflict" }
         "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /commercial-reservations/{reservationID}/reconcile-refund:
+    post:
+      operationId: reconcileCommercialReservationRefund
+      tags: [ Rental ]
+      summary: Vincular un reembolso de Mercado Pago a la reserva comercial
+      description: El anfitrión puede vincular un reembolso aprobado tras comprobar el pago y el historial con su OAuth. EspaciGo registra el resultado verificado en la reserva sin emitir un nuevo reembolso.
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - { name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: false, required: [ refund_id ], properties: { refund_id: { type: string, pattern: '^[0-9]{1,64}$' } } } } }
+      responses:
+        "200":
+          description: Reembolso confirmado por Mercado Pago y vinculado a la reserva.
+          content: { application/json: { schema: { type: object, additionalProperties: false, required: [ data ], properties: { data: { $ref: "#/components/schemas/CommercialCancellationResult" } } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
         "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /commercial-reservations/{reservationID}/messages:
     get:
@@ -9516,8 +9560,8 @@ components:
             state: { type: string, enum: [not_attached, ready] }
             notice: { type: string }
         access_instructions: { type: "null" }
-    CommercialCancellationPreview: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
-    CommercialCancellationResult: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at, status, refund_status ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
+    CommercialCancellationPreview: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, refunded_amount_clp: { type: integer, format: int64, minimum: 0 }, refundable_balance_clp: { type: integer, format: int64, minimum: 0 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
+    CommercialCancellationResult: { type: object, additionalProperties: false, required: [ reservation_id, can_cancel, refund_percent, total_charged_clp, refund_amount_clp, currency, starts_at, status, refund_status ], properties: { reservation_id: { type: string, format: uuid }, can_cancel: { type: boolean }, reason: { type: string }, cancellation_policy_version: { type: string }, cancellation_policy_text: { type: string }, refund_percent: { type: integer, format: int64 }, total_charged_clp: { type: integer, format: int64 }, refund_amount_clp: { type: integer, format: int64 }, refunded_amount_clp: { type: integer, format: int64, minimum: 0 }, refundable_balance_clp: { type: integer, format: int64, minimum: 0 }, currency: { type: string, const: CLP }, starts_at: { type: string, format: date-time }, status: { type: string }, refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] } } }
     CommercialSupportCase: { type: object, additionalProperties: false, required: [ id, reservation_id, initiator_role, category, routed_to, status, description, created_at, actions, events, evidence ], properties: { id: { type: string, format: uuid }, reservation_id: { type: string, format: uuid }, initiator_role: { type: string, enum: [ anfitrion, arrendatario ] }, category: { type: string }, routed_to: { type: string, enum: [ contraparte, espacigo ] }, status: { type: string }, description: { type: string }, defense_deadline: { type: string, format: date-time }, created_at: { type: string, format: date-time }, actions: { type: array, items: { type: string } }, events: { type: array, items: { type: object, additionalProperties: false, required: [ action, description, created_at ], properties: { action: { type: string }, description: { type: string }, created_at: { type: string, format: date-time } } } }, evidence: { type: array, items: { $ref: "#/components/schemas/CommercialSupportEvidence" } } } }
     CommercialSupportEvidence: { type: object, additionalProperties: false, required: [ id, mime, size ], properties: { id: { type: string, format: uuid }, mime: { type: string }, size: { type: integer, format: int64 } } }
     CommercialSupportCaseList: { type: object, additionalProperties: false, required: [ data ], properties: { data: { type: object, additionalProperties: false, required: [ items, can_claim_damage ], properties: { items: { type: array, items: { $ref: "#/components/schemas/CommercialSupportCase" } }, can_claim_damage: { type: boolean } } } } }
@@ -9571,6 +9615,7 @@ components:
         cancellation_policy_text: { type: [ string, 'null' ] }
         refund_status: { type: string, enum: [ pendiente, aprobado, fallido, no_aplica ] }
         checkout_status: { type: string }
+        pending_payment_cancellation: { type: boolean, description: Indica si hay una solicitud de cancelación de pago pendiente de confirmación }
         checkout_method: { type: string, enum: [ checkout_pro, payments_api ] }
         provider_payment_id: { type: string }
         provider_settlement: { $ref: "#/components/schemas/CommercialProviderSettlement" }

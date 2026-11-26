@@ -72,6 +72,9 @@ export interface BookingInterval {
   readonly qr_payload?: string;
 }
 
+export type PendingPaymentCancellationStatus =
+  "cancelled" | "approved" | "pending";
+
 export interface BookingReservation {
   readonly id: string;
   readonly quote_id: string;
@@ -81,6 +84,7 @@ export interface BookingReservation {
   readonly renter_id: string;
   readonly participant_role?: "anfitrion" | "arrendatario";
   readonly checkout_status?: string;
+  readonly pending_payment_cancellation?: boolean;
   readonly checkout_method?: "checkout_pro" | "payments_api";
   readonly provider_payment_id?: string;
   readonly provider_settlement?: {
@@ -156,6 +160,8 @@ export interface CancellationPreview {
   readonly starts_at?: string;
   readonly refund_ratio: number;
   readonly refund_amount_clp: number;
+  readonly refunded_amount_clp?: number;
+  readonly refundable_balance_clp?: number;
   readonly penalty_amount_clp: number;
   readonly reason: string;
   readonly status?: string;

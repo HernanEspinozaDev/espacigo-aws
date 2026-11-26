@@ -1901,6 +1901,16 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "POST",
+    path: "/commercial-reservations/{reservationID}/cancel-pending-payment",
+    operationId: "cancelCommercialPendingPayment",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "GET",
     path: "/commercial-reservations/{reservationID}/cancellation-preview",
     operationId: "previewCommercialCancellation",
@@ -1987,6 +1997,16 @@ export const gatewayOperations = [
     headers: [],
     bearer: true,
     requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
+    path: "/commercial-reservations/{reservationID}/reconcile-refund",
+    operationId: "reconcileCommercialReservationRefund",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
     responseMediaTypes: ["application/json"],
   },
   {

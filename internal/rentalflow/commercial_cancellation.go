@@ -15,6 +15,7 @@ import (
 var (
 	ErrCancellationUnavailable      = errors.New("rental flow: cancellation unavailable")
 	ErrRefundRequiresReconciliation = errors.New("rental flow: refund requires reconciliation")
+	ErrRefundInsufficientFunds      = errors.New("rental flow: refund insufficient funds")
 )
 
 const (
@@ -23,27 +24,30 @@ const (
 )
 
 type CommercialCancellation struct {
-	ReservationID       string `json:"reservation_id"`
-	CanCancel           bool   `json:"can_cancel"`
-	Reason              string `json:"reason"`
-	PolicyVersion       string `json:"cancellation_policy_version"`
-	PolicyText          string `json:"cancellation_policy_text"`
-	RefundPercent       int    `json:"refund_percent"`
-	TotalChargedCLP     int64  `json:"total_charged_clp"`
-	RefundAmountCLP     int64  `json:"refund_amount_clp"`
-	Currency            string `json:"currency"`
-	StartsAt            string `json:"starts_at"`
-	Status              string `json:"status,omitempty"`
-	RefundStatus        string `json:"refund_status,omitempty"`
-	ProviderPaymentID   string `json:"-"`
-	CheckoutOperationID string `json:"-"`
-	SellerID            string `json:"-"`
-	TestMode            bool   `json:"-"`
-	ProviderRefundID    string `json:"-"`
-	HostID              string `json:"-"`
-	ActorID             string `json:"-"`
-	IdempotencyKey      string `json:"-"`
-	Motivo              string `json:"-"`
+	ReservationID                string `json:"reservation_id"`
+	CanCancel                    bool   `json:"can_cancel"`
+	Reason                       string `json:"reason"`
+	PolicyVersion                string `json:"cancellation_policy_version"`
+	PolicyText                   string `json:"cancellation_policy_text"`
+	RefundPercent                int    `json:"refund_percent"`
+	TotalChargedCLP              int64  `json:"total_charged_clp"`
+	RefundAmountCLP              int64  `json:"refund_amount_clp"`
+	RefundedAmountCLP            int64  `json:"refunded_amount_clp"`
+	RefundableBalanceCLP         int64  `json:"refundable_balance_clp"`
+	Currency                     string `json:"currency"`
+	StartsAt                     string `json:"starts_at"`
+	Status                       string `json:"status,omitempty"`
+	RefundStatus                 string `json:"refund_status,omitempty"`
+	ProviderPaymentID            string `json:"-"`
+	CheckoutOperationID          string `json:"-"`
+	CheckoutReconciliationReason string `json:"-"`
+	SellerID                     string `json:"-"`
+	TestMode                     bool   `json:"-"`
+	ProviderRefundID             string `json:"-"`
+	HostID                       string `json:"-"`
+	ActorID                      string `json:"-"`
+	IdempotencyKey               string `json:"-"`
+	Motivo                       string `json:"-"`
 }
 
 type CommercialCancellationRepository interface {
@@ -101,26 +105,46 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 		operation.HostID == "" || operation.IdempotencyKey == "" {
 		return CommercialCancellation{}, ErrCancellationUnavailable
 	}
+	refundableBalance := operation.TotalChargedCLP - operation.RefundedAmountCLP
+	if operation.RefundedAmountCLP < 0 || refundableBalance < 0 {
+		return CommercialCancellation{}, ErrRefundRequiresReconciliation
+	}
+	if operation.RefundableBalanceCLP > 0 && operation.RefundableBalanceCLP < refundableBalance {
+		refundableBalance = operation.RefundableBalanceCLP
+	}
+	if operation.RefundAmountCLP > refundableBalance {
+		return CommercialCancellation{}, ErrRefundRequiresReconciliation
+	}
 	token, err := s.cancellationTokens.AccessToken(ctx, operation.HostID)
 	if err != nil || len(token) == 0 {
 		return CommercialCancellation{}, ErrCancellationUnavailable
 	}
 	defer clear(token)
 
-	payment, err := s.refundGateway.LookupPayment(ctx, token, operation.ProviderPaymentID)
+	payment, err := s.verifiedCommercialRefundPayment(ctx, operation, token)
 	if err != nil {
-		return CommercialCancellation{}, ErrCancellationUnavailable
+		return CommercialCancellation{}, err
 	}
-	if payment.ProviderPaymentID != operation.ProviderPaymentID || payment.OperationID != operation.CheckoutOperationID ||
-		payment.ExternalReference != operation.CheckoutOperationID || payment.SellerID != operation.SellerID || payment.Currency != "CLP" ||
-		payment.TransactionAmountCLP != operation.TotalChargedCLP || !checkoutpro.PaymentModeMatches(operation.TestMode, payment.LiveMode) {
+	if payment.Settlement != nil && payment.Settlement.PaymentStatus == "charged_back" {
 		return CommercialCancellation{}, ErrRefundRequiresReconciliation
 	}
 	if payment.Status != "approved" && (operation.ProviderRefundID == "" || payment.Status != "refunded") {
 		return CommercialCancellation{}, ErrRefundRequiresReconciliation
 	}
-	if operation.ProviderRefundID == "" && payment.Settlement != nil && payment.Settlement.RefundedCLP != nil && *payment.Settlement.RefundedCLP > 0 {
-		return CommercialCancellation{}, ErrRefundRequiresReconciliation
+	if payment.Settlement != nil && payment.Settlement.RefundedCLP != nil {
+		providerRefunded := *payment.Settlement.RefundedCLP
+		if providerRefunded < 0 || providerRefunded > operation.TotalChargedCLP {
+			return CommercialCancellation{}, ErrRefundRequiresReconciliation
+		}
+		if operation.ProviderRefundID == "" && providerRefunded != operation.RefundedAmountCLP {
+			return CommercialCancellation{}, ErrRefundRequiresReconciliation
+		}
+		if providerBalance := operation.TotalChargedCLP - providerRefunded; providerBalance < refundableBalance {
+			refundableBalance = providerBalance
+		}
+		if operation.ProviderRefundID == "" && operation.RefundAmountCLP > refundableBalance {
+			return CommercialCancellation{}, ErrRefundRequiresReconciliation
+		}
 	}
 	refunds, err := s.refundGateway.ListRefunds(ctx, token, operation.ProviderPaymentID)
 	if err != nil {
@@ -137,23 +161,36 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 		operation.RefundStatus = CommercialRefundPending
 		return operation, nil
 	}
+	var approvedSum int64
 	for _, item := range refunds {
-		if item.Status != "rejected" && item.Status != "cancelled" {
-			// A matching amount alone cannot identify who initiated a refund.
-			// Keep the existing attempt for reconciliation without another POST.
+		if item.Status == "rejected" || item.Status == "cancelled" {
+			continue
+		}
+		if item.Status != "approved" {
+			// Any pending or unrecognized refund blocks issuing another POST.
 			return CommercialCancellation{}, ErrRefundRequiresReconciliation
 		}
+		approvedSum += item.Amount
+	}
+	if len(refunds) > 0 && approvedSum != operation.RefundedAmountCLP {
+		// An unlinked or mismatched approved refund cannot be assumed to match
+		// our local state. Keep the attempt for reconciliation without another POST.
+		return CommercialCancellation{}, ErrRefundRequiresReconciliation
 	}
 	var amount *int64
-	if operation.RefundAmountCLP < operation.TotalChargedCLP {
-		partialAmount := operation.RefundAmountCLP
-		amount = &partialAmount
+	if operation.RefundAmountCLP < operation.TotalChargedCLP || operation.RefundedAmountCLP > 0 {
+		explicitAmount := operation.RefundAmountCLP
+		amount = &explicitAmount
 	}
 	refund, err := s.refundGateway.RefundPayment(ctx, token, operation.ProviderPaymentID, amount, operation.IdempotencyKey)
 	if err != nil {
 		var providerErr *checkoutpro.ProviderError
 		if errors.As(err, &providerErr) {
 			log.Printf("mercadopago_refund stage=refund_create payment_id=%q provider_http_status=%d provider_code=%q", operation.ProviderPaymentID, providerErr.HTTPStatus, providerErr.ProviderCode)
+			if providerErr.ProviderCode == "insufficient_funds" {
+				_ = s.cancellations.FailCommercialCancellation(ctx, operation.ReservationID, operation.IdempotencyKey, operation.ProviderRefundID, s.cancellationNow().UTC())
+				return CommercialCancellation{}, ErrRefundInsufficientFunds
+			}
 			if providerErr.HTTPStatus >= 400 && providerErr.HTTPStatus < 500 && providerErr.HTTPStatus != 408 && providerErr.HTTPStatus != 409 && providerErr.HTTPStatus != 429 {
 				_ = s.cancellations.FailCommercialCancellation(ctx, operation.ReservationID, operation.IdempotencyKey, operation.ProviderRefundID, s.cancellationNow().UTC())
 			}
@@ -163,6 +200,22 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 		return CommercialCancellation{}, ErrCancellationUnavailable
 	}
 	return s.applyCommercialRefundResult(ctx, operation, refund)
+}
+
+func (s *CommercialReservationService) verifiedCommercialRefundPayment(ctx context.Context, operation CommercialCancellation, token []byte) (checkoutpro.VerifiedPayment, error) {
+	if operation.ProviderPaymentID == "" || operation.CheckoutOperationID == "" || operation.SellerID == "" {
+		return checkoutpro.VerifiedPayment{}, ErrCancellationUnavailable
+	}
+	payment, err := s.refundGateway.LookupPayment(ctx, token, operation.ProviderPaymentID)
+	if err != nil {
+		return checkoutpro.VerifiedPayment{}, ErrCancellationUnavailable
+	}
+	if payment.ProviderPaymentID != operation.ProviderPaymentID || payment.OperationID != operation.CheckoutOperationID ||
+		payment.ExternalReference != operation.CheckoutOperationID || payment.SellerID != operation.SellerID || payment.Currency != "CLP" ||
+		payment.TransactionAmountCLP != operation.TotalChargedCLP || !checkoutpro.PaymentModeMatches(operation.TestMode, payment.LiveMode) {
+		return checkoutpro.VerifiedPayment{}, ErrRefundRequiresReconciliation
+	}
+	return payment, nil
 }
 
 func (s *CommercialReservationService) applyCommercialRefundResult(ctx context.Context, operation CommercialCancellation, refund checkoutpro.RefundResult) (CommercialCancellation, error) {

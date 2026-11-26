@@ -12,8 +12,10 @@ import (
 
 type cancellationRepoStub struct {
 	operation rentalflow.CommercialCancellation
+	pending   []rentalflow.CommercialCancellation
 	status    string
 	failed    bool
+	failCalls int
 }
 
 func (r *cancellationRepoStub) ListCommercialReservations(context.Context, string, int, string) (rentalflow.CommercialReservationPage, error) {
@@ -31,6 +33,9 @@ func (r *cancellationRepoStub) BeginCommercialCancellation(_ context.Context, ac
 	r.operation.ReservationID = reservation
 	r.operation.CheckoutOperationID = reservation
 	r.operation.SellerID = "91"
+	if r.operation.IdempotencyKey == "" {
+		r.operation.IdempotencyKey = id
+	}
 	return r.operation, nil
 }
 func (r *cancellationRepoStub) FinishCommercialCancellation(_ context.Context, _ string, _, refundID, status string, _ time.Time) (rentalflow.CommercialCancellation, error) {
@@ -41,31 +46,49 @@ func (r *cancellationRepoStub) FinishCommercialCancellation(_ context.Context, _
 }
 func (r *cancellationRepoStub) FailCommercialCancellation(context.Context, string, string, string, time.Time) error {
 	r.failed = true
+	r.failCalls++
+	r.operation.RefundStatus = "fallido"
 	return nil
 }
 func (r *cancellationRepoStub) ListPendingCommercialCancellations(context.Context, int) ([]rentalflow.CommercialCancellation, error) {
-	return nil, nil
+	return r.pending, nil
 }
 
-type cancellationTokensStub struct{}
+type cancellationTokensStub struct {
+	token []byte
+	err   error
+	calls *int
+}
 
-func (cancellationTokensStub) AccessToken(context.Context, string) ([]byte, error) {
+func (t cancellationTokensStub) AccessToken(context.Context, string) ([]byte, error) {
+	if t.calls != nil {
+		*t.calls++
+	}
+	if t.err != nil {
+		return nil, t.err
+	}
+	if t.token != nil {
+		return append([]byte(nil), t.token...), nil
+	}
 	return []byte("seller-oauth"), nil
 }
 
 type cancellationGatewayStub struct {
-	key             string
-	amount          int64
-	amountWasNil    bool
-	responseAmount  int64
-	posts           int
-	err             error
-	status          string
-	refunds         []checkoutpro.RefundResult
-	historyErr      error
-	verifiedAmount  int64
-	paymentCurrency string
-	paymentSeller   string
+	key               string
+	keys              []string
+	amount            int64
+	amountWasNil      bool
+	responseAmount    int64
+	posts             int
+	err               error
+	status            string
+	refunds           []checkoutpro.RefundResult
+	historyErr        error
+	verifiedAmount    int64
+	paymentStatus     string
+	paymentSettlement *checkoutpro.Settlement
+	paymentCurrency   string
+	paymentSeller     string
 }
 
 func (g *cancellationGatewayStub) LookupPayment(_ context.Context, _ []byte, paymentID string) (checkoutpro.VerifiedPayment, error) {
@@ -77,16 +100,21 @@ func (g *cancellationGatewayStub) LookupPayment(_ context.Context, _ []byte, pay
 	if seller == "" {
 		seller = "91"
 	}
+	status := g.paymentStatus
+	if status == "" {
+		status = "approved"
+	}
 	return checkoutpro.VerifiedPayment{
 		SellerID: seller, ProviderPaymentID: paymentID, OperationID: "22222222-2222-4222-8222-222222222222",
 		ExternalReference: "22222222-2222-4222-8222-222222222222", LiveMode: true,
-		Currency: currency, TransactionAmountCLP: g.verifiedAmount, Status: "approved",
+		Currency: currency, TransactionAmountCLP: g.verifiedAmount, Status: status, Settlement: g.paymentSettlement,
 	}, nil
 }
 
 func (g *cancellationGatewayStub) RefundPayment(_ context.Context, token []byte, payment string, amount *int64, key string) (checkoutpro.RefundResult, error) {
 	g.posts++
 	g.key = key
+	g.keys = append(g.keys, key)
 	g.amountWasNil = amount == nil
 	if amount != nil {
 		g.amount = *amount
@@ -193,4 +221,220 @@ func TestCommercialRefundDoesNotPostWhenHistoryRequiresReview(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCommercialRemainderRefundUsesExplicitAmountAndVerifiesBalance(t *testing.T) {
+	const (
+		resID  = "22222222-2222-4222-8222-222222222222"
+		hostID = "33333333-3333-4333-8333-333333333333"
+		actor  = "55555555-5555-4555-8555-555555555555"
+	)
+	priorRefunded := int64(2000)
+
+	t.Run("remainder refund sends explicit amount even when equal to remaining balance", func(t *testing.T) {
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			CanCancel:            true,
+			ReservationID:        resID,
+			HostID:               hostID,
+			ProviderPaymentID:    "1234567",
+			IdempotencyKey:       "44444444-4444-4444-8444-444444444444",
+			TotalChargedCLP:      10000,
+			RefundedAmountCLP:    2000,
+			RefundableBalanceCLP: 8000,
+			RefundAmountCLP:      8000,
+		}}
+		gateway := &cancellationGatewayStub{
+			status:            "approved",
+			verifiedAmount:    10000,
+			responseAmount:    8000,
+			refunds:           []checkoutpro.RefundResult{{ID: "prior-1", Status: "approved", Amount: 2000}},
+			paymentSettlement: &checkoutpro.Settlement{PaymentStatus: "approved", RefundedCLP: &priorRefunded},
+		}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+		got, err := service.Cancel(t.Context(), actor, resID, "Reembolsar remanente", 8000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gateway.posts != 1 || gateway.amountWasNil || gateway.amount != 8000 || got.RefundStatus != rentalflow.CommercialRefundApproved {
+			t.Fatalf("expected explicit 8000 remainder refund: gateway=%+v got=%+v", gateway, got)
+		}
+	})
+
+	t.Run("refund exceeding refundable balance requires reconciliation", func(t *testing.T) {
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			CanCancel:            true,
+			ReservationID:        resID,
+			HostID:               hostID,
+			ProviderPaymentID:    "1234567",
+			IdempotencyKey:       "44444444-4444-4444-8444-444444444444",
+			TotalChargedCLP:      10000,
+			RefundedAmountCLP:    6000,
+			RefundableBalanceCLP: 4000,
+			RefundAmountCLP:      5000,
+		}}
+		gateway := &cancellationGatewayStub{verifiedAmount: 10000}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+		_, err := service.Cancel(t.Context(), actor, resID, "Excede saldo", 5000)
+		if !errors.Is(err, rentalflow.ErrRefundRequiresReconciliation) || gateway.posts != 0 {
+			t.Fatalf("expected ErrRefundRequiresReconciliation without POST, got err=%v posts=%d", err, gateway.posts)
+		}
+	})
+
+	t.Run("provider settlement refunded mismatch blocks POST", func(t *testing.T) {
+		mismatch := int64(3000)
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			CanCancel:            true,
+			ReservationID:        resID,
+			HostID:               hostID,
+			ProviderPaymentID:    "1234567",
+			IdempotencyKey:       "44444444-4444-4444-8444-444444444444",
+			TotalChargedCLP:      10000,
+			RefundedAmountCLP:    2000,
+			RefundableBalanceCLP: 8000,
+			RefundAmountCLP:      8000,
+		}}
+		gateway := &cancellationGatewayStub{
+			verifiedAmount:    10000,
+			paymentSettlement: &checkoutpro.Settlement{PaymentStatus: "approved", RefundedCLP: &mismatch},
+		}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+		_, err := service.Cancel(t.Context(), actor, resID, "Diferencia", 8000)
+		if !errors.Is(err, rentalflow.ErrRefundRequiresReconciliation) || gateway.posts != 0 {
+			t.Fatalf("expected ErrRefundRequiresReconciliation, got err=%v posts=%d", err, gateway.posts)
+		}
+	})
+}
+
+func TestCommercialCancellationInsufficientFundsAndRetries(t *testing.T) {
+	const (
+		resID  = "22222222-2222-4222-8222-222222222222"
+		hostID = "33333333-3333-4333-8333-333333333333"
+		actor  = "55555555-5555-4555-8555-555555555555"
+	)
+
+	t.Run("insufficient funds marks failed and returns ErrRefundInsufficientFunds until replenished", func(t *testing.T) {
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			CanCancel: true, ReservationID: resID, HostID: hostID,
+			ProviderPaymentID: "1234567", IdempotencyKey: "44444444-4444-4444-8444-444444444444",
+			TotalChargedCLP: 10000, RefundAmountCLP: 10000,
+		}}
+		gateway := &cancellationGatewayStub{
+			verifiedAmount: 10000,
+			err:            &checkoutpro.ProviderError{Stage: "refund_create", HTTPStatus: 400, ProviderCode: "insufficient_funds"},
+		}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+		_, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 10000)
+		if !errors.Is(err, rentalflow.ErrRefundInsufficientFunds) || !repo.failed || repo.status != "" || gateway.posts != 1 {
+			t.Fatalf("expected ErrRefundInsufficientFunds + failed attempt, got err=%v failed=%t status=%q posts=%d", err, repo.failed, repo.status, gateway.posts)
+		}
+
+		// Replenish funds and retry.
+		gateway.err = nil
+		gateway.status = "approved"
+		gateway.responseAmount = 10000
+		got, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 10000)
+		if err != nil || got.RefundStatus != rentalflow.CommercialRefundApproved || repo.status != rentalflow.CommercialRefundApproved {
+			t.Fatalf("expected retry after replenishing funds to succeed: got=%+v err=%v", got, err)
+		}
+	})
+
+	t.Run("5xx keeps attempt pending and ReconcilePendingCancellations reuses idempotency key", func(t *testing.T) {
+		const originalKey = "44444444-4444-4444-8444-444444444444"
+		op := rentalflow.CommercialCancellation{
+			CanCancel: true, ReservationID: resID, HostID: hostID, ActorID: actor, Motivo: "Cancelar",
+			ProviderPaymentID: "1234567", IdempotencyKey: originalKey,
+			TotalChargedCLP: 10000, RefundAmountCLP: 5000, RefundStatus: rentalflow.CommercialRefundPending,
+		}
+		repo := &cancellationRepoStub{operation: op, pending: []rentalflow.CommercialCancellation{op}}
+		gateway := &cancellationGatewayStub{
+			verifiedAmount: 10000,
+			err:            &checkoutpro.ProviderError{Stage: "refund_create", HTTPStatus: 502, ProviderCode: "other"},
+		}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+		_, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 5000)
+		if !errors.Is(err, rentalflow.ErrCancellationUnavailable) || repo.failed || repo.status != "" {
+			t.Fatalf("5xx must stay pending: err=%v failed=%t status=%q", err, repo.failed, repo.status)
+		}
+
+		gateway.err = nil
+		gateway.status = "approved"
+		gateway.responseAmount = 5000
+		if err := service.ReconcilePendingCancellations(t.Context(), 10); err != nil {
+			t.Fatal(err)
+		}
+		if len(gateway.keys) != 2 || gateway.keys[0] != originalKey || gateway.keys[1] != originalKey || repo.status != rentalflow.CommercialRefundApproved {
+			t.Fatalf("expected same idempotency key across retry: keys=%v status=%q", gateway.keys, repo.status)
+		}
+	})
+
+	t.Run("oauth unavailable returns ErrCancellationUnavailable without calling gateway", func(t *testing.T) {
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			CanCancel: true, ReservationID: resID, HostID: hostID,
+			ProviderPaymentID: "1234567", IdempotencyKey: "44444444-4444-4444-8444-444444444444",
+			TotalChargedCLP: 10000, RefundAmountCLP: 10000,
+		}}
+		gateway := &cancellationGatewayStub{verifiedAmount: 10000}
+		tokens := &cancellationTokensStub{err: errors.New("oauth revoked")}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, tokens, gateway, time.Now)
+
+		_, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 10000)
+		if !errors.Is(err, rentalflow.ErrCancellationUnavailable) || gateway.posts != 0 || repo.failed {
+			t.Fatalf("expected ErrCancellationUnavailable on OAuth failure, got err=%v posts=%d failed=%t", err, gateway.posts, repo.failed)
+		}
+	})
+
+	t.Run("dispute charged_back blocks refund with ErrRefundRequiresReconciliation", func(t *testing.T) {
+		for _, tc := range []struct {
+			name          string
+			paymentStatus string
+			settlement    *checkoutpro.Settlement
+		}{
+			{name: "status charged_back", paymentStatus: "charged_back"},
+			{name: "settlement payment_status charged_back", paymentStatus: "approved", settlement: &checkoutpro.Settlement{PaymentStatus: "charged_back"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+					CanCancel: true, ReservationID: resID, HostID: hostID,
+					ProviderPaymentID: "1234567", IdempotencyKey: "44444444-4444-4444-8444-444444444444",
+					TotalChargedCLP: 10000, RefundAmountCLP: 10000,
+				}}
+				gateway := &cancellationGatewayStub{verifiedAmount: 10000, paymentStatus: tc.paymentStatus, paymentSettlement: tc.settlement}
+				service, _ := rentalflow.NewCommercialReservationService(repo)
+				service.SetCancellationDependencies(repo, &cancellationTokensStub{}, gateway, time.Now)
+
+				_, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 10000)
+				if !errors.Is(err, rentalflow.ErrRefundRequiresReconciliation) || gateway.posts != 0 || repo.failed {
+					t.Fatalf("charged_back must require reconciliation without POST: err=%v posts=%d failed=%t", err, gateway.posts, repo.failed)
+				}
+			})
+		}
+	})
+
+	t.Run("repeated cancel call after approval returns immediately without provider calls", func(t *testing.T) {
+		repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+			ReservationID: resID, HostID: hostID, RefundStatus: rentalflow.CommercialRefundApproved,
+			Status: "reembolsada", TotalChargedCLP: 10000, RefundAmountCLP: 10000,
+		}}
+		tokenCalls := 0
+		tokens := cancellationTokensStub{calls: &tokenCalls}
+		gateway := &cancellationGatewayStub{verifiedAmount: 10000}
+		service, _ := rentalflow.NewCommercialReservationService(repo)
+		service.SetCancellationDependencies(repo, tokens, gateway, time.Now)
+
+		got, err := service.Cancel(t.Context(), actor, resID, "Cancelar", 10000)
+		if err != nil || got.RefundStatus != rentalflow.CommercialRefundApproved || tokenCalls != 0 || gateway.posts != 0 {
+			t.Fatalf("already approved cancel should be a no-op: got=%+v err=%v tokens=%d posts=%d", got, err, tokenCalls, gateway.posts)
+		}
+	})
 }
