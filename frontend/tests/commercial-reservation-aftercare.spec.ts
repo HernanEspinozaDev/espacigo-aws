@@ -1032,3 +1032,52 @@ test("finanzas isolates chargebacks and confirmed refunds without showing unreco
   await expect(chargebackRow.getByText("Pendiente de conciliar")).toBeVisible();
   await expect(chargebackRow.getByText("$1.850")).toHaveCount(0);
 });
+
+test("host can issue a post-start refund with Reembolsar igualmente", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancellation-preview`,
+    (route) =>
+      route.fulfill(
+        json({
+          reservation_id: reservationId,
+          can_cancel: true,
+          reason: "host_post_start_refund",
+          cancellation_policy_version: "flexible_v1",
+          cancellation_policy_text: policyText,
+          refund_percent: 100,
+          total_charged_clp: 12000,
+          refunded_amount_clp: 0,
+          refundable_balance_clp: 12000,
+          refund_amount_clp: 12000,
+          currency: "CLP",
+          starts_at: startsAt,
+          refund_status: "fallido",
+        }),
+      ),
+  );
+  await page.goto(`/anfitrion/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await expect(
+    page.getByText(
+      "La hora de inicio de esta reserva ya pasó. Como anfitrión, puedes reembolsar igualmente dentro del plazo de 180 días de Mercado Pago.",
+    ),
+  ).toBeVisible();
+  await page.getByLabel("Motivo de la cancelación").fill("Cambio de planes");
+  await page
+    .getByLabel(
+      "Confirmo que, aunque la hora de inicio ya pasó, quiero reembolsar esta reserva igualmente.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Reembolsar igualmente" }).click();
+  await expect(
+    page.getByText(
+      "La cancelación y el reembolso se registraron correctamente.",
+    ),
+  ).toBeVisible();
+});

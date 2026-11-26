@@ -388,3 +388,81 @@ func TestCommercialCancellationRetryKeysAndWebhookAndExternalReconciliationPostg
 		t.Fatalf("unexpected chargeback persistence: chk=%s res=%s pay=%s notifs=%d href=%s", cbCheckoutState, cbReservationState, cbPaymentStatus, cbNotifs, cbHref)
 	}
 }
+
+func TestCommercialCancellationRetryFailedRefundAfterStartPostgres(t *testing.T) {
+	pool, repo := setupCancellationTestDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// 1. Fresh reservation after start: renter is blocked, host gets host_post_start_refund and can refund.
+	fFresh := seedCancellationReservation(t, pool, now, 1036, "flexible_v1", "Flexible: reembolso total hasta 24 horas antes del inicio del arriendo.", "190475305600", nil)
+	var freshStart time.Time
+	if err := pool.QueryRow(ctx, `SELECT inicio FROM public.reserva_arriendo_comercial WHERE id=$1`, fFresh.reservationID).Scan(&freshStart); err != nil {
+		t.Fatal(err)
+	}
+	afterFreshStart := freshStart.Add(2 * time.Hour)
+	renterFreshPreview, err := repo.PreviewCommercialCancellation(ctx, fFresh.renter, fFresh.reservationID, afterFreshStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renterFreshPreview.CanCancel || renterFreshPreview.Reason != "reservation_already_started" {
+		t.Fatalf("renter must remain blocked after start: %+v", renterFreshPreview)
+	}
+	hostFreshPreview, err := repo.PreviewCommercialCancellation(ctx, fFresh.host, fFresh.reservationID, afterFreshStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hostFreshPreview.CanCancel || hostFreshPreview.Reason != "host_post_start_refund" || hostFreshPreview.RefundAmountCLP != 1036 {
+		t.Fatalf("host must be allowed post-start refund: %+v", hostFreshPreview)
+	}
+
+	// 2. Failed refund after start: renter is blocked on retry, host gets host_post_start_refund within 180 days.
+	f := seedCancellationReservation(t, pool, now, 1036, "flexible_v1", "Flexible: reembolso total hasta 24 horas antes del inicio del arriendo.", "190475305601", nil)
+	op1, err := repo.BeginCommercialCancellation(ctx, f.renter, f.reservationID, "Cambio de planes", 1036, now, uuid.NewString())
+	if err != nil || op1.RefundStatus != "pendiente" {
+		t.Fatalf("expected initial pending refund: %+v err=%v", op1, err)
+	}
+	if err := repo.FailCommercialCancellation(ctx, f.reservationID, op1.IdempotencyKey, "", now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	var startsAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT inicio FROM public.reserva_arriendo_comercial WHERE id=$1`, f.reservationID).Scan(&startsAt); err != nil {
+		t.Fatal(err)
+	}
+	afterStart := startsAt.Add(24 * time.Hour)
+	renterRetryPreview, err := repo.PreviewCommercialCancellation(ctx, f.renter, f.reservationID, afterStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renterRetryPreview.CanCancel || renterRetryPreview.Reason != "reservation_already_started" {
+		t.Fatalf("renter retry must stay blocked after start: %+v", renterRetryPreview)
+	}
+
+	previewHost, err := repo.PreviewCommercialCancellation(ctx, f.host, f.reservationID, afterStart)
+	if err != nil {
+		t.Fatalf("preview failed: %v", err)
+	}
+	if !previewHost.CanCancel || previewHost.Reason != "host_post_start_refund" || previewHost.RefundAmountCLP != 1036 {
+		t.Fatalf("expected host_post_start_refund after start within 180 days: %+v", previewHost)
+	}
+
+	// Beyond 180 days from payment verification, retry must report refund_window_expired.
+	expiredPreview, err := repo.PreviewCommercialCancellation(ctx, f.host, f.reservationID, now.Add(181*24*time.Hour))
+	if err != nil {
+		t.Fatalf("expired preview failed: %v", err)
+	}
+	if expiredPreview.CanCancel || expiredPreview.Reason != "refund_window_expired" {
+		t.Fatalf("expected refund_window_expired after 180 days: %+v", expiredPreview)
+	}
+
+	// Host retries the renter-initiated failed refund with a new reason and finishes it.
+	retryOp, err := repo.BeginCommercialCancellation(ctx, f.host, f.reservationID, "Reintento tras reponer saldo", 1036, afterStart, uuid.NewString())
+	if err != nil || retryOp.RefundStatus != "pendiente" || retryOp.IdempotencyKey == op1.IdempotencyKey {
+		t.Fatalf("expected host retry with fresh idempotency key: %+v err=%v", retryOp, err)
+	}
+	finished, err := repo.FinishCommercialCancellation(ctx, f.reservationID, retryOp.IdempotencyKey, "99001", rentalflow.CommercialRefundApproved, afterStart.Add(time.Second))
+	if err != nil || finished.Status != "reembolsada" || finished.RefundStatus != rentalflow.CommercialRefundApproved {
+		t.Fatalf("expected host retry finish to refund reservation: %+v err=%v", finished, err)
+	}
+}
