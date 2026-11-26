@@ -77,13 +77,16 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 		out.CanCancel = false
 		out.Reason = "cancellation_started"
 		if existingStatus == "fallido" {
-			out.CanCancel = reservationState == "pagada" && now.Before(start) && paymentVerifiedAt.Valid && !now.After(paymentVerifiedAt.Time.Add(180*24*time.Hour))
-			out.Reason = "refund_failed"
-			if !out.CanCancel {
+			switch {
+			case reservationState != "pagada":
+				out.Reason = "reservation_not_paid"
+			case !paymentVerifiedAt.Valid || now.After(paymentVerifiedAt.Time.Add(180*24*time.Hour)):
 				out.Reason = "refund_window_expired"
-			} else if oldAmount > out.RefundableBalanceCLP {
-				out.CanCancel = false
+			case oldAmount > out.RefundableBalanceCLP:
 				out.Reason = "refund_requires_reconciliation"
+			default:
+				out.CanCancel = true
+				out.Reason = "refund_failed"
 			}
 		}
 		out.RefundPercent = oldPercent
@@ -169,16 +172,14 @@ func (r *Repository) BeginCommercialCancellation(ctx context.Context, actor, res
 		if preview.RefundAmountCLP != expectedRefundAmountCLP {
 			return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
 		}
-		// Replays are bound to the same actor and reason; they reuse the durable key.
+		// Replays are bound to the same actor and reason; retries of a failed
+		// refund may also be initiated by the host (e.g. after replenishing funds).
 		var savedActor, savedReason string
 		if err = tx.QueryRow(ctx, `SELECT actor_id::text,motivo FROM public.reserva_comercial_cancelacion WHERE reserva_id=$1::uuid`, reservationID).Scan(&savedActor, &savedReason); err != nil {
 			return rentalflow.CommercialCancellation{}, err
 		}
-		if !strings.EqualFold(savedActor, actor) || savedReason != strings.TrimSpace(reason) {
-			return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
-		}
 		if preview.RefundStatus == "fallido" {
-			if !preview.CanCancel {
+			if !preview.CanCancel || (!strings.EqualFold(savedActor, actor) && !strings.EqualFold(actor, preview.HostID)) {
 				return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
 			}
 			_, err = tx.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET refund_status='pendiente',clave_idempotencia=$3,provider_refund_id=NULL,intentos=intentos+1,actualizada_en=$2 WHERE reserva_id=$1::uuid`, reservationID, now.UTC(), requestID)
@@ -188,13 +189,18 @@ func (r *Repository) BeginCommercialCancellation(ctx context.Context, actor, res
 			preview.RefundStatus = "pendiente"
 			preview.IdempotencyKey = requestID
 			preview.ProviderRefundID = ""
-		} else if preview.RefundStatus == "pendiente" {
-			// Move claimed work to the back of the ordered queue even when an
-			// external token or provider call is temporarily unavailable.
-			if _, err = tx.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET actualizada_en=$2 WHERE reserva_id=$1::uuid AND refund_status='pendiente'`, reservationID, now.UTC()); err != nil {
-				return rentalflow.CommercialCancellation{}, err
+		} else {
+			if !strings.EqualFold(savedActor, actor) || savedReason != strings.TrimSpace(reason) {
+				return rentalflow.CommercialCancellation{}, rentalflow.ErrConflict
 			}
-			preview.RefundStatus = "pendiente"
+			if preview.RefundStatus == "pendiente" {
+				// Move claimed work to the back of the ordered queue even when an
+				// external token or provider call is temporarily unavailable.
+				if _, err = tx.Exec(ctx, `UPDATE public.reserva_comercial_cancelacion SET actualizada_en=$2 WHERE reserva_id=$1::uuid AND refund_status='pendiente'`, reservationID, now.UTC()); err != nil {
+					return rentalflow.CommercialCancellation{}, err
+				}
+				preview.RefundStatus = "pendiente"
+			}
 		}
 		if err = tx.Commit(ctx); err != nil {
 			return rentalflow.CommercialCancellation{}, err
