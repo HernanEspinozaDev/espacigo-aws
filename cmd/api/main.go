@@ -348,7 +348,7 @@ func run() error {
 			service.SetTOTPLoginEnabled(os.Getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 		}
 		localIdentityService = service
-		identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, service, cfg, os.Getenv, false)
+		identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, service, authMailer, cfg, os.Getenv, false)
 		if err != nil {
 			return err
 		}

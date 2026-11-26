@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import {
+  type AccountTOTPDisableInput,
   type AccountTOTPEnableResponse,
   type AccountTOTPSetupResponse,
   type AccountTOTPStatus,
@@ -26,7 +27,7 @@ export interface UseTOTPReturn {
   refresh: (signal?: AbortSignal) => Promise<void>;
   startSetup: () => Promise<AccountTOTPSetupResponse | null>;
   enable: (code: string) => Promise<AccountTOTPEnableResponse | null>;
-  disable: (code: string) => Promise<boolean>;
+  disable: (input: AccountTOTPDisableInput) => Promise<boolean>;
   clearError: () => void;
   clearNotification: () => void;
   clearBackupCodes: () => void;
@@ -84,7 +85,7 @@ export function useTOTP(): UseTOTPReturn {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo cargar el estado de Google Authenticator.",
+            : "No se pudo cargar el estado de tu autenticador.",
         );
       } finally {
         setIsLoading(false);
@@ -115,7 +116,7 @@ export function useTOTP(): UseTOTPReturn {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo cargar el estado de Google Authenticator.",
+            : "No se pudo cargar el estado de tu autenticador.",
         );
         setIsLoading(false);
       });
@@ -142,7 +143,7 @@ export function useTOTP(): UseTOTPReturn {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo iniciar la configuración de Google Authenticator.",
+            : "No se pudo iniciar la configuración de tu autenticador.",
         );
         return null;
       } finally {
@@ -165,7 +166,7 @@ export function useTOTP(): UseTOTPReturn {
         });
         setBackupCodes(data.backup_codes);
         setSetupData(null);
-        setNotification("¡Google Authenticator ha sido activado exitosamente!");
+        setNotification("¡tu autenticador ha sido activado exitosamente!");
         return data;
       } catch (err) {
         if (err instanceof TOTPApiError && err.status === 401) {
@@ -174,7 +175,7 @@ export function useTOTP(): UseTOTPReturn {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo verificar el código de Google Authenticator.",
+            : "No se pudo verificar el código de tu autenticador.",
         );
         return null;
       } finally {
@@ -185,12 +186,12 @@ export function useTOTP(): UseTOTPReturn {
   );
 
   const disable = useCallback(
-    async (code: string): Promise<boolean> => {
+    async (input: AccountTOTPDisableInput): Promise<boolean> => {
       try {
         setIsDisabling(true);
         setError(null);
         setNotification(null);
-        await disableAccountTOTP({ code });
+        await disableAccountTOTP(input);
         setStatus({
           enabled: false,
           pending_setup: false,
@@ -199,9 +200,7 @@ export function useTOTP(): UseTOTPReturn {
         });
         setBackupCodes(null);
         setSetupData(null);
-        setNotification(
-          "Google Authenticator ha sido desactivado de tu cuenta.",
-        );
+        setNotification("tu autenticador ha sido desactivado de tu cuenta.");
         return true;
       } catch (err) {
         if (err instanceof TOTPApiError && err.status === 401) {
@@ -210,7 +209,7 @@ export function useTOTP(): UseTOTPReturn {
         setError(
           err instanceof Error
             ? err.message
-            : "No se pudo desactivar Google Authenticator.",
+            : "No se pudo desactivar tu autenticador.",
         );
         return false;
       } finally {

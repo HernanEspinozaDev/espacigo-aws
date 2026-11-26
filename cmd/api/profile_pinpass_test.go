@@ -4,16 +4,31 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	password "github.com/HernanEspinozaDev/espaciGo/internal/adapters/password/bcrypt"
+	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilepin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+type pinpassTestMailer struct {
+	recipient string
+	code      identity.Secret
+}
+
+func (m *pinpassTestMailer) SendLocalBookingNotice(_ context.Context, recipient, _, body string) error {
+	m.recipient = recipient
+	_, tail, _ := strings.Cut(body, " es ")
+	code, _, _ := strings.Cut(tail, ".")
+	m.code = identity.Secret(code)
+	return nil
+}
 
 func TestPostgresPinpassPasswordStepUp(t *testing.T) {
 	dsn := os.Getenv("ESPACIGO_PROFILE_TEST_DATABASE_URL")
@@ -48,13 +63,27 @@ func TestPostgresPinpassPasswordStepUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	account, session := uuid.NewString(), uuid.NewString()
-	if _, err := admin.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,hash_clave,estado) VALUES($1,'reauth@example.test',$2,'activo')`, account, string(hash)); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'reauth@example.test','reauth@example.test',$2,'activo')`, account, string(hash)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := admin.Exec(ctx, `INSERT INTO public.sesion(id,usuario_id,expira_en,ultima_actividad_en) VALUES ($1,$2,now()+interval '1 hour',now())`, session, account); err != nil {
 		t.Fatal(err)
 	}
-	gate := pinpassStepUp{pool: pool}
+	mailer := &pinpassTestMailer{}
+	gate := pinpassStepUp{pool: pool, pepper: make([]byte, 32), mailer: mailer}
+	if _, err := gate.SendEmailCode(ctx, account, session, "pinpass"); err != nil {
+		t.Fatal(err)
+	}
+	if mailer.recipient != "reauth@example.test" || !pinpassCodePattern.MatchString(string(mailer.code)) {
+		t.Fatal("expected a six-digit code sent to the account email")
+	}
+	first := profilepin.Proof{CurrentPassword: secret, EmailCode: mailer.code, ManagePinpass: true}
+	if err := gate.Verify(ctx, account, session, first); err != nil {
+		t.Fatalf("initial Pinpass proof without an authenticator: %v", err)
+	}
+	if err := gate.Verify(ctx, account, session, first); !errors.Is(err, profilepin.ErrStepUpRejected) {
+		t.Fatalf("email code replay: %v", err)
+	}
 	if err := gate.Verify(ctx, account, session, profilepin.Proof{CurrentPassword: secret}); err != nil {
 		t.Fatalf("current password and session rejected: %v", err)
 	}
@@ -81,6 +110,10 @@ func TestPostgresPinpassPasswordStepUp(t *testing.T) {
 		VALUES($1,$2,$3,now())`, account, ciphertext, version); err != nil {
 		t.Fatal(err)
 	}
+	repo := identitypg.NewIdentityRepository(pool)
+	if err := repo.SavePendingTOTPSecret(ctx, account, ciphertext, version); !errors.Is(err, identity.ErrTOTPAlreadyEnabled) {
+		t.Fatalf("an open session could replace an active authenticator: %v", err)
+	}
 	step := time.Now().Unix() / 30
 	otpOnly := profilepin.Proof{OTPCode: identity.Secret(identity.GenerateTOTPCode(authenticator, step, 6))}
 	if err := gate.Verify(ctx, account, session, otpOnly); err != nil {
@@ -101,6 +134,29 @@ func TestPostgresPinpassPasswordStepUp(t *testing.T) {
 	}
 	if err := gate.Verify(ctx, account, session, profilepin.Proof{CurrentPassword: secret}); err != nil {
 		t.Fatalf("password-only compatibility: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `UPDATE public.cuenta_totp SET last_verified_step=NULL WHERE account_id=$1`, account); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `UPDATE public.account_pinpass_email_challenge SET sent_at=now()-interval '2 minutes' WHERE account_id=$1`, account); err != nil {
+		t.Fatal(err)
+	}
+	change := profilepin.Proof{CurrentPassword: secret, OTPCode: identity.Secret(identity.GenerateTOTPCode(authenticator, time.Now().Unix()/30, 6))}
+	if _, err := gate.StartEmailChange(ctx, account, session, "reauth-new@example.test", change); err != nil {
+		t.Fatal(err)
+	}
+	if mailer.recipient != "reauth-new@example.test" {
+		t.Fatal("email change challenge did not go to the new address")
+	}
+	if err := gate.ConfirmEmailChange(ctx, account, session, mailer.code); err != nil {
+		t.Fatal(err)
+	}
+	var email string
+	if err := admin.QueryRow(ctx, `SELECT correo_normalizado FROM public.usuario WHERE id=$1`, account).Scan(&email); err != nil || email != "reauth-new@example.test" {
+		t.Fatalf("new email was not saved: %v", err)
+	}
+	if err := gate.ConfirmEmailChange(ctx, account, session, mailer.code); !errors.Is(err, profilepin.ErrStepUpRejected) {
+		t.Fatalf("new email code replay: %v", err)
 	}
 	for range 5 {
 		if err := gate.Verify(ctx, account, session, profilepin.Proof{CurrentPassword: "synthetic-wrong"}); !errors.Is(err, profilepin.ErrStepUpRejected) {

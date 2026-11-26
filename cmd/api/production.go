@@ -145,7 +145,7 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
-	identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, authService, cfg, getenv, true)
+	identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, authService, mailer, cfg, getenv, true)
 	if err != nil {
 		return nil, err
 	}

@@ -47,6 +47,15 @@
         "public.sesion",
         "public.usuario"
       ]
+    },
+    "V000009__pinpass_codigo_correo.sql": {
+      "checksum": "52b7cab191b041c79899dc23b7510f7067a141d33526d49db2c36bde34c596a3",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.account_identity_profile",
+        "public.sesion",
+        "public.usuario"
+      ]
     }
   },
   "review_required_migrations": {

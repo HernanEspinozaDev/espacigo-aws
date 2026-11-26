@@ -28,7 +28,19 @@ func (s *Store) Credential(ctx context.Context, accountID string) (profilepin.Cr
 	return c, err == nil, err
 }
 
-func (s *Store) SetCredentialAndRevoke(ctx context.Context, accountID string, c profilepin.Credential, sessionID string, at time.Time) error {
+func checkCredentialVersion(ctx context.Context, tx pgx.Tx, accountID string, expected []byte) error {
+	var current []byte
+	err := tx.QueryRow(ctx, `SELECT verifier_hash FROM public.account_pinpass WHERE account_id=$1`, accountID).Scan(&current)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if subtle.ConstantTimeCompare(current, expected) != 1 {
+		return profilepin.ErrStepUpRejected
+	}
+	return nil
+}
+
+func (s *Store) SetCredentialAndRevoke(ctx context.Context, accountID string, c profilepin.Credential, sessionID string, expectedHash []byte, at time.Time) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -45,6 +57,9 @@ func (s *Store) SetCredentialAndRevoke(ctx context.Context, accountID string, c 
 		return err
 	} else if !sessionOK {
 		return profilepin.ErrNoAccess
+	}
+	if err := checkCredentialVersion(ctx, tx, accountID, expectedHash); err != nil {
+		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.account_pinpass(account_id,verifier_salt,verifier_hash,created_at,updated_at)
 VALUES($1,$2,$3,$4,$4) ON CONFLICT(account_id) DO UPDATE SET verifier_salt=EXCLUDED.verifier_salt,verifier_hash=EXCLUDED.verifier_hash,updated_at=EXCLUDED.updated_at`, accountID, c.Salt, c.Hash, at)
@@ -60,7 +75,7 @@ VALUES($1,$2,$3,$4,$4) ON CONFLICT(account_id) DO UPDATE SET verifier_salt=EXCLU
 	return tx.Commit(ctx)
 }
 
-func (s *Store) DeleteCredentialAndRevoke(ctx context.Context, accountID, sessionID string, at time.Time) error {
+func (s *Store) DeleteCredentialAndRevoke(ctx context.Context, accountID, sessionID string, expectedHash []byte, at time.Time) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -77,6 +92,9 @@ func (s *Store) DeleteCredentialAndRevoke(ctx context.Context, accountID, sessio
 		return err
 	} else if !sessionOK {
 		return profilepin.ErrNoAccess
+	}
+	if err := checkCredentialVersion(ctx, tx, accountID, expectedHash); err != nil {
+		return err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM public.account_pinpass WHERE account_id=$1`, accountID); err != nil {
 		return err

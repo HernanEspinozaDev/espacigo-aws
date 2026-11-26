@@ -69,7 +69,9 @@ type AccountTOTPEnableResponse struct {
 
 // AccountTOTPDisableInput is the payload to disable TOTP using a code or backup code.
 type AccountTOTPDisableInput struct {
-	Code string `json:"code"`
+	Code            string `json:"code"`
+	CurrentPassword Secret `json:"current_password"`
+	EmailCode       Secret `json:"email_code"`
 }
 
 // AccountTOTPDisableResponse is returned when TOTP is successfully disabled.
@@ -591,6 +593,16 @@ func verifyTOTPOrBackupCode(ctx context.Context, totpTx totpLoginTransaction, kr
 	return "", ErrTOTPInvalidCode
 }
 
+func (s *AuthenticationService) DisableTOTPWithConfirmation(ctx context.Context, p Principal, input AccountTOTPDisableInput, deviceLabel, ipMasked string) (AccountTOTPDisableResponse, error) {
+	if s.securityChangeVerifier == nil {
+		return s.DisableTOTP(ctx, p.AccountID, input.Code, deviceLabel, ipMasked)
+	}
+	if err := s.securityChangeVerifier(ctx, p, "authenticator", input.CurrentPassword, "", input.EmailCode, ""); err != nil {
+		return AccountTOTPDisableResponse{}, err
+	}
+	return s.disableTOTP(ctx, p.AccountID, deviceLabel, ipMasked)
+}
+
 // DisableTOTP verifies a valid TOTP code or backup code and deactivates TOTP.
 func (s *AuthenticationService) DisableTOTP(ctx context.Context, accountID string, code string, deviceLabel, ipMasked string) (AccountTOTPDisableResponse, error) {
 	if accountID == "" {
@@ -636,6 +648,10 @@ func (s *AuthenticationService) DisableTOTP(ctx context.Context, accountID strin
 		return AccountTOTPDisableResponse{}, ErrTOTPInvalidCode
 	}
 
+	return s.disableTOTP(ctx, accountID, deviceLabel, ipMasked)
+}
+
+func (s *AuthenticationService) disableTOTP(ctx context.Context, accountID, deviceLabel, ipMasked string) (AccountTOTPDisableResponse, error) {
 	if err := s.repo.DisableTOTP(ctx, accountID); err != nil {
 		return AccountTOTPDisableResponse{}, err
 	}
