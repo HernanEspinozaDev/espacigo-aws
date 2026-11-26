@@ -386,6 +386,7 @@ func newCheckoutPreferenceServiceWithGateway(repo *rentalflowpg.Repository, toke
 		return nil, errors.New("wallet purchase is only enabled in the test environment")
 	}
 	return checkoutpro.New(repo, tokens, gateway, checkoutpro.Config{
+		BuyerForPreference:    repo.CheckoutBuyer,
 		FrontendOrigin:        strings.TrimSpace(getenv("MERCADOPAGO_RETURN_ORIGIN")),
 		TestMode:              settings.TestMode,
 		WalletPurchaseEnabled: walletPurchaseEnabled,
