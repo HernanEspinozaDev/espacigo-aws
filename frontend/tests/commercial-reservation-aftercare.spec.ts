@@ -1134,3 +1134,74 @@ test("host sees inline error inside cancellation section when refund fails with 
       .getByText(/service_unavailable/),
   ).toBeVisible();
 });
+
+test("cancellation preview renders color-coded policy badge, partial retained amount, and zero-refund notice", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "arrendatario",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancellation-preview`,
+    (route) =>
+      route.fulfill(
+        json({
+          reservation_id: reservationId,
+          can_cancel: true,
+          reason: "eligible",
+          cancellation_policy_version: "moderada_v1",
+          cancellation_policy_text:
+            "Moderada: reembolso del 50 % hasta 48 horas antes del inicio del arriendo.",
+          refund_percent: 50,
+          total_charged_clp: 12000,
+          refunded_amount_clp: 0,
+          refundable_balance_clp: 12000,
+          refund_amount_clp: 6000,
+          currency: "CLP",
+          starts_at: startsAt,
+        }),
+      ),
+  );
+  await page.goto(`/reservas/${reservationId}`);
+  await expect(page.getByText("Incluida en el contrato")).toBeVisible();
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await expect(page.getByText("Monto retenido por política")).toBeVisible();
+  await expect(
+    page
+      .getByText("Monto retenido por política")
+      .locator("..")
+      .getByText("$6.000 CLP"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Reembolso parcial del 50% según el contrato firmado/),
+  ).toBeVisible();
+
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancellation-preview`,
+    (route) =>
+      route.fulfill(
+        json({
+          reservation_id: reservationId,
+          can_cancel: true,
+          reason: "eligible_no_refund",
+          cancellation_policy_version: "estricta_v1",
+          cancellation_policy_text:
+            "Estricta: sin reembolso después de confirmar la reserva.",
+          refund_percent: 0,
+          total_charged_clp: 12000,
+          refunded_amount_clp: 0,
+          refundable_balance_clp: 12000,
+          refund_amount_clp: 0,
+          currency: "CLP",
+          starts_at: startsAt,
+        }),
+      ),
+  );
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await expect(
+    page.getByText(
+      /Cancelación sin reembolso según la política del contrato firmado/,
+    ),
+  ).toBeVisible();
+});

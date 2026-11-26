@@ -623,14 +623,20 @@ func isInsufficientFundsCause(rawCode any, rawDescription string) bool {
 	hasBalanceOrFundsWord := strings.Contains(desc, "balance") ||
 		strings.Contains(desc, "fund") ||
 		strings.Contains(desc, "saldo") ||
-		strings.Contains(desc, "fondos")
+		strings.Contains(desc, "fondos") ||
+		strings.Contains(desc, "money") ||
+		strings.Contains(desc, "dinero")
 	hasShortageWord := strings.Contains(desc, "insufficient") ||
 		strings.Contains(desc, "not enough") ||
+		strings.Contains(desc, "hasn't enough") ||
+		strings.Contains(desc, "hasnt enough") ||
 		strings.Contains(desc, "insuficiente")
 	if hasBalanceOrFundsWord && hasShortageWord {
 		return true
 	}
 	switch code {
+	case "2031":
+		return true
 	case "2017", "3006", "3011":
 		return hasBalanceOrFundsWord || (strings.Contains(desc, "insufficient") && strings.Contains(desc, "amount"))
 	default:
