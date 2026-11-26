@@ -1,12 +1,13 @@
 import type {
   IdentityProfileInput,
   IdentityProfileSummary,
+  ProfileConfirmationProof,
 } from "../domain/identity-profile";
 import type { components } from "@/lib/api/generated/openapi";
 import {
   getIdentityProfile,
   refreshIdentityVerification,
-  restoreIdentityProfileDraft,
+  readProtectedIdentityProfile,
   saveIdentityProfile,
   saveIdentityProfileDraft,
   saveIdentityUsername,
@@ -118,12 +119,17 @@ export class IdentityProfileStore {
     await this.reload();
   }
 
-  restoreDraft(
-    currentPassword: string,
+  readProtectedProfile(
+    proof: ProfileConfirmationProof,
+    intent: "draft" | "edit",
   ): Promise<components["schemas"]["IdentityProfileDraft"]> {
-    if (!this.#snapshot.accountId)
-      throw new Error("La sesión ya no está disponible.");
-    return restoreIdentityProfileDraft(currentPassword);
+    const accountId = this.#snapshot.accountId;
+    if (!accountId) throw new Error("La sesión ya no está disponible.");
+    return readProtectedIdentityProfile(proof, intent).then((data) => {
+      if (this.#snapshot.accountId !== accountId)
+        throw new Error("La sesión cambió durante la confirmación.");
+      return data;
+    });
   }
 
   startVerification(returnTo?: string | null): Promise<{ url: string }> {

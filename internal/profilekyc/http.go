@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/profilepin"
 )
 
 const BaseRoute = "/api/v1/account/identity-profile"
@@ -24,11 +25,7 @@ type Authorizer interface {
 
 type DecodeNotice func(http.Header, []byte) (Notice, error)
 
-type RecentAuthentication interface {
-	VerifyPassword(context.Context, string, string, identity.Secret) error
-}
-
-func Register(mux *http.ServeMux, auth Authorizer, s *Verifier, decodeNotice DecodeNotice, recent RecentAuthentication) {
+func Register(mux *http.ServeMux, auth Authorizer, s *Verifier, decodeNotice DecodeNotice, recent profilepin.StepUp, pinpass *profilepin.Service) {
 	mux.HandleFunc("GET "+BaseRoute, withAccount(auth, func(w http.ResponseWriter, r *http.Request, id string) {
 		out, err := s.Status(r.Context(), id)
 		writeResult(w, http.StatusOK, out, err)
@@ -48,20 +45,41 @@ func Register(mux *http.ServeMux, auth Authorizer, s *Verifier, decodeNotice Dec
 		}
 		writeResult(w, http.StatusOK, map[string]bool{"saved": true}, s.SaveDraft(r.Context(), id, data))
 	}))
-	mux.HandleFunc("POST "+BaseRoute+"/draft/restore", withPrincipal(auth, func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
-		var input struct {
-			CurrentPassword identity.Secret `json:"current_password"`
-		}
-		if !readJSON(w, r, &input) {
-			return
-		}
-		if recent == nil || recent.VerifyPassword(r.Context(), p.AccountID, p.SessionID, input.CurrentPassword) != nil {
-			writeError(w, 403, "reauthentication_required", nil)
-			return
-		}
-		out, err := s.ReadDraft(r.Context(), p.AccountID)
-		writeResult(w, http.StatusOK, out, err)
-	}))
+	readProtected := func(read func(context.Context, string) (Data, error)) http.HandlerFunc {
+		return withPrincipal(auth, func(w http.ResponseWriter, r *http.Request, p identity.Principal) {
+			var input struct {
+				CurrentPassword identity.Secret `json:"current_password"`
+				OTPCode         identity.Secret `json:"otp_code"`
+				PIN             identity.Secret `json:"pin"`
+			}
+			if !readJSON(w, r, &input) {
+				return
+			}
+			proof := profilepin.Proof{CurrentPassword: input.CurrentPassword, OTPCode: input.OTPCode}
+			var err error
+			switch {
+			case input.PIN != "" && !proof.Present() && pinpass != nil:
+				_, err = pinpass.Unlock(r.Context(), p.AccountID, p.SessionID, string(input.PIN))
+			case input.PIN == "" && proof.Present() && recent != nil:
+				err = recent.Verify(r.Context(), p.AccountID, p.SessionID, proof)
+			default:
+				err = profilepin.ErrStepUpRejected
+			}
+			if err != nil {
+				var locked *profilepin.LockedError
+				if errors.As(err, &locked) {
+					writeError(w, 429, "temporarily_locked", nil)
+				} else {
+					writeError(w, 403, "reauthentication_required", nil)
+				}
+				return
+			}
+			out, err := read(r.Context(), p.AccountID)
+			writeResult(w, http.StatusOK, out, err)
+		})
+	}
+	mux.HandleFunc("POST "+BaseRoute+"/draft/restore", readProtected(s.ReadDraft))
+	mux.HandleFunc("POST "+BaseRoute+"/edit", readProtected(s.ReadForEdit))
 	mux.HandleFunc("PATCH "+BaseRoute+"/username", withAccount(auth, func(w http.ResponseWriter, r *http.Request, id string) {
 		var in struct {
 			Username string `json:"username"`

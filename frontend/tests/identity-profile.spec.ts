@@ -11,6 +11,8 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   const requestsOutsideLoopback: string[] = [];
   const apiCalls: Array<{ path: string; method: string; body?: unknown }> = [];
   let pinpassExpiresAt: string | null = null;
+  let savedData: Record<string, unknown> = {};
+  let draftData: Record<string, unknown> = {};
   let profile: Record<string, unknown> = {
     complete: false,
     state: "incomplete",
@@ -74,14 +76,51 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     ) {
       const body = request.postDataJSON() as Record<string, unknown>;
       apiCalls.push({ path, method, body });
+      savedData = body;
       profile = {
         ...profile,
         complete: true,
+        draft_saved: false,
         state: "ready",
         username: String(body.username),
         masked_rut: "•••••678-5",
       };
       result = { status: 200, body: profile };
+    } else if (
+      path === "/api/backend/account/identity-profile/draft" &&
+      method === "PATCH"
+    ) {
+      draftData = request.postDataJSON();
+      profile = { ...profile, draft_saved: true };
+      result = { status: 200, body: { saved: true } };
+    } else if (
+      path === "/api/backend/account/identity-profile/draft/restore" &&
+      method === "POST"
+    ) {
+      const proof = request.postDataJSON();
+      apiCalls.push({ path, method, body: proof });
+      result =
+        proof.current_password === "SyntheticOnly123!"
+          ? { status: 200, body: draftData }
+          : {
+              status: 403,
+              body: { error: { code: "reauthentication_required" } },
+            };
+    } else if (
+      path === "/api/backend/account/identity-profile/edit" &&
+      method === "POST"
+    ) {
+      const proof = request.postDataJSON();
+      apiCalls.push({ path, method, body: proof });
+      result =
+        proof.otp_code === "654321" || proof.pin === "123456"
+          ? { status: 200, body: savedData }
+          : {
+              status: 403,
+              body: { error: { code: "reauthentication_required" } },
+            };
+    } else if (path === "/api/backend/account/security/methods") {
+      result = { status: 200, body: { methods: { totp: { enabled: true } } } };
     } else if (
       path === "/api/backend/account/identity-profile/verification" &&
       method === "POST"
@@ -129,14 +168,16 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
       method === "GET"
     ) {
       apiCalls.push({ path, method });
-      result = {
-        status: 200,
-        body: {
-          field: "email",
-          value: "identity@example.invalid",
-          access_expires_at: pinpassExpiresAt,
-        },
-      };
+      result = pinpassExpiresAt
+        ? {
+            status: 200,
+            body: {
+              field: "email",
+              value: "identity@example.invalid",
+              access_expires_at: pinpassExpiresAt,
+            },
+          }
+        : { status: 403, body: { error: { code: "pinpass_access_required" } } };
     } else {
       apiCalls.push({ path, method });
       result = { status: 404, body: { error: { code: "not_found" } } };
@@ -205,12 +246,27 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   await page.locator("#identity-profile-first_name").fill("Ana María");
   await page.locator("#identity-profile-first_last_name").fill("González");
   await page.locator("#identity-profile-second_last_name").fill("Prueba");
-  await page.locator("#identity-profile-rut").fill("12345678-5");
+  await page.locator("#identity-profile-rut").fill("12345678-5000000000000");
   await expect(page.locator("#identity-profile-rut")).toHaveValue(
     "12.345.678-5",
   );
   await page.locator("#identity-profile-date_of_birth").fill("1990-01-02");
-  await page.locator("#identity-profile-phone").fill("+56 9 1234 5678");
+  await page.locator("#identity-profile-phone").fill("+56 9 1234 5678 1234");
+  await expect(page.locator("#identity-profile-phone")).toHaveValue("12345678");
+  await page.getByRole("button", { name: "Guardar borrador" }).click();
+  await page.getByRole("button", { name: "Continuar perfil" }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Confirma tu identidad",
+  });
+  await expect(confirmation).toBeVisible();
+  await expect(
+    page.getByText("Continuar un borrador", { exact: true }),
+  ).toHaveCount(0);
+  await confirmation.getByLabel("Contraseña actual").fill("SyntheticOnly123!");
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.locator("#identity-profile-first_name")).toHaveValue(
+    "Ana María",
+  );
   await page.locator("#identity-profile-consent").check();
   await page.getByRole("button", { name: "Guardar perfil" }).click();
 
@@ -223,12 +279,26 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Editar datos" }).click();
   await expect(
+    confirmation.getByRole("button", { name: "Pinpass", exact: true }),
+  ).toBeEnabled();
+  await confirmation.getByRole("button", { name: "Autenticador" }).click();
+  await confirmation.getByLabel("Código del autenticador").fill("654321");
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
+  await expect(
     page.getByRole("form", { name: "Editar datos del perfil" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Cancelar", exact: true }).click();
   await expect(
     page.getByRole("form", { name: "Editar datos del perfil" }),
   ).toHaveCount(0);
+  await page.getByRole("button", { name: "Editar datos" }).click();
+  await confirmation
+    .getByRole("button", { name: "Pinpass", exact: true })
+    .click();
+  await confirmation.getByLabel("Ingresa tu Pinpass").fill("123456");
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.locator("#identity-profile-phone")).toHaveValue("12345678");
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
   const put = apiCalls.find((call) => call.method === "PUT");
   expect(put?.body).toMatchObject({
     username: "sintetica_ana",
@@ -284,19 +354,12 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   const pin = page.getByLabel("Ingresa tu Pinpass");
   await expect(pin).toBeVisible();
   await pin.fill("111111");
-  await page.getByRole("button", { name: "Verificar Pinpass" }).click();
-  await expect(page.locator("#pinpass [role=alert]")).toContainText(
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
+  await expect(confirmation.getByRole("alert")).toContainText(
     "El Pinpass no coincide. Revisa los seis dígitos.",
   );
-  await expect(
-    page.getByRole("button", { name: "Mostrar Correo electrónico" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "sintetica_ana" }),
-  ).toBeVisible();
-
   await pin.fill("123456");
-  await page.getByRole("button", { name: "Verificar Pinpass" }).click();
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
   await expect(
     page.getByText("identity@example.invalid", { exact: true }),
   ).toBeVisible();
@@ -311,7 +374,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   await expect(
     showEmailAgain
       .locator("xpath=..")
-      .getByText("••••••••••••", { exact: true }),
+      .getByText("i***@example.invalid", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "sintetica_ana" }),

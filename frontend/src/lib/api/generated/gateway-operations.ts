@@ -41,6 +41,16 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "POST",
+    path: "/account/identity-profile/edit",
+    operationId: "openOwnIdentityProfileForEditing",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "PATCH",
     path: "/account/identity-profile/username",
     operationId: "changeOwnPublicUsername",

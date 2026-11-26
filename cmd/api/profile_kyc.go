@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc/didit"
 	"github.com/google/uuid"
@@ -129,9 +130,15 @@ func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth profileky
 			return profilekyc.Notice{ID: event.EventID, SessionID: event.SessionID, AttemptID: event.VendorData, OccurredAt: time.Unix(timestamp, 0)}, nil
 		}
 	}
-	profilekyc.Register(mux, auth, profilekyc.NewVerifier(service, provider), decoder, pinpassStepUp{pool: pool})
-	if err := mountPinpass(mux, pool, auth, service, getenv); err != nil {
+	keyring, err := identity.LoadTOTPKeyring(getenv)
+	if err != nil {
 		return nil, nil, err
 	}
+	stepUp := pinpassStepUp{pool: pool, totp: keyring}
+	pinpass, err := mountPinpass(mux, pool, auth, service, stepUp, getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	profilekyc.Register(mux, auth, profilekyc.NewVerifier(service, provider), decoder, stepUp, pinpass)
 	return service, keys, nil
 }

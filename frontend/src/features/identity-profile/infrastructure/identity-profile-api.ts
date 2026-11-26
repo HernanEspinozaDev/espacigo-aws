@@ -5,6 +5,7 @@ import type { components } from "@/lib/api/generated/openapi";
 import type {
   IdentityProfileInput,
   IdentityProfileSummary,
+  ProfileConfirmationProof,
 } from "../domain/identity-profile";
 
 export async function getIdentityProfile(
@@ -68,13 +69,16 @@ export async function saveIdentityProfileDraft(
     throw normalizeApiError(result.response, result.error);
 }
 
-export async function restoreIdentityProfileDraft(
-  currentPassword: string,
+export async function readProtectedIdentityProfile(
+  proof: ProfileConfirmationProof,
+  intent: "draft" | "edit",
 ): Promise<components["schemas"]["IdentityProfileDraft"]> {
   const result = await apiClient.POST(
-    "/account/identity-profile/draft/restore",
+    intent === "draft"
+      ? "/account/identity-profile/draft/restore"
+      : "/account/identity-profile/edit",
     {
-      body: { current_password: currentPassword },
+      body: proof,
       bodySerializer: serializeExactJson,
     },
   );

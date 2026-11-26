@@ -24,10 +24,6 @@ type pinpassStepUp struct {
 	totp *identity.TOTPKeyring
 }
 
-func (x pinpassStepUp) VerifyPassword(ctx context.Context, account, session string, password identity.Secret) error {
-	return x.Verify(ctx, account, session, profilepin.Proof{CurrentPassword: password})
-}
-
 func (x pinpassStepUp) Verify(ctx context.Context, account, session string, proof profilepin.Proof) error {
 	if !proof.Present() || len(proof.CurrentPassword) > 72 || len(proof.OTPCode) > 6 {
 		return profilepin.ErrStepUpRejected
@@ -101,24 +97,20 @@ func (x pinpassStepUp) Verify(ctx context.Context, account, session string, proo
 	return profilepin.ErrStepUpRejected
 }
 
-func mountPinpass(mux *http.ServeMux, pool *pgxpool.Pool, auth profilepin.Authorizer, profiles profilepin.SensitiveProfileProvider, getenv func(string) string) error {
+func mountPinpass(mux *http.ServeMux, pool *pgxpool.Pool, auth profilepin.Authorizer, profiles profilepin.SensitiveProfileProvider, stepUp pinpassStepUp, getenv func(string) string) (*profilepin.Service, error) {
 	var service *profilepin.Service
 	if configured := strings.TrimSpace(getenv("PROFILE_PINPASS_PEPPER_HEX")); configured != "" {
 		pepper, err := hex.DecodeString(configured)
 		if err != nil || len(pepper) != 32 {
-			return errors.New("profile Pinpass configuration is invalid")
+			return nil, errors.New("profile Pinpass configuration is invalid")
 		}
-		keyring, err := identity.LoadTOTPKeyring(getenv)
+		service, err = profilepin.NewService(profilepinpg.New(pool), stepUp, profiles, pepper)
 		if err != nil {
-			return err
-		}
-		service, err = profilepin.NewService(profilepinpg.New(pool), pinpassStepUp{pool: pool, totp: keyring}, profiles, pepper)
-		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	handler := profilepin.NewHandler(auth, service)
 	mux.Handle(pinpassBaseRoute, handler)
 	mux.Handle(pinpassBaseRoute+"/", handler)
-	return nil
+	return service, nil
 }

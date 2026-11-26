@@ -89,8 +89,25 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Restaurar el borrador propio aún incompleto con la contraseña actual */
+    /** Restaurar el borrador propio tras confirmar la identidad */
     post: operations["restoreOwnIdentityProfileDraft"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/identity-profile/edit": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Leer los datos del perfil propio tras confirmar la identidad */
+    post: operations["openOwnIdentityProfileForEditing"];
     delete?: never;
     options?: never;
     head?: never;
@@ -5737,6 +5754,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** @description Envía la contraseña actual, el PIN o el código del autenticador. */
+    IdentityProfileConfirmation: {
+      current_password?: $Write<string>;
+      pin?: $Write<string>;
+      otp_code?: $Write<string>;
+    };
     IdentityProfileDraft: {
       username?: string;
       first_name?: string;
@@ -11000,9 +11023,7 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": {
-          current_password: $Write<string>;
-        };
+        "application/json": components["schemas"]["IdentityProfileConfirmation"];
       };
     };
     responses: {
@@ -11016,7 +11037,7 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
-      /** @description Reautenticación rechazada. */
+      /** @description Confirmación rechazada. */
       403: {
         headers: {
           [name: string]: unknown;
@@ -11025,6 +11046,59 @@ export interface operations {
       };
       /** @description Sin borrador inicial disponible. */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description PIN temporalmente bloqueado. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  openOwnIdentityProfileForEditing: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["IdentityProfileConfirmation"];
+      };
+    };
+    responses: {
+      /** @description Datos del perfil propio para editar. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityProfileInput"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Confirmación rechazada. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Perfil incompleto. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description PIN temporalmente bloqueado. */
+      429: {
         headers: {
           [name: string]: unknown;
         };

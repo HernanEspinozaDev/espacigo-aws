@@ -49,9 +49,6 @@ interface PinpassCardProps {
 }
 
 const sensitiveFields = {
-  email: "Correo electrónico",
-  run: "RUN",
-  phone: "Teléfono",
   legal_name: "Nombre legal",
   date_of_birth: "Fecha de nacimiento",
 } as const;

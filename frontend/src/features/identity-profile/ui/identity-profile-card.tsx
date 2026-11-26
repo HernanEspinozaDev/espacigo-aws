@@ -6,6 +6,8 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
   Loader2,
   Pencil,
   ShieldCheck,
@@ -24,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import {
+  chileanMobileSubscriber,
   formatChileanRutAtCursor,
   normalizeChileanE164,
   normalizeChileanRut,
@@ -32,10 +35,26 @@ import {
   type IdentityProfileErrors,
   type IdentityProfileInput,
   type IdentityProfileState,
+  type ProfileConfirmationMethod,
 } from "../domain/identity-profile";
 import { useIdentityProfile } from "./use-identity-profile";
 import { PinpassAccountSection } from "@/features/account/ui/pinpass-card";
+import {
+  getPinpassStatus,
+  PinpassApiError,
+  revealPinpassValue,
+  unlockPinpass,
+} from "@/features/account/pinpass-api";
+import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
+import { ProfileConfirmationDialog } from "./profile-confirmation-dialog";
 import type { components } from "@/lib/api/generated/openapi";
+
+const privateFields = [
+  { field: "email", label: "Correo electrónico", masked: "masked_email" },
+  { field: "run", label: "RUN", masked: "masked_rut" },
+  { field: "phone", label: "Teléfono móvil", masked: "masked_phone" },
+] as const;
+type PrivateField = (typeof privateFields)[number]["field"];
 
 const EMPTY: IdentityProfileInput = {
   username: "",
@@ -60,6 +79,10 @@ const STATE_LABEL: Record<IdentityProfileState, string> = {
   expired: "Verificación vencida",
   revoked: "Verificación revocada",
 };
+
+function remainingAccess(expiresAt: string): number {
+  return Date.parse(expiresAt) - Date.now();
+}
 
 function errorCode(error: unknown): string | null {
   return error instanceof ApiError ? error.code : null;
@@ -89,7 +112,7 @@ function IdentityProfileCardSession({
     save,
     saveUsername,
     saveDraft,
-    restoreDraft,
+    readProtectedProfile,
     reload,
     startVerification,
     refreshVerification,
@@ -97,8 +120,19 @@ function IdentityProfileCardSession({
   const [form, setForm] = useState<IdentityProfileInput>(EMPTY);
   const [username, setUsername] = useState("");
   const [usernameTouched, setUsernameTouched] = useState(false);
-  const [draftPassword, setDraftPassword] = useState("");
-  const [draftRestored, setDraftRestored] = useState(false);
+  const [confirmation, setConfirmation] = useState<
+    "draft" | "edit" | "username" | PrivateField | null
+  >(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(
+    null,
+  );
+  const [pinConfigured, setPinConfigured] = useState(false);
+  const { summary: securityMethods } = useSecurityMethodsSummary();
+  const [visibleValues, setVisibleValues] = useState<
+    Partial<Record<PrivateField, string>>
+  >({});
+  const privateRequest = useRef<AbortController | null>(null);
+  const visibilityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editor, setEditor] = useState<"identity" | "username" | null>(null);
   const [errors, setErrors] = useState<IdentityProfileErrors>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
@@ -148,13 +182,97 @@ function IdentityProfileCardSession({
       .finally(() => setBusy(false));
   }, [refreshOnMount, refreshVerification, snapshot.accountId]);
 
+  useEffect(() => {
+    if (!snapshot.accountId) return;
+    const controller = new AbortController();
+    void getPinpassStatus(controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setPinConfigured(result.configured);
+      })
+      .catch(() => {});
+    function hideValues() {
+      privateRequest.current?.abort();
+      setVisibleValues({});
+      if (visibilityTimer.current) clearTimeout(visibilityTimer.current);
+    }
+    function hideOnBackground() {
+      if (document.visibilityState !== "visible") hideValues();
+    }
+    document.addEventListener("visibilitychange", hideOnBackground);
+    return () => {
+      document.removeEventListener("visibilitychange", hideOnBackground);
+      controller.abort();
+      hideValues();
+      setPinConfigured(false);
+    };
+  }, [snapshot.accountId]);
+
+  function openConfirmation(next: NonNullable<typeof confirmation>) {
+    privateRequest.current?.abort();
+    setSummaryError(null);
+    setConfirmationError(null);
+    setConfirmation(next);
+  }
+
+  async function revealField(field: PrivateField, pin?: string) {
+    const controller = new AbortController();
+    privateRequest.current?.abort();
+    privateRequest.current = controller;
+    try {
+      if (pin) await unlockPinpass(pin);
+      if (controller.signal.aborted) return;
+      const result = await revealPinpassValue(field, controller.signal);
+      if (controller.signal.aborted) return;
+      const remaining = remainingAccess(result.access_expires_at);
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        setVisibleValues({});
+        openConfirmation(field);
+        return;
+      }
+      if (visibilityTimer.current) clearTimeout(visibilityTimer.current);
+      visibilityTimer.current = setTimeout(
+        () => setVisibleValues({}),
+        remaining,
+      );
+      setVisibleValues((current) => ({ ...current, [field]: result.value }));
+      setConfirmation(null);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (
+        !pin &&
+        error instanceof PinpassApiError &&
+        (error.code === "pinpass_access_required" ||
+          error.code === "pinpass_not_configured")
+      ) {
+        openConfirmation(field);
+      } else if (pin) {
+        setConfirmationError(
+          error instanceof Error
+            ? error.message
+            : "No pudimos mostrar este dato.",
+        );
+      } else {
+        setSummaryError("No pudimos mostrar este dato. Inténtalo nuevamente.");
+      }
+    }
+  }
+
+  function togglePrivateField(field: PrivateField) {
+    if (visibleValues[field] !== undefined) {
+      setVisibleValues((current) => ({ ...current, [field]: undefined }));
+    } else if (!pinConfigured) {
+      openConfirmation(field);
+    } else {
+      void revealField(field);
+    }
+  }
+
   function closeEditor() {
     setEditor(null);
     setForm(EMPTY);
     setUsername("");
     setUsernameTouched(false);
-    setDraftPassword("");
-    setDraftRestored(false);
+
     setTouched(new Set());
     setErrors({});
     setSummaryError(null);
@@ -378,9 +496,7 @@ function IdentityProfileCardSession({
     try {
       await saveDraft({ ...draft, document_type: "cl_id" });
       closeEditor();
-      setMessage(
-        "Borrador cifrado guardado. Para retomarlo, confirma tu contraseña actual.",
-      );
+      setMessage("Borrador guardado. Puedes continuar tu perfil más tarde.");
     } catch {
       setSummaryError("No pudimos guardar el borrador. Inténtalo nuevamente.");
     } finally {
@@ -388,48 +504,54 @@ function IdentityProfileCardSession({
     }
   }
 
-  async function handleRestoreDraft(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!draftPassword) {
-      setSummaryError(
-        "Ingresa tu contraseña actual para restaurar el borrador.",
-      );
-      return;
-    }
+  async function confirmIdentity(
+    method: ProfileConfirmationMethod,
+    value: string,
+  ) {
+    if (!confirmation) return;
     setBusy(true);
-    setSummaryError(null);
+    setConfirmationError(null);
     try {
-      const draft = await restoreDraft(draftPassword);
+      if (
+        confirmation === "email" ||
+        confirmation === "run" ||
+        confirmation === "phone"
+      ) {
+        await revealField(confirmation, value);
+        return;
+      }
+      const intent = confirmation === "draft" ? "draft" : "edit";
+      const data = await readProtectedProfile({ [method]: value }, intent);
+      closeEditor();
       setForm({
         ...EMPTY,
-        username: draft.username ?? "",
-        first_name: draft.first_name ?? "",
-        first_last_name: draft.first_last_name ?? "",
-        second_last_name: draft.second_last_name ?? "",
-        no_second_last_name: draft.no_second_last_name ?? false,
-        rut: draft.rut ?? "",
-        date_of_birth: draft.date_of_birth ?? "",
-        document_type: "cl_id",
-        phone: draft.phone ?? "",
-        consent: draft.consent ?? false,
+        username: data.username ?? "",
+        first_name: data.first_name ?? "",
+        first_last_name: data.first_last_name ?? "",
+        second_last_name: data.second_last_name ?? "",
+        no_second_last_name: data.no_second_last_name ?? false,
+        rut: formatChileanRutAtCursor(data.rut ?? "", 0).value,
+        date_of_birth: data.date_of_birth ?? "",
+        phone: data.phone?.startsWith("+569")
+          ? `+569${chileanMobileSubscriber(data.phone)}`
+          : (normalizeChileanE164(data.phone ?? "") ?? ""),
+        consent: data.consent ?? false,
       });
-      setDraftRestored(true);
-      setUsername(draft.username ?? "");
+      setUsername(data.username ?? "");
       setUsernameTouched(true);
-      setErrors({});
-      setTouched(new Set());
-      setMessage(
-        "Borrador restaurado. Completa los datos pendientes para guardar el perfil.",
-      );
+      setEditor(confirmation === "username" ? "username" : "identity");
+      setConfirmation(null);
     } catch (error) {
       const code = errorCode(error);
-      setSummaryError(
-        code === "reauthentication_failed" || code === "invalid_credentials"
-          ? "La contraseña no coincide. Inténtalo nuevamente."
-          : "No pudimos restaurar el borrador. Confirma tu contraseña y vuelve a intentarlo.",
+      setConfirmationError(
+        code === "temporarily_locked"
+          ? "Los intentos están temporalmente bloqueados. Vuelve a intentarlo más tarde."
+          : code === "reauthentication_required" ||
+              code === "reauthentication_failed"
+            ? "No pudimos confirmar tu identidad. Revisa el dato o elige otro método."
+            : "No pudimos cargar tus datos. Inténtalo nuevamente.",
       );
     } finally {
-      setDraftPassword("");
       setBusy(false);
     }
   }
@@ -470,7 +592,10 @@ function IdentityProfileCardSession({
                 else {
                   closeEditor();
                   setMessage(null);
-                  setEditor("identity");
+                  if (snapshot.summary?.complete) openConfirmation("edit");
+                  else if (snapshot.summary?.draft_saved)
+                    openConfirmation("draft");
+                  else setEditor("identity");
                 }
               }}
             >
@@ -519,22 +644,40 @@ function IdentityProfileCardSession({
                     onClick={() => {
                       closeEditor();
                       setMessage(null);
-                      setEditor("username");
+                      openConfirmation("username");
                     }}
                   >
                     Editar
                   </Button>
                 ) : null}
               </ProfileValue>
-              <ProfileValue
-                label="Correo electrónico"
-                value={snapshot.summary.masked_email}
-              />
-              <ProfileValue label="RUN" value={snapshot.summary.masked_rut} />
-              <ProfileValue
-                label="Teléfono móvil"
-                value={snapshot.summary.masked_phone}
-              />
+              {privateFields.map(({ field, label, masked }) => {
+                const revealed = visibleValues[field];
+                return (
+                  <ProfileValue
+                    key={field}
+                    label={label}
+                    value={revealed ?? snapshot.summary?.[masked]}
+                  >
+                    {snapshot.summary?.[masked] && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={busy}
+                        aria-label={`${revealed === undefined ? "Mostrar" : "Ocultar"} ${label}`}
+                        onClick={() => togglePrivateField(field)}
+                      >
+                        {revealed === undefined ? (
+                          <Eye aria-hidden="true" />
+                        ) : (
+                          <EyeOff aria-hidden="true" />
+                        )}
+                      </Button>
+                    )}
+                  </ProfileValue>
+                );
+              })}
             </dl>
           ) : null}
 
@@ -561,45 +704,6 @@ function IdentityProfileCardSession({
               />
               {summaryError}
             </p>
-          ) : null}
-
-          {editor === "identity" &&
-          snapshot.summary?.draft_saved &&
-          !snapshot.summary.complete &&
-          !draftRestored ? (
-            <form
-              className="space-y-3 rounded-lg border border-border p-4"
-              onSubmit={(event) => void handleRestoreDraft(event)}
-            >
-              <div>
-                <h3 className="font-semibold">Continuar un borrador</h3>
-                <p className="text-sm text-muted-foreground">
-                  Tu borrador está cifrado. Confirma la contraseña actual para
-                  cargar sus datos en este formulario.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="identity-profile-draft-password">
-                  Contraseña actual
-                </Label>
-                <Input
-                  id="identity-profile-draft-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={draftPassword}
-                  onChange={(event) => setDraftPassword(event.target.value)}
-                  disabled={busy}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="outline"
-                disabled={busy || !draftPassword}
-              >
-                Restaurar borrador
-              </Button>
-            </form>
           ) : null}
 
           {snapshot.summary?.complete && editor === "username" ? (
@@ -851,23 +955,36 @@ function IdentityProfileCardSession({
                   error={errors.phone}
                   valid={fieldState("phone")}
                 >
-                  <Input
-                    id="identity-profile-phone"
-                    type="tel"
-                    autoComplete="tel"
-                    inputMode="tel"
-                    placeholder="+56 9 1234 5678"
-                    value={form.phone}
-                    onChange={(event) => update("phone", event.target.value)}
-                    onBlur={() => touch("phone")}
-                    aria-invalid={Boolean(errors.phone)}
-                    aria-describedby="identity-profile-phone-help identity-profile-phone-error"
-                  />
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="shrink-0 rounded-md border bg-muted px-3 py-2 text-sm font-medium"
+                      aria-hidden="true"
+                    >
+                      +56 9
+                    </span>
+                    <Input
+                      id="identity-profile-phone"
+                      type="tel"
+                      autoComplete="tel-national"
+                      inputMode="numeric"
+                      placeholder="1234 5678"
+                      value={form.phone.slice(4)}
+                      onChange={(event) => {
+                        const subscriber = chileanMobileSubscriber(
+                          event.target.value,
+                        );
+                        update("phone", subscriber ? `+569${subscriber}` : "");
+                      }}
+                      onBlur={() => touch("phone")}
+                      aria-invalid={Boolean(errors.phone)}
+                      aria-describedby="identity-profile-phone-help identity-profile-phone-error"
+                    />
+                  </div>
                   <span
                     id="identity-profile-phone-help"
                     className="text-xs text-muted-foreground"
                   >
-                    Se guardará en formato internacional E.164.
+                    Ingresa los ocho dígitos que siguen a +56 9.
                   </span>
                 </Field>
                 <Field
@@ -1048,6 +1165,24 @@ function IdentityProfileCardSession({
       </Card>
 
       {snapshot.summary?.complete ? <PinpassAccountSection /> : null}
+      {confirmation && (
+        <ProfileConfirmationDialog
+          key={confirmation}
+          purpose={
+            confirmation === "draft"
+              ? "draft"
+              : confirmation === "edit" || confirmation === "username"
+                ? "edit"
+                : "reveal"
+          }
+          pinConfigured={pinConfigured}
+          otpConfigured={securityMethods?.methods.totp.enabled === true}
+          busy={busy}
+          error={confirmationError}
+          onClose={() => setConfirmation(null)}
+          onConfirm={(method, value) => void confirmIdentity(method, value)}
+        />
+      )}
     </div>
   );
 }
