@@ -68,6 +68,11 @@ Parameters:
       - 'true'
       - 'false'
 
+  DiditSecretArn:
+    Type: String
+    Default: ''
+    Description: ARN completo del secreto espacigo/<env>/identity/didit en Secrets Manager.
+
   AppCpu:
     Type: String
     Default: '256'
@@ -112,6 +117,7 @@ Conditions:
     - !Condition ProvisionApp
     - !Condition HasPublicTls
   EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
+  EnableDidit: !Not [!Equals [!Ref DiditSecretArn, '']]
   HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
   EnableGitHubCommitStatus: !And
     - !Not [!Equals [!Ref GitHubStatusSsmParameterName, '']]
@@ -419,12 +425,20 @@ Resources:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/cursor_key'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
               - !If
                 - EnableMercadoPago
                 - Effect: Allow
                   Action: secretsmanager:GetSecretValue
                   Resource:
                     - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/payments/mercadopago-*'
+                - !Ref AWS::NoValue
+              - !If
+                - EnableDidit
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource:
+                    - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:espacigo/${Environment}/identity/didit-*'
                 - !Ref AWS::NoValue
 
   AppRuntimeRole:
@@ -610,6 +624,10 @@ Resources:
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
             - Name: TOTP_KEYRING_JSON
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
+            - Name: CONTRACT_PROPOSAL_KEYRING_JSON
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
+            - Name: IDENTITY_DECLARATION_KEYRING_JSON
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
             - !If
               - EnableMercadoPago
               - Name: MERCADOPAGO_CLIENT_ID
@@ -629,6 +647,36 @@ Resources:
               - EnableMercadoPago
               - Name: MERCADOPAGO_WEBHOOK_SECRET
                 ValueFrom: !Sub '${MercadoPagoSecretArn}:webhook_secret::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: PROFILE_KYC_DIDIT_APPLICATION_ID
+                ValueFrom: !Sub '${DiditSecretArn}:PROFILE_KYC_DIDIT_APPLICATION_ID::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: PROFILE_KYC_DIDIT_WORKFLOW_ID
+                ValueFrom: !Sub '${DiditSecretArn}:PROFILE_KYC_DIDIT_WORKFLOW_ID::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: PROFILE_KYC_DIDIT_ENVIRONMENT
+                ValueFrom: !Sub '${DiditSecretArn}:PROFILE_KYC_DIDIT_ENVIRONMENT::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: PROFILE_KYC_DIDIT_API_KEY
+                ValueFrom: !Sub '${DiditSecretArn}:PROFILE_KYC_DIDIT_API_KEY::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: PROFILE_KYC_DIDIT_WEBHOOK_SECRET
+                ValueFrom: !Sub '${DiditSecretArn}:PROFILE_KYC_DIDIT_WEBHOOK_SECRET::'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableDidit
+              - Name: IDENTITY_RUT_HMAC_SECRET
+                ValueFrom: !Sub '${DiditSecretArn}:IDENTITY_RUT_HMAC_SECRET::'
               - !Ref AWS::NoValue
           LogConfiguration:
             LogDriver: awslogs
