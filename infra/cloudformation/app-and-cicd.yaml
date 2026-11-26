@@ -425,6 +425,7 @@ Resources:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/database/cursor_key'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/pinpass_pepper'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
               - !If
                 - EnableMercadoPago
@@ -624,6 +625,8 @@ Resources:
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/smtp_password'
             - Name: TOTP_KEYRING_JSON
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/totp_keyring'
+            - Name: PROFILE_PINPASS_PEPPER_HEX
+              ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/pinpass_pepper'
             - Name: CONTRACT_PROPOSAL_KEYRING_JSON
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
             - Name: IDENTITY_DECLARATION_KEYRING_JSON
