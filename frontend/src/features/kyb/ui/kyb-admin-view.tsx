@@ -93,7 +93,12 @@ export function KYBAdminView() {
     setError(null);
     try {
       const result = await adapter.getDocumentReviewURL(token, selected.id, document.id, new AbortController().signal);
-      setPreviewUrl(`/api/backend${result.download_url}`);
+      const signedPath = `/api/backend${result.download_url.replace(/^\/api\/v1/, "")}`;
+      const pdfResponse = await fetch(signedPath);
+      if (!pdfResponse.ok) throw new Error("pdf_fetch_failed");
+      const blob = await pdfResponse.blob();
+      if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(URL.createObjectURL(blob));
       setPreviewName(documentLabels[document.kind]);
     } catch (cause) {
       if (!isAbortError(cause)) setError("No fue posible emitir el enlace temporal del documento.");

@@ -175,7 +175,7 @@ func (r *Repository) getDocument(ctx context.Context, predicate string, args ...
 	query := `SELECT d.id::text,d.verification_id::text,d.document_kind,d.mime_type,d.size_bytes,d.content_sha256,d.storage_ref::text,
 		v.id::text,v.organization_id::text,o.usuario_id::text,v.submitted_by::text,v.legal_name,v.company_rut_fingerprint,
 		v.company_rut_key_version,v.company_rut_ciphertext,v.representative_name,v.representative_rut_fingerprint,
-		v.representative_rut_key_version,v.representative_rut_ciphertext,v.sii_giro_code,v.status,v.rejection_reason,
+		v.representative_rut_key_version,v.representative_rut_ciphertext,v.sii_giro_code,v.status,COALESCE(v.rejection_reason,''),
 		v.submitted_at,v.reviewed_at,COALESCE(v.reviewer_id::text,''),v.created_at,v.updated_at,v.idempotency_key
 		FROM public.kyb_verification_document d
 		JOIN public.kyb_verifications v ON v.id=d.verification_id
