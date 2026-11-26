@@ -1081,3 +1081,56 @@ test("host can issue a post-start refund with Reembolsar igualmente", async ({
     ),
   ).toBeVisible();
 });
+
+test("host sees inline error inside cancellation section when refund fails with 503", async ({
+  page,
+}) => {
+  await installAftercareFixture(page, {
+    role: "anfitrion",
+    reviewEligible: false,
+  });
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancellation-preview`,
+    (route) =>
+      route.fulfill(
+        json({
+          reservation_id: reservationId,
+          can_cancel: true,
+          reason: "host_post_start_refund",
+          cancellation_policy_version: "flexible_v1",
+          cancellation_policy_text: policyText,
+          refund_percent: 100,
+          total_charged_clp: 1036,
+          refunded_amount_clp: 0,
+          refundable_balance_clp: 1036,
+          refund_amount_clp: 1036,
+          currency: "CLP",
+          starts_at: startsAt,
+          refund_status: "fallido",
+        }),
+      ),
+  );
+  await page.route(
+    `**/api/backend/commercial-reservations/${reservationId}/cancel`,
+    (route) =>
+      route.fulfill({
+        status: 503,
+        json: { error: { code: "service_unavailable" } },
+      }),
+  );
+  await page.goto(`/anfitrion/reservas/${reservationId}`);
+  await page.getByRole("button", { name: "Ver monto de devolución" }).click();
+  await page.getByLabel("Motivo de la cancelación").fill("pago de prueba");
+  await page
+    .getByLabel(
+      "Confirmo que, aunque la hora de inicio ya pasó, quiero reembolsar esta reserva igualmente.",
+    )
+    .check();
+  await page.getByRole("button", { name: "Reembolsar igualmente" }).click();
+  await expect(page.getByTestId("commercial-cancellation-error")).toBeVisible();
+  await expect(
+    page
+      .getByTestId("commercial-cancellation-error")
+      .getByText(/service_unavailable/),
+  ).toBeVisible();
+});

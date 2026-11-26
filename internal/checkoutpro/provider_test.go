@@ -169,8 +169,8 @@ func TestHTTPGatewayRefundPaymentUsesPersistedIdempotencyKey(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/payments/123456/refunds" {
 			t.Fatalf("request=%s %s", r.Method, r.URL)
 		}
-		if r.Header.Get("Authorization") != "Bearer seller-token" || r.Header.Get("X-Idempotency-Key") != key {
-			t.Fatalf("headers not bound to seller and persisted key")
+		if r.Header.Get("Authorization") != "Bearer seller-token" || r.Header.Get("X-Idempotency-Key") != key || r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("headers not bound to seller, persisted key, and json content-type: %v", r.Header)
 		}
 		body, _ := io.ReadAll(r.Body)
 		if string(body) != `{"amount":5000}` {
@@ -191,14 +191,25 @@ func TestHTTPGatewayFullRefundOmitsAmount(t *testing.T) {
 		if r.Body != nil {
 			body, _ = io.ReadAll(r.Body)
 		}
-		if len(body) != 0 || r.Header.Get("X-Idempotency-Key") != key {
-			t.Fatalf("full refund request body=%s key=%s", body, r.Header.Get("X-Idempotency-Key"))
+		if len(body) != 0 || r.Header.Get("X-Idempotency-Key") != key || r.Header.Get("Content-Type") != "" {
+			t.Fatalf("full refund request body=%s key=%s content-type=%q", body, r.Header.Get("X-Idempotency-Key"), r.Header.Get("Content-Type"))
 		}
 		return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"98765","status":"approved","amount":10000}`))}, nil
 	})}}
 	got, err := g.RefundPayment(context.Background(), []byte("seller-token"), "123456", nil, key)
 	if err != nil || got.Amount != 10000 {
 		t.Fatalf("refund=%+v err=%v", got, err)
+	}
+}
+
+func TestReadProviderErrorDetailsCapturesCauseCodeAndMessageBalance(t *testing.T) {
+	code, cause := readProviderErrorDetails(strings.NewReader(`{"error":"bad_request","message":"Invalid refund","cause":[{"code":2067,"description":"The user does not have permission"}]}`))
+	if code != "bad_request" || cause != "2067" {
+		t.Fatalf("got code=%q cause=%q", code, cause)
+	}
+	code2, cause2 := readProviderErrorDetails(strings.NewReader(`{"error":"bad_request","message":"Insufficient balance to refund","cause":[{"code":3011,"description":"other"}]}`))
+	if code2 != "insufficient_funds" || cause2 != "3011" {
+		t.Fatalf("got code2=%q cause2=%q", code2, cause2)
 	}
 }
 

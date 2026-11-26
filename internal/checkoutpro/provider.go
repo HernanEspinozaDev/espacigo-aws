@@ -507,7 +507,7 @@ func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, pat
 	if idempotencyKey != "" {
 		req.Header.Set("X-Idempotency-Key", idempotencyKey)
 	}
-	if method == http.MethodPost || method == http.MethodPut {
+	if body != nil && (method == http.MethodPost || method == http.MethodPut) {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := client.Do(req)
@@ -516,8 +516,8 @@ func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, pat
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		providerCode := readProviderErrorCode(resp.Body)
-		return nil, &ProviderError{Stage: stage, HTTPStatus: resp.StatusCode, ProviderCode: providerCode}
+		providerCode, causeCode := readProviderErrorDetails(resp.Body)
+		return nil, &ProviderError{Stage: stage, HTTPStatus: resp.StatusCode, ProviderCode: providerCode, CauseCode: causeCode}
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 128<<10))
 	if err != nil {
@@ -530,15 +530,21 @@ func (g *HTTPGateway) requestRawWithIdempotency(ctx context.Context, method, pat
 }
 
 func readProviderErrorCode(body io.Reader) string {
+	code, _ := readProviderErrorDetails(body)
+	return code
+}
+
+func readProviderErrorDetails(body io.Reader) (string, string) {
 	const maxErrorBody = 8 << 10
 	const maxErrorCauses = 16
 	raw, err := io.ReadAll(io.LimitReader(body, maxErrorBody+1))
 	if err != nil || len(raw) > maxErrorBody {
-		return "other"
+		return "other", ""
 	}
 	var payload struct {
-		Error string `json:"error"`
-		Cause []struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+		Cause   []struct {
 			Code        any    `json:"code"`
 			Description string `json:"description"`
 		} `json:"cause"`
@@ -546,29 +552,46 @@ func readProviderErrorCode(body io.Reader) string {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if decoder.Decode(&payload) != nil {
-		return "other"
+		return "other", ""
 	}
-	normalizedError := strings.ToLower(strings.TrimSpace(payload.Error))
-	if isInsufficientFundsError(normalizedError) {
-		return "insufficient_funds"
-	}
+	var firstCauseCode string
 	for i, cause := range payload.Cause {
 		if i >= maxErrorCauses {
 			break
 		}
-		if isInsufficientFundsCause(cause.Code, cause.Description) {
-			return "insufficient_funds"
+		if firstCauseCode == "" && cause.Code != nil {
+			firstCauseCode = sanitizeCauseCode(fmt.Sprint(cause.Code))
 		}
+		if isInsufficientFundsCause(cause.Code, cause.Description) {
+			return "insufficient_funds", firstCauseCode
+		}
+	}
+	normalizedError := strings.ToLower(strings.TrimSpace(payload.Error))
+	if isInsufficientFundsError(normalizedError) || isInsufficientFundsCause(nil, payload.Message) {
+		return "insufficient_funds", firstCauseCode
 	}
 	switch normalizedError {
 	case "invalid_access_token", "invalid_marketplace_fee", "invalid_items", "invalid_back_urls",
 		"invalid_payment_methods", "invalid_expiration_date_from", "invalid_expiration_date_to",
 		"invalid_date", "invalid_collector_id", "collector_does_not_comply_with_current_regulation",
 		"invalid_operation_type", "unauthorized", "bad_request", "internal_error":
-		return normalizedError
+		return normalizedError, firstCauseCode
 	default:
-		return "other"
+		return "other", firstCauseCode
 	}
+}
+
+func sanitizeCauseCode(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || len(trimmed) > 32 {
+		return ""
+	}
+	for _, r := range trimmed {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_' || r == '-') {
+			return ""
+		}
+	}
+	return trimmed
 }
 
 func isInsufficientFundsError(code string) bool {

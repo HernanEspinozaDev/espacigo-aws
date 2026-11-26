@@ -133,6 +133,7 @@ export function ReservationLifecyclePanel({
     useState<PendingPaymentCancellationStatus | null>(null);
   const [externalRefundId, setExternalRefundId] = useState("");
   const [cancelResult, setCancelResult] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [operationComments, setOperationComments] = useState("");
   const [receptionObservations, setReceptionObservations] = useState("");
   const [receptionResult, setReceptionResult] = useState<
@@ -158,6 +159,7 @@ export function ReservationLifecyclePanel({
     setPendingPaymentStatus(null);
     setExternalRefundId("");
     setCancelResult(null);
+    setCancelError(null);
     setOperationComments("");
     setReceptionObservations("");
     setReceptionResult("recepcion_conforme");
@@ -276,7 +278,7 @@ export function ReservationLifecyclePanel({
   return (
     <div className="space-y-8">
       {/* Feedback banner */}
-      {(localFeedback || error) && (
+      {(localFeedback || (error && !cancelError)) && (
         <div
           role="alert"
           className="flex items-start gap-3 rounded-xl border border-destructive/20 bg-destructive/10 p-4 text-sm text-red-800 dark:text-red-300"
@@ -886,6 +888,7 @@ export function ReservationLifecyclePanel({
                 onClick={async () => {
                   setCancelConfirmed(false);
                   setCancelResult(null);
+                  setCancelError(null);
                   try {
                     await requestCancellationPreview(
                       currentReservation.id,
@@ -1027,6 +1030,7 @@ export function ReservationLifecyclePanel({
                         }
                         onClick={async () => {
                           setCancelResult(null);
+                          setCancelError(null);
                           try {
                             const updated = await cancelReservation(
                               currentReservation.id,
@@ -1049,8 +1053,22 @@ export function ReservationLifecyclePanel({
                                     ? "La cancelación y el reembolso se registraron correctamente."
                                     : "La cancelación se registró sin reembolso aplicable.",
                             );
-                          } catch {
-                            // The shared operation banner exposes the API error.
+                          } catch (err) {
+                            const code =
+                              typeof err === "object" &&
+                              err !== null &&
+                              "code" in err
+                                ? (err as { code?: unknown }).code
+                                : undefined;
+                            setCancelError(
+                              code === "refund_requires_reconciliation"
+                                ? "Mercado Pago informa una devolución que requiere revisión. Contacta a soporte desde esta reserva antes de reintentar."
+                                : code === "refund_insufficient_funds"
+                                  ? "Mercado Pago confirmó falta de saldo para realizar el reembolso. El anfitrión debe reponer fondos y reintentar desde la reserva."
+                                  : err instanceof Error && err.message
+                                    ? err.message
+                                    : "No se pudo procesar la cancelación o el reembolso. Intenta nuevamente.",
+                            );
                           }
                         }}
                       >
@@ -1073,6 +1091,15 @@ export function ReservationLifecyclePanel({
                 </div>
               )}
             </div>
+          )}
+          {cancelError && (
+            <p
+              role="alert"
+              data-testid="commercial-cancellation-error"
+              className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              {cancelError}
+            </p>
           )}
           {canReconcileExternalRefund && (
             <details className="mt-5 rounded-xl border border-border p-4">

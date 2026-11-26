@@ -98,6 +98,7 @@ type ProviderError struct {
 	Stage        string
 	HTTPStatus   int
 	ProviderCode string
+	CauseCode    string
 }
 
 func (e *ProviderError) Error() string { return "checkoutpro: provider unavailable" }
