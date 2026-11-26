@@ -62,6 +62,8 @@ const pendingPaymentMessages: Record<PendingPaymentCancellationStatus, string> =
 const commercialCancellationReason: Record<string, string> = {
   cancellation_started:
     "Ya hay una solicitud de cancelación para esta reserva.",
+  host_post_start_refund:
+    "La hora de inicio de esta reserva ya pasó. Como anfitrión, puedes reembolsar igualmente dentro del plazo de 180 días de Mercado Pago.",
   refund_failed:
     "Mercado Pago rechazó el reembolso anterior. Revisa el historial del pago y el saldo disponible antes de reintentar.",
   refund_requires_reconciliation:
@@ -993,8 +995,10 @@ export function ReservationLifecyclePanel({
                           className="mt-1"
                         />
                         <span>
-                          Confirmo que quiero cancelar esta reserva y solicitar
-                          la devolución indicada.
+                          {cancellationPreview.reason ===
+                          "host_post_start_refund"
+                            ? "Confirmo que, aunque la hora de inicio ya pasó, quiero reembolsar esta reserva igualmente."
+                            : "Confirmo que quiero cancelar esta reserva y solicitar la devolución indicada."}
                         </span>
                       </label>
                       <label
@@ -1052,7 +1056,10 @@ export function ReservationLifecyclePanel({
                       >
                         {actionLoading
                           ? "Procesando…"
-                          : "Confirmar cancelación"}
+                          : cancellationPreview.reason ===
+                              "host_post_start_refund"
+                            ? "Reembolsar igualmente"
+                            : "Confirmar cancelación"}
                       </Button>
                     </>
                   )}

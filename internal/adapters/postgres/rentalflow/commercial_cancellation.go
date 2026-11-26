@@ -80,13 +80,19 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 			switch {
 			case reservationState != "pagada":
 				out.Reason = "reservation_not_paid"
+			case !now.Before(start) && role != "anfitrion":
+				out.Reason = "reservation_already_started"
 			case !paymentVerifiedAt.Valid || now.After(paymentVerifiedAt.Time.Add(180*24*time.Hour)):
 				out.Reason = "refund_window_expired"
 			case oldAmount > out.RefundableBalanceCLP:
 				out.Reason = "refund_requires_reconciliation"
 			default:
 				out.CanCancel = true
-				out.Reason = "refund_failed"
+				if !now.Before(start) {
+					out.Reason = "host_post_start_refund"
+				} else {
+					out.Reason = "refund_failed"
+				}
 			}
 		}
 		out.RefundPercent = oldPercent
@@ -108,7 +114,7 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 		out.Reason = "reservation_not_paid"
 		return out, nil
 	}
-	if !now.Before(start) {
+	if !now.Before(start) && role != "anfitrion" {
 		out.Reason = "reservation_already_started"
 		return out, nil
 	}
@@ -117,7 +123,11 @@ func (r *Repository) readCommercialCancellation(ctx context.Context, q cancellat
 	percent := 0
 	if role == "anfitrion" {
 		percent = 100
-		out.Reason = "host_cancellation"
+		if !now.Before(start) {
+			out.Reason = "host_post_start_refund"
+		} else {
+			out.Reason = "host_cancellation"
+		}
 	} else {
 		switch version {
 		case "facil_v1":
