@@ -7,9 +7,34 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/calendar"
 	"github.com/HernanEspinozaDev/espaciGo/internal/checkoutpro"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/jackc/pgx/v5"
 )
+
+// CheckoutBuyer exposes only the account data Checkout Pro uses for payment approval.
+func (r *Repository) CheckoutBuyer(ctx context.Context, renterID string) (checkoutpro.PreferencePayer, error) {
+	var buyer checkoutpro.PreferencePayer
+	if err := r.db.QueryRow(ctx, `SELECT correo_original FROM public.usuario WHERE id=$1 AND estado='activo'`, renterID).Scan(&buyer.Email); err != nil {
+		return buyer, err
+	}
+	if err := identity.ValidateEmail(buyer.Email); err != nil {
+		return buyer, err
+	}
+	if r.profileKeys == nil {
+		return buyer, nil
+	}
+	profile, err := profilekyc.ReadVerified(ctx, r.db, r.profileKeys, renterID, r.now())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return buyer, nil
+	}
+	if err != nil {
+		return buyer, err
+	}
+	buyer.Name, buyer.Surname = profile.FirstName, profile.LastName()
+	return buyer, nil
+}
 
 // Begin stores the preference intent and the interval hold in one transaction.
 // Per-space advisory locking serializes competing quotes for overlapping periods.

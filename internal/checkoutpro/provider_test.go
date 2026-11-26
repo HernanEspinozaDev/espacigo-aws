@@ -55,7 +55,7 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 			body, _ = io.ReadAll(r.Body)
 		}
 		raw := string(body)
-		for _, fragment := range []string{`"purpose":"wallet_purchase"`, `"external_reference":"op-123"`, `"marketplace_fee":3570`, `"currency_id":"CLP"`, `"operation_id":"op-123"`, `"installments":1`, `"id":"credit_card"`, `"expires":true`, `"expiration_date_from":"2030-01-01T10:00:00-03:00"`, `"expiration_date_to":"2030-01-01T12:00:00-03:00"`} {
+		for _, fragment := range []string{`"purpose":"wallet_purchase"`, `"statement_descriptor":"ESPACIGO"`, `"category_id":"services"`, `"description":"Arriendo por hora"`, `"id":"space-123"`, `"payer":{"name":"Ana","surname":"Pérez","email":"ana@example.test"}`, `"external_reference":"op-123"`, `"marketplace_fee":3570`, `"currency_id":"CLP"`, `"operation_id":"op-123"`, `"installments":1`, `"id":"credit_card"`, `"expires":true`, `"expiration_date_from":"2030-01-01T10:00:00-03:00"`, `"expiration_date_to":"2030-01-01T12:00:00-03:00"`} {
 			if !strings.Contains(raw, fragment) {
 				t.Errorf("request body missing %s: %s", fragment, raw)
 			}
@@ -65,12 +65,22 @@ func TestHTTPGatewayCreatesPreferenceWithMarketplaceSplitAndSellerToken(t *testi
 				t.Errorf("request body contains obsolete field %s: %s", obsolete, raw)
 			}
 		}
+		var payerFields struct {
+			Payer map[string]string `json:"payer"`
+		}
+		if err := json.Unmarshal(body, &payerFields); err != nil {
+			t.Fatal(err)
+		}
+		if len(payerFields.Payer) != 3 || payerFields.Payer["name"] != "Ana" ||
+			payerFields.Payer["surname"] != "Pérez" || payerFields.Payer["email"] != "ana@example.test" {
+			t.Fatal("preference must serialize only the expected payer fields")
+		}
 		if strings.Contains(raw, `"id":"account_money"`) {
 			t.Errorf("account money was excluded: %s", raw)
 		}
 		return &http.Response{StatusCode: 201, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"pref-1","init_point":"https://www.mercadopago.cl/checkout/v1/redirect/pref-1"}`))}, nil
 	})}}
-	p, err := g.Create(context.Background(), []byte("seller-test-token"), PreferenceRequest{Purpose: "wallet_purchase", ExternalReference: "op-123", MarketplaceFee: 3570, Items: []PreferenceItem{{Title: "Arriendo", Quantity: 1, UnitPrice: 100000, CurrencyID: "CLP"}}, Metadata: map[string]any{"operation_id": "op-123"}, Expires: true, ExpirationDateFrom: "2030-01-01T10:00:00-03:00", ExpirationDateTo: "2030-01-01T12:00:00-03:00", PaymentMethods: PaymentMethods{ExcludedPaymentTypes: []ExcludedPaymentType{{ID: "credit_card"}}, Installments: 1}})
+	p, err := g.Create(context.Background(), []byte("seller-test-token"), PreferenceRequest{StatementDescriptor: "ESPACIGO", Payer: &PreferencePayer{Name: "Ana", Surname: "Pérez", Email: "ana@example.test"}, Purpose: "wallet_purchase", ExternalReference: "op-123", MarketplaceFee: 3570, Items: []PreferenceItem{{ID: "space-123", Description: "Arriendo por hora", CategoryID: "services", Title: "Arriendo", Quantity: 1, UnitPrice: 100000, CurrencyID: "CLP"}}, Metadata: map[string]any{"operation_id": "op-123"}, Expires: true, ExpirationDateFrom: "2030-01-01T10:00:00-03:00", ExpirationDateTo: "2030-01-01T12:00:00-03:00", PaymentMethods: PaymentMethods{ExcludedPaymentTypes: []ExcludedPaymentType{{ID: "credit_card"}}, Installments: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}

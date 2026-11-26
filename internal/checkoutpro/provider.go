@@ -15,10 +15,13 @@ import (
 )
 
 type PreferenceItem struct {
-	Title      string  `json:"title"`
-	Quantity   int     `json:"quantity"`
-	UnitPrice  float64 `json:"unit_price"`
-	CurrencyID string  `json:"currency_id"`
+	ID          string  `json:"id,omitempty"`
+	Description string  `json:"description,omitempty"`
+	CategoryID  string  `json:"category_id,omitempty"`
+	Title       string  `json:"title"`
+	Quantity    int     `json:"quantity"`
+	UnitPrice   float64 `json:"unit_price"`
+	CurrencyID  string  `json:"currency_id"`
 }
 
 func parseCLPAmount(value json.Number, allowZero bool) (int64, bool) {
@@ -45,19 +48,27 @@ type BackURLs struct {
 	Failure string `json:"failure"`
 	Pending string `json:"pending"`
 }
+type PreferencePayer struct {
+	Name    string `json:"name,omitempty"`
+	Surname string `json:"surname,omitempty"`
+	Email   string `json:"email"`
+}
+
 type PreferenceRequest struct {
-	Purpose            string           `json:"purpose,omitempty"`
-	ExternalReference  string           `json:"external_reference"`
-	MarketplaceFee     float64          `json:"marketplace_fee"`
-	Items              []PreferenceItem `json:"items"`
-	Metadata           map[string]any   `json:"metadata"`
-	BackURLs           BackURLs         `json:"back_urls"`
-	AutoReturn         string           `json:"auto_return,omitempty"`
-	NotificationURL    string           `json:"notification_url,omitempty"`
-	Expires            bool             `json:"expires"`
-	ExpirationDateFrom string           `json:"expiration_date_from"`
-	ExpirationDateTo   string           `json:"expiration_date_to"`
-	PaymentMethods     PaymentMethods   `json:"payment_methods"`
+	Payer               *PreferencePayer `json:"payer,omitempty"`
+	StatementDescriptor string           `json:"statement_descriptor,omitempty"`
+	Purpose             string           `json:"purpose,omitempty"`
+	ExternalReference   string           `json:"external_reference"`
+	MarketplaceFee      float64          `json:"marketplace_fee"`
+	Items               []PreferenceItem `json:"items"`
+	Metadata            map[string]any   `json:"metadata"`
+	BackURLs            BackURLs         `json:"back_urls"`
+	AutoReturn          string           `json:"auto_return,omitempty"`
+	NotificationURL     string           `json:"notification_url,omitempty"`
+	Expires             bool             `json:"expires"`
+	ExpirationDateFrom  string           `json:"expiration_date_from"`
+	ExpirationDateTo    string           `json:"expiration_date_to"`
+	PaymentMethods      PaymentMethods   `json:"payment_methods"`
 }
 type Preference struct {
 	ID        string `json:"id"`
