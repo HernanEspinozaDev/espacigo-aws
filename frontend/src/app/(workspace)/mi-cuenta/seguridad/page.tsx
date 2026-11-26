@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Clock,
   HelpCircle,
-  LockKeyhole,
   MapPin,
   ShieldAlert,
   ShieldCheck,
@@ -48,15 +47,6 @@ export default function SeguridadPage() {
           Activo
         </span>
       ),
-    },
-    {
-      title: "EspaciGo Pinpass",
-      subtitle:
-        "Administra la clave de seis dígitos y consulta tus datos protegidos.",
-      href: "/mi-cuenta/perfil#pinpass",
-      icon: LockKeyhole,
-      iconColor: "text-primary bg-primary/10",
-      status: null,
     },
     {
       title: "Dispositivos vinculados",

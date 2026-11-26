@@ -28,7 +28,7 @@ var (
 	ErrConflict      = errors.New("identity verification conflict")
 	rutInputPattern  = regexp.MustCompile(`^(?:[0-9]{1,8}-?|[0-9]{1,2}(?:\.[0-9]{3}){1,2}-?)[0-9K]$`)
 	usernamePattern  = regexp.MustCompile("^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$")
-	phonePattern     = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+	phonePattern     = regexp.MustCompile(`^\+569[0-9]{8}$`)
 )
 
 type FieldError struct{ Fields map[string]string }
@@ -352,6 +352,26 @@ func (s *Service) ReadDraft(ctx context.Context, account string) (Data, error) {
 		return Data{}, err
 	}
 	return decryptData(s.keys, account, "draft", key, encrypted)
+}
+
+func (s *Service) ReadForEdit(ctx context.Context, account string) (Data, error) {
+	var username, revision, key string
+	var encrypted []byte
+	err := s.pool.QueryRow(ctx, `
+		SELECT p.username,r.id::text,r.key_version,r.encrypted_data
+		FROM public.account_identity_profile p
+		JOIN public.usuario u ON u.id=p.account_id AND u.estado='activo'
+		JOIN public.account_identity_profile_revision r ON r.account_id=p.account_id AND r.id=p.current_revision
+		WHERE p.account_id=$1`, account).Scan(&username, &revision, &key, &encrypted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Data{}, ErrNotReady
+	}
+	if err != nil {
+		return Data{}, err
+	}
+	data, err := decryptData(s.keys, account, revision, key, encrypted)
+	data.Username = username
+	return data, err
 }
 
 func (s *Service) SaveUsername(ctx context.Context, account, username string) (Status, error) {

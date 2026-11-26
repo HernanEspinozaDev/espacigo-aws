@@ -6,9 +6,10 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
   Loader2,
   Pencil,
-  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -21,9 +22,17 @@ import {
 } from "@/components/workspace/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import {
+  chileanMobileSubscriber,
   formatChileanRutAtCursor,
   normalizeChileanE164,
   normalizeChileanRut,
@@ -31,11 +40,29 @@ import {
   validateIdentityProfile,
   type IdentityProfileErrors,
   type IdentityProfileInput,
-  type IdentityProfileState,
+  type ProfileConfirmationMethod,
 } from "../domain/identity-profile";
 import { useIdentityProfile } from "./use-identity-profile";
+import { verificationReturnHref } from "@/features/host-listings/domain/publish-guide";
 import { PinpassAccountSection } from "@/features/account/ui/pinpass-card";
+import {
+  getPinpassStatus,
+  PinpassApiError,
+  revealPinpassValue,
+  unlockPinpass,
+} from "@/features/account/pinpass-api";
+import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
+import { ProfileConfirmationDialog } from "./profile-confirmation-dialog";
 import type { components } from "@/lib/api/generated/openapi";
+
+const privateFields = [
+  { field: "email", label: "Correo electrónico", masked: "masked_email" },
+  { field: "run", label: "RUN", masked: "masked_rut" },
+  { field: "phone", label: "Teléfono móvil", masked: "masked_phone" },
+] as const;
+type PrivateField = (typeof privateFields)[number]["field"];
+
+const documentTypes = { cl_id: "Cédula de identidad chilena" };
 
 const EMPTY: IdentityProfileInput = {
   username: "",
@@ -50,23 +77,16 @@ const EMPTY: IdentityProfileInput = {
   consent: false,
 };
 
-const STATE_LABEL: Record<IdentityProfileState, string> = {
-  incomplete: "Perfil incompleto",
-  ready: "Listo para verificar",
-  in_progress: "Verificación en curso",
-  in_review: "Identidad en revisión",
-  needs_correction: "Requiere corrección",
-  verified: "Identidad verificada",
-  expired: "Verificación vencida",
-  revoked: "Verificación revocada",
-};
+function remainingAccess(expiresAt: string): number {
+  return Date.parse(expiresAt) - Date.now();
+}
 
 function errorCode(error: unknown): string | null {
   return error instanceof ApiError ? error.code : null;
 }
 
 interface IdentityProfileCardProps {
-  readonly refreshOnMount?: boolean;
+  readonly editOnMount?: boolean;
   readonly returnTo?: string | null;
 }
 
@@ -81,7 +101,7 @@ export function IdentityProfileCard(props: IdentityProfileCardProps) {
 }
 
 function IdentityProfileCardSession({
-  refreshOnMount = false,
+  editOnMount = false,
   returnTo,
 }: IdentityProfileCardProps) {
   const {
@@ -89,16 +109,25 @@ function IdentityProfileCardSession({
     save,
     saveUsername,
     saveDraft,
-    restoreDraft,
+    readProtectedProfile,
     reload,
-    startVerification,
-    refreshVerification,
   } = useIdentityProfile();
   const [form, setForm] = useState<IdentityProfileInput>(EMPTY);
   const [username, setUsername] = useState("");
   const [usernameTouched, setUsernameTouched] = useState(false);
-  const [draftPassword, setDraftPassword] = useState("");
-  const [draftRestored, setDraftRestored] = useState(false);
+  const [confirmation, setConfirmation] = useState<
+    "draft" | "edit" | "username" | PrivateField | null
+  >(null);
+  const [confirmationError, setConfirmationError] = useState<string | null>(
+    null,
+  );
+  const [pinConfigured, setPinConfigured] = useState(false);
+  const { summary: securityMethods } = useSecurityMethodsSummary();
+  const [visibleValues, setVisibleValues] = useState<
+    Partial<Record<PrivateField, string>>
+  >({});
+  const privateRequest = useRef<AbortController | null>(null);
+  const visibilityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editor, setEditor] = useState<"identity" | "username" | null>(null);
   const [errors, setErrors] = useState<IdentityProfileErrors>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
@@ -107,17 +136,12 @@ function IdentityProfileCardSession({
   const [busy, setBusy] = useState(false);
   const firstInvalid = useRef<HTMLElement | null>(null);
   const rutInput = useRef<HTMLInputElement>(null);
-  const autoRefreshStarted = useRef(false);
+  const openedInitialEditor = useRef(false);
 
   const status = snapshot.summary?.state ?? "incomplete";
   const rutLocked =
     snapshot.summary?.rut_locked ??
     ["verified", "expired", "revoked"].includes(status);
-  const canStartVerification =
-    snapshot.summary?.complete &&
-    ["ready", "in_progress", "needs_correction", "expired", "revoked"].includes(
-      status,
-    );
   const usernameValue = usernameTouched
     ? username
     : (snapshot.summary?.username ?? form.username);
@@ -130,31 +154,116 @@ function IdentityProfileCardSession({
   }, [errors]);
 
   useEffect(() => {
-    if (!refreshOnMount || !snapshot.accountId || autoRefreshStarted.current)
+    if (!editOnMount || !snapshot.summary || openedInitialEditor.current)
       return;
-    autoRefreshStarted.current = true;
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.delete("refresh_identity");
-    window.history.replaceState(
-      window.history.state,
-      "",
-      currentUrl.pathname + currentUrl.search + currentUrl.hash,
-    );
-    setBusy(true);
-    void refreshVerification()
-      .catch(() =>
-        setSummaryError("No pudimos actualizar el resultado de verificación."),
-      )
-      .finally(() => setBusy(false));
-  }, [refreshOnMount, refreshVerification, snapshot.accountId]);
+    const { complete, draft_saved } = snapshot.summary;
+    const frame = window.requestAnimationFrame(() => {
+      openedInitialEditor.current = true;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("editar");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        url.pathname + url.search + url.hash,
+      );
+      if (complete) setConfirmation("edit");
+      else if (draft_saved) setConfirmation("draft");
+      else setEditor("identity");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editOnMount, snapshot.summary]);
+
+  useEffect(() => {
+    if (!snapshot.accountId) return;
+    const controller = new AbortController();
+    void getPinpassStatus(controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) setPinConfigured(result.configured);
+      })
+      .catch(() => {});
+    function hideValues() {
+      privateRequest.current?.abort();
+      setVisibleValues({});
+      if (visibilityTimer.current) clearTimeout(visibilityTimer.current);
+    }
+    function hideOnBackground() {
+      if (document.visibilityState !== "visible") hideValues();
+    }
+    document.addEventListener("visibilitychange", hideOnBackground);
+    return () => {
+      document.removeEventListener("visibilitychange", hideOnBackground);
+      controller.abort();
+      hideValues();
+      setPinConfigured(false);
+    };
+  }, [snapshot.accountId]);
+
+  function openConfirmation(next: NonNullable<typeof confirmation>) {
+    privateRequest.current?.abort();
+    setSummaryError(null);
+    setConfirmationError(null);
+    setConfirmation(next);
+  }
+
+  async function revealField(field: PrivateField, pin?: string) {
+    const controller = new AbortController();
+    privateRequest.current?.abort();
+    privateRequest.current = controller;
+    try {
+      if (pin) await unlockPinpass(pin);
+      if (controller.signal.aborted) return;
+      const result = await revealPinpassValue(field, controller.signal);
+      if (controller.signal.aborted) return;
+      const remaining = remainingAccess(result.access_expires_at);
+      if (!Number.isFinite(remaining) || remaining <= 0) {
+        setVisibleValues({});
+        openConfirmation(field);
+        return;
+      }
+      if (visibilityTimer.current) clearTimeout(visibilityTimer.current);
+      visibilityTimer.current = setTimeout(
+        () => setVisibleValues({}),
+        remaining,
+      );
+      setVisibleValues((current) => ({ ...current, [field]: result.value }));
+      setConfirmation(null);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      if (
+        !pin &&
+        error instanceof PinpassApiError &&
+        (error.code === "pinpass_access_required" ||
+          error.code === "pinpass_not_configured")
+      ) {
+        openConfirmation(field);
+      } else if (pin) {
+        setConfirmationError(
+          error instanceof Error
+            ? error.message
+            : "No pudimos mostrar este dato.",
+        );
+      } else {
+        setSummaryError("No pudimos mostrar este dato. Inténtalo nuevamente.");
+      }
+    }
+  }
+
+  function togglePrivateField(field: PrivateField) {
+    if (visibleValues[field] !== undefined) {
+      setVisibleValues((current) => ({ ...current, [field]: undefined }));
+    } else if (!pinConfigured) {
+      openConfirmation(field);
+    } else {
+      void revealField(field);
+    }
+  }
 
   function closeEditor() {
     setEditor(null);
     setForm(EMPTY);
     setUsername("");
     setUsernameTouched(false);
-    setDraftPassword("");
-    setDraftRestored(false);
+
     setTouched(new Set());
     setErrors({});
     setSummaryError(null);
@@ -284,38 +393,6 @@ function IdentityProfileCardSession({
     }
   }
 
-  async function handleVerification() {
-    setBusy(true);
-    setSummaryError(null);
-    try {
-      const result = await startVerification(returnTo);
-      const url = new URL(result.url);
-      if (url.protocol !== "https:")
-        throw new Error("URL de verificación inválida");
-      window.location.assign(url.toString());
-    } catch {
-      setSummaryError(
-        "No pudimos iniciar la verificación. Revisa tu conexión e inténtalo nuevamente.",
-      );
-      setBusy(false);
-    }
-  }
-
-  async function handleRefreshVerification() {
-    setBusy(true);
-    setSummaryError(null);
-    try {
-      await refreshVerification();
-      setMessage("Estado de verificación actualizado.");
-    } catch {
-      setSummaryError(
-        "No pudimos actualizar el resultado. Inténtalo nuevamente.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleUsernameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const usernameToSave = usernameTouched
@@ -378,9 +455,7 @@ function IdentityProfileCardSession({
     try {
       await saveDraft({ ...draft, document_type: "cl_id" });
       closeEditor();
-      setMessage(
-        "Borrador cifrado guardado. Para retomarlo, confirma tu contraseña actual.",
-      );
+      setMessage("Borrador guardado. Puedes continuar tu perfil más tarde.");
     } catch {
       setSummaryError("No pudimos guardar el borrador. Inténtalo nuevamente.");
     } finally {
@@ -388,48 +463,54 @@ function IdentityProfileCardSession({
     }
   }
 
-  async function handleRestoreDraft(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!draftPassword) {
-      setSummaryError(
-        "Ingresa tu contraseña actual para restaurar el borrador.",
-      );
-      return;
-    }
+  async function confirmIdentity(
+    method: ProfileConfirmationMethod,
+    value: string,
+  ) {
+    if (!confirmation) return;
     setBusy(true);
-    setSummaryError(null);
+    setConfirmationError(null);
     try {
-      const draft = await restoreDraft(draftPassword);
+      if (
+        confirmation === "email" ||
+        confirmation === "run" ||
+        confirmation === "phone"
+      ) {
+        await revealField(confirmation, value);
+        return;
+      }
+      const intent = confirmation === "draft" ? "draft" : "edit";
+      const data = await readProtectedProfile({ [method]: value }, intent);
+      closeEditor();
       setForm({
         ...EMPTY,
-        username: draft.username ?? "",
-        first_name: draft.first_name ?? "",
-        first_last_name: draft.first_last_name ?? "",
-        second_last_name: draft.second_last_name ?? "",
-        no_second_last_name: draft.no_second_last_name ?? false,
-        rut: draft.rut ?? "",
-        date_of_birth: draft.date_of_birth ?? "",
-        document_type: "cl_id",
-        phone: draft.phone ?? "",
-        consent: draft.consent ?? false,
+        username: data.username ?? "",
+        first_name: data.first_name ?? "",
+        first_last_name: data.first_last_name ?? "",
+        second_last_name: data.second_last_name ?? "",
+        no_second_last_name: data.no_second_last_name ?? false,
+        rut: formatChileanRutAtCursor(data.rut ?? "", 0).value,
+        date_of_birth: data.date_of_birth ?? "",
+        phone: data.phone?.startsWith("+569")
+          ? `+569${chileanMobileSubscriber(data.phone)}`
+          : (normalizeChileanE164(data.phone ?? "") ?? ""),
+        consent: data.consent ?? false,
       });
-      setDraftRestored(true);
-      setUsername(draft.username ?? "");
+      setUsername(data.username ?? "");
       setUsernameTouched(true);
-      setErrors({});
-      setTouched(new Set());
-      setMessage(
-        "Borrador restaurado. Completa los datos pendientes para guardar el perfil.",
-      );
+      setEditor(confirmation === "username" ? "username" : "identity");
+      setConfirmation(null);
     } catch (error) {
       const code = errorCode(error);
-      setSummaryError(
-        code === "reauthentication_failed" || code === "invalid_credentials"
-          ? "La contraseña no coincide. Inténtalo nuevamente."
-          : "No pudimos restaurar el borrador. Confirma tu contraseña y vuelve a intentarlo.",
+      setConfirmationError(
+        code === "temporarily_locked"
+          ? "Los intentos están temporalmente bloqueados. Vuelve a intentarlo más tarde."
+          : code === "reauthentication_required" ||
+              code === "reauthentication_failed"
+            ? "No pudimos confirmar tu identidad. Revisa el dato o elige otro método."
+            : "No pudimos cargar tus datos. Inténtalo nuevamente.",
       );
     } finally {
-      setDraftPassword("");
       setBusy(false);
     }
   }
@@ -441,7 +522,7 @@ function IdentityProfileCardSession({
 
   return (
     <div aria-labelledby="identity-profile-title" className="space-y-6">
-      <Card>
+      <Card id="profile-data" className="scroll-mt-24">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -470,7 +551,10 @@ function IdentityProfileCardSession({
                 else {
                   closeEditor();
                   setMessage(null);
-                  setEditor("identity");
+                  if (snapshot.summary?.complete) openConfirmation("edit");
+                  else if (snapshot.summary?.draft_saved)
+                    openConfirmation("draft");
+                  else setEditor("identity");
                 }
               }}
             >
@@ -519,22 +603,40 @@ function IdentityProfileCardSession({
                     onClick={() => {
                       closeEditor();
                       setMessage(null);
-                      setEditor("username");
+                      openConfirmation("username");
                     }}
                   >
                     Editar
                   </Button>
                 ) : null}
               </ProfileValue>
-              <ProfileValue
-                label="Correo electrónico"
-                value={snapshot.summary.masked_email}
-              />
-              <ProfileValue label="RUN" value={snapshot.summary.masked_rut} />
-              <ProfileValue
-                label="Teléfono móvil"
-                value={snapshot.summary.masked_phone}
-              />
+              {privateFields.map(({ field, label, masked }) => {
+                const revealed = visibleValues[field];
+                return (
+                  <ProfileValue
+                    key={field}
+                    label={label}
+                    value={revealed ?? snapshot.summary?.[masked]}
+                  >
+                    {snapshot.summary?.[masked] && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={busy}
+                        aria-label={`${revealed === undefined ? "Mostrar" : "Ocultar"} ${label}`}
+                        onClick={() => togglePrivateField(field)}
+                      >
+                        {revealed === undefined ? (
+                          <Eye aria-hidden="true" />
+                        ) : (
+                          <EyeOff aria-hidden="true" />
+                        )}
+                      </Button>
+                    )}
+                  </ProfileValue>
+                );
+              })}
             </dl>
           ) : null}
 
@@ -561,45 +663,6 @@ function IdentityProfileCardSession({
               />
               {summaryError}
             </p>
-          ) : null}
-
-          {editor === "identity" &&
-          snapshot.summary?.draft_saved &&
-          !snapshot.summary.complete &&
-          !draftRestored ? (
-            <form
-              className="space-y-3 rounded-lg border border-border p-4"
-              onSubmit={(event) => void handleRestoreDraft(event)}
-            >
-              <div>
-                <h3 className="font-semibold">Continuar un borrador</h3>
-                <p className="text-sm text-muted-foreground">
-                  Tu borrador está cifrado. Confirma la contraseña actual para
-                  cargar sus datos en este formulario.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="identity-profile-draft-password">
-                  Contraseña actual
-                </Label>
-                <Input
-                  id="identity-profile-draft-password"
-                  type="password"
-                  autoComplete="current-password"
-                  value={draftPassword}
-                  onChange={(event) => setDraftPassword(event.target.value)}
-                  disabled={busy}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="outline"
-                disabled={busy || !draftPassword}
-              >
-                Restaurar borrador
-              </Button>
-            </form>
           ) : null}
 
           {snapshot.summary?.complete && editor === "username" ? (
@@ -851,44 +914,62 @@ function IdentityProfileCardSession({
                   error={errors.phone}
                   valid={fieldState("phone")}
                 >
-                  <Input
-                    id="identity-profile-phone"
-                    type="tel"
-                    autoComplete="tel"
-                    inputMode="tel"
-                    placeholder="+56 9 1234 5678"
-                    value={form.phone}
-                    onChange={(event) => update("phone", event.target.value)}
-                    onBlur={() => touch("phone")}
-                    aria-invalid={Boolean(errors.phone)}
-                    aria-describedby="identity-profile-phone-help identity-profile-phone-error"
-                  />
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="shrink-0 rounded-md border bg-muted px-3 py-2 text-sm font-medium"
+                      aria-hidden="true"
+                    >
+                      +56 9
+                    </span>
+                    <Input
+                      id="identity-profile-phone"
+                      type="tel"
+                      autoComplete="tel-national"
+                      inputMode="numeric"
+                      placeholder="1234 5678"
+                      value={form.phone.slice(4)}
+                      onChange={(event) => {
+                        const subscriber = chileanMobileSubscriber(
+                          event.target.value,
+                        );
+                        update("phone", subscriber ? `+569${subscriber}` : "");
+                      }}
+                      onBlur={() => touch("phone")}
+                      aria-invalid={Boolean(errors.phone)}
+                      aria-describedby="identity-profile-phone-help identity-profile-phone-error"
+                    />
+                  </div>
                   <span
                     id="identity-profile-phone-help"
                     className="text-xs text-muted-foreground"
                   >
-                    Se guardará en formato internacional E.164.
+                    Ingresa los ocho dígitos que siguen a +56 9.
                   </span>
                 </Field>
                 <Field
                   id="document_type"
                   label="Tipo de documento"
-                  example="Cédula de identidad chilena"
+                  example=""
                   required
                   valid
                 >
-                  <Input
-                    id="identity-profile-document_type"
-                    value="Cédula de identidad chilena"
-                    readOnly
-                    aria-describedby="identity-profile-document_type-help"
-                  />
-                  <span
-                    id="identity-profile-document_type-help"
-                    className="text-xs text-muted-foreground"
+                  <Select
+                    value={form.document_type}
+                    items={documentTypes}
+                    required
                   >
-                    Documento admitido para esta primera etapa.
-                  </span>
+                    <SelectTrigger
+                      id="identity-profile-document_type"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cl_id">
+                        {documentTypes.cl_id}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Field>
               </div>
 
@@ -960,94 +1041,42 @@ function IdentityProfileCardSession({
         </CardContent>
       </Card>
 
-      <Card
-        id="identity-verification"
-        aria-labelledby="identity-verification-title"
-        className="scroll-mt-24"
-      >
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <ShieldCheck className="size-5" aria-hidden="true" />
-            </div>
-            <div className="space-y-1">
-              <CardTitle id="identity-verification-title">
-                Verificación de identidad
-              </CardTitle>
-              <CardDescription>
-                {status === "verified" && snapshot.summary?.verified_until
-                  ? "Vigente hasta el " +
-                    new Date(
-                      snapshot.summary.verified_until,
-                    ).toLocaleDateString("es-CL", {
-                      timeZone: "America/Santiago",
-                    })
-                  : status === "in_review"
-                    ? "Estamos revisando el resultado de tu verificación."
-                    : snapshot.summary?.complete
-                      ? "Confirma tu identidad con tu cédula chilena en Didit."
-                      : "Completa los datos de tu perfil para iniciar este paso."}
-              </CardDescription>
-            </div>
-          </div>
-          <span
-            className="w-fit shrink-0 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground"
-            data-testid="identity-profile-state"
-            role="status"
-          >
-            {snapshot.loading
-              ? "Consultando estado…"
-              : snapshot.error
-                ? "Estado no disponible"
-                : STATE_LABEL[status]}
-          </span>
+      <Card id="identity-verification" className="scroll-mt-24">
+        <CardHeader>
+          <CardTitle>Verificación de identidad</CardTitle>
+          <CardDescription>
+            Consulta el estado de tu identidad o inicia la verificación con tu
+            cédula chilena.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {status !== "verified" && status !== "in_review" ? (
-              <Button
-                type="button"
-                disabled={!canStartVerification || busy}
-                onClick={() => void handleVerification()}
-              >
-                {busy && (
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                )}
-                {status === "in_progress"
-                  ? "Continuar verificación"
-                  : ["needs_correction", "expired", "revoked"].includes(status)
-                    ? "Volver a verificar"
-                    : "Iniciar verificación"}
-              </Button>
-            ) : null}
-            {["in_progress", "in_review"].includes(status) ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void handleRefreshVerification()}
-              >
-                Actualizar estado
-              </Button>
-            ) : null}
-          </div>
-          {status === "needs_correction" ? (
-            <p className="text-sm text-muted-foreground">
-              Revisa los datos de tu cédula. Si ya configuraste tu identidad en
-              otra cuenta, puedes{" "}
-              <Link
-                href="/recuperar-acceso"
-                className="font-medium text-primary underline"
-              >
-                recuperar el acceso
-              </Link>
-              .
-            </p>
-          ) : null}
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href={verificationReturnHref(returnTo)}>
+              Ir a verificaciones
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
       {snapshot.summary?.complete ? <PinpassAccountSection /> : null}
+      {confirmation && (
+        <ProfileConfirmationDialog
+          key={confirmation}
+          purpose={
+            confirmation === "draft"
+              ? "draft"
+              : confirmation === "edit" || confirmation === "username"
+                ? "edit"
+                : "reveal"
+          }
+          pinConfigured={pinConfigured}
+          otpConfigured={securityMethods?.methods.totp.enabled === true}
+          busy={busy}
+          error={confirmationError}
+          onClose={() => setConfirmation(null)}
+          onConfirm={(method, value) => void confirmIdentity(method, value)}
+        />
+      )}
     </div>
   );
 }

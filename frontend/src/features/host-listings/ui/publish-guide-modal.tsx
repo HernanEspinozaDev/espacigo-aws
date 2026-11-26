@@ -33,6 +33,7 @@ import { contractTemplateService } from "../contract-template-runtime";
 import {
   mercadoPagoReturnHref,
   verificationReturnHref,
+  profileEditHref,
   type PublishGateReasonCode,
   type PublishGuideStepStatus,
 } from "../domain/publish-guide";
@@ -334,7 +335,7 @@ export function PublishGuideChecklist({
         </div>
         {profileStatus === "pending" && (
           <Button asChild size="sm" variant="outline" className="mt-3 gap-1.5">
-            <Link href={kycHref} onClick={onCloseModal}>
+            <Link href={profileEditHref(returnPath)} onClick={onCloseModal}>
               Completar mi perfil
               <ArrowRight className="size-3.5" aria-hidden="true" />
             </Link>

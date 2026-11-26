@@ -123,16 +123,12 @@ paths:
     post:
       operationId: restoreOwnIdentityProfileDraft
       tags: [Account]
-      summary: Restaurar el borrador propio aún incompleto con la contraseña actual
+      summary: Restaurar el borrador propio tras confirmar la identidad
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [current_password]
-              properties:
-                current_password: { type: string, writeOnly: true }
+            schema: { $ref: "#/components/schemas/IdentityProfileConfirmation" }
       responses:
         "200":
           description: Borrador propio para continuar la configuración inicial.
@@ -140,8 +136,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IdentityProfileDraft" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { description: Reautenticación rechazada. }
+        "403": { description: Confirmación rechazada. }
         "409": { description: Sin borrador inicial disponible. }
+        "429": { description: PIN temporalmente bloqueado. }
+  /account/identity-profile/edit:
+    post:
+      operationId: openOwnIdentityProfileForEditing
+      tags: [Account]
+      summary: Leer los datos del perfil propio tras confirmar la identidad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityProfileConfirmation" }
+      responses:
+        "200":
+          description: Datos del perfil propio para editar.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityProfileInput" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Confirmación rechazada. }
+        "409": { description: Perfil incompleto. }
+        "429": { description: PIN temporalmente bloqueado. }
   /account/identity-profile/username:
     patch:
       operationId: changeOwnPublicUsername
@@ -8404,6 +8421,14 @@ components:
         type: string
         minLength: 1
   schemas:
+    IdentityProfileConfirmation:
+      type: object
+      additionalProperties: false
+      description: Envía la contraseña actual, el PIN o el código del autenticador.
+      properties:
+        current_password: { type: string, writeOnly: true }
+        pin: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+        otp_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
     IdentityProfileDraft:
       type: object
       additionalProperties: false

@@ -1,28 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   ChevronRight,
   KeyRound,
   LockKeyhole,
   Mail,
   QrCode,
+  RectangleEllipsis,
   ScanFace,
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  getPinpassStatus,
+  PINPASS_SETTINGS_HREF,
+} from "@/features/account/pinpass-api";
 import { SecurityMethodHeader } from "@/features/account/ui/security-method-header";
 import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
 
 const methods = [
-  {
-    key: "phone",
-    route: "telefono",
-    title: "Teléfono",
-    description: "Verifica tu número móvil con un código.",
-    icon: Smartphone,
-  },
   {
     key: "password",
     route: "contrasena",
@@ -36,6 +35,13 @@ const methods = [
     title: "Correo electrónico",
     description: "Consulta la dirección que usas para recuperar tu cuenta.",
     icon: Mail,
+  },
+  {
+    key: "phone",
+    route: "telefono",
+    title: "Teléfono",
+    description: "Verifica tu número móvil con un código.",
+    icon: Smartphone,
   },
   {
     key: "passkeys",
@@ -64,6 +70,19 @@ export default function MetodosVerificacionPage() {
   const { summary, isLoading, error, refresh } = useSecurityMethodsSummary();
   const current = isLoading || error ? null : summary;
   const details = current?.methods;
+  const [configured, setConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getPinpassStatus(controller.signal)
+      .then((status) => {
+        if (!controller.signal.aborted) setConfigured(status.configured);
+      })
+      .catch(() => {
+        // The direct method link still works if its status is unavailable.
+      });
+    return () => controller.abort();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -108,6 +127,44 @@ export default function MetodosVerificacionPage() {
         className="divide-y rounded-2xl border bg-card"
         aria-label="Métodos de verificación de la cuenta"
       >
+        <li>
+          <Link
+            href={PINPASS_SETTINGS_HREF}
+            aria-labelledby="pinpass-method-action"
+            aria-describedby="pinpass-method-description"
+            className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-t-2xl p-4 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary sm:gap-4 sm:px-5 ${configured === false ? "bg-primary/5" : ""}`}
+          >
+            <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <RectangleEllipsis className="size-5" aria-hidden="true" />
+            </span>
+            <div className="min-w-0 space-y-1">
+              <h2 className="font-semibold">Pinpass</h2>
+              <p
+                id="pinpass-method-description"
+                className="text-sm text-muted-foreground"
+              >
+                {configured === false
+                  ? "Configura tu Pinpass para navegar y desbloquear opciones dentro de EspaciGo."
+                  : "Usa tu clave de seis dígitos para desbloquear opciones y ver tus datos privados."}
+              </p>
+              <p
+                id="pinpass-method-action"
+                role="status"
+                className="text-sm font-semibold text-primary"
+              >
+                {configured === false
+                  ? "Configurar Pinpass"
+                  : configured
+                    ? "Administrar Pinpass"
+                    : "Abrir Pinpass"}
+              </p>
+            </div>
+            <ChevronRight
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+          </Link>
+        </li>
         {methods.map(({ key, route, title, description, icon: Icon }) => {
           const enabled = details?.[key].enabled;
           const label = enabled
@@ -126,7 +183,7 @@ export default function MetodosVerificacionPage() {
             <li key={key}>
               <Link
                 href={`/mi-cuenta/seguridad/metodos/${route}`}
-                className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 p-4 transition-colors first:rounded-t-2xl hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary sm:gap-4 sm:px-5"
+                className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 p-4 transition-colors hover:bg-muted/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary sm:gap-4 sm:px-5"
               >
                 <span className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Icon className="size-5" aria-hidden="true" />

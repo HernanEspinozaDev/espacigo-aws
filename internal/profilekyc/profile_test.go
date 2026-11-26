@@ -32,6 +32,8 @@ func TestNormalizeIdentityProfile(t *testing.T) {
 		{"date_of_birth", func(d *Data) { d.DateOfBirth = "2027-01-01" }},
 		{"document_type", func(d *Data) { d.DocumentType = "passport" }},
 		{"phone", func(d *Data) { d.Phone = "1234" }},
+		{"phone", func(d *Data) { d.Phone = "+569123456789" }},
+		{"phone", func(d *Data) { d.Phone = "+56212345678" }},
 		{"consent", func(d *Data) { d.Consent = false }},
 	} {
 		t.Run(tc.field, func(t *testing.T) {

@@ -23,11 +23,24 @@ export function safeHostReturnPath(
   return trimmed;
 }
 
-export function verificationReturnHref(returnTo?: string | null): string {
+export function verificationReturnHref(
+  returnTo?: string | string[] | null,
+  { refresh = false } = {},
+): string {
   const safe = safeHostReturnPath(returnTo);
-  return safe
-    ? `/mi-cuenta/perfil?return_to=${encodeURIComponent(safe)}#identity-verification`
-    : "/mi-cuenta/perfil#identity-verification";
+  const query = new URLSearchParams();
+  if (refresh) query.set("refresh_identity", "1");
+  if (safe) query.set("return_to", safe);
+  return query.size
+    ? `/mi-cuenta/verificaciones?${query}`
+    : "/mi-cuenta/verificaciones";
+}
+
+export function profileEditHref(returnTo?: string | null): string {
+  const safe = safeHostReturnPath(returnTo);
+  const query = new URLSearchParams({ editar: "1" });
+  if (safe) query.set("return_to", safe);
+  return `/mi-cuenta/perfil?${query}#profile-data`;
 }
 
 export function mercadoPagoReturnHref(returnTo?: string | null): string {

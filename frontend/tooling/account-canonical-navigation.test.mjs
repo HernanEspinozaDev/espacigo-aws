@@ -67,14 +67,15 @@ test("return-target allowlist keeps legacy dashboard bookmarks", async () => {
   }
 });
 
-test("verification return refreshes profile identity without forwarding provider query values", async () => {
+test("verification return refreshes the standalone identity page without forwarding provider query values", async () => {
   const source = await readFile(
     resolve(root, "src/app/verificaciones/retorno/page.tsx"),
     "utf8",
   );
-  assert.match(source, /safeHostReturnPath\(return_to\)/);
-  assert.match(source, /refresh_identity=1/);
-  assert.match(source, /redirect\(destination\)/);
+  assert.match(
+    source,
+    /redirect\(verificationReturnHref\(return_to, \{ refresh: true \}\)\)/,
+  );
   assert.doesNotMatch(source, /searchParams\.[a-z_]+/);
   assert.doesNotMatch(source, /href="\/dashboard"/);
 });

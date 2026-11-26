@@ -13,6 +13,11 @@ export type IdentityProfileState =
 export type IdentityProfileSummary =
   components["schemas"]["IdentityProfileStatus"];
 
+export type ProfileConfirmationMethod = "current_password" | "pin" | "otp_code";
+export type ProfileConfirmationProof = Partial<
+  Record<ProfileConfirmationMethod, string>
+>;
+
 export interface IdentityProfileInput {
   username: string;
   first_name: string;
@@ -158,15 +163,25 @@ export function validateIdentityProfile(
   return errors;
 }
 
+export function chileanMobileSubscriber(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (
+    digits.startsWith("569") &&
+    (value.trimStart().startsWith("+") || digits.length >= 11)
+  )
+    return digits.slice(3, 11);
+  if (digits.startsWith("9") && digits.length >= 9) return digits.slice(1, 9);
+  return digits.slice(0, 8);
+}
+
 export function formatChileanRutProgressively(value: string): string {
-  const upper = value.toLocaleUpperCase("en-US");
-  if (!/^[0-9.kK\s-]*$/.test(upper)) return upper;
+  const upper = value.toLocaleUpperCase("en-US").replace(/[^0-9K.\s-]/g, "");
   const hasExplicitCheckDigit = /-\s*[0-9kK]$/i.test(upper);
   const hasTrailingDash = upper.endsWith("-");
-  const compact = upper.replace(/[.\s-]/g, "");
+  const compact = upper.replace(/[.\s-]/g, "").slice(0, 9);
   if (!compact) return "";
-  if (compact.length > 9 || (upper.match(/-/g)?.length ?? 0) > 1) return upper;
-  const hasCheckDigit = hasExplicitCheckDigit || compact.length > 8;
+  const hasCheckDigit =
+    hasExplicitCheckDigit || compact.endsWith("K") || compact.length > 8;
   const body = (hasCheckDigit ? compact.slice(0, -1) : compact).replace(
     /\D/g,
     "",

@@ -3,13 +3,17 @@ package profilekyc_test
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	profilepinpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/profilepin"
 	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilekyc"
 	"github.com/HernanEspinozaDev/espaciGo/internal/profilepin"
@@ -43,10 +47,16 @@ func (p *syntheticProvider) Decision(_ context.Context, id string) (profilekyc.D
 	return p.decisions[id], nil
 }
 
+type testAuthorizer struct{ account, session string }
+
+func (a testAuthorizer) Authorize(_ context.Context, _ identity.Secret, _ identity.Role, _ identity.ActivityKind) (identity.Principal, error) {
+	return identity.Principal{AccountID: a.account, SessionID: a.session}, nil
+}
+
 type testStepUp struct{}
 
 func (testStepUp) Verify(_ context.Context, _, _ string, proof profilepin.Proof) error {
-	if proof.CurrentPassword != "synthetic factor" {
+	if proof.CurrentPassword != "synthetic factor" && proof.OTPCode != "654321" {
 		return profilepin.ErrStepUpRejected
 	}
 	return nil
@@ -115,6 +125,13 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 
 	if status, err := service.Save(ctx, first, input); err != nil || status.State != "ready" || status.DraftSaved {
 		t.Fatalf("save: %#v %v", status, err)
+	}
+	current, err := service.ReadForEdit(ctx, first)
+	if err != nil || current.FirstName != "María" || current.Username != input.Username || current.Phone != input.Phone {
+		t.Fatalf("read protected editor data: %v", err)
+	}
+	if _, err := service.ReadForEdit(ctx, second); !errors.Is(err, profilekyc.ErrNotReady) {
+		t.Fatalf("incomplete account editor data: %v", err)
 	}
 	input.Username = "ALPHA-PROFILE"
 	if _, err := service.Save(ctx, second, input); !errors.Is(err, profilekyc.ErrUsernameTaken) {
@@ -260,6 +277,27 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 	}
 	if err := pin.Set(ctx, first, session, "361909", "361909", profilepin.Proof{CurrentPassword: "synthetic factor"}); err != nil {
 		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	profilekyc.Register(mux, testAuthorizer{first, session}, verifier, nil, testStepUp{}, pin)
+	for _, tc := range []struct {
+		name, proof string
+		status      int
+	}{
+		{"missing", `{}`, http.StatusForbidden},
+		{"password", `{"current_password":"synthetic factor"}`, http.StatusOK},
+		{"authenticator", `{"otp_code":"654321"}`, http.StatusOK},
+		{"invalid PIN", `{"pin":"111111"}`, http.StatusForbidden},
+		{"PIN", `{"pin":"361909"}`, http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodPost, profilekyc.BaseRoute+"/edit", strings.NewReader(tc.proof))
+		req.Header.Set("Authorization", "Bearer synthetic-session")
+		result := httptest.NewRecorder()
+		mux.ServeHTTP(result, req)
+		if result.Code != tc.status || result.Header().Get("Cache-Control") != "no-store" ||
+			strings.Contains(result.Body.String(), "alpha-profile") != (tc.status == http.StatusOK) {
+			t.Fatalf("protected edit with %s: HTTP %d", tc.name, result.Code)
+		}
 	}
 	before := time.Now()
 	expiry, err := pin.Unlock(ctx, first, session, "361909")

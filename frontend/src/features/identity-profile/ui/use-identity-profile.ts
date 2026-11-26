@@ -30,8 +30,9 @@ export function useIdentityProfile() {
       identityProfileStore.saveDraft(draft),
     [],
   );
-  const restoreDraft = useCallback(
-    (password: string) => identityProfileStore.restoreDraft(password),
+  const readProtectedProfile = useCallback(
+    (...args: Parameters<typeof identityProfileStore.readProtectedProfile>) =>
+      identityProfileStore.readProtectedProfile(...args),
     [],
   );
   const reload = useCallback(() => identityProfileStore.reload(), []);
@@ -49,7 +50,7 @@ export function useIdentityProfile() {
     save,
     saveUsername,
     saveDraft,
-    restoreDraft,
+    readProtectedProfile,
     reload,
     startVerification,
     refreshVerification,

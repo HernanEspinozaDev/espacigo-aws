@@ -10,7 +10,6 @@ import {
   FileText,
   Lock,
   Shield,
-  ShieldCheck,
   User,
 } from "lucide-react";
 import { EarlyRentalNotice } from "@/features/bookings/ui/early-rental-notice";
@@ -52,18 +51,6 @@ const items = [
     href: "/mi-cuenta/privacidad",
     icon: Shield,
     description: "Exportación y derechos",
-  },
-  {
-    title: "Verificar identidad",
-    href: "/mi-cuenta/perfil#identity-verification",
-    icon: ShieldCheck,
-    description: "Completa tu perfil y verifica tu identidad",
-  },
-  {
-    title: "Revisión de identidad",
-    href: "/mi-cuenta/revisiones",
-    icon: FileCheck,
-    description: "Casos asignados de identidad",
   },
   {
     title: "Documentos",
@@ -108,8 +95,11 @@ export function AccountNavigation({
         {items.map((item) => {
           const isActive =
             activePath === item.href ||
-            (item.href !== "/mi-cuenta" &&
-              Boolean(activePath?.startsWith(item.href)));
+            (item.href === "/mi-cuenta"
+              ? activePath === "/mi-cuenta/perfil" ||
+                activePath === "/mi-cuenta/verificaciones" ||
+                Boolean(activePath?.match(/^\/mi-cuenta\/revisiones(?:\/|$)/))
+              : Boolean(activePath?.startsWith(item.href)));
           const Icon = item.icon;
 
           return (

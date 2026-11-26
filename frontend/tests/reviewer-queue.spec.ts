@@ -34,6 +34,7 @@ async function installReviewerQueueMock(
   fixture: ReviewerQueueFixture = {},
 ) {
   let loggedIn = false;
+  let expiresAt: string | null = null;
   const queueRequests: string[] = [];
   const detailRequests: string[] = [];
   const downloadRequests: string[] = [];
@@ -87,6 +88,7 @@ async function installReviewerQueueMock(
             roles: ["arrendador"],
             capabilities: [],
             restricted_mode: false,
+            expires_at: expiresAt,
           })
         : json(401, {
             error: {
@@ -98,15 +100,16 @@ async function installReviewerQueueMock(
     }
     if (pathname === "/api/backend/auth/login" && method === "POST") {
       loggedIn = true;
+      expiresAt = new Date(
+        Date.now() + (fixture.expiresInMs ?? 60_000),
+      ).toISOString();
       return json(200, {
         account_id: accountId,
         roles: ["arrendador"],
         capabilities: [],
         access_token: sessionToken,
         token_type: "Bearer",
-        expires_at: new Date(
-          Date.now() + (fixture.expiresInMs ?? 60_000),
-        ).toISOString(),
+        expires_at: expiresAt,
         restricted_mode: false,
       });
     }
@@ -327,13 +330,39 @@ test("reviewer queue is minimal and clears when the synthetic session expires", 
   await expect(page.getByText("12.345.678-5")).toHaveCount(0);
   await expect(page.getByRole("main")).toHaveCount(1);
   await expect(
-    page.getByRole("link", { name: "Revisión de identidad" }),
-  ).toHaveAttribute("href", "/mi-cuenta/revisiones");
+    page
+      .getByRole("navigation", { name: "Secciones de mi cuenta" })
+      .getByRole("link", { name: /Revisión de identidad/ }),
+  ).toHaveCount(0);
   expect(fixture.queueRequests).toEqual([`GET ${queuePath}`]);
-  await expect(page.getByRole("status")).toHaveText("Casos no disponibles.", {
-    timeout: 10_000,
-  });
+  await expect(page).toHaveURL(/\/$/, { timeout: 10_000 });
   await expect(page.getByText(`Expediente: ${identityCaseId}`)).toHaveCount(0);
+});
+
+test("Verificaciones muestra los expedientes de identidad asignados", async ({
+  page,
+}) => {
+  await installReviewerQueueMock(page, {
+    items: [
+      {
+        id: identityCaseId,
+        purpose: "identity",
+        state: "en_revision",
+        revision: 7,
+      },
+    ],
+  });
+  await signInToReviewerQueue(page);
+  await page.goto("/mi-cuenta/verificaciones");
+  await expect(
+    page.getByRole("heading", { name: "Verificaciones" }),
+  ).toBeVisible();
+  const assignments = page.getByRole("region", {
+    name: "Expedientes asignados",
+  });
+  await expect(
+    assignments.getByRole("link", { name: "Abrir expediente" }),
+  ).toHaveAttribute("href", `/mi-cuenta/revisiones/${identityCaseId}`);
 });
 
 test("reviewer queue shows an explicit empty state", async ({ page }) => {

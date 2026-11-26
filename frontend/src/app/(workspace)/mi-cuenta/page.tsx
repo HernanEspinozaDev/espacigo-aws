@@ -119,7 +119,7 @@ export default function MiCuentaPage() {
                 Información de tu perfil
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Datos personales, fotografía de perfil y revisión de identidad.
+                Datos personales y fotografía de perfil.
               </p>
             </div>
             <div className="pt-2 text-xs space-y-1 text-muted-foreground border-t border-border/50">
@@ -302,7 +302,7 @@ export default function MiCuentaPage() {
           </div>
           <div className="pt-4 mt-2">
             <Link
-              href="/mi-cuenta/perfil#identity-verification"
+              href="/mi-cuenta/verificaciones"
               className="w-full flex items-center justify-between text-xs font-semibold text-primary hover:text-primary/80 transition-colors py-1.5"
             >
               <span>Ver verificaciones</span>
