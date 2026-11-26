@@ -76,7 +76,7 @@ func approvedChileanIdentityCard(doc didit.IDVerification) bool {
 		(strings.EqualFold(doc.DocumentType, "Identity Card") || strings.EqualFold(doc.DocumentType, "ID"))
 }
 
-func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth profilekyc.Authorizer, cfg config, getenv func(string) string, production bool) (*profilekyc.Service, profilekyc.Keyring, error) {
+func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth *identity.AuthenticationService, mailer identity.AuthenticationMailer, cfg config, getenv func(string) string, production bool) (*profilekyc.Service, profilekyc.Keyring, error) {
 	key, err := loadRentalContractDeclarationKeyring(getenv)
 	if err != nil {
 		return nil, nil, err
@@ -135,9 +135,12 @@ func mountIdentityProfile(mux *http.ServeMux, pool *pgxpool.Pool, auth profileky
 		return nil, nil, err
 	}
 	stepUp := pinpassStepUp{pool: pool, totp: keyring}
-	pinpass, err := mountPinpass(mux, pool, auth, service, stepUp, getenv)
+	pinpass, err := mountPinpass(mux, pool, auth, service, stepUp, mailer, getenv)
 	if err != nil {
 		return nil, nil, err
+	}
+	if pinpass != nil {
+		auth.SetPinpassStatusReader(pinpass.Configured)
 	}
 	profilekyc.Register(mux, auth, profilekyc.NewVerifier(service, provider), decoder, stepUp, pinpass)
 	return service, keys, nil

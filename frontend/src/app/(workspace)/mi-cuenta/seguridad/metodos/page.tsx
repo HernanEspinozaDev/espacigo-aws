@@ -52,7 +52,7 @@ const methods = [
   {
     key: "totp",
     route: "google-authenticator",
-    title: "Google Authenticator",
+    title: "Aplicación de autenticación",
     description: "Configura una aplicación que genera códigos de seis dígitos.",
     icon: ShieldCheck,
   },
@@ -146,6 +146,11 @@ export default function MetodosVerificacionPage() {
                   ? "Configura tu Pinpass para navegar y desbloquear opciones dentro de EspaciGo."
                   : "Usa tu clave de seis dígitos para desbloquear opciones y ver tus datos privados."}
               </p>
+              {configured === true && (
+                <span className="inline-flex w-fit rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:text-emerald-300">
+                  Configurado
+                </span>
+              )}
               <p
                 id="pinpass-method-action"
                 role="status"

@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { PinInput } from "./pin-input";
+import { useSecurityMethodsSummary } from "./use-security-methods-summary";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
@@ -45,6 +48,17 @@ export function SecurityCard() {
 }
 
 function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
+  const { summary } = useSecurityMethodsSummary();
+  const pinEnabled = summary?.methods.pinpass.enabled === true;
+  const totpEnabled = summary?.methods.totp.enabled === true;
+  const [preferredMethod, setPreferredMethod] = useState<"pin" | "otp_code">(
+    "otp_code",
+  );
+  const method =
+    pinEnabled && (preferredMethod === "pin" || !totpEnabled)
+      ? "pin"
+      : "otp_code";
+  const [factorCode, setFactorCode] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -72,6 +86,11 @@ function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
     setError(null);
     setSuccess(null);
 
+    if ((!pinEnabled && !totpEnabled) || !/^\d{6}$/.test(factorCode)) {
+      setError("Confirma también con tu Pinpass o el código del autenticador.");
+      return;
+    }
+
     if (newPassword !== confirmPassword) {
       setError("Las contraseñas nuevas no coinciden.");
       return;
@@ -96,6 +115,7 @@ function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
         const result = await apiClient.POST("/auth/password/change", {
           body: {
             current_password: currentPassword,
+            [method]: factorCode,
             new_password: newPassword,
             confirm_password: confirmPassword,
           },
@@ -118,6 +138,7 @@ function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
 
       setSuccess("Tu contraseña ha sido actualizada con éxito.");
       setCurrentPassword("");
+      setFactorCode("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
@@ -193,6 +214,55 @@ function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
               />
             </div>
 
+            {pinEnabled || totpEnabled ? (
+              <div className="space-y-2">
+                {pinEnabled && totpEnabled && (
+                  <div
+                    className="flex flex-wrap gap-2"
+                    aria-label="Segundo factor"
+                  >
+                    <Button
+                      type="button"
+                      variant={method === "pin" ? "default" : "outline"}
+                      aria-pressed={method === "pin"}
+                      onClick={() => {
+                        setPreferredMethod("pin");
+                        setFactorCode("");
+                      }}
+                    >
+                      Pinpass
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={method === "otp_code" ? "default" : "outline"}
+                      aria-pressed={method === "otp_code"}
+                      onClick={() => {
+                        setPreferredMethod("otp_code");
+                        setFactorCode("");
+                      }}
+                    >
+                      Autenticador
+                    </Button>
+                  </div>
+                )}
+                <PinInput
+                  id="password-second-factor"
+                  label={
+                    method === "pin" ? "Pinpass" : "Código del autenticador"
+                  }
+                  value={factorCode}
+                  onChange={setFactorCode}
+                  disabled={isSubmitting}
+                />
+              </div>
+            ) : (
+              <Link
+                className="text-sm text-primary underline"
+                href="/mi-cuenta/seguridad/metodos"
+              >
+                Configurar Pinpass o un autenticador
+              </Link>
+            )}
             <div className="space-y-2">
               <Label htmlFor="new-password">Nueva contraseña</Label>
               <Input

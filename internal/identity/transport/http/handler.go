@@ -818,7 +818,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			deviceLabel := identity.DeriveDeviceLabel(r.UserAgent())
 			ipMasked := identity.MaskIP(clientIPForDevice(r))
-			resp, err := h.service.DisableTOTP(r.Context(), principal.AccountID, input.Code, deviceLabel, ipMasked)
+			resp, err := h.service.DisableTOTPWithConfirmation(r.Context(), principal, input, deviceLabel, ipMasked)
 			if err != nil {
 				h.totpError(w, err)
 				return
@@ -1178,6 +1178,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Current      identity.Secret `json:"current_password"`
 			Password     identity.Secret `json:"new_password"`
 			Confirmation identity.Secret `json:"confirm_password"`
+			OTPCode      identity.Secret `json:"otp_code"`
+			Pin          identity.Secret `json:"pin"`
 		}
 		if !h.decode(w, r, &input) {
 			return
@@ -1187,7 +1189,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.serviceError(w, identity.ErrUnauthorized)
 			return
 		}
-		err := h.service.ChangePassword(r.Context(), identity.ChangePasswordInput{SessionToken: parts[1], CurrentPassword: input.Current, Password: input.Password, Confirmation: input.Confirmation})
+		err := h.service.ChangePassword(r.Context(), identity.ChangePasswordInput{SessionToken: parts[1], CurrentPassword: input.Current, Password: input.Password, Confirmation: input.Confirmation, OTPCode: input.OTPCode, Pin: input.Pin})
 		if err != nil {
 			h.serviceError(w, err, r.URL.Path)
 			return
@@ -1342,6 +1344,8 @@ func (h *Handler) serviceError(w http.ResponseWriter, err error, paths ...string
 		status = 422
 		code = "invalid_token"
 		message = "Token inválido, expirado o ya utilizado."
+	case errors.Is(err, identity.ErrSecurityConfirmation):
+		status, code, message = http.StatusForbidden, "security_confirmation_required", "No pudimos confirmar ambos factores de seguridad."
 	case errors.Is(err, identity.ErrCurrentPassword):
 		status = 422
 		code = "current_password_invalid"
@@ -1501,6 +1505,10 @@ func (h *Handler) alertsError(w http.ResponseWriter, err error) {
 }
 
 func (h *Handler) totpError(w http.ResponseWriter, err error) {
+	if errors.Is(err, identity.ErrSecurityConfirmation) {
+		h.serviceError(w, err)
+		return
+	}
 	switch {
 	case errors.Is(err, identity.ErrTOTPNotPending):
 		h.fail(w, http.StatusBadRequest, "totp_not_pending", "No hay una configuración de autenticador TOTP pendiente.")

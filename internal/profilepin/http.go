@@ -23,16 +23,18 @@ type Authorizer interface {
 type Handler struct {
 	auth    Authorizer
 	service *Service
+	email   EmailChallenger
 	now     func() time.Time
 }
 
-func NewHandler(auth Authorizer, service *Service) http.Handler {
-	return &Handler{auth: auth, service: service, now: time.Now}
+func NewHandler(auth Authorizer, service *Service, email EmailChallenger) http.Handler {
+	return &Handler{auth: auth, service: service, email: email, now: time.Now}
 }
 
 type proofInput struct {
 	CurrentPassword *identity.Secret `json:"current_password"`
 	OTPCode         *identity.Secret `json:"otp_code"`
+	EmailCode       *identity.Secret `json:"email_code"`
 }
 
 func (in proofInput) proof() (Proof, bool) {
@@ -49,7 +51,10 @@ func (in proofInput) proof() (Proof, bool) {
 		}
 		proof.OTPCode = *in.OTPCode
 	}
-	return proof, proof.Present()
+	if in.EmailCode != nil {
+		proof.EmailCode = *in.EmailCode
+	}
+	return proof, pinPattern.MatchString(string(proof.EmailCode)) && (proof.CurrentPassword != "" || proof.OTPCode != "")
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +62,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Vary", "Authorization, Cookie")
-	if h.auth == nil || h.service == nil {
+	if h.auth == nil || h.service == nil || h.email == nil && !strings.HasPrefix(r.URL.Path, "/api/v1/account/security/pinpass") {
 		writeError(w, 503, "unavailable")
 		return
 	}
@@ -105,6 +110,62 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"configured": true})
+	case path == "/api/v1/account/security/pinpass/email-code" && r.Method == http.MethodPost:
+		if h.email == nil {
+			writeServiceError(w, ErrEmailUnavailable)
+			return
+		}
+		result, err := h.email.SendEmailCode(r.Context(), principal.AccountID, principal.SessionID, "pinpass")
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	case path == "/api/v1/account/security/confirmation/email-code" && r.Method == http.MethodPost:
+		var input struct {
+			Operation string `json:"operation"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if input.Operation != "authenticator" {
+			writeServiceError(w, ErrInvalidInput)
+			return
+		}
+		result, err := h.email.SendEmailCode(r.Context(), principal.AccountID, principal.SessionID, input.Operation)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	case path == "/api/v1/account/security/email/change" && r.Method == http.MethodPost:
+		var input struct {
+			Email           string          `json:"email"`
+			CurrentPassword identity.Secret `json:"current_password"`
+			OTPCode         identity.Secret `json:"otp_code"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		result, err := h.email.StartEmailChange(r.Context(), principal.AccountID, principal.SessionID, input.Email,
+			Proof{CurrentPassword: input.CurrentPassword, OTPCode: input.OTPCode})
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, result)
+	case path == "/api/v1/account/security/email/confirm" && r.Method == http.MethodPost:
+		var input struct {
+			EmailCode identity.Secret `json:"email_code"`
+		}
+		if !decodeJSON(w, r, &input) {
+			return
+		}
+		if err := h.email.ConfirmEmailChange(r.Context(), principal.AccountID, principal.SessionID, input.EmailCode); err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case path == "/api/v1/account/security/pinpass/unlock" && r.Method == http.MethodPost:
 		var in struct {
 			PIN string `json:"pin"`
@@ -234,6 +295,10 @@ func writeServiceError(w http.ResponseWriter, err error) {
 		writeError(w, 403, "pinpass_access_required")
 	case errors.Is(err, ErrProfileIncomplete):
 		writeError(w, 409, "profile_incomplete")
+	case errors.Is(err, ErrEmailInUse):
+		writeError(w, 409, "email_in_use")
+	case errors.Is(err, ErrEmailUnavailable):
+		writeError(w, 503, "pinpass_email_unavailable")
 	case errors.Is(err, ErrStepUpRejected):
 		writeError(w, 403, "reauthentication_failed")
 	default:

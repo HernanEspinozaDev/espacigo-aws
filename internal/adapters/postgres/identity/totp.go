@@ -125,10 +125,14 @@ ON CONFLICT (account_id) DO UPDATE SET
     pending_secret_ciphertext = EXCLUDED.pending_secret_ciphertext,
     pending_key_version = EXCLUDED.pending_key_version,
     updated_at = now()
+WHERE cuenta_totp.enabled_at IS NULL
 `
-	_, err := dbtx.Exec(ctx, query, accountID, ciphertext, keyVersion)
+	cmd, err := dbtx.Exec(ctx, query, accountID, ciphertext, keyVersion)
 	if err != nil {
 		return mapError(err)
+	}
+	if cmd.RowsAffected() == 0 {
+		return identity.ErrTOTPAlreadyEnabled
 	}
 	return nil
 }
@@ -149,7 +153,7 @@ SET secret_ciphertext = pending_secret_ciphertext,
     enabled_at = now(),
     last_verified_step = $2,
     updated_at = now()
-WHERE account_id = $1 AND pending_secret_ciphertext IS NOT NULL
+WHERE account_id = $1 AND pending_secret_ciphertext IS NOT NULL AND enabled_at IS NULL
 `
 	cmd, err := tx.Exec(ctx, updateQuery, accountID, verifiedStep)
 	if err != nil {

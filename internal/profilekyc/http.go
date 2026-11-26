@@ -179,6 +179,8 @@ func writeResult(w http.ResponseWriter, status int, result any, err error) {
 		writeError(w, 422, "invalid_identity_profile", fieldError.Fields)
 	case errors.Is(err, ErrUsernameTaken):
 		writeError(w, 409, "username_taken", map[string]string{"username": "username_taken"})
+	case errors.Is(err, ErrLegalIdentityLocked):
+		writeError(w, 409, "legal_identity_locked", nil)
 	case errors.Is(err, ErrRUTLocked):
 		writeError(w, 409, "rut_locked", map[string]string{"rut": "rut_locked"})
 	case errors.Is(err, ErrNotReady):

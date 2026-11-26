@@ -275,7 +275,7 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := pin.Set(ctx, first, session, "361909", "361909", profilepin.Proof{CurrentPassword: "synthetic factor"}); err != nil {
+	if err := pin.Set(ctx, first, session, "361909", "361909", profilepin.Proof{CurrentPassword: "synthetic factor", EmailCode: "123456"}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -320,23 +320,31 @@ func TestPostgresProfileVerificationAndPinpass(t *testing.T) {
 	if _, err := pin.Unlock(ctx, first, session, "361909"); err != nil {
 		t.Fatal(err)
 	}
-	if err := pin.Reset(ctx, first, session, profilepin.Proof{CurrentPassword: "synthetic factor"}); err != nil {
+	if err := pin.Reset(ctx, first, session, profilepin.Proof{OTPCode: "654321", EmailCode: "123456"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := pin.Reveal(ctx, first, session, "run"); !errors.Is(err, profilepin.ErrNoAccess) {
 		t.Fatalf("grant survived reset: %v", err)
 	}
 	input.FirstName = "María Paz"
-	if status, err := service.Save(ctx, first, input); err != nil || status.State != "ready" || !status.RUTLocked {
-		t.Fatalf("legal change retained KYC: %#v %v", status, err)
+	if _, err := service.Save(ctx, first, input); !errors.Is(err, profilekyc.ErrLegalIdentityLocked) {
+		t.Fatalf("verified legal name was editable: %v", err)
 	}
-	notice.ID = uuid.NewString()
-	notice.OccurredAt = time.Now()
-	if err := verifier.ProcessNotice(ctx, notice); err != nil {
-		t.Fatal(err)
+	input.FirstName = "María"
+	input.DateOfBirth = "1991-01-01"
+	if _, err := service.Save(ctx, first, input); !errors.Is(err, profilekyc.ErrLegalIdentityLocked) {
+		t.Fatalf("verified birth date was editable: %v", err)
 	}
-	if _, err := contracts.CurrentForRentalContract(ctx, second, quote, first, time.Now()); !errors.Is(err, rentalflow.ErrIdentityUnavailable) {
-		t.Fatalf("late result allowed contract with new revision: %v", err)
+	input.DateOfBirth = "1990-01-01"
+	input.Phone = "+56987654321"
+	if status, err := service.Save(ctx, first, input); err != nil || status.State != "verified" || status.MaskedPhone != "••••4321" {
+		t.Fatalf("phone edit affected identity: %#v %v", status, err)
 	}
-
+	current, err = service.ReadForEdit(ctx, first)
+	if err != nil || current.Phone != input.Phone {
+		t.Fatalf("editable contact number was not reflected: %v", err)
+	}
+	if _, err := contracts.CurrentForRentalContract(ctx, second, quote, first, time.Now()); err != nil {
+		t.Fatalf("contact update invalidated legal identity in contract: %v", err)
+	}
 }

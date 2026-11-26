@@ -131,7 +131,7 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 			omit string
 		}{
 			{"/openapi.json", []string{"/admin/global/me", "/public/spaces", "/host/settlements"}, ""},
-			{"/openapi.json?scope=all", []string{"/account/identity-profile", "/webhooks/profile-identity", "/account/security/pinpass/unlock", "/account/security/pinpass/reveal/{field}"}, "/webhooks/didit"},
+			{"/openapi.json?scope=all", []string{"/account/identity-profile", "/webhooks/profile-identity", "/account/security/pinpass/unlock", "/account/security/pinpass/reveal/{field}", "/account/security/pinpass/email-code", "/account/security/confirmation/email-code", "/account/security/email/change", "/account/security/email/confirm"}, "/webhooks/didit"},
 			{"/openapi.json?scope=admin", []string{"/admin/global/me", "/document-verification/reviewer/cases"}, "/public/spaces"},
 		} {
 			rec := httptest.NewRecorder()

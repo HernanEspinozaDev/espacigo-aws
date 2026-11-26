@@ -21,6 +21,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SecurityMethodHeader } from "@/features/account/ui/security-method-header";
 import { SecurityQrCode } from "@/features/account/ui/security-qr-code";
+import {
+  securityConfirmationError,
+  sendAuthenticatorChangeCode,
+} from "@/features/account/security-confirmation-api";
 import { useTOTP } from "@/features/account/ui/use-totp";
 
 function formatKeyBlocks(key: string): string {
@@ -98,6 +102,9 @@ export default function GoogleAuthenticatorPage() {
 
   const [verifyCodeInput, setVerifyCodeInput] = useState("");
   const [disableCodeInput, setDisableCodeInput] = useState("");
+  const [disablePassword, setDisablePassword] = useState("");
+  const [emailNotice, setEmailNotice] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
   const [isCopiedKey, setIsCopiedKey] = useState(false);
   const [isCopiedCodes, setIsCopiedCodes] = useState(false);
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
@@ -132,12 +139,29 @@ export default function GoogleAuthenticatorPage() {
     }
   };
 
+  async function sendDisableCode() {
+    setSendingCode(true);
+    setEmailNotice("");
+    try {
+      const challenge = await sendAuthenticatorChangeCode();
+      if (challenge)
+        setEmailNotice(`Enviamos un código a ${challenge.masked_email}.`);
+    } catch (error) {
+      setEmailNotice(securityConfirmationError(error));
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
   const handleDisableSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const cleanCode = disableCodeInput.replace(/\s+/g, "");
-    if (!cleanCode) return;
-    const ok = await disable(cleanCode);
+    if (!disablePassword || !/^\d{6}$/.test(disableCodeInput)) return;
+    const ok = await disable({
+      current_password: disablePassword,
+      email_code: disableCodeInput,
+    });
     if (ok) {
+      setDisablePassword("");
       setDisableCodeInput("");
       setShowDisableConfirm(false);
     }
@@ -146,7 +170,7 @@ export default function GoogleAuthenticatorPage() {
   return (
     <div className="space-y-8">
       <SecurityMethodHeader
-        title="Google Authenticator"
+        title="Aplicación de autenticación"
         description="Vincula una aplicación que genera códigos de seis dígitos."
         overview
       />
@@ -359,7 +383,7 @@ export default function GoogleAuthenticatorPage() {
               </div>
               <div className="space-y-1">
                 <h3 className="text-base sm:text-lg font-bold text-foreground">
-                  Desactivar Google Authenticator
+                  Desactivar el autenticador
                 </h3>
                 <p className="text-xs sm:text-sm text-muted-foreground">
                   Si ya no deseas utilizar este método o necesitas migrar a un
@@ -375,7 +399,7 @@ export default function GoogleAuthenticatorPage() {
                 size="sm"
                 onClick={() => setShowDisableConfirm(true)}
               >
-                Quiero desactivar Google Authenticator
+                Quiero desactivar el autenticador
               </Button>
             ) : (
               <form
@@ -383,41 +407,58 @@ export default function GoogleAuthenticatorPage() {
                 className="space-y-4 pt-2 max-w-md"
               >
                 <div className="space-y-2">
-                  <Label htmlFor="disable-code" className="text-xs font-medium">
-                    Código de 6 dígitos o código de respaldo (8 caracteres)
+                  <Label htmlFor="disable-password">Contraseña actual</Label>
+                  <Input
+                    id="disable-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={disablePassword}
+                    onChange={(e) => setDisablePassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="disable-code">
+                    Código de correo electrónico
                   </Label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Input
                       id="disable-code"
-                      type="text"
-                      inputMode="text"
+                      inputMode="numeric"
                       autoComplete="one-time-code"
-                      placeholder="123456 o ABCDEFGH"
+                      maxLength={6}
                       value={disableCodeInput}
-                      onChange={(e) => setDisableCodeInput(e.target.value)}
-                      maxLength={10}
-                      className="font-mono text-center tracking-wider text-base h-10"
-                      disabled={isDisabling}
+                      onChange={(e) =>
+                        setDisableCodeInput(e.target.value.replace(/\D/g, ""))
+                      }
                       required
                     />
                     <Button
-                      type="submit"
-                      variant="destructive"
-                      disabled={isDisabling || !disableCodeInput.trim()}
-                      className="shrink-0"
+                      type="button"
+                      variant="outline"
+                      onClick={() => void sendDisableCode()}
+                      disabled={sendingCode}
                     >
-                      {isDisabling ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin mr-1.5" />
-                          <span>Desactivando...</span>
-                        </>
-                      ) : (
-                        <span>Confirmar desactivación</span>
-                      )}
+                      Enviar código
                     </Button>
                   </div>
+                  {emailNotice && (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      {emailNotice}
+                    </p>
+                  )}
                 </div>
-
+                <Button
+                  type="submit"
+                  variant="destructive"
+                  disabled={
+                    isDisabling ||
+                    !disablePassword ||
+                    !/^\d{6}$/.test(disableCodeInput)
+                  }
+                >
+                  Confirmar desactivación
+                </Button>
                 <div className="flex items-center gap-3">
                   <Button
                     type="button"
@@ -521,7 +562,7 @@ export default function GoogleAuthenticatorPage() {
                         <span>Iniciando configuración...</span>
                       </>
                     ) : (
-                      <span>Configurar Google Authenticator</span>
+                      <span>Configurar autenticador</span>
                     )}
                   </Button>
                 </div>

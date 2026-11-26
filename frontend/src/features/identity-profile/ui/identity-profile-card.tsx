@@ -45,7 +45,6 @@ import {
 import { useIdentityProfile } from "./use-identity-profile";
 import { IdentityVerifiedBadge } from "./identity-verified-badge";
 import { verificationReturnHref } from "@/features/host-listings/domain/publish-guide";
-import { PinpassAccountSection } from "@/features/account/ui/pinpass-card";
 import {
   getPinpassStatus,
   PinpassApiError,
@@ -60,6 +59,8 @@ const privateFields = [
   { field: "email", label: "Correo electrónico", masked: "masked_email" },
   { field: "run", label: "RUN", masked: "masked_rut" },
   { field: "phone", label: "Teléfono móvil", masked: "masked_phone" },
+  { field: "legal_name", label: "Nombre legal completo", masked: null },
+  { field: "date_of_birth", label: "Fecha de nacimiento", masked: null },
 ] as const;
 type PrivateField = (typeof privateFields)[number]["field"];
 
@@ -475,9 +476,9 @@ function IdentityProfileCardSession({
     setConfirmationError(null);
     try {
       if (
-        confirmation === "email" ||
-        confirmation === "run" ||
-        confirmation === "phone"
+        confirmation !== "draft" &&
+        confirmation !== "edit" &&
+        confirmation !== "username"
       ) {
         await revealField(confirmation, value);
         return;
@@ -565,7 +566,9 @@ function IdentityProfileCardSession({
               {editor === "identity"
                 ? "Cerrar edición"
                 : snapshot.summary.complete
-                  ? "Editar datos"
+                  ? rutLocked
+                    ? "Editar teléfono"
+                    : "Editar datos"
                   : snapshot.summary.draft_saved
                     ? "Continuar perfil"
                     : "Completar perfil"}
@@ -615,13 +618,18 @@ function IdentityProfileCardSession({
               </ProfileValue>
               {privateFields.map(({ field, label, masked }) => {
                 const revealed = visibleValues[field];
+                const concealed = masked
+                  ? snapshot.summary?.[masked]
+                  : snapshot.summary?.complete
+                    ? "••••••••"
+                    : undefined;
                 return (
                   <ProfileValue
                     key={field}
                     label={label}
-                    value={revealed ?? snapshot.summary?.[masked]}
+                    value={revealed ?? concealed}
                   >
-                    {snapshot.summary?.[masked] && (
+                    {concealed && (
                       <Button
                         type="button"
                         variant="ghost"
@@ -735,8 +743,9 @@ function IdentityProfileCardSession({
               noValidate
             >
               <p className="text-sm text-muted-foreground">
-                Ingresa tus datos tal como figuran en tu cédula. Los campos con
-                * son obligatorios.
+                {rutLocked
+                  ? "Puedes actualizar tu teléfono móvil. Tus datos legales ya están verificados."
+                  : "Ingresa tus datos tal como figuran en tu cédula. Los campos con * son obligatorios."}
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 {!snapshot.summary?.complete ? (
@@ -771,144 +780,148 @@ function IdentityProfileCardSession({
                     </span>
                   </Field>
                 ) : null}
-                <Field
-                  id="first_name"
-                  label="Nombres legales"
-                  example="Tal como aparecen en tu cédula"
-                  required
-                  error={errors.first_name}
-                  valid={fieldState("first_name")}
-                >
-                  <Input
-                    id="identity-profile-first_name"
-                    autoComplete="given-name"
-                    value={form.first_name}
-                    onChange={(event) =>
-                      update("first_name", event.target.value)
-                    }
-                    onBlur={() => touch("first_name")}
-                    aria-invalid={Boolean(errors.first_name)}
-                    aria-describedby="identity-profile-first_name-error"
-                  />
-                </Field>
-                <Field
-                  id="first_last_name"
-                  label="Primer apellido"
-                  example="Tal como aparece en tu cédula"
-                  required
-                  error={errors.first_last_name}
-                  valid={fieldState("first_last_name")}
-                >
-                  <Input
-                    id="identity-profile-first_last_name"
-                    autoComplete="family-name"
-                    value={form.first_last_name}
-                    onChange={(event) =>
-                      update("first_last_name", event.target.value)
-                    }
-                    onBlur={() => touch("first_last_name")}
-                    aria-invalid={Boolean(errors.first_last_name)}
-                    aria-describedby="identity-profile-first_last_name-error"
-                  />
-                </Field>
-                <Field
-                  id="second_last_name"
-                  label="Segundo apellido"
-                  example="Tal como aparece en tu cédula"
-                  required={!form.no_second_last_name}
-                  error={errors.second_last_name}
-                  valid={fieldState("second_last_name")}
-                >
-                  <Input
-                    id="identity-profile-second_last_name"
-                    autoComplete="additional-name"
-                    value={form.second_last_name}
-                    disabled={form.no_second_last_name}
-                    onChange={(event) =>
-                      update("second_last_name", event.target.value)
-                    }
-                    onBlur={() => touch("second_last_name")}
-                    aria-invalid={Boolean(errors.second_last_name)}
-                    aria-describedby="identity-profile-second_last_name-error"
-                  />
-                </Field>
-                <label className="flex items-start gap-2 text-sm sm:col-span-2">
-                  <input
-                    id="identity-profile-no_second_last_name"
-                    type="checkbox"
-                    className="mt-1 size-4 accent-primary"
-                    checked={form.no_second_last_name}
-                    aria-invalid={Boolean(errors.second_last_name)}
-                    aria-describedby="identity-profile-second_last_name-error"
-                    onChange={(event) => {
-                      update("no_second_last_name", event.target.checked);
-                      if (event.target.checked) {
-                        setErrors((current) => {
-                          const next = { ...current };
-                          delete next.second_last_name;
-                          return next;
-                        });
-                      }
-                    }}
-                  />
-                  <span>No tengo segundo apellido</span>
-                </label>
-                <Field
-                  id="rut"
-                  label="RUN"
-                  example="Ejemplo: 12.345.678-5"
-                  required
-                  error={errors.rut}
-                  valid={fieldState("rut")}
-                >
-                  <Input
-                    ref={rutInput}
-                    id="identity-profile-rut"
-                    autoComplete="off"
-                    inputMode="text"
-                    value={rutLocked ? "" : form.rut}
-                    placeholder={
-                      rutLocked
-                        ? (snapshot.summary?.masked_rut ?? "RUN protegido")
-                        : undefined
-                    }
-                    disabled={rutLocked}
-                    onChange={(event) => onRutChange(event.target.value)}
-                    onBlur={() => touch("rut")}
-                    aria-invalid={Boolean(errors.rut)}
-                    aria-describedby="identity-profile-rut-help identity-profile-rut-error"
-                  />
-                  <span
-                    id="identity-profile-rut-help"
-                    className="text-xs text-muted-foreground"
-                  >
-                    {rutLocked
-                      ? "El RUN queda asociado a tu cuenta y no se puede reemplazar."
-                      : "Escribe o pega el RUN completo con su dígito verificador. Se admite K."}
-                  </span>
-                </Field>
-                <Field
-                  id="date_of_birth"
-                  label="Fecha de nacimiento"
-                  example="Formato esperado: día/mes/año"
-                  required
-                  error={errors.date_of_birth}
-                  valid={fieldState("date_of_birth")}
-                >
-                  <Input
-                    id="identity-profile-date_of_birth"
-                    type="date"
-                    autoComplete="bday"
-                    value={form.date_of_birth}
-                    max={new Date().toISOString().slice(0, 10)}
-                    onChange={(event) =>
-                      update("date_of_birth", event.target.value)
-                    }
-                    onBlur={() => touch("date_of_birth")}
-                    aria-invalid={Boolean(errors.date_of_birth)}
-                    aria-describedby="identity-profile-date_of_birth-error"
-                  />
-                </Field>
+                {!rutLocked && (
+                  <>
+                    <Field
+                      id="first_name"
+                      label="Nombres legales"
+                      example="Tal como aparecen en tu cédula"
+                      required
+                      error={errors.first_name}
+                      valid={fieldState("first_name")}
+                    >
+                      <Input
+                        id="identity-profile-first_name"
+                        autoComplete="given-name"
+                        value={form.first_name}
+                        onChange={(event) =>
+                          update("first_name", event.target.value)
+                        }
+                        onBlur={() => touch("first_name")}
+                        aria-invalid={Boolean(errors.first_name)}
+                        aria-describedby="identity-profile-first_name-error"
+                      />
+                    </Field>
+                    <Field
+                      id="first_last_name"
+                      label="Primer apellido"
+                      example="Tal como aparece en tu cédula"
+                      required
+                      error={errors.first_last_name}
+                      valid={fieldState("first_last_name")}
+                    >
+                      <Input
+                        id="identity-profile-first_last_name"
+                        autoComplete="family-name"
+                        value={form.first_last_name}
+                        onChange={(event) =>
+                          update("first_last_name", event.target.value)
+                        }
+                        onBlur={() => touch("first_last_name")}
+                        aria-invalid={Boolean(errors.first_last_name)}
+                        aria-describedby="identity-profile-first_last_name-error"
+                      />
+                    </Field>
+                    <Field
+                      id="second_last_name"
+                      label="Segundo apellido"
+                      example="Tal como aparece en tu cédula"
+                      required={!form.no_second_last_name}
+                      error={errors.second_last_name}
+                      valid={fieldState("second_last_name")}
+                    >
+                      <Input
+                        id="identity-profile-second_last_name"
+                        autoComplete="additional-name"
+                        value={form.second_last_name}
+                        disabled={form.no_second_last_name}
+                        onChange={(event) =>
+                          update("second_last_name", event.target.value)
+                        }
+                        onBlur={() => touch("second_last_name")}
+                        aria-invalid={Boolean(errors.second_last_name)}
+                        aria-describedby="identity-profile-second_last_name-error"
+                      />
+                    </Field>
+                    <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                      <input
+                        id="identity-profile-no_second_last_name"
+                        type="checkbox"
+                        className="mt-1 size-4 accent-primary"
+                        checked={form.no_second_last_name}
+                        aria-invalid={Boolean(errors.second_last_name)}
+                        aria-describedby="identity-profile-second_last_name-error"
+                        onChange={(event) => {
+                          update("no_second_last_name", event.target.checked);
+                          if (event.target.checked) {
+                            setErrors((current) => {
+                              const next = { ...current };
+                              delete next.second_last_name;
+                              return next;
+                            });
+                          }
+                        }}
+                      />
+                      <span>No tengo segundo apellido</span>
+                    </label>
+                    <Field
+                      id="rut"
+                      label="RUN"
+                      example="Ejemplo: 12.345.678-5"
+                      required
+                      error={errors.rut}
+                      valid={fieldState("rut")}
+                    >
+                      <Input
+                        ref={rutInput}
+                        id="identity-profile-rut"
+                        autoComplete="off"
+                        inputMode="text"
+                        value={rutLocked ? "" : form.rut}
+                        placeholder={
+                          rutLocked
+                            ? (snapshot.summary?.masked_rut ?? "RUN protegido")
+                            : undefined
+                        }
+                        disabled={rutLocked}
+                        onChange={(event) => onRutChange(event.target.value)}
+                        onBlur={() => touch("rut")}
+                        aria-invalid={Boolean(errors.rut)}
+                        aria-describedby="identity-profile-rut-help identity-profile-rut-error"
+                      />
+                      <span
+                        id="identity-profile-rut-help"
+                        className="text-xs text-muted-foreground"
+                      >
+                        {rutLocked
+                          ? "El RUN queda asociado a tu cuenta y no se puede reemplazar."
+                          : "Escribe o pega el RUN completo con su dígito verificador. Se admite K."}
+                      </span>
+                    </Field>
+                    <Field
+                      id="date_of_birth"
+                      label="Fecha de nacimiento"
+                      example="Formato esperado: día/mes/año"
+                      required
+                      error={errors.date_of_birth}
+                      valid={fieldState("date_of_birth")}
+                    >
+                      <Input
+                        id="identity-profile-date_of_birth"
+                        type="date"
+                        autoComplete="bday"
+                        value={form.date_of_birth}
+                        max={new Date().toISOString().slice(0, 10)}
+                        onChange={(event) =>
+                          update("date_of_birth", event.target.value)
+                        }
+                        onBlur={() => touch("date_of_birth")}
+                        aria-invalid={Boolean(errors.date_of_birth)}
+                        aria-describedby="identity-profile-date_of_birth-error"
+                      />
+                    </Field>
+                  </>
+                )}
                 <Field
                   id="phone"
                   label="Teléfono móvil"
@@ -949,48 +962,55 @@ function IdentityProfileCardSession({
                     Ingresa los ocho dígitos que siguen a +56 9.
                   </span>
                 </Field>
-                <Field
-                  id="document_type"
-                  label="Tipo de documento"
-                  example=""
-                  required
-                  valid
-                >
-                  <Select
-                    value={form.document_type}
-                    items={documentTypes}
+                {!rutLocked && (
+                  <Field
+                    id="document_type"
+                    label="Tipo de documento"
+                    example=""
                     required
+                    valid
                   >
-                    <SelectTrigger
-                      id="identity-profile-document_type"
-                      className="w-full"
+                    <Select
+                      value={form.document_type}
+                      items={documentTypes}
+                      required
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cl_id">
-                        {documentTypes.cl_id}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                      <SelectTrigger
+                        id="identity-profile-document_type"
+                        className="w-full"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cl_id">
+                          {documentTypes.cl_id}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                )}
               </div>
 
-              <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
-                <input
-                  id="identity-profile-consent"
-                  type="checkbox"
-                  className="mt-1 size-4 accent-primary"
-                  checked={form.consent}
-                  onChange={(event) => update("consent", event.target.checked)}
-                  aria-invalid={Boolean(errors.consent)}
-                  aria-describedby="identity-profile-consent-error"
-                />
-                <span>
-                  Autorizo el uso de los datos de identidad ingresados para
-                  cotejarlos durante la verificación de identidad. Obligatorio.
-                </span>
-              </label>
+              {!rutLocked && (
+                <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
+                  <input
+                    id="identity-profile-consent"
+                    type="checkbox"
+                    className="mt-1 size-4 accent-primary"
+                    checked={form.consent}
+                    onChange={(event) =>
+                      update("consent", event.target.checked)
+                    }
+                    aria-invalid={Boolean(errors.consent)}
+                    aria-describedby="identity-profile-consent-error"
+                  />
+                  <span>
+                    Autorizo el uso de los datos de identidad ingresados para
+                    cotejarlos durante la verificación de identidad.
+                    Obligatorio.
+                  </span>
+                </label>
+              )}
               <p
                 id="identity-profile-consent-error"
                 className={
@@ -1065,7 +1085,6 @@ function IdentityProfileCardSession({
         </CardContent>
       </Card>
 
-      {snapshot.summary?.complete ? <PinpassAccountSection /> : null}
       {confirmation && (
         <ProfileConfirmationDialog
           key={confirmation}

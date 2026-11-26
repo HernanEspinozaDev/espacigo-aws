@@ -47,14 +47,26 @@ func (e *LoginBlockedError) Error() string {
 }
 
 type AuthenticationService struct {
-	repo             AuthenticationRepository
-	passwords        PasswordHasher
-	mailer           AuthenticationMailer
-	ipLimiter        VerificationIPLimiter
-	credentials      CredentialGenerator
-	now              func() time.Time
-	totpKeyring      *TOTPKeyring
-	totpLoginEnabled bool
+	repo                   AuthenticationRepository
+	passwords              PasswordHasher
+	mailer                 AuthenticationMailer
+	ipLimiter              VerificationIPLimiter
+	credentials            CredentialGenerator
+	now                    func() time.Time
+	totpKeyring            *TOTPKeyring
+	totpLoginEnabled       bool
+	pinpassConfigured      func(context.Context, string) (bool, error)
+	securityChangeVerifier func(context.Context, Principal, string, Secret, Secret, Secret, Secret) error
+}
+
+var ErrSecurityConfirmation = errors.New("security confirmation required")
+
+func (s *AuthenticationService) SetSecurityChangeVerifier(verify func(context.Context, Principal, string, Secret, Secret, Secret, Secret) error) {
+	s.securityChangeVerifier = verify
+}
+
+func (s *AuthenticationService) SetPinpassStatusReader(reader func(context.Context, string) (bool, error)) {
+	s.pinpassConfigured = reader
 }
 
 func (s *AuthenticationService) SetTOTPKeyring(kr *TOTPKeyring) {
@@ -544,6 +556,7 @@ func (s *AuthenticationService) inspectActionToken(ctx context.Context, tokenID 
 type ChangePasswordInput struct {
 	SessionToken                            string
 	CurrentPassword, Password, Confirmation Secret
+	OTPCode, Pin                            Secret
 }
 
 func (s *AuthenticationService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
@@ -555,6 +568,15 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 	}
 	if input.Password != input.Confirmation {
 		return ErrPasswordConfirm
+	}
+	if s.securityChangeVerifier != nil {
+		principal, err := s.Authorize(ctx, Secret(input.SessionToken), "", UserOperation)
+		if err != nil {
+			return err
+		}
+		if err := s.securityChangeVerifier(ctx, principal, "password", input.CurrentPassword, input.OTPCode, "", input.Pin); err != nil {
+			return err
+		}
 	}
 	hash := CredentialHash(Secret(input.SessionToken))
 	var denied error
@@ -573,13 +595,15 @@ func (s *AuthenticationService) ChangePassword(ctx context.Context, input Change
 			denied = ErrUnauthorized
 			return nil
 		}
-		currentOK, err := s.passwords.Matches(account.PasswordHash, input.CurrentPassword)
-		if err != nil {
-			return err
-		}
-		if !currentOK {
-			denied = ErrCurrentPassword
-			return nil
+		if s.securityChangeVerifier == nil {
+			currentOK, err := s.passwords.Matches(account.PasswordHash, input.CurrentPassword)
+			if err != nil {
+				return err
+			}
+			if !currentOK {
+				denied = ErrCurrentPassword
+				return nil
+			}
 		}
 		same, err := s.passwords.Matches(account.PasswordHash, input.Password)
 		if err != nil {
