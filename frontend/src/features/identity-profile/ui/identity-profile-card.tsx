@@ -3,7 +3,14 @@
 import Link from "next/link";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { AlertCircle, CheckCircle2, Loader2, ShieldCheck } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
+  Pencil,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
   Card,
@@ -92,7 +99,7 @@ function IdentityProfileCardSession({
   const [usernameTouched, setUsernameTouched] = useState(false);
   const [draftPassword, setDraftPassword] = useState("");
   const [draftRestored, setDraftRestored] = useState(false);
-  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [editor, setEditor] = useState<"identity" | "username" | null>(null);
   const [errors, setErrors] = useState<IdentityProfileErrors>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -106,7 +113,11 @@ function IdentityProfileCardSession({
   const rutLocked =
     snapshot.summary?.rut_locked ??
     ["verified", "expired", "revoked"].includes(status);
-  const canStartVerification = snapshot.summary?.complete && status === "ready";
+  const canStartVerification =
+    snapshot.summary?.complete &&
+    ["ready", "in_progress", "needs_correction", "expired", "revoked"].includes(
+      status,
+    );
   const usernameValue = usernameTouched
     ? username
     : (snapshot.summary?.username ?? form.username);
@@ -136,6 +147,18 @@ function IdentityProfileCardSession({
       )
       .finally(() => setBusy(false));
   }, [refreshOnMount, refreshVerification, snapshot.accountId]);
+
+  function closeEditor() {
+    setEditor(null);
+    setForm(EMPTY);
+    setUsername("");
+    setUsernameTouched(false);
+    setDraftPassword("");
+    setDraftRestored(false);
+    setTouched(new Set());
+    setErrors({});
+    setSummaryError(null);
+  }
 
   function update<K extends keyof IdentityProfileInput>(
     field: K,
@@ -199,8 +222,12 @@ function IdentityProfileCardSession({
         ...input,
         username: normalizeUsername(input.username),
         rut: normalizeChileanRut(input.rut),
+        second_last_name: input.no_second_last_name
+          ? ""
+          : input.second_last_name,
         phone: normalizeChileanE164(input.phone) ?? input.phone,
       });
+      closeEditor();
       setMessage(
         saved.complete
           ? "Datos guardados. Ya puedes iniciar la verificación de identidad."
@@ -215,7 +242,11 @@ function IdentityProfileCardSession({
             mapped[field] =
               fieldError.code === "username_taken"
                 ? "Ese nombre de usuario ya está ocupado. Prueba con otro."
-                : "Revisa este dato e inténtalo nuevamente.";
+                : fieldError.code === "invalid_rut"
+                  ? "Revisa el RUN y su dígito verificador."
+                  : fieldError.code === "rut_locked"
+                    ? "El RUN verificado ya está asociado a esta cuenta."
+                    : "Revisa este dato e inténtalo nuevamente.";
           }
         }
         if (Object.keys(mapped).length) {
@@ -306,9 +337,8 @@ function IdentityProfileCardSession({
     setBusy(true);
     setSummaryError(null);
     try {
-      const saved = await saveUsername(normalizeUsername(usernameToSave));
-      setUsername(saved.username ?? normalizeUsername(usernameToSave));
-      setUsernameTouched(true);
+      await saveUsername(normalizeUsername(usernameToSave));
+      closeEditor();
       setMessage("Nombre de usuario actualizado.");
     } catch (error) {
       const code = errorCode(error);
@@ -347,6 +377,7 @@ function IdentityProfileCardSession({
     setSummaryError(null);
     try {
       await saveDraft({ ...draft, document_type: "cl_id" });
+      closeEditor();
       setMessage(
         "Borrador cifrado guardado. Para retomarlo, confirma tu contraseña actual.",
       );
@@ -409,456 +440,491 @@ function IdentityProfileCardSession({
     Boolean(field === "username" ? usernameValue : form[field]);
 
   return (
-    <Card aria-labelledby="identity-profile-title">
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="size-5 text-primary" aria-hidden="true" />
-          <CardTitle id="identity-profile-title">Completa tus datos</CardTitle>
-        </div>
-        <CardDescription>
-          Guarda tu nombre público y los datos de tu cédula chilena. Los datos
-          legales se mantienen protegidos y aquí solo se muestra su versión
-          enmascarada.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 p-3">
-          <span className="text-sm font-medium">Estado de identidad</span>
-          <span
-            className="rounded-full bg-background px-3 py-1 text-sm"
-            data-testid="identity-profile-state"
-            role="status"
-          >
-            {snapshot.loading
-              ? "Consultando estado…"
-              : snapshot.error
-                ? "Estado no disponible"
-                : STATE_LABEL[status]}
-          </span>
-          {snapshot.summary?.masked_email ? (
-            <span className="text-sm text-muted-foreground">
-              Correo: {snapshot.summary.masked_email}
-            </span>
-          ) : null}
-          {snapshot.summary?.masked_rut ? (
-            <span className="text-sm text-muted-foreground">
-              RUN: {snapshot.summary.masked_rut}
-            </span>
-          ) : null}
-          {snapshot.summary?.masked_phone ? (
-            <span className="text-sm text-muted-foreground">
-              Teléfono: {snapshot.summary.masked_phone}
-            </span>
-          ) : null}
-          {snapshot.summary?.verified_until ? (
-            <span className="text-sm text-muted-foreground">
-              Vigente hasta{" "}
-              {new Date(snapshot.summary.verified_until).toLocaleDateString(
-                "es-CL",
-              )}
-            </span>
-          ) : null}
-          {["in_progress", "in_review", "needs_correction"].includes(status) ? (
+    <div aria-labelledby="identity-profile-title" className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <UserRound className="size-5" aria-hidden="true" />
+            </div>
+            <div className="space-y-1">
+              <CardTitle id="identity-profile-title">
+                Datos del perfil
+              </CardTitle>
+              <CardDescription>
+                Tu nombre público y tus datos de contacto.
+              </CardDescription>
+            </div>
+          </div>
+          {snapshot.summary ? (
             <Button
-              type="button"
               variant="outline"
               size="sm"
+              className="w-fit gap-2"
+              type="button"
+              aria-expanded={editor === "identity"}
+              aria-controls="identity-profile-editor"
               disabled={busy}
-              onClick={() => void handleRefreshVerification()}
+              onClick={() => {
+                if (editor === "identity") closeEditor();
+                else {
+                  closeEditor();
+                  setMessage(null);
+                  setEditor("identity");
+                }
+              }}
             >
-              Actualizar estado
+              <Pencil className="size-4" aria-hidden="true" />
+              {editor === "identity"
+                ? "Cerrar edición"
+                : snapshot.summary.complete
+                  ? "Editar datos"
+                  : snapshot.summary.draft_saved
+                    ? "Continuar perfil"
+                    : "Completar perfil"}
             </Button>
           ) : null}
-          {snapshot.error ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void reload()}
-            >
-              Reintentar
-            </Button>
-          ) : null}
-        </div>
-
-        {message ? (
-          <p
-            role="status"
-            className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
-          >
-            <CheckCircle2
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            {message}
-          </p>
-        ) : null}
-        {summaryError ? (
-          <p
-            role="alert"
-            className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
-          >
-            <AlertCircle
-              className="mt-0.5 size-4 shrink-0"
-              aria-hidden="true"
-            />
-            {summaryError}
-          </p>
-        ) : null}
-
-        {snapshot.summary?.draft_saved &&
-        !snapshot.summary.complete &&
-        !draftRestored ? (
-          <form
-            className="space-y-3 rounded-lg border border-border p-4"
-            onSubmit={(event) => void handleRestoreDraft(event)}
-          >
-            <div>
-              <h3 className="font-semibold">Continuar un borrador</h3>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {snapshot.loading && !snapshot.summary ? (
+            <p className="text-sm text-muted-foreground">
+              Cargando datos del perfil…
+            </p>
+          ) : snapshot.error ? (
+            <div className="flex flex-wrap items-center gap-3">
               <p className="text-sm text-muted-foreground">
-                Tu borrador está cifrado. Confirma la contraseña actual para
-                cargar sus datos en este formulario.
+                No pudimos cargar tus datos.
               </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="identity-profile-draft-password">
-                Contraseña actual
-              </Label>
-              <Input
-                id="identity-profile-draft-password"
-                type="password"
-                autoComplete="current-password"
-                value={draftPassword}
-                onChange={(event) => setDraftPassword(event.target.value)}
-                disabled={busy}
-                required
-              />
-            </div>
-            <Button
-              type="submit"
-              variant="outline"
-              disabled={busy || !draftPassword}
-            >
-              Restaurar borrador
-            </Button>
-          </form>
-        ) : null}
-
-        {snapshot.summary?.complete ? (
-          <form
-            className="space-y-3 rounded-lg border border-border p-4"
-            onSubmit={(event) => void handleUsernameSubmit(event)}
-            noValidate
-          >
-            <div>
-              <h3 className="font-semibold">Nombre público</h3>
-              <p className="text-sm text-muted-foreground">
-                Este nombre aparece en el navbar y en tus publicaciones.
-              </p>
-            </div>
-            <Field
-              id="username"
-              label="Nombre de usuario"
-              example="3–30 caracteres"
-              required
-              error={errors.username}
-              valid={fieldState("username")}
-            >
-              <Input
-                id="identity-profile-username"
-                autoComplete="username"
-                maxLength={30}
-                value={usernameValue}
-                onChange={(event) => {
-                  setUsername(event.target.value);
-                  setUsernameTouched(true);
-                  update("username", event.target.value);
-                }}
-                onBlur={() => touch("username")}
-                aria-invalid={Boolean(errors.username)}
-                aria-describedby="identity-profile-username-help identity-profile-username-error"
-              />
-              <span
-                id="identity-profile-username-help"
-                className="text-xs text-muted-foreground"
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void reload()}
               >
-                Letras, números, guion bajo, punto o guion; el primero debe ser
-                letra, número o guion bajo.
-              </span>
-            </Field>
-            <div className="flex justify-end">
-              <Button type="submit" variant="outline" disabled={busy}>
-                Actualizar nombre público
+                Reintentar
               </Button>
             </div>
-          </form>
-        ) : null}
+          ) : snapshot.summary ? (
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <ProfileValue
+                label="Nombre de usuario"
+                value={snapshot.summary.username}
+              >
+                {snapshot.summary.complete && editor !== "username" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      closeEditor();
+                      setMessage(null);
+                      setEditor("username");
+                    }}
+                  >
+                    Editar
+                  </Button>
+                ) : null}
+              </ProfileValue>
+              <ProfileValue
+                label="Correo electrónico"
+                value={snapshot.summary.masked_email}
+              />
+              <ProfileValue label="RUN" value={snapshot.summary.masked_rut} />
+              <ProfileValue
+                label="Teléfono móvil"
+                value={snapshot.summary.masked_phone}
+              />
+            </dl>
+          ) : null}
 
-        {snapshot.summary?.complete && !editingIdentity ? (
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => setEditingIdentity(true)}
-          >
-            Actualizar datos legales
-          </Button>
-        ) : null}
+          {message ? (
+            <p
+              role="status"
+              className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"
+            >
+              <CheckCircle2
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
+              {message}
+            </p>
+          ) : null}
+          {summaryError ? (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              <AlertCircle
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              />
+              {summaryError}
+            </p>
+          ) : null}
 
-        {!snapshot.summary?.complete || editingIdentity ? (
-          <form
-            className="space-y-5"
-            onSubmit={(event) => void handleSubmit(event)}
-            noValidate
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              {!snapshot.summary?.complete ? (
-                <Field
-                  id="username"
-                  label="Nombre de usuario"
-                  example="Ejemplo: maria.paz_1"
+          {editor === "identity" &&
+          snapshot.summary?.draft_saved &&
+          !snapshot.summary.complete &&
+          !draftRestored ? (
+            <form
+              className="space-y-3 rounded-lg border border-border p-4"
+              onSubmit={(event) => void handleRestoreDraft(event)}
+            >
+              <div>
+                <h3 className="font-semibold">Continuar un borrador</h3>
+                <p className="text-sm text-muted-foreground">
+                  Tu borrador está cifrado. Confirma la contraseña actual para
+                  cargar sus datos en este formulario.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="identity-profile-draft-password">
+                  Contraseña actual
+                </Label>
+                <Input
+                  id="identity-profile-draft-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={draftPassword}
+                  onChange={(event) => setDraftPassword(event.target.value)}
+                  disabled={busy}
                   required
-                  error={errors.username}
-                  valid={fieldState("username")}
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="outline"
+                disabled={busy || !draftPassword}
+              >
+                Restaurar borrador
+              </Button>
+            </form>
+          ) : null}
+
+          {snapshot.summary?.complete && editor === "username" ? (
+            <form
+              className="space-y-3 rounded-lg border border-border p-4"
+              onSubmit={(event) => void handleUsernameSubmit(event)}
+              noValidate
+            >
+              <div>
+                <h3 className="font-semibold">Nombre público</h3>
+                <p className="text-sm text-muted-foreground">
+                  Este nombre aparece en el navbar y en tus publicaciones.
+                </p>
+              </div>
+              <Field
+                id="username"
+                label="Nombre de usuario"
+                example="3–30 caracteres"
+                required
+                error={errors.username}
+                valid={fieldState("username")}
+              >
+                <Input
+                  id="identity-profile-username"
+                  autoComplete="username"
+                  maxLength={30}
+                  value={usernameValue}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setUsernameTouched(true);
+                    update("username", event.target.value);
+                  }}
+                  onBlur={() => touch("username")}
+                  aria-invalid={Boolean(errors.username)}
+                  aria-describedby="identity-profile-username-help identity-profile-username-error"
+                />
+                <span
+                  id="identity-profile-username-help"
+                  className="text-xs text-muted-foreground"
+                >
+                  Letras, números, guion bajo, punto o guion; el primero debe
+                  ser letra, número o guion bajo.
+                </span>
+              </Field>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={closeEditor}
+                >
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={busy}>
+                  Actualizar nombre público
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
+          {editor === "identity" ? (
+            <form
+              id="identity-profile-editor"
+              aria-label="Editar datos del perfil"
+              className="space-y-5 rounded-xl border border-border p-4 sm:p-5"
+              onSubmit={(event) => void handleSubmit(event)}
+              noValidate
+            >
+              <p className="text-sm text-muted-foreground">
+                Ingresa tus datos tal como figuran en tu cédula. Los campos con
+                * son obligatorios.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {!snapshot.summary?.complete ? (
+                  <Field
+                    id="username"
+                    label="Nombre de usuario"
+                    example="Ejemplo: maria.paz_1"
+                    required
+                    error={errors.username}
+                    valid={fieldState("username")}
+                  >
+                    <Input
+                      id="identity-profile-username"
+                      autoComplete="username"
+                      maxLength={30}
+                      value={usernameValue}
+                      onChange={(event) => {
+                        setUsername(event.target.value);
+                        setUsernameTouched(true);
+                        update("username", event.target.value);
+                      }}
+                      onBlur={() => touch("username")}
+                      aria-invalid={Boolean(errors.username)}
+                      aria-describedby="identity-profile-username-help identity-profile-username-error"
+                    />
+                    <span
+                      id="identity-profile-username-help"
+                      className="text-xs text-muted-foreground"
+                    >
+                      3–30 caracteres. Letras, números, guion bajo, punto o
+                      guion; sin espacios.
+                    </span>
+                  </Field>
+                ) : null}
+                <Field
+                  id="first_name"
+                  label="Nombres legales"
+                  example="Tal como aparecen en tu cédula"
+                  required
+                  error={errors.first_name}
+                  valid={fieldState("first_name")}
                 >
                   <Input
-                    id="identity-profile-username"
-                    autoComplete="username"
-                    maxLength={30}
-                    value={usernameValue}
+                    id="identity-profile-first_name"
+                    autoComplete="given-name"
+                    value={form.first_name}
+                    onChange={(event) =>
+                      update("first_name", event.target.value)
+                    }
+                    onBlur={() => touch("first_name")}
+                    aria-invalid={Boolean(errors.first_name)}
+                    aria-describedby="identity-profile-first_name-error"
+                  />
+                </Field>
+                <Field
+                  id="first_last_name"
+                  label="Primer apellido"
+                  example="Tal como aparece en tu cédula"
+                  required
+                  error={errors.first_last_name}
+                  valid={fieldState("first_last_name")}
+                >
+                  <Input
+                    id="identity-profile-first_last_name"
+                    autoComplete="family-name"
+                    value={form.first_last_name}
+                    onChange={(event) =>
+                      update("first_last_name", event.target.value)
+                    }
+                    onBlur={() => touch("first_last_name")}
+                    aria-invalid={Boolean(errors.first_last_name)}
+                    aria-describedby="identity-profile-first_last_name-error"
+                  />
+                </Field>
+                <Field
+                  id="second_last_name"
+                  label="Segundo apellido"
+                  example="Tal como aparece en tu cédula"
+                  required={!form.no_second_last_name}
+                  error={errors.second_last_name}
+                  valid={fieldState("second_last_name")}
+                >
+                  <Input
+                    id="identity-profile-second_last_name"
+                    autoComplete="additional-name"
+                    value={form.second_last_name}
+                    disabled={form.no_second_last_name}
+                    onChange={(event) =>
+                      update("second_last_name", event.target.value)
+                    }
+                    onBlur={() => touch("second_last_name")}
+                    aria-invalid={Boolean(errors.second_last_name)}
+                    aria-describedby="identity-profile-second_last_name-error"
+                  />
+                </Field>
+                <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                  <input
+                    id="identity-profile-no_second_last_name"
+                    type="checkbox"
+                    className="mt-1 size-4 accent-primary"
+                    checked={form.no_second_last_name}
+                    aria-invalid={Boolean(errors.second_last_name)}
+                    aria-describedby="identity-profile-second_last_name-error"
                     onChange={(event) => {
-                      setUsername(event.target.value);
-                      setUsernameTouched(true);
-                      update("username", event.target.value);
+                      update("no_second_last_name", event.target.checked);
+                      if (event.target.checked) {
+                        setErrors((current) => {
+                          const next = { ...current };
+                          delete next.second_last_name;
+                          return next;
+                        });
+                      }
                     }}
-                    onBlur={() => touch("username")}
-                    aria-invalid={Boolean(errors.username)}
-                    aria-describedby="identity-profile-username-help identity-profile-username-error"
+                  />
+                  <span>No tengo segundo apellido</span>
+                </label>
+                <Field
+                  id="rut"
+                  label="RUN"
+                  example="Ejemplo: 12.345.678-5"
+                  required
+                  error={errors.rut}
+                  valid={fieldState("rut")}
+                >
+                  <Input
+                    ref={rutInput}
+                    id="identity-profile-rut"
+                    autoComplete="off"
+                    inputMode="text"
+                    value={rutLocked ? "" : form.rut}
+                    placeholder={
+                      rutLocked
+                        ? (snapshot.summary?.masked_rut ?? "RUN protegido")
+                        : undefined
+                    }
+                    disabled={rutLocked}
+                    onChange={(event) => onRutChange(event.target.value)}
+                    onBlur={() => touch("rut")}
+                    aria-invalid={Boolean(errors.rut)}
+                    aria-describedby="identity-profile-rut-help identity-profile-rut-error"
                   />
                   <span
-                    id="identity-profile-username-help"
+                    id="identity-profile-rut-help"
                     className="text-xs text-muted-foreground"
                   >
-                    3–30 caracteres. Letras, números, guion bajo, punto o guion;
-                    sin espacios.
+                    {rutLocked
+                      ? "El RUN queda asociado a tu cuenta y no se puede reemplazar."
+                      : "Escribe o pega el RUN completo con su dígito verificador. Se admite K."}
                   </span>
                 </Field>
-              ) : null}
-              <Field
-                id="first_name"
-                label="Nombres legales"
-                example="Tal como aparecen en tu cédula"
-                required
-                error={errors.first_name}
-                valid={fieldState("first_name")}
-              >
-                <Input
-                  id="identity-profile-first_name"
-                  autoComplete="given-name"
-                  value={form.first_name}
-                  onChange={(event) => update("first_name", event.target.value)}
-                  onBlur={() => touch("first_name")}
-                  aria-invalid={Boolean(errors.first_name)}
-                  aria-describedby="identity-profile-first_name-error"
-                />
-              </Field>
-              <Field
-                id="first_last_name"
-                label="Primer apellido"
-                example="Tal como aparece en tu cédula"
-                required
-                error={errors.first_last_name}
-                valid={fieldState("first_last_name")}
-              >
-                <Input
-                  id="identity-profile-first_last_name"
-                  autoComplete="family-name"
-                  value={form.first_last_name}
-                  onChange={(event) =>
-                    update("first_last_name", event.target.value)
-                  }
-                  onBlur={() => touch("first_last_name")}
-                  aria-invalid={Boolean(errors.first_last_name)}
-                  aria-describedby="identity-profile-first_last_name-error"
-                />
-              </Field>
-              <Field
-                id="second_last_name"
-                label="Segundo apellido"
-                example="Tal como aparece en tu cédula"
-                required={!form.no_second_last_name}
-                error={errors.second_last_name}
-                valid={fieldState("second_last_name")}
-              >
-                <Input
-                  id="identity-profile-second_last_name"
-                  autoComplete="additional-name"
-                  value={form.second_last_name}
-                  disabled={form.no_second_last_name}
-                  onChange={(event) =>
-                    update("second_last_name", event.target.value)
-                  }
-                  onBlur={() => touch("second_last_name")}
-                  aria-invalid={Boolean(errors.second_last_name)}
-                  aria-describedby="identity-profile-second_last_name-error"
-                />
-              </Field>
-              <label className="flex items-start gap-2 text-sm sm:col-span-2">
+                <Field
+                  id="date_of_birth"
+                  label="Fecha de nacimiento"
+                  example="Formato esperado: día/mes/año"
+                  required
+                  error={errors.date_of_birth}
+                  valid={fieldState("date_of_birth")}
+                >
+                  <Input
+                    id="identity-profile-date_of_birth"
+                    type="date"
+                    autoComplete="bday"
+                    value={form.date_of_birth}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={(event) =>
+                      update("date_of_birth", event.target.value)
+                    }
+                    onBlur={() => touch("date_of_birth")}
+                    aria-invalid={Boolean(errors.date_of_birth)}
+                    aria-describedby="identity-profile-date_of_birth-error"
+                  />
+                </Field>
+                <Field
+                  id="phone"
+                  label="Teléfono móvil"
+                  example="+56 9 1234 5678"
+                  required
+                  error={errors.phone}
+                  valid={fieldState("phone")}
+                >
+                  <Input
+                    id="identity-profile-phone"
+                    type="tel"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    placeholder="+56 9 1234 5678"
+                    value={form.phone}
+                    onChange={(event) => update("phone", event.target.value)}
+                    onBlur={() => touch("phone")}
+                    aria-invalid={Boolean(errors.phone)}
+                    aria-describedby="identity-profile-phone-help identity-profile-phone-error"
+                  />
+                  <span
+                    id="identity-profile-phone-help"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Se guardará en formato internacional E.164.
+                  </span>
+                </Field>
+                <Field
+                  id="document_type"
+                  label="Tipo de documento"
+                  example="Cédula de identidad chilena"
+                  required
+                  valid
+                >
+                  <Input
+                    id="identity-profile-document_type"
+                    value="Cédula de identidad chilena"
+                    readOnly
+                    aria-describedby="identity-profile-document_type-help"
+                  />
+                  <span
+                    id="identity-profile-document_type-help"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Documento admitido para esta primera etapa.
+                  </span>
+                </Field>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
                 <input
-                  id="identity-profile-no_second_last_name"
+                  id="identity-profile-consent"
                   type="checkbox"
                   className="mt-1 size-4 accent-primary"
-                  checked={form.no_second_last_name}
-                  aria-invalid={Boolean(errors.second_last_name)}
-                  aria-describedby="identity-profile-second_last_name-error"
-                  onChange={(event) => {
-                    update("no_second_last_name", event.target.checked);
-                    if (event.target.checked) {
-                      setErrors((current) => {
-                        const next = { ...current };
-                        delete next.second_last_name;
-                        return next;
-                      });
-                    }
-                  }}
+                  checked={form.consent}
+                  onChange={(event) => update("consent", event.target.checked)}
+                  aria-invalid={Boolean(errors.consent)}
+                  aria-describedby="identity-profile-consent-error"
                 />
-                <span>No tengo segundo apellido</span>
+                <span>
+                  Autorizo el uso de los datos de identidad ingresados para
+                  cotejarlos durante la verificación de identidad. Obligatorio.
+                </span>
               </label>
-              <Field
-                id="rut"
-                label="RUN"
-                example="Ejemplo: 12.345.678-5"
-                required
-                error={errors.rut}
-                valid={fieldState("rut")}
+              <p
+                id="identity-profile-consent-error"
+                className={
+                  errors.consent ? "text-sm text-destructive" : "sr-only"
+                }
               >
-                <Input
-                  ref={rutInput}
-                  id="identity-profile-rut"
-                  autoComplete="off"
-                  inputMode="text"
-                  maxLength={12}
-                  value={rutLocked ? "" : form.rut}
-                  placeholder={
-                    rutLocked
-                      ? (snapshot.summary?.masked_rut ?? "RUN protegido")
-                      : undefined
-                  }
-                  disabled={rutLocked}
-                  onChange={(event) => onRutChange(event.target.value)}
-                  onBlur={() => touch("rut")}
-                  aria-invalid={Boolean(errors.rut)}
-                  aria-describedby="identity-profile-rut-help identity-profile-rut-error"
-                />
-                <span
-                  id="identity-profile-rut-help"
-                  className="text-xs text-muted-foreground"
-                >
-                  {rutLocked
-                    ? "El RUN queda asociado a tu cuenta y no se puede reemplazar."
-                    : "Escribe o pega el RUN completo; el dígito verificador lo ingresas tú. Se admite K."}
-                </span>
-              </Field>
-              <Field
-                id="date_of_birth"
-                label="Fecha de nacimiento"
-                example="Formato esperado: día/mes/año"
-                required
-                error={errors.date_of_birth}
-                valid={fieldState("date_of_birth")}
-              >
-                <Input
-                  id="identity-profile-date_of_birth"
-                  type="date"
-                  autoComplete="bday"
-                  value={form.date_of_birth}
-                  max={new Date().toISOString().slice(0, 10)}
-                  onChange={(event) =>
-                    update("date_of_birth", event.target.value)
-                  }
-                  onBlur={() => touch("date_of_birth")}
-                  aria-invalid={Boolean(errors.date_of_birth)}
-                  aria-describedby="identity-profile-date_of_birth-error"
-                />
-              </Field>
-              <Field
-                id="phone"
-                label="Teléfono móvil"
-                example="+56 9 1234 5678"
-                required
-                error={errors.phone}
-                valid={fieldState("phone")}
-              >
-                <Input
-                  id="identity-profile-phone"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  placeholder="+56 9 1234 5678"
-                  value={form.phone}
-                  onChange={(event) => update("phone", event.target.value)}
-                  onBlur={() => touch("phone")}
-                  aria-invalid={Boolean(errors.phone)}
-                  aria-describedby="identity-profile-phone-help identity-profile-phone-error"
-                />
-                <span
-                  id="identity-profile-phone-help"
-                  className="text-xs text-muted-foreground"
-                >
-                  Se guardará en formato internacional E.164.
-                </span>
-              </Field>
-              <Field
-                id="document_type"
-                label="Tipo de documento"
-                example="Cédula de identidad chilena"
-                required
-                valid
-              >
-                <Input
-                  id="identity-profile-document_type"
-                  value="Cédula de identidad chilena"
-                  readOnly
-                  aria-describedby="identity-profile-document_type-help"
-                />
-                <span
-                  id="identity-profile-document_type-help"
-                  className="text-xs text-muted-foreground"
-                >
-                  Documento admitido para esta primera etapa.
-                </span>
-              </Field>
-            </div>
-
-            <label className="flex items-start gap-3 rounded-lg border border-border p-3 text-sm">
-              <input
-                id="identity-profile-consent"
-                type="checkbox"
-                className="mt-1 size-4 accent-primary"
-                checked={form.consent}
-                onChange={(event) => update("consent", event.target.checked)}
-                aria-invalid={Boolean(errors.consent)}
-                aria-describedby="identity-profile-consent-error"
-              />
-              <span>
-                Autorizo el uso de los datos de identidad ingresados para
-                cotejarlos durante la verificación de identidad. Obligatorio.
-              </span>
-            </label>
-            <p
-              id="identity-profile-consent-error"
-              className={
-                errors.consent ? "text-sm text-destructive" : "sr-only"
-              }
-            >
-              {errors.consent ?? ""}
-            </p>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">
-                Los campos marcados Obligatorio se necesitan para finalizar el
-                perfil.
+                {errors.consent ?? ""}
               </p>
-              <div className="flex flex-wrap gap-2">
+
+              <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={closeEditor}
+                >
+                  Cancelar
+                </Button>
                 {!snapshot.summary?.complete ? (
                   <Button
                     type="button"
@@ -889,60 +955,122 @@ function IdentityProfileCardSession({
                   Guardar perfil
                 </Button>
               </div>
-            </div>
-          </form>
-        ) : null}
+            </form>
+          ) : null}
+        </CardContent>
+      </Card>
 
-        <section
-          id="identity-verification"
-          aria-labelledby="identity-verification-title"
-          className="border-t border-border pt-5"
-        >
-          <h3 id="identity-verification-title" className="font-semibold">
-            Verifica tu identidad
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            La verificación se abre en el proveedor y su resultado se confirma
-            en EspaciGo.
-          </p>
-          <Button
-            type="button"
-            className="mt-3"
-            variant="outline"
-            disabled={!canStartVerification || busy}
-            onClick={() => void handleVerification()}
+      <Card
+        id="identity-verification"
+        aria-labelledby="identity-verification-title"
+        className="scroll-mt-24"
+      >
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <ShieldCheck className="size-5" aria-hidden="true" />
+            </div>
+            <div className="space-y-1">
+              <CardTitle id="identity-verification-title">
+                Verificación de identidad
+              </CardTitle>
+              <CardDescription>
+                {status === "verified" && snapshot.summary?.verified_until
+                  ? "Vigente hasta el " +
+                    new Date(
+                      snapshot.summary.verified_until,
+                    ).toLocaleDateString("es-CL", {
+                      timeZone: "America/Santiago",
+                    })
+                  : status === "in_review"
+                    ? "Estamos revisando el resultado de tu verificación."
+                    : snapshot.summary?.complete
+                      ? "Confirma tu identidad con tu cédula chilena en Didit."
+                      : "Completa los datos de tu perfil para iniciar este paso."}
+              </CardDescription>
+            </div>
+          </div>
+          <span
+            className="w-fit shrink-0 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground"
+            data-testid="identity-profile-state"
+            role="status"
           >
-            {busy ? (
-              <Loader2
-                className="mr-2 size-4 animate-spin"
-                aria-hidden="true"
-              />
+            {snapshot.loading
+              ? "Consultando estado…"
+              : snapshot.error
+                ? "Estado no disponible"
+                : STATE_LABEL[status]}
+          </span>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {status !== "verified" && status !== "in_review" ? (
+              <Button
+                type="button"
+                disabled={!canStartVerification || busy}
+                onClick={() => void handleVerification()}
+              >
+                {busy && (
+                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                )}
+                {status === "in_progress"
+                  ? "Continuar verificación"
+                  : ["needs_correction", "expired", "revoked"].includes(status)
+                    ? "Volver a verificar"
+                    : "Iniciar verificación"}
+              </Button>
             ) : null}
-            Iniciar verificación
-          </Button>
-          {!canStartVerification ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Guarda primero todos los datos obligatorios para habilitar esta
-              acción.
+            {["in_progress", "in_review"].includes(status) ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void handleRefreshVerification()}
+              >
+                Actualizar estado
+              </Button>
+            ) : null}
+          </div>
+          {status === "needs_correction" ? (
+            <p className="text-sm text-muted-foreground">
+              Revisa los datos de tu cédula. Si ya configuraste tu identidad en
+              otra cuenta, puedes{" "}
+              <Link
+                href="/recuperar-acceso"
+                className="font-medium text-primary underline"
+              >
+                recuperar el acceso
+              </Link>
+              .
             </p>
           ) : null}
-        </section>
-        {status === "needs_correction" ? (
-          <p className="text-sm text-muted-foreground">
-            Revisa los datos de tu cédula. Si ya configuraste tu identidad en
-            otra cuenta, puedes{" "}
-            <Link
-              href="/recuperar-acceso"
-              className="font-medium text-primary underline"
-            >
-              recuperar el acceso
-            </Link>
-            .
-          </p>
-        ) : null}
-        {snapshot.summary?.complete ? <PinpassAccountSection /> : null}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {snapshot.summary?.complete ? <PinpassAccountSection /> : null}
+    </div>
+  );
+}
+
+function ProfileValue({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+      <div className="min-w-0">
+        <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+        <dd className="break-words text-sm font-medium">
+          {value || "Por completar"}
+        </dd>
+      </div>
+      {children}
+    </div>
   );
 }
 
@@ -967,9 +1095,11 @@ function Field({
     <div className="space-y-2">
       <Label htmlFor={"identity-profile-" + id}>
         {label}{" "}
-        <span className="font-normal text-muted-foreground">
-          ({example}) · {required ? "Obligatorio" : "Opcional"}
-        </span>
+        {required ? (
+          <span className="text-primary" aria-hidden="true">
+            *
+          </span>
+        ) : null}
       </Label>
       {children}
       <span
@@ -978,13 +1108,8 @@ function Field({
       >
         {error ?? ""}
       </span>
-      {!error && valid ? (
-        <span className="flex items-center gap-1 text-xs text-emerald-700">
-          <CheckCircle2 className="size-3.5" aria-hidden="true" />
-          Dato válido
-        </span>
-      ) : !error ? (
-        <span className="text-xs text-muted-foreground">Pendiente</span>
+      {!error && example && !valid ? (
+        <span className="block text-xs text-muted-foreground">{example}</span>
       ) : null}
     </div>
   );

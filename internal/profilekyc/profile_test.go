@@ -47,12 +47,12 @@ func TestNormalizeIdentityProfile(t *testing.T) {
 }
 
 func TestNormalizeRUTAcceptsCompactAndRejectsWrongVerifier(t *testing.T) {
-	for _, value := range []string{"12.345.678-5", "12345678-5", "123456785", "6.000.000-k"} {
+	for _, value := range []string{"12.345.678-5", "12345678-5", "123456785", "12.345.678–5", "6.000.000-k"} {
 		if _, err := normalizeRUT(value); err != nil {
 			t.Errorf("expected valid format for %q: %v", value, err)
 		}
 	}
-	for _, value := range []string{"0-0", "12abc345678-5", "12345678-0", "999999999-1", "12345678-"} {
+	for _, value := range []string{"0-0", "00.000.000-0", "1.23.45678-5", "12.345.678--5", "12abc345678-5", "12345678-0", "999999999-1", "12345678-"} {
 		if _, err := normalizeRUT(value); err == nil {
 			t.Errorf("accepted invalid %q", value)
 		}

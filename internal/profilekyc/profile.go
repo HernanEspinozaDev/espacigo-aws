@@ -26,6 +26,7 @@ var (
 	ErrRUTLocked     = errors.New("verified identity number cannot be changed")
 	ErrUnavailable   = errors.New("identity verification unavailable")
 	ErrConflict      = errors.New("identity verification conflict")
+	rutInputPattern  = regexp.MustCompile(`^(?:[0-9]{1,8}-?|[0-9]{1,2}(?:\.[0-9]{3}){1,2}-?)[0-9K]$`)
 	usernamePattern  = regexp.MustCompile("^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$")
 	phonePattern     = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
 )
@@ -96,12 +97,12 @@ func validName(value string) bool {
 }
 
 func normalizeRUT(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if !strings.ContainsAny(raw, "-–") {
-		compact := strings.ReplaceAll(raw, ".", "")
-		if len(compact) > 1 {
-			raw = compact[:len(compact)-1] + "-" + compact[len(compact)-1:]
-		}
+	raw = strings.ToUpper(strings.ReplaceAll(strings.Join(strings.Fields(raw), ""), "–", "-"))
+	if !rutInputPattern.MatchString(raw) {
+		return "", verification.ErrInvalid
+	}
+	if !strings.Contains(raw, "-") {
+		raw = raw[:len(raw)-1] + "-" + raw[len(raw)-1:]
 	}
 	rut, err := verification.NormalizeRut(raw)
 	if err != nil || strings.HasPrefix(rut, "-") {

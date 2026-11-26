@@ -26,7 +26,7 @@ export default async function PerfilDatosPage({
   const { return_to, refresh_identity } = await searchParams;
   const returnTo = safeHostReturnPath(return_to);
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-5xl space-y-6">
       <nav
         aria-label="Ruta de navegación"
         className="flex items-center gap-1.5 text-sm text-muted-foreground"
@@ -44,9 +44,9 @@ export default async function PerfilDatosPage({
       </nav>
 
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
           Información de tu perfil
-        </h2>
+        </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Modifica tus datos personales, cambia tu foto de perfil y revisa tu
           estado de identidad.
