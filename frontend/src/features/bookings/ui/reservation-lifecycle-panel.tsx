@@ -50,7 +50,7 @@ const commercialCancellationReason: Record<string, string> = {
   cancellation_started:
     "Ya hay una solicitud de cancelación para esta reserva.",
   refund_failed:
-    "El reembolso anterior fue rechazado. Puedes consultar la devolución antes de reintentar.",
+    "Mercado Pago rechazó el reembolso anterior. Revisa el historial del pago y el saldo disponible antes de reintentar.",
   refund_window_expired:
     "El pago está fuera del plazo de reembolso de Mercado Pago.",
   reservation_not_paid:
@@ -738,7 +738,8 @@ export function ReservationLifecyclePanel({
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 Consulta el monto antes de confirmar. El reembolso depende de la
-                política asociada a esta reserva.
+                política de la reserva y del saldo disponible en Mercado Pago
+                para cubrir la devolución.
               </p>
               <Button
                 type="button"

@@ -81,3 +81,24 @@ export function getReservationFinancialBreakdown(
     marketplaceFeeClp,
   };
 }
+
+export function getRecordedProcessingFee(
+  reservation: BookingReservation,
+  financial: ReservationFinancialBreakdown,
+): { amountClp: number; chargedClp: number } | undefined {
+  const amountClp = financial.processingFeeClp;
+  const chargedClp = reservation.total_charged_clp;
+  if (
+    !reservation.provider_payment_id ||
+    amountClp === undefined ||
+    chargedClp === undefined ||
+    !Number.isSafeInteger(amountClp) ||
+    !Number.isSafeInteger(chargedClp) ||
+    amountClp < 0 ||
+    chargedClp <= 0 ||
+    amountClp > chargedClp
+  ) {
+    return undefined;
+  }
+  return { amountClp, chargedClp };
+}

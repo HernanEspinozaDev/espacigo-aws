@@ -6,7 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useBookings } from "./use-bookings";
 import { HostCommissionCalculator } from "./host-commission-calculator";
-import { getReservationFinancialBreakdown } from "../domain/financial-breakdown";
+import {
+  getRecordedProcessingFee,
+  getReservationFinancialBreakdown,
+} from "../domain/financial-breakdown";
 import { formatBookingClp } from "./format";
 import { HostSpaceSchedulePanel } from "./host-space-schedule-panel";
 import { ReservationScheduleBreakdown } from "./reservation-schedule-breakdown";
@@ -43,7 +46,6 @@ import {
   QrCode,
   XCircle,
   HelpCircle,
-  Info,
   Receipt,
   RefreshCw,
   Wallet,
@@ -51,6 +53,11 @@ import {
 
 export type ReservationFilterGroup =
   "todas" | "solicitada" | "confirmada" | "activa" | "completada" | "cancelada";
+
+const processingRateFormatter = new Intl.NumberFormat("es-CL", {
+  style: "percent",
+  maximumFractionDigits: 2,
+});
 
 export type ReservationSectionTab = "general" | "finanzas" | "lista";
 
@@ -405,6 +412,10 @@ export function ReservationsList({
     let marketplaceFeeClp = 0;
     let netClp = 0;
     let pendingSettlementCount = 0;
+    let mercadoPagoPaymentCount = 0;
+    let processingFeeCount = 0;
+    let processingFeeClp = 0;
+    let processingFeeChargedClp = 0;
     const paidList: BookingReservation[] = [];
 
     for (const r of scopedReservations) {
@@ -422,6 +433,13 @@ export function ReservationsList({
           pendingSettlementCount += 1;
         } else {
           netClp += financial.netHostClp;
+        }
+        if (r.provider_payment_id) mercadoPagoPaymentCount += 1;
+        const processing = getRecordedProcessingFee(r, financial);
+        if (processing) {
+          processingFeeCount += 1;
+          processingFeeClp += processing.amountClp;
+          processingFeeChargedClp += processing.chargedClp;
         }
         paidList.push(r);
       } else if (r.state === "pendiente_de_pago") {
@@ -445,6 +463,10 @@ export function ReservationsList({
       marketplaceFeeClp,
       netClp,
       pendingSettlementCount,
+      mercadoPagoPaymentCount,
+      processingFeeCount,
+      processingFeeClp,
+      processingFeeChargedClp,
       paidList,
     };
   }, [scopedReservations]);
@@ -1121,7 +1143,7 @@ export function ReservationsList({
       {/* SECCIÓN 2: FINANZAS (Liquidación Anfitrión) */}
       {activeSection === "finanzas" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-border bg-card p-5 shadow-xs">
               <p className="text-xs font-medium text-muted-foreground">
                 Tarifa Base de Espacios
@@ -1149,12 +1171,31 @@ export function ReservationsList({
               </p>
             </div>
 
+            <div className="rounded-2xl border border-sky-500/30 bg-sky-500/10 p-5 shadow-xs">
+              <p className="text-xs font-medium text-sky-800 dark:text-sky-300">
+                Comisión Mercado Pago
+              </p>
+              <p className="mt-2 text-2xl font-bold text-sky-900 dark:text-sky-200">
+                {kpiStats.processingFeeCount === 0
+                  ? "Sin datos"
+                  : `${formatBookingClp(kpiStats.processingFeeClp)} CLP`}
+              </p>
+              <p className="mt-1 text-xs text-sky-800 dark:text-sky-300">
+                {kpiStats.processingFeeCount === 0
+                  ? "Sin cargos informados para los pagos del filtro"
+                  : `${processingRateFormatter.format(kpiStats.processingFeeClp / kpiStats.processingFeeChargedClp)} del total cobrado · ${kpiStats.processingFeeCount} de ${kpiStats.mercadoPagoPaymentCount} pagos con cargo informado`}
+              </p>
+            </div>
+
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 shadow-xs">
               <p className="text-xs font-medium text-emerald-800 dark:text-emerald-300">
                 Neto informado para el anfitrión
               </p>
               <p className="mt-2 text-2xl font-bold text-emerald-900 dark:text-emerald-200">
-                {formatBookingClp(kpiStats.netClp)} CLP
+                {kpiStats.approved > 0 &&
+                kpiStats.pendingSettlementCount === kpiStats.approved
+                  ? "Por confirmar"
+                  : `${formatBookingClp(kpiStats.netClp)} CLP`}
               </p>
               <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
                 {kpiStats.pendingSettlementCount > 0
@@ -1202,6 +1243,9 @@ export function ReservationsList({
                         Comisión EspaciGo
                       </th>
                       <th className="py-2.5 pr-3 text-right font-semibold">
+                        Comisión Mercado Pago
+                      </th>
+                      <th className="py-2.5 pr-3 text-right font-semibold">
                         Neto Anfitrión
                       </th>
                       <th className="py-2.5 text-right font-semibold">
@@ -1212,6 +1256,10 @@ export function ReservationsList({
                   <tbody className="divide-y divide-border">
                     {kpiStats.paidList.map((tx) => {
                       const financial = getReservationFinancialBreakdown(tx);
+                      const processing = getRecordedProcessingFee(
+                        tx,
+                        financial,
+                      );
                       return (
                         <tr key={tx.id} className="hover:bg-muted/30">
                           <td className="py-3 pr-3 font-mono font-semibold text-foreground">
@@ -1242,6 +1290,23 @@ export function ReservationsList({
                           </td>
                           <td className="py-3 pr-3 text-right tabular-nums text-amber-700 dark:text-amber-400">
                             -{formatBookingClp(financial.hostFeeClp)}
+                          </td>
+                          <td className="py-3 pr-3 text-right tabular-nums text-sky-800 dark:text-sky-300">
+                            {processing ? (
+                              <>
+                                {formatBookingClp(processing.amountClp)}
+                                <span className="block text-[10px] text-muted-foreground">
+                                  {processingRateFormatter.format(
+                                    processing.amountClp /
+                                      processing.chargedClp,
+                                  )}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">
+                                Sin datos
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 pr-3 text-right font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
                             {tx.is_commercial &&

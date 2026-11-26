@@ -507,6 +507,8 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
             status: "pagada",
             checkout_status: "approved",
             checkout_method: "checkout_pro",
+            provider_payment_id: "123456789",
+            total_charged_clp: 1036,
             rate_unit: "hora",
             unit_price_clp: 1000,
             units: 1,
@@ -530,12 +532,55 @@ test("host finance calculator estimates the same amounts by fee or percentage", 
               reconciliation: "reconciled",
             },
           },
+          {
+            id: messageId,
+            quote_id: caseId,
+            space_id: messageId,
+            space_title: "Sala sin conciliar",
+            participant_role: "anfitrion",
+            status: "pagada",
+            checkout_status: "approved",
+            checkout_method: "checkout_pro",
+            provider_payment_id: "123456790",
+            total_charged_clp: 5179,
+            rate_unit: "hora",
+            unit_price_clp: 5000,
+            units: 1,
+            subtotal_clp: 5000,
+            currency: "CLP",
+            start_at: startsAt,
+            end_at: endsAt,
+            time_zone: "America/Santiago",
+            payment_expires_at: startsAt,
+            created_at: startsAt,
+            updated_at: startsAt,
+          },
         ],
       }),
     ),
   );
   await page.goto("/anfitrion/reservas");
   await page.getByRole("tab", { name: "Finanzas" }).click();
+  const providerSummary = page
+    .getByText("Comisión Mercado Pago", { exact: true })
+    .filter({ visible: true })
+    .first()
+    .locator("..");
+  await expect(
+    providerSummary.getByText("$39 CLP", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    providerSummary.getByText(/3,76\s*%.*1 de 2 pagos/),
+  ).toBeVisible();
+  const payment = page.getByRole("row").filter({ hasText: "#123456789" });
+  await expect(payment.getByText(/3,76\s*%/)).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "#123456790" })
+      .getByText("Sin datos"),
+  ).toBeVisible();
+
   const netSummary = page
     .getByText("Neto informado para el anfitrión")
     .locator("..");
