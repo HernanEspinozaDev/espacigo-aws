@@ -63,9 +63,12 @@ export function normalizeChileanRut(value: string): string {
 }
 
 export function isValidChileanRut(value: string): boolean {
-  const compact = value.replace(/[.\s-]/g, "").toLocaleUpperCase("en-US");
-  if (!/^\d{7,8}[0-9K]$/.test(compact)) return false;
+  const input = value.replace(/\s/g, "").toLocaleUpperCase("en-US");
+  if (!/^(?:[0-9]{7,8}-?|[0-9]{1,2}(?:\.[0-9]{3}){2}-?)[0-9K]$/.test(input))
+    return false;
+  const compact = input.replace(/[.-]/g, "");
   const body = compact.slice(0, -1);
+  if (/^0+$/.test(body)) return false;
   const providedCheckDigit = compact.slice(-1);
   let factor = 2;
   let sum = 0;
@@ -162,10 +165,12 @@ export function formatChileanRutProgressively(value: string): string {
   const hasTrailingDash = upper.endsWith("-");
   const compact = upper.replace(/[.\s-]/g, "");
   if (!compact) return "";
+  if (compact.length > 9 || (upper.match(/-/g)?.length ?? 0) > 1) return upper;
   const hasCheckDigit = hasExplicitCheckDigit || compact.length > 8;
-  const body = (hasCheckDigit ? compact.slice(0, -1) : compact)
-    .replace(/\D/g, "")
-    .slice(0, 8);
+  const body = (hasCheckDigit ? compact.slice(0, -1) : compact).replace(
+    /\D/g,
+    "",
+  );
   const checkDigit = hasCheckDigit ? compact.slice(-1) : "";
   const grouped = body.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return hasCheckDigit

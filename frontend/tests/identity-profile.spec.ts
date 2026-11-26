@@ -167,9 +167,13 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     `/mi-cuenta/perfil?return_to=${encodeURIComponent(profileReturnTo)}`,
   );
 
+  await expect(page.getByTestId("identity-profile-state")).toHaveText(
+    "Perfil incompleto",
+  );
   await expect(
-    page.locator('[aria-labelledby="identity-profile-title"] [role="status"]'),
-  ).toHaveText("Perfil incompleto");
+    page.getByRole("form", { name: "Editar datos del perfil" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Completar perfil" }).click();
   await page.getByRole("button", { name: "Guardar perfil" }).click();
   await expect(
     page.locator('[aria-labelledby="identity-profile-title"] [role="alert"]'),
@@ -186,6 +190,12 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   expect(apiCalls.filter((call) => call.method === "PUT")).toHaveLength(0);
 
   await page.locator("#identity-profile-rut").fill("12.345.678-0");
+  await page.locator("#identity-profile-rut").blur();
+  await expect(page.locator("#identity-profile-rut-error")).toContainText(
+    "Revisa el RUN y su dígito verificador.",
+  );
+
+  await page.locator("#identity-profile-rut").fill("00.000.000-0");
   await page.locator("#identity-profile-rut").blur();
   await expect(page.locator("#identity-profile-rut-error")).toContainText(
     "Revisa el RUN y su dígito verificador.",
@@ -208,6 +218,17 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     page.getByText("Listo para verificar", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Datos guardados.")).toBeVisible();
+  await expect(
+    page.getByRole("form", { name: "Editar datos del perfil" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Editar datos" }).click();
+  await expect(
+    page.getByRole("form", { name: "Editar datos del perfil" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
+  await expect(
+    page.getByRole("form", { name: "Editar datos del perfil" }),
+  ).toHaveCount(0);
   const put = apiCalls.find((call) => call.method === "PUT");
   expect(put?.body).toMatchObject({
     username: "sintetica_ana",
