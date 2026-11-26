@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { redirect, useParams } from "next/navigation";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -12,7 +12,6 @@ import {
   Lock,
   Mail,
   QrCode,
-  ScanFace,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -84,19 +83,6 @@ const methodConfigs: Record<string, MethodConfig> = {
     technicalDetails:
       "Tokens de verificación con firma criptográfica, expiración estricta y protección contra reutilización.",
   },
-  "reconocimiento-facial": {
-    title: "Reconocimiento facial biométrico",
-    subtitle:
-      "Validación biométrica oficial para operaciones y contratos de arriendo de alta sensibilidad.",
-    icon: ScanFace,
-    phase: "Fase 8 (KYC)",
-    active: false,
-    activeBadge: "Próximamente",
-    description:
-      "Permite comprobar que eres el titular legítimo comparando una selfie con tu documento de identidad mediante prueba de vida pasiva.",
-    technicalDetails:
-      "Integración acotada con el módulo de verificación de identidad KYC cuando esté disponible.",
-  },
   "codigo-qr": {
     title: "Código QR",
     subtitle:
@@ -141,6 +127,8 @@ export default function MetodoDetallePage() {
   };
 
   const { snapshot } = useIdentityProfile();
+  if (slug === "reconocimiento-facial")
+    redirect("/mi-cuenta/seguridad/metodos");
   const maskedEmailValue =
     snapshot.summary?.masked_email ?? "Correo no disponible";
   const maskedPhoneValue = snapshot.summary?.masked_phone ?? "No configurado";

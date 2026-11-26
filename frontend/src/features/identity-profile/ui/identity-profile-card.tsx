@@ -43,6 +43,7 @@ import {
   type ProfileConfirmationMethod,
 } from "../domain/identity-profile";
 import { useIdentityProfile } from "./use-identity-profile";
+import { IdentityVerifiedBadge } from "./identity-verified-badge";
 import { verificationReturnHref } from "@/features/host-listings/domain/publish-guide";
 import { PinpassAccountSection } from "@/features/account/ui/pinpass-card";
 import {
@@ -139,6 +140,8 @@ function IdentityProfileCardSession({
   const openedInitialEditor = useRef(false);
 
   const status = snapshot.summary?.state ?? "incomplete";
+  const verified =
+    status === "verified" && !snapshot.loading && !snapshot.error;
   const rutLocked =
     snapshot.summary?.rut_locked ??
     ["verified", "expired", "revoked"].includes(status);
@@ -1043,10 +1046,14 @@ function IdentityProfileCardSession({
 
       <Card id="identity-verification" className="scroll-mt-24">
         <CardHeader>
-          <CardTitle>Verificación de identidad</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Verificación de identidad</CardTitle>
+            {verified && <IdentityVerifiedBadge />}
+          </div>
           <CardDescription>
-            Consulta el estado de tu identidad o inicia la verificación con tu
-            cédula chilena.
+            {verified
+              ? "Consulta la vigencia de tu verificación."
+              : "Consulta el estado de tu identidad o inicia la verificación con tu cédula chilena."}
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -137,7 +137,14 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
       method === "POST"
     ) {
       apiCalls.push({ path, method });
-      profile = { ...profile, state: "in_review" };
+      profile =
+        profile.state === "in_review"
+          ? {
+              ...profile,
+              state: "verified",
+              verified_until: "2035-01-03T18:00:00Z",
+            }
+          : { ...profile, state: "in_review" };
       result = { status: 200, body: profile };
     } else if (
       path === "/api/backend/account/security/pinpass" &&
@@ -384,7 +391,20 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   await expect(
     page.getByRole("link", { name: "Volver al borrador de publicación" }),
   ).toHaveAttribute("href", profileReturnTo);
+  await page.getByRole("button", { name: "Actualizar estado" }).click();
+  await expect(page.getByTestId("identity-profile-state")).toHaveText(
+    "Verificado",
+  );
+  await expect(page.getByText("Vigente hasta", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Iniciar verificación" }),
+  ).toHaveCount(0);
   await page.goto("/mi-cuenta/perfil");
+  await expect(
+    page
+      .locator("#identity-verification")
+      .getByText("Verificado", { exact: true }),
+  ).toBeVisible();
   const showEmail = page.getByRole("button", {
     name: "Mostrar Correo electrónico",
   });
@@ -441,6 +461,7 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
     restricted_mode: false,
   };
   let configured = false;
+  let available = true;
   let proof: unknown;
 
   await page.route("**/api/backend/**", async (route) => {
@@ -478,10 +499,12 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
       configured = true;
       result = { status: 200, body: { configured } };
     } else if (path === pinpassPath && request.method() === "GET") {
-      result = {
-        status: 200,
-        body: { configured, blocked_until: null, access_expires_at: null },
-      };
+      result = available
+        ? {
+            status: 200,
+            body: { configured, blocked_until: null, access_expires_at: null },
+          }
+        : { status: 503, body: { error: { code: "unavailable" } } };
     }
     const adapted = bff.adapt(request, result);
     await route.fulfill({
@@ -514,15 +537,22 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
     "Llaves de acceso",
     "Google Authenticator",
     "Código QR",
-    "Reconocimiento facial",
   ]);
   await expect(
     page.getByText(
       "Configura tu Pinpass para navegar y desbloquear opciones dentro de EspaciGo.",
     ),
   ).toBeVisible();
+  available = false;
   await page.getByRole("link", { name: /Configurar Pinpass/ }).click();
   await expect(page).toHaveURL(new RegExp(`${security}/metodos/pinpass$`));
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "Pinpass no está disponible en este momento." }),
+  ).toBeVisible();
+  available = true;
+  await page.getByRole("button", { name: "Reintentar" }).click();
   await page.getByLabel("Nuevo Pinpass").fill("134679");
   await page.getByLabel("Confirma tu Pinpass").fill("134679");
   await page.getByRole("button", { name: "Crear Pinpass" }).click();
@@ -541,5 +571,11 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
   ).toBeVisible();
   await expect(
     page.getByText("Configurar Pinpass", { exact: true }),
+  ).toHaveCount(0);
+
+  await page.goto(`${security}/metodos/reconocimiento-facial`);
+  await expect(page).toHaveURL(new RegExp(`${security}/metodos$`));
+  await expect(
+    page.getByRole("heading", { name: "Reconocimiento facial" }),
   ).toHaveCount(0);
 });
