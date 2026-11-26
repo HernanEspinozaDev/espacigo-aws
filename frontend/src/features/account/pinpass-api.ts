@@ -66,6 +66,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       reauthentication_failed:
         "Revisa la contraseña o usa un código nuevo de tu autenticador.",
       unauthorized: "Tu sesión venció. Vuelve a iniciar sesión.",
+      unavailable:
+        "Pinpass no está disponible en este momento. Si el problema persiste, contacta a soporte.",
     };
     throw new PinpassApiError(
       messages[code] ??

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Clock3, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
   Card,
@@ -13,6 +13,8 @@ import {
 } from "@/components/workspace/ui/card";
 import { profileEditHref } from "@/features/host-listings/domain/publish-guide";
 import type { IdentityProfileState } from "../domain/identity-profile";
+import { cn } from "@/lib/utils";
+import { IdentityVerifiedBadge } from "./identity-verified-badge";
 import { useIdentityProfile } from "./use-identity-profile";
 
 const STATE_LABEL: Record<IdentityProfileState, string> = {
@@ -21,7 +23,7 @@ const STATE_LABEL: Record<IdentityProfileState, string> = {
   in_progress: "Verificación en curso",
   in_review: "Identidad en revisión",
   needs_correction: "Requiere corrección",
-  verified: "Identidad verificada",
+  verified: "Verificado",
   expired: "Verificación vencida",
   revoked: "Verificación revocada",
 };
@@ -40,6 +42,9 @@ export function IdentityVerificationCard({
   const [message, setMessage] = useState<string | null>(null);
   const autoRefreshStarted = useRef(false);
   const status = snapshot.summary?.state ?? "incomplete";
+  const verified =
+    status === "verified" && !snapshot.loading && !snapshot.error;
+  const verifiedUntil = verified ? snapshot.summary?.verified_until : undefined;
   const canStartVerification =
     !snapshot.loading &&
     !snapshot.error &&
@@ -113,47 +118,68 @@ export function IdentityVerificationCard({
     <Card
       id="identity-verification"
       aria-labelledby="identity-verification-title"
-      className="scroll-mt-24"
+      className={cn(
+        "scroll-mt-24 overflow-hidden rounded-2xl",
+        verified && "border-emerald-200 dark:border-emerald-900",
+      )}
     >
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <ShieldCheck className="size-5" aria-hidden="true" />
+      <CardHeader className="gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div
+            className={cn(
+              "flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary",
+              verified &&
+                "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+            )}
+          >
+            <ShieldCheck className="size-6" aria-hidden="true" />
           </div>
-          <div className="space-y-1">
-            <CardTitle id="identity-verification-title">
-              Verificación de identidad
-            </CardTitle>
-            <CardDescription>
-              {status === "verified" && snapshot.summary?.verified_until
-                ? "Vigente hasta el " +
-                  new Date(snapshot.summary.verified_until).toLocaleDateString(
-                    "es-CL",
-                    {
-                      timeZone: "America/Santiago",
-                    },
-                  )
-                : status === "in_review"
-                  ? "Estamos revisando el resultado de tu verificación."
-                  : snapshot.summary?.complete
-                    ? "Confirma tu identidad con tu cédula chilena en Didit."
-                    : "Completa los datos de tu perfil para iniciar este paso."}
-            </CardDescription>
+          <div data-testid="identity-profile-state" role="status">
+            {verified ? (
+              <IdentityVerifiedBadge />
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                {(status === "in_progress" || status === "in_review") && (
+                  <Clock3 className="size-3.5" aria-hidden="true" />
+                )}
+                {snapshot.loading
+                  ? "Consultando estado…"
+                  : snapshot.error
+                    ? "Estado no disponible"
+                    : STATE_LABEL[status]}
+              </span>
+            )}
           </div>
         </div>
-        <span
-          className="w-fit shrink-0 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground"
-          data-testid="identity-profile-state"
-          role="status"
-        >
-          {snapshot.loading
-            ? "Consultando estado…"
-            : snapshot.error
-              ? "Estado no disponible"
-              : STATE_LABEL[status]}
-        </span>
+        <div className="space-y-2">
+          <CardTitle id="identity-verification-title" className="text-xl">
+            Verificación de identidad
+          </CardTitle>
+          <CardDescription>
+            {verified
+              ? "Confirmamos tu identidad con tu cédula chilena."
+              : status === "in_review"
+                ? "Estamos revisando el resultado de tu verificación."
+                : snapshot.summary?.complete
+                  ? "Confirma tu identidad con tu cédula chilena en Didit."
+                  : "Completa los datos de tu perfil para iniciar este paso."}
+          </CardDescription>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
+        {verifiedUntil && (
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+            <span className="font-medium">Vigente hasta</span>
+            <time dateTime={verifiedUntil}>
+              {new Date(verifiedUntil).toLocaleDateString("es-CL", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+                timeZone: "America/Santiago",
+              })}
+            </time>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {!snapshot.loading &&
           !snapshot.error &&
@@ -172,8 +198,10 @@ export function IdentityVerificationCard({
               disabled={busy}
               onClick={() => void handleVerification()}
             >
-              {busy && (
+              {busy ? (
                 <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <ArrowUpRight className="size-4" aria-hidden="true" />
               )}
               {status === "in_progress"
                 ? "Continuar verificación"
