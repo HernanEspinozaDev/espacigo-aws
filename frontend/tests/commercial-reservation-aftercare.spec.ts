@@ -469,10 +469,7 @@ test("insufficient funds 409 shows dedicated guidance and keeps reservation acti
   ).toBeVisible();
   await expect(page.getByText("Saldo reembolsable")).toBeVisible();
   await expect(
-    page
-      .getByText("Saldo reembolsable")
-      .locator("..")
-      .getByText("$10.000 CLP"),
+    page.getByText("Saldo reembolsable").locator("..").getByText("$10.000 CLP"),
   ).toBeVisible();
   await expect(
     page
@@ -1008,7 +1005,9 @@ test("finanzas isolates chargebacks and confirmed refunds without showing unreco
   await page.goto("/anfitrion/reservas");
   await page.getByRole("tab", { name: "Finanzas" }).click();
 
-  await expect(page.getByText("Contracargo en curso (1 operación)")).toBeVisible();
+  await expect(
+    page.getByText("Contracargo en curso (1 operación)"),
+  ).toBeVisible();
   const refundSummary = page
     .getByText("Reembolsos confirmados", { exact: true })
     .locator("..");

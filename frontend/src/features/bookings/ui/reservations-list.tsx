@@ -216,13 +216,14 @@ const PAID_OR_APPROVED_STATES: ReadonlySet<BookingState> = new Set([
   "cerrada",
 ]);
 
-const FINANCE_ADJUSTMENT_LABEL: Record<ReservationFinancialAdjustment, string> = {
-  none: "Sin reembolso",
-  refund_pending: "Reembolso pendiente",
-  refund_confirmed: "Reembolso confirmado",
-  refund_failed: "Reembolso no confirmado",
-  chargeback: "Contracargo",
-};
+const FINANCE_ADJUSTMENT_LABEL: Record<ReservationFinancialAdjustment, string> =
+  {
+    none: "Sin reembolso",
+    refund_pending: "Reembolso pendiente",
+    refund_confirmed: "Reembolso confirmado",
+    refund_failed: "Reembolso no confirmado",
+    chargeback: "Contracargo",
+  };
 
 function isReservationPaid(reservation: BookingReservation): boolean {
   return (
@@ -1272,9 +1273,7 @@ export function ReservationsList({
               <div>
                 <p className="font-semibold">
                   Contracargo en curso ({kpiStats.chargebackCount}{" "}
-                  {kpiStats.chargebackCount === 1
-                    ? "operación"
-                    : "operaciones"}
+                  {kpiStats.chargebackCount === 1 ? "operación" : "operaciones"}
                   )
                 </p>
                 <p className="mt-0.5 text-xs">
@@ -1342,8 +1341,14 @@ export function ReservationsList({
                   <tbody className="divide-y divide-border">
                     {kpiStats.paidList.map((tx) => {
                       const financial = getReservationFinancialBreakdown(tx);
-                      const processing = getRecordedProcessingFee(tx, financial);
-                      const movement = getReservationFinancialMovement(tx, financial);
+                      const processing = getRecordedProcessingFee(
+                        tx,
+                        financial,
+                      );
+                      const movement = getReservationFinancialMovement(
+                        tx,
+                        financial,
+                      );
                       return (
                         <tr key={tx.id} className="hover:bg-muted/30">
                           <td className="py-3 pr-3 font-mono font-semibold text-foreground">
