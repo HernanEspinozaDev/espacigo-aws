@@ -215,6 +215,22 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     page.getByRole("form", { name: "Editar datos del perfil" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Completar perfil" }).click();
+  const documentType = page.getByRole("combobox", {
+    name: "Tipo de documento",
+  });
+  await expect(
+    documentType.getByText("Cédula de identidad chilena", { exact: true }),
+  ).toBeVisible();
+  await documentType.click();
+  await expect(page.getByRole("option")).toHaveText([
+    "Cédula de identidad chilena",
+  ]);
+  await page
+    .getByRole("option", { name: "Cédula de identidad chilena" })
+    .click();
+  await expect(
+    page.getByText("Documento admitido para esta primera etapa."),
+  ).toHaveCount(0);
   await page.getByRole("button", { name: "Guardar perfil" }).click();
   await expect(
     page.locator('[aria-labelledby="identity-profile-title"] [role="alert"]'),

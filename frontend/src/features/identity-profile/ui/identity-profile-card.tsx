@@ -23,6 +23,13 @@ import {
 } from "@/components/workspace/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import {
@@ -55,6 +62,8 @@ const privateFields = [
   { field: "phone", label: "Teléfono móvil", masked: "masked_phone" },
 ] as const;
 type PrivateField = (typeof privateFields)[number]["field"];
+
+const documentTypes = { cl_id: "Cédula de identidad chilena" };
 
 const EMPTY: IdentityProfileInput = {
   username: "",
@@ -990,22 +999,27 @@ function IdentityProfileCardSession({
                 <Field
                   id="document_type"
                   label="Tipo de documento"
-                  example="Cédula de identidad chilena"
+                  example=""
                   required
                   valid
                 >
-                  <Input
-                    id="identity-profile-document_type"
-                    value="Cédula de identidad chilena"
-                    readOnly
-                    aria-describedby="identity-profile-document_type-help"
-                  />
-                  <span
-                    id="identity-profile-document_type-help"
-                    className="text-xs text-muted-foreground"
+                  <Select
+                    value={form.document_type}
+                    items={documentTypes}
+                    required
                   >
-                    Documento admitido para esta primera etapa.
-                  </span>
+                    <SelectTrigger
+                      id="identity-profile-document_type"
+                      className="w-full"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cl_id">
+                        {documentTypes.cl_id}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </Field>
               </div>
 
