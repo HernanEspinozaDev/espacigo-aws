@@ -325,3 +325,119 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   ).toHaveLength(2);
   expect(requestsOutsideLoopback).toEqual([]);
 });
+
+test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
+  page,
+}) => {
+  const bff = createBffFixtureState();
+  const pinpassPath = "/api/backend/account/security/pinpass";
+  const session = {
+    account_id: accountId,
+    roles: ["arrendatario"],
+    capabilities: [],
+    expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+    restricted_mode: false,
+  };
+  let configured = false;
+  let proof: unknown;
+
+  await page.route("**/api/backend/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    let result: { status: number; body: unknown } = {
+      status: 404,
+      body: { error: { code: "not_found" } },
+    };
+    if (
+      path === "/api/backend/auth/login" ||
+      path === "/api/backend/auth/session"
+    ) {
+      result = { status: 200, body: session };
+    } else if (path === "/api/backend/account/security/methods") {
+      result = {
+        status: 200,
+        body: {
+          protected: false,
+          active_count: 2,
+          total_count: 7,
+          methods: {
+            phone: { enabled: false },
+            password: { enabled: true },
+            email: { enabled: true, masked_email: "i***@example.invalid" },
+            passkeys: { enabled: false, count: 0 },
+            totp: { enabled: false },
+            qr: { enabled: false },
+            facial_kyc: { enabled: false, status: "unavailable" },
+          },
+        },
+      };
+    } else if (path === pinpassPath && request.method() === "PUT") {
+      proof = request.postDataJSON();
+      configured = true;
+      result = { status: 200, body: { configured } };
+    } else if (path === pinpassPath && request.method() === "GET") {
+      result = {
+        status: 200,
+        body: { configured, blocked_until: null, access_expires_at: null },
+      };
+    }
+    const adapted = bff.adapt(request, result);
+    await route.fulfill({
+      status: adapted?.status ?? 500,
+      json: adapted?.body ?? {},
+    });
+  });
+
+  const security = "/mi-cuenta/seguridad";
+  await page.goto(`/acceso?return_to=${encodeURIComponent(security)}`);
+  await page.getByLabel("Correo electrónico").fill("identity@example.invalid");
+  await page
+    .getByLabel("Contraseña", { exact: true })
+    .fill("SyntheticOnly123!");
+  await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  await expect(page).toHaveURL(new RegExp(`${security}$`));
+  await expect(
+    page.getByRole("link", { name: /EspaciGo Pinpass/i }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: /Métodos de verificación/ }).click();
+
+  const methods = page
+    .getByRole("list", { name: "Métodos de verificación de la cuenta" })
+    .getByRole("heading");
+  await expect(methods).toHaveText([
+    "Pinpass",
+    "Contraseña",
+    "Correo electrónico",
+    "Teléfono",
+    "Llaves de acceso",
+    "Google Authenticator",
+    "Código QR",
+    "Reconocimiento facial",
+  ]);
+  await expect(
+    page.getByText(
+      "Configura tu Pinpass para navegar y desbloquear opciones dentro de EspaciGo.",
+    ),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /Configurar Pinpass/ }).click();
+  await expect(page).toHaveURL(new RegExp(`${security}/metodos/pinpass$`));
+  await page.getByLabel("Nuevo Pinpass").fill("134679");
+  await page.getByLabel("Confirma tu Pinpass").fill("134679");
+  await page.getByRole("button", { name: "Crear Pinpass" }).click();
+  const dialog = page.getByRole("dialog", { name: "Confirma tu identidad" });
+  await dialog.getByLabel("Contraseña actual").fill("SyntheticOnly123!");
+  await dialog.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.getByText("Tu Pinpass quedó configurado.")).toBeVisible();
+  expect(proof).toEqual({
+    pin: "134679",
+    confirmation: "134679",
+    current_password: "SyntheticOnly123!",
+  });
+  await page.getByRole("link", { name: "Métodos de verificación" }).click();
+  await expect(
+    page.getByRole("link", { name: /Administrar Pinpass/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Configurar Pinpass", { exact: true }),
+  ).toHaveCount(0);
+});

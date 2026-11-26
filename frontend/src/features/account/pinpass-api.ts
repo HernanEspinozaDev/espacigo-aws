@@ -1,3 +1,5 @@
+export const PINPASS_SETTINGS_HREF = "/mi-cuenta/seguridad/metodos/pinpass";
+
 export interface PinpassStatus {
   configured: boolean;
   blocked_until: string | null;

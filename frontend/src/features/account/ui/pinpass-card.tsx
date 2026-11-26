@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -31,6 +32,7 @@ import { useSecurityMethodsSummary } from "./use-security-methods-summary";
 import {
   getPinpassStatus,
   PinpassApiError,
+  PINPASS_SETTINGS_HREF,
   revealPinpassValue,
   setPinpass,
   unlockPinpass,
@@ -39,6 +41,7 @@ import {
 } from "../pinpass-api";
 
 interface PinpassCardProps {
+  readonly manage: boolean;
   /** Requests an account factor for reauthentication. */
   readonly reauthenticate: () => Promise<PinpassProof>;
   /** Change this when the authenticated account/session changes to clear local values. */
@@ -56,7 +59,7 @@ const sensitiveFields = {
 type SensitiveField = keyof typeof sensitiveFields;
 const sensitiveFieldKeys = Object.keys(sensitiveFields) as SensitiveField[];
 
-export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
+function PinpassCard({ manage, reauthenticate, sessionKey }: PinpassCardProps) {
   const [status, setStatus] = useState<PinpassStatus | null>(null);
   const [pin, setPin] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -71,6 +74,7 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [needsProfile, setNeedsProfile] = useState(false);
   const [requestedField, setRequestedField] = useState<SensitiveField | null>(
     null,
   );
@@ -178,6 +182,7 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
     event.preventDefault();
     setError(null);
     setMessage(null);
+    setNeedsProfile(false);
     if (!/^\d{6}$/.test(pin) || pin !== confirmation) {
       setError("Usa seis dígitos y confirma el mismo Pinpass.");
       return;
@@ -196,9 +201,14 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
       });
       setShowSetup(false);
       setMessage(
-        "Tu EspaciGo Pinpass quedó actualizado. Tendrás que ingresarlo para ver tus datos.",
+        status?.configured
+          ? "Tu Pinpass quedó actualizado."
+          : "Tu Pinpass quedó configurado.",
       );
     } catch (cause) {
+      setNeedsProfile(
+        cause instanceof PinpassApiError && cause.code === "profile_incomplete",
+      );
       setError(errorMessage(cause));
     } finally {
       setPin("");
@@ -333,10 +343,17 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
             <KeyRound className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <CardTitle>EspaciGo Pinpass</CardTitle>
+            <CardTitle>
+              {manage
+                ? status.configured
+                  ? "Pinpass configurado"
+                  : "Configurar Pinpass"
+                : "Datos privados"}
+            </CardTitle>
             <CardDescription className="mt-1">
-              Protege la consulta de tus datos privados con un código personal
-              de seis dígitos.
+              {manage
+                ? "Usa tu Pinpass para navegar y desbloquear opciones dentro de EspaciGo."
+                : "Ingresa tu Pinpass para ver tus datos privados."}
             </CardDescription>
           </div>
         </div>
@@ -358,7 +375,12 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
             {message}
           </p>
         )}
-        {!status.configured || showSetup ? (
+        {needsProfile && (
+          <Button asChild variant="outline">
+            <Link href="/mi-cuenta/perfil">Completar mi perfil</Link>
+          </Button>
+        )}
+        {manage && (!status.configured || showSetup) ? (
           <form onSubmit={submitSetup} className="space-y-4">
             <p className="text-sm text-muted-foreground">
               {status.configured
@@ -408,6 +430,21 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
               )}
             </div>
           </form>
+        ) : manage ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setMessage(null);
+              setShowSetup(true);
+            }}
+          >
+            Cambiar Pinpass
+          </Button>
+        ) : !status.configured ? (
+          <Button asChild>
+            <Link href={PINPASS_SETTINGS_HREF}>Configurar Pinpass</Link>
+          </Button>
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -471,17 +508,6 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
                 La autorización dura 15 minutos desde que ingresaste el Pinpass.
               </p>
             )}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setShowSetup(true);
-                clearSensitiveValues();
-              }}
-              disabled={busy}
-            >
-              Cambiar Pinpass
-            </Button>
           </div>
         )}
       </CardContent>
@@ -490,7 +516,11 @@ export function PinpassCard({ reauthenticate, sessionKey }: PinpassCardProps) {
 }
 
 /** Account-bound wrapper with an accessible password step-up dialog. */
-export function PinpassAccountSection() {
+export function PinpassAccountSection({
+  manage = false,
+}: {
+  manage?: boolean;
+}) {
   const { snapshot } = useAuth();
   const { summary } = useSecurityMethodsSummary();
   const otpAvailable = summary?.methods.totp.enabled !== false;
@@ -579,6 +609,7 @@ export function PinpassAccountSection() {
     <>
       <PinpassCard
         key={sessionKey}
+        manage={manage}
         sessionKey={sessionKey}
         reauthenticate={reauthenticate}
       />
