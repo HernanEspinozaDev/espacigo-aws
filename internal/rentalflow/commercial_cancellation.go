@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -94,6 +95,7 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 	if err != nil || len(token) == 0 {
 		return CommercialCancellation{}, ErrCancellationUnavailable
 	}
+	defer clear(token)
 	if operation.ProviderRefundID != "" {
 		refunds, lookupErr := s.refundGateway.ListRefunds(ctx, token, operation.ProviderPaymentID)
 		if lookupErr != nil {
@@ -132,8 +134,11 @@ func (s *CommercialReservationService) Cancel(ctx context.Context, actorID, rese
 	refund, err := s.refundGateway.RefundPayment(ctx, token, operation.ProviderPaymentID, amount, operation.IdempotencyKey)
 	if err != nil {
 		var providerErr *checkoutpro.ProviderError
-		if errors.As(err, &providerErr) && providerErr.HTTPStatus >= 400 && providerErr.HTTPStatus < 500 && providerErr.HTTPStatus != 408 && providerErr.HTTPStatus != 409 && providerErr.HTTPStatus != 429 {
-			_ = s.cancellations.FailCommercialCancellation(ctx, operation.ReservationID, s.cancellationNow().UTC())
+		if errors.As(err, &providerErr) {
+			log.Printf("mercadopago_refund stage=refund_create payment_id=%q provider_http_status=%d provider_code=%q", operation.ProviderPaymentID, providerErr.HTTPStatus, providerErr.ProviderCode)
+			if providerErr.HTTPStatus >= 400 && providerErr.HTTPStatus < 500 && providerErr.HTTPStatus != 408 && providerErr.HTTPStatus != 409 && providerErr.HTTPStatus != 429 {
+				_ = s.cancellations.FailCommercialCancellation(ctx, operation.ReservationID, s.cancellationNow().UTC())
+			}
 		}
 		// The persisted idempotency key makes the next identical request safe even
 		// when the provider outcome was lost after accepting the refund.

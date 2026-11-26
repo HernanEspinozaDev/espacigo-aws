@@ -119,6 +119,20 @@ func TestCommercialCancellationUsesPersistedIdempotencyAndSellerToken(t *testing
 	}
 }
 
+func TestCommercialCancellationRecordsProviderRejectionWithoutFinalizingReservation(t *testing.T) {
+	repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{
+		CanCancel: true, ReservationID: "22222222-2222-4222-8222-222222222222", HostID: "33333333-3333-4333-8333-333333333333",
+		ProviderPaymentID: "1234567", IdempotencyKey: "44444444-4444-4444-8444-444444444444", TotalChargedCLP: 1036, RefundAmountCLP: 1036,
+	}}
+	gateway := &cancellationGatewayStub{err: &checkoutpro.ProviderError{Stage: "refund_create", HTTPStatus: 400, ProviderCode: "bad_request"}}
+	service, _ := rentalflow.NewCommercialReservationService(repo)
+	service.SetCancellationDependencies(repo, cancellationTokensStub{}, gateway, time.Now)
+	_, err := service.Cancel(context.Background(), "55555555-5555-4555-8555-555555555555", repo.operation.ReservationID, "Cambio de planes", 1036)
+	if !errors.Is(err, rentalflow.ErrCancellationUnavailable) || !repo.failed || repo.status != "" || gateway.posts != 1 {
+		t.Fatalf("refund error=%v failed=%t finalized_status=%q posts=%d", err, repo.failed, repo.status, gateway.posts)
+	}
+}
+
 func TestCommercialCancellationLeavesUncertainProviderOutcomePending(t *testing.T) {
 	repo := &cancellationRepoStub{operation: rentalflow.CommercialCancellation{CanCancel: true, ReservationID: "22222222-2222-4222-8222-222222222222", HostID: "33333333-3333-4333-8333-333333333333", ProviderPaymentID: "1234567", IdempotencyKey: "44444444-4444-4444-8444-444444444444", TotalChargedCLP: 10000, RefundAmountCLP: 5000}}
 	gateway := &cancellationGatewayStub{err: errors.New("timeout")}

@@ -1,5 +1,52 @@
 # Auditoría del flujo de pagos con Mercado Pago
 
+## Checkout Pro en producción — 26 de noviembre de 2026
+
+El informe de Mercado Pago del 25 de noviembre de 2026 registra **74/100 y aprobación** para el pago productivo `190475305601`. La revisión de CloudWatch en `/aws/ecs/espacigo-app-prod`, desde las 00:00 UTC del 25 de noviembre hasta la consulta, encontró 19 eventos de notificación y verificación para ese ID. Incluyen `signature_valid=true`, `amount_clp=1036`, `status=approved` y `result=matched`. Son eventos de un solo pago. El acceso directo de solo lectura al pago y sus reembolsos respondió `ERROR_UNAUTHORIZED: invalid access token` en el perfil local de MP CLI. El estado actual del reembolso queda pendiente de verificar en Mercado Pago con la autorización del vendedor. No se creó un cargo ni una devolución durante esta revisión.
+
+### Calidad de la integración
+
+| Criterio | Estado en la rama de contratos |
+| --- | --- |
+| Cantidad, precio unitario y título del ítem | Enviados en el único ítem de la preferencia. |
+| Descriptor del extracto | Agregado como `ESPACIGO`. La visualización en el extracto depende del emisor. |
+| URL de retorno, webhook y referencia externa | Enviados desde Go. La referencia corresponde al ID interno de la operación. |
+| Nombre, apellido y correo | Se toma el correo de la cuenta activa. El nombre y los apellidos se obtienen de la identidad verificada vigente. La preferencia usa `payer.surname` conforme al contrato del endpoint. Las preferencias de prueba omiten datos de cuenta de EspaciGo. |
+| Categoría, descripción e ID del ítem | Agregados con la categoría `services`, una descripción del arriendo y el ID estable del espacio. |
+| Vigencia de la preferencia y máximo de cuotas | Implementados. Se envían el rango de vigencia y una cuota. |
+| Excluir tipos o medios de pago | Exclusión por tipo aplicada en pruebas. El filtro de medios por ID y nuevas exclusiones de producción quedan pendientes de una decisión de producto. |
+| Mensajes de respuesta | Implementados en la pantalla de estado. La confirmación procede de la consulta al proveedor. |
+| Consulta del pago notificado | Implementada. Se valida la firma del webhook y se consulta el pago con la autorización del vendedor. El pago productivo aportado tiene evidencia de este flujo. |
+| Reembolso total o parcial | Implementado cuando se solicita desde una reserva pagada. Go usa el token OAuth del vendedor, el ID de pago y una clave de idempotencia persistida. |
+| Cancelación de un pago pendiente | Falta la acción saliente. El webhook ya reconoce la confirmación remota `cancelled`. |
+| Contracargos | Hay registro de la incidencia para conciliación. Falta un flujo operativo para presentar evidencia por la API de disputas. |
+| Reportes de liquidaciones y de todas las transacciones | El panel actual usa snapshots por pago. Falta importar los reportes oficiales de liquidaciones y movimientos de saldo. |
+| Respuesta binaria, fecha para efectivo, anuncios, apertura modal y logo | Configuración opcional. El flujo usa una redirección y admite estados pendientes. Fecha de efectivo solo aplica si se habilita ese medio. |
+| Envío y dirección | El arriendo de un espacio carece de envío. La dirección del comprador es opcional y queda fuera del payload. |
+| Identificación y teléfono del comprador | Quedan fuera del payload. Se envían los datos de identidad necesarios para el criterio del informe. |
+| SDK frontend y backend | MercadoPago.js V2 existe para el checkout de tarjeta. Checkout Pro crea la preferencia con un cliente HTTP de Go. El SDK backend es una práctica opcional para este flujo. |
+
+El puntaje de 74 corresponde a la preferencia histórica, que estos cambios no modifican. La herramienta MCP de evaluación exige un pago reciente con credenciales de prueba. El ID productivo se contrastó con los registros de producción y el informe adjunto. [Referencia de preferencias de Checkout Pro](https://www.mercadopago.cl/developers/es/reference/online-payments/checkout-pro-preferences/create-preference/post)
+
+### Cancelación y reembolso
+
+| Estado verificado del pago | Operación |
+| --- | --- |
+| Sin ID de pago | Cerrar la opción de pago local y dejar expirar la preferencia. Antes de liberar una reserva con resultado incierto, conciliar por referencia externa. |
+| `pending` o `in_process` | Mercado Pago admite cancelar con `PUT /v1/payments/{id}` y `status: cancelled`. Para habilitar el botón en EspaciGo, consultar el estado justo antes y aplicar la transición de reserva al confirmar la respuesta o el webhook. |
+| `approved` | Mostrar la política y el monto que corresponden a la reserva. Solicitar el reembolso por el pago original. Usar el cuerpo vacío para el total o enviar el monto para un parcial. |
+| Reembolso enviado, respuesta pendiente o incierta | Mantener la solicitud pendiente. Conciliar por ID de reembolso o volver a usar la clave de idempotencia que ya se guardó. |
+| Reembolso realizado desde el portal de Mercado Pago | Cuando el webhook informa un total sin solicitud local asociada, el código envía el caso a conciliación. Antes de cerrar la reserva, comprobar monto, estado, pago y autorización. Vincular los reembolsos parciales al mismo historial. |
+| Reembolso rechazado | El flujo actual conserva la reserva activa. Si la causa confirmada es falta de saldo, el vendedor puede reponer su parte y volver a tramitarse el reembolso. |
+
+En split 1:1, Mercado Pago carga a vendedor y marketplace la parte correspondiente. Si el vendedor no cuenta con fondos, el marketplace puede cubrir su parte pero el total no se procesa por el mismo canal. EspaciGo puede ofrecer la solicitud y el seguimiento desde la reserva con autorización del vendedor. Una devolución por otra vía requiere un comprobante y un registro operativo que evite duplicar el abono. [Split 1:1 en Chile](https://www.mercadopago.cl/developers/es/docs/split-payments/split-1-1/integration-configuration/integrate-marketplace) · [Reembolsos y cancelaciones](https://www.mercadopago.cl/developers/es/docs/checkout-pro-preferences/additional-settings/refunds-and-cancellations)
+
+Pruebas para una siguiente activación del flujo pendiente: consultar el pago antes de cancelar, simular aprobación concurrente, confirmar que la reserva se actualiza una vez, probar reembolso total, parcial y rechazado, y conciliar un reembolso hecho fuera de EspaciGo antes de permitir un nuevo intento.
+
+---
+
+## Auditoría histórica de Checkout API, 20 de noviembre de 2026
+
 **Fecha de corte:** 20 de noviembre de 2026
 
 **Alcance:** revisión de código local, registros locales disponibles y configuración de prueba descrita en la sesión. No se creó ningún pago ni se modificó configuración externa durante esta auditoría.

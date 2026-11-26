@@ -76,6 +76,7 @@ type Gateway interface {
 	FindByExternalReference(context.Context, []byte, string) (Preference, error)
 }
 type Config struct {
+	BuyerForPreference    func(context.Context, string) (PreferencePayer, error)
 	FrontendOrigin        string
 	TestMode              bool
 	WalletPurchaseEnabled bool
@@ -286,13 +287,26 @@ func (s *Service) start(ctx context.Context, renter, quoteID, key string, wallet
 			return ""
 		}(),
 		ExternalReference: op.ID, MarketplaceFee: float64(amounts.MarketplaceFeeCLP),
-		Items:           []PreferenceItem{{Title: cleanTitle(quote.Title), Quantity: 1, UnitPrice: float64(amounts.TotalChargedCLP), CurrencyID: "CLP"}},
+		StatementDescriptor: "ESPACIGO",
+		Items: []PreferenceItem{{
+			ID: quote.SpaceID, Title: cleanTitle(quote.Title), Description: "Arriendo de espacio reservado en EspaciGo",
+			CategoryID: "services", Quantity: 1, UnitPrice: float64(amounts.TotalChargedCLP), CurrencyID: "CLP",
+		}},
 		Metadata:        map[string]any{"quote_id": quote.ID, "operation_id": op.ID, "space_id": quote.SpaceID, "host_id": quote.HostID, "renter_id": quote.RenterID, "commission_base_clp": amounts.BaseCLP, "commission_clp": amounts.CommissionCLP, "vat_clp": amounts.VATCLP, "host_fee_clp": amounts.CommissionCLP + amounts.VATCLP, "buyer_fee_clp": amounts.BuyerFeeCLP, "total_charged_clp": amounts.TotalChargedCLP, "marketplace_fee_clp": amounts.MarketplaceFeeCLP},
 		BackURLs:        BackURLs{Success: returnURL, Failure: returnURL, Pending: returnURL},
 		AutoReturn:      "approved",
 		NotificationURL: notificationURL,
 		Expires:         true, ExpirationDateFrom: now.Format(time.RFC3339), ExpirationDateTo: quote.ExpiresAt.UTC().Format(time.RFC3339),
 		PaymentMethods: PaymentMethods{ExcludedPaymentTypes: excluded, Installments: 1},
+	}
+	// TEST checkouts use Mercado Pago test buyers, without EspaciGo account data.
+	if !s.config.TestMode && s.config.BuyerForPreference != nil {
+		payer, err := s.config.BuyerForPreference(ctx, renter)
+		if err != nil {
+			s.diagnose(ctx, "buyer_preference", "account_unavailable", nil)
+			return StartResult{}, ErrProvider
+		}
+		request.Payer = &payer
 	}
 	claimed, claimErr := s.repo.ClaimPreference(ctx, op.ID, now, 2*time.Minute)
 	if claimErr != nil {
