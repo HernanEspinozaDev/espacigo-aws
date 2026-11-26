@@ -27,13 +27,13 @@ func sessionKey(account, session string) string { return account + "/" + session
 func (f *fakeStore) Credential(context.Context, string) (Credential, bool, error) {
 	return f.credential, f.configured, nil
 }
-func (f *fakeStore) SetCredentialAndRevoke(_ context.Context, account string, c Credential, session string, _ time.Time) error {
+func (f *fakeStore) SetCredentialAndRevoke(_ context.Context, account string, c Credential, session string, _ []byte, _ time.Time) error {
 	f.credential, f.configured = c, true
 	f.grants = map[string]time.Time{}
 	f.audit = append(f.audit, "pinpass.changed:"+account+":"+session)
 	return nil
 }
-func (f *fakeStore) DeleteCredentialAndRevoke(_ context.Context, account, session string, _ time.Time) error {
+func (f *fakeStore) DeleteCredentialAndRevoke(_ context.Context, account, session string, _ []byte, _ time.Time) error {
 	f.credential, f.configured = Credential{}, false
 	f.grants = map[string]time.Time{}
 	f.audit = append(f.audit, "pinpass.reset:"+account+":"+session)
@@ -136,10 +136,10 @@ func TestSetRequiresCompleteProfileAndRecentProof(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 123456000, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret", EmailCode: "654321"}); err != nil {
 		t.Fatal(err)
 	}
-	if stepUp.received != (Proof{CurrentPassword: "secret"}) {
+	if stepUp.received != (Proof{CurrentPassword: "secret", EmailCode: "654321", ManagePinpass: true}) {
 		t.Fatal("incorrect step-up proof")
 	}
 	if !store.configured || len(store.credential.Salt) != 16 || len(store.credential.Hash) != 32 {
@@ -150,7 +150,7 @@ func TestSetRequiresCompleteProfileAndRecentProof(t *testing.T) {
 	}
 
 	profiles.profile = map[string]string{"email": "own@example.cl"}
-	err = svc.Set(ctx, "account-1", "session-1", "654321", "654321", Proof{OTPCode: "123456"})
+	err = svc.Set(ctx, "account-1", "session-1", "654321", "654321", Proof{OTPCode: "123456", EmailCode: "654321"})
 	if !errors.Is(err, ErrProfileIncomplete) {
 		t.Fatalf("Set error = %v, want profile incomplete", err)
 	}
@@ -166,7 +166,7 @@ func TestUnlockRevealIsSessionBoundAndExpiresWithoutExtension(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 123456789, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret", EmailCode: "654321"}); err != nil {
 		t.Fatal(err)
 	}
 	expires, err := svc.Unlock(ctx, "account-1", "session-1", "012345")
@@ -201,7 +201,7 @@ func TestFailedPINUsesPersistentThrottleAndResetRevokesGrant(t *testing.T) {
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret", EmailCode: "654321"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Unlock(ctx, "account-1", "session-2", "012345"); err != nil {
@@ -218,7 +218,7 @@ func TestFailedPINUsesPersistentThrottleAndResetRevokesGrant(t *testing.T) {
 	if _, err = svc.Unlock(ctx, "account-1", "session-2", "012345"); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second session must inherit account bucket lock: %v", err)
 	}
-	if err = svc.Reset(ctx, "account-1", "session-2", Proof{CurrentPassword: "secret"}); err != nil {
+	if err = svc.Reset(ctx, "account-1", "session-2", Proof{OTPCode: "012345", EmailCode: "654321"}); err != nil {
 		t.Fatal(err)
 	}
 	if store.configured || len(store.grants) != 0 {
@@ -236,13 +236,13 @@ func TestHTTPHandlerAuthorizesAndNeverCachesSensitiveResponses(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }
-	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret"}); err != nil {
+	if err = svc.Set(ctx, "account-1", "session-1", "012345", "012345", Proof{CurrentPassword: "secret", EmailCode: "654321"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = svc.Unlock(ctx, "account-1", "session-1", "012345"); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(fakeAuthorizer{principal: identity.Principal{AccountID: "account-1", SessionID: "session-1"}}, svc)
+	h := NewHandler(fakeAuthorizer{principal: identity.Principal{AccountID: "account-1", SessionID: "session-1"}}, svc, nil)
 	r := httptest.NewRequest(http.MethodGet, "/api/v1/account/security/pinpass/reveal/run", nil)
 	r.Header.Set("Authorization", "Bearer session-token")
 	w := httptest.NewRecorder()
@@ -263,7 +263,7 @@ func TestHTTPHandlerAuthorizesAndNeverCachesSensitiveResponses(t *testing.T) {
 	}
 	r = httptest.NewRequest(http.MethodGet, "/api/v1/account/security/pinpass/reveal/run", nil)
 	r.Header.Set("Authorization", "Bearer session-token")
-	unauthenticated := NewHandler(fakeAuthorizer{err: identity.ErrUnauthorized}, svc)
+	unauthenticated := NewHandler(fakeAuthorizer{err: identity.ErrUnauthorized}, svc, nil)
 	w = httptest.NewRecorder()
 	unauthenticated.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "12.345.678-5") {
@@ -271,17 +271,16 @@ func TestHTTPHandlerAuthorizesAndNeverCachesSensitiveResponses(t *testing.T) {
 	}
 }
 
-func TestPinpassChangeAcceptsEitherFactorAndPassesBoth(t *testing.T) {
+func TestPinpassEnrollmentRequiresPasswordAndEmail(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		body   string
 		proof  Proof
 		status int
 	}{
-		{"password", `{"pin":"012345","confirmation":"012345","current_password":"example"}`, Proof{CurrentPassword: "example"}, http.StatusOK},
-		{"otp", `{"pin":"012345","confirmation":"012345","otp_code":"042673"}`, Proof{OTPCode: "042673"}, http.StatusOK},
-		{"both", `{"pin":"012345","confirmation":"012345","current_password":"example","otp_code":"042673"}`, Proof{CurrentPassword: "example", OTPCode: "042673"}, http.StatusOK},
-		{"missing password in combined request", `{"pin":"012345","confirmation":"012345","current_password":"","otp_code":"042673"}`, Proof{}, http.StatusBadRequest},
+		{"pair", `{"pin":"012345","confirmation":"012345","current_password":"example","email_code":"654321"}`, Proof{CurrentPassword: "example", EmailCode: "654321", ManagePinpass: true}, http.StatusOK},
+		{"password alone", `{"pin":"012345","confirmation":"012345","current_password":"example"}`, Proof{}, http.StatusBadRequest},
+		{"totp instead of password", `{"pin":"012345","confirmation":"012345","otp_code":"042673","email_code":"654321"}`, Proof{}, http.StatusForbidden},
 		{"missing", `{"pin":"012345","confirmation":"012345"}`, Proof{}, http.StatusBadRequest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -290,7 +289,7 @@ func TestPinpassChangeAcceptsEitherFactorAndPassesBoth(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			handler := NewHandler(fakeAuthorizer{principal: identity.Principal{AccountID: "account-1", SessionID: "session-1"}}, service)
+			handler := NewHandler(fakeAuthorizer{principal: identity.Principal{AccountID: "account-1", SessionID: "session-1"}}, service, nil)
 			request := httptest.NewRequest(http.MethodPut, "/api/v1/account/security/pinpass", strings.NewReader(test.body))
 			request.Header.Set("Authorization", "Bearer synthetic-session")
 			request.Header.Set("Content-Type", "application/json")

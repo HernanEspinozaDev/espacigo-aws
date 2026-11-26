@@ -26,6 +26,8 @@ var (
 	ErrProfileIncomplete = errors.New("identity profile is incomplete")
 	ErrLocked            = errors.New("pinpass temporarily locked")
 	ErrNoAccess          = errors.New("sensitive profile access unavailable")
+	ErrEmailInUse        = errors.New("email is already in use")
+	ErrEmailUnavailable  = errors.New("pinpass email unavailable")
 	ErrStepUpRejected    = errors.New("recent authentication rejected")
 	pinPattern           = regexp.MustCompile(`^[0-9]{6}$`)
 )
@@ -47,8 +49,8 @@ type Access struct{ ExpiresAt time.Time }
 // across API instances. Failure methods enforce both account and session buckets.
 type Store interface {
 	Credential(context.Context, string) (Credential, bool, error)
-	SetCredentialAndRevoke(context.Context, string, Credential, string, time.Time) error
-	DeleteCredentialAndRevoke(context.Context, string, string, time.Time) error
+	SetCredentialAndRevoke(context.Context, string, Credential, string, []byte, time.Time) error
+	DeleteCredentialAndRevoke(context.Context, string, string, []byte, time.Time) error
 	FailureState(context.Context, string, string) (FailureState, error)
 	RecordFailureAndAudit(context.Context, string, string, time.Time) (FailureState, error)
 	ClearFailures(context.Context, string, string) error
@@ -58,12 +60,37 @@ type Store interface {
 }
 
 type Proof struct {
-	CurrentPassword identity.Secret
-	OTPCode         identity.Secret
+	CurrentPassword  identity.Secret
+	OTPCode          identity.Secret
+	EmailCode        identity.Secret
+	Purpose          string
+	ManagePinpass    bool
+	ReplacingPinpass bool
+}
+
+type EmailChallenge struct {
+	MaskedEmail string    `json:"masked_email"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+type EmailChallenger interface {
+	SendEmailCode(context.Context, string, string, string) (EmailChallenge, error)
+	StartEmailChange(context.Context, string, string, string, Proof) (EmailChallenge, error)
+	ConfirmEmailChange(context.Context, string, string, identity.Secret) error
 }
 
 func (p Proof) Present() bool {
-	return p.CurrentPassword != "" || p.OTPCode != ""
+	return p.CurrentPassword != "" || p.OTPCode != "" || p.EmailCode != ""
+}
+
+func (p Proof) validForPinpass(replacing bool) bool {
+	if !pinPattern.MatchString(string(p.EmailCode)) {
+		return false
+	}
+	if replacing {
+		return p.CurrentPassword == "" && pinPattern.MatchString(string(p.OTPCode))
+	}
+	return p.CurrentPassword != "" && p.OTPCode == ""
 }
 
 // StepUp validates an account-owned recent authentication proof. Implementors
@@ -112,11 +139,20 @@ func NewService(store Store, stepUp StepUp, profiles SensitiveProfileProvider, p
 	return &Service{store: store, stepUp: stepUp, profiles: profiles, pepper: append([]byte(nil), pepper...), now: time.Now, random: rand.Reader, hashSlots: make(chan struct{}, 8)}, nil
 }
 
-// Set requires a recent account factor for both enrollment and replacement.
+// Set requires an email challenge and the factor for enrollment or replacement.
 func (s *Service) Set(ctx context.Context, accountID, sessionID, pin, confirmation string, proof Proof) error {
 	if accountID == "" || sessionID == "" || !pinPattern.MatchString(pin) || subtle.ConstantTimeCompare([]byte(pin), []byte(confirmation)) != 1 {
 		return ErrInvalidInput
 	}
+	current, configured, err := s.store.Credential(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !proof.validForPinpass(configured) {
+		return ErrStepUpRejected
+	}
+	proof.ReplacingPinpass = configured
+	proof.ManagePinpass = true
 	if err := s.stepUp.Verify(ctx, accountID, sessionID, proof); err != nil {
 		return ErrStepUpRejected
 	}
@@ -134,14 +170,19 @@ func (s *Service) Set(ctx context.Context, accountID, sessionID, pin, confirmati
 		return err
 	}
 	hash := s.derive(pin, salt)
-	if err := s.store.SetCredentialAndRevoke(ctx, accountID, Credential{Salt: salt, Hash: hash}, sessionID, s.now().UTC()); err != nil {
+	if err := s.store.SetCredentialAndRevoke(ctx, accountID, Credential{Salt: salt, Hash: hash}, sessionID, current.Hash, s.now().UTC()); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Service) Status(ctx context.Context, accountID, sessionID string) (bool, FailureState, error) {
+func (s *Service) Configured(ctx context.Context, accountID string) (bool, error) {
 	_, configured, err := s.store.Credential(ctx, accountID)
+	return configured, err
+}
+
+func (s *Service) Status(ctx context.Context, accountID, sessionID string) (bool, FailureState, error) {
+	configured, err := s.Configured(ctx, accountID)
 	if err != nil {
 		return false, FailureState{}, err
 	}
@@ -149,19 +190,18 @@ func (s *Service) Status(ctx context.Context, accountID, sessionID string) (bool
 	return configured, f, err
 }
 
-func (s *Service) Unlock(ctx context.Context, accountID, sessionID, pin string) (time.Time, error) {
-	now := s.now().UTC().Truncate(time.Microsecond)
+func (s *Service) verifyPIN(ctx context.Context, accountID, sessionID, pin string, now time.Time) (Credential, error) {
 	if f, err := s.store.FailureState(ctx, accountID, sessionID); err != nil {
-		return time.Time{}, err
+		return Credential{}, err
 	} else if now.Before(f.BlockedUntil) {
-		return time.Time{}, &LockedError{Until: f.BlockedUntil}
+		return Credential{}, &LockedError{Until: f.BlockedUntil}
 	}
 	c, ok, err := s.store.Credential(ctx, accountID)
 	if err != nil {
-		return time.Time{}, err
+		return Credential{}, err
 	}
 	if !ok {
-		return time.Time{}, ErrNotConfigured
+		return Credential{}, ErrNotConfigured
 	}
 	valid := false
 	if pinPattern.MatchString(pin) {
@@ -170,20 +210,34 @@ func (s *Service) Unlock(ctx context.Context, accountID, sessionID, pin string) 
 			valid = subtle.ConstantTimeCompare(s.derive(pin, c.Salt), c.Hash) == 1
 			<-s.hashSlots
 		case <-ctx.Done():
-			return time.Time{}, ctx.Err()
+			return Credential{}, ctx.Err()
 		}
 	}
 	if !valid {
 		f, err := s.store.RecordFailureAndAudit(ctx, accountID, sessionID, now)
 		if err != nil {
-			return time.Time{}, err
+			return Credential{}, err
 		}
 		if now.Before(f.BlockedUntil) {
-			return time.Time{}, &LockedError{Until: f.BlockedUntil}
+			return Credential{}, &LockedError{Until: f.BlockedUntil}
 		}
-		return time.Time{}, ErrInvalidPIN
+		return Credential{}, ErrInvalidPIN
 	}
 	if err = s.store.ClearFailures(ctx, accountID, sessionID); err != nil {
+		return Credential{}, err
+	}
+	return c, nil
+}
+
+func (s *Service) VerifyPIN(ctx context.Context, accountID, sessionID, pin string) error {
+	_, err := s.verifyPIN(ctx, accountID, sessionID, pin, s.now().UTC().Truncate(time.Microsecond))
+	return err
+}
+
+func (s *Service) Unlock(ctx context.Context, accountID, sessionID, pin string) (time.Time, error) {
+	now := s.now().UTC().Truncate(time.Microsecond)
+	c, err := s.verifyPIN(ctx, accountID, sessionID, pin, now)
+	if err != nil {
 		return time.Time{}, err
 	}
 	expires := now.Add(AccessWindow)
@@ -219,10 +273,22 @@ func (s *Service) Reveal(ctx context.Context, accountID, sessionID, field string
 }
 
 func (s *Service) Reset(ctx context.Context, accountID, sessionID string, proof Proof) error {
+	current, configured, err := s.store.Credential(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if !configured {
+		return ErrNotConfigured
+	}
+	if !proof.validForPinpass(true) {
+		return ErrStepUpRejected
+	}
+	proof.ReplacingPinpass = true
+	proof.ManagePinpass = true
 	if err := s.stepUp.Verify(ctx, accountID, sessionID, proof); err != nil {
 		return ErrStepUpRejected
 	}
-	if err := s.store.DeleteCredentialAndRevoke(ctx, accountID, sessionID, s.now().UTC()); err != nil {
+	if err := s.store.DeleteCredentialAndRevoke(ctx, accountID, sessionID, current.Hash, s.now().UTC()); err != nil {
 		return err
 	}
 	return nil

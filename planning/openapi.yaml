@@ -84,7 +84,7 @@ paths:
       operationId: saveOwnIdentityProfile
       tags: [Account, Identity verification]
       summary: Validar y guardar el formulario completo de identidad
-      description: Requiere clave de cifrado del perfil. Un RUN verificado queda ligado a la cuenta. Enviar RUN vacío para conservar el existente cuando el estado indica rut_locked.
+      description: Requiere clave de cifrado del perfil. Tras verificar la identidad se bloquean el nombre legal, la fecha de nacimiento, el documento y el RUN. Enviar RUN vacío conserva el existente cuando el estado indica rut_locked. El teléfono se puede actualizar sin cambiar la revisión de identidad.
       requestBody:
         required: true
         content:
@@ -99,7 +99,7 @@ paths:
         "400": { description: Cuerpo inválido. }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { description: Nombre de usuario ocupado o RUN verificado bloqueado. }
+        "409": { description: Nombre de usuario ocupado o intento de modificar datos legales verificados. }
         "422": { description: Campos incompletos o con formato inválido. }
         "503": { description: Guardado del perfil no disponible. }
   /account/identity-profile/draft:
@@ -258,7 +258,7 @@ paths:
       operationId: setOwnPinpass
       tags: [Account]
       summary: Crear o sustituir el PIN propio con autenticación reciente
-      description: Acepta contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos. El código TOTP se consume una sola vez.
+      description: La primera configuración requiere contraseña y código de correo. El cambio requiere código de correo y código TOTP de un autenticador activo. Cada código solo puede usarse una vez.
       requestBody:
         required: true
         content:
@@ -281,7 +281,7 @@ paths:
       operationId: resetOwnPinpass
       tags: [Account]
       summary: Eliminar el PIN propio y revocar los permisos activos
-      description: Requiere contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos.
+      description: Requiere código de correo y código TOTP de un autenticador activo.
       requestBody:
         required: true
         content:
@@ -292,6 +292,93 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { description: No se pudo validar la reautenticación. }
         "429": { description: Factor temporalmente bloqueado. }
+  /account/security/pinpass/email-code:
+    post:
+      operationId: sendOwnPinpassEmailCode
+      tags: [Account]
+      summary: Enviar un código al correo de la cuenta para administrar Pinpass
+      description: Disponible cuando Pinpass y el correo transaccional están habilitados. El código dura cinco minutos, corresponde a esta cuenta y sesión y puede reenviarse después de un minuto.
+      responses:
+        "201":
+          description: Código enviado al correo de la cuenta.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [masked_email, expires_at]
+                properties:
+                  masked_email: { type: string }
+                  expires_at: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { description: Espera antes de solicitar otro código. }
+        "503": { description: El correo de Pinpass no está disponible. }
+  /account/security/confirmation/email-code:
+    post:
+      operationId: sendAccountSecurityEmailCode
+      tags: [Account]
+      summary: Enviar un código para cambiar el autenticador
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operation]
+              properties:
+                operation: { type: string, enum: [authenticator] }
+      responses:
+        "201":
+          description: Código enviado al correo registrado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecurityEmailChallenge" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { description: Espera antes de solicitar otro código. }
+        "503": { description: El correo transaccional no está disponible. }
+  /account/security/email/change:
+    post:
+      operationId: startOwnEmailChange
+      tags: [Account]
+      summary: Confirmar el cambio con la contraseña y el autenticador y enviar un código a la nueva dirección
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, current_password, otp_code]
+              properties:
+                email: { type: string, format: email }
+                current_password: { type: string, writeOnly: true }
+                otp_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+      responses:
+        "201":
+          description: Código enviado a la nueva dirección.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecurityEmailChallenge" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: No se confirmaron ambos factores. }
+        "429": { description: Espera antes de solicitar otro código. }
+  /account/security/email/confirm:
+    post:
+      operationId: confirmOwnEmailChange
+      tags: [Account]
+      summary: Confirmar el código de la nueva dirección y cerrar las demás sesiones
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email_code]
+              properties:
+                email_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+      responses:
+        "204": { description: Correo principal actualizado. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: Código inválido, vencido o de otra sesión. }
+        "409": { description: El correo ya está asociado a una cuenta. }
   /account/security/pinpass/unlock:
     post:
       operationId: unlockOwnSensitiveProfile
@@ -4118,7 +4205,7 @@ paths:
     post:
       operationId: changePassword
       tags: [ M01 local ]
-      description: "CU-50/RQF-214–218. Requiere Bearer y clave actual, rechaza clave idéntica, invalida todas las sesiones y envía correo local tras commit. Historial RQF-217 y entrega durable/outbox RQF-218 dependen de DB02-09."
+      description: "CU-50/RQF-214–218. Requiere Bearer, clave actual y Pinpass o código TOTP, rechaza clave idéntica, invalida todas las sesiones y envía correo local tras commit. Historial RQF-217 y entrega durable/outbox RQF-218 dependen de DB02-09."
       requestBody:
         required: true
         content:
@@ -4129,6 +4216,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "405": *id004
         "415": *id005
+        "403": { $ref: "#/components/responses/Forbidden" }
         "422": *id006
         "500": *id008
         "503": *id009
@@ -4342,7 +4430,7 @@ paths:
       operationId: getAccountTOTPStatus
       tags:
         - M01 local
-      description: Obtiene el estado de configuración y activación del autenticador TOTP (Google Authenticator).
+      description: Obtiene el estado de configuración y activación del autenticador TOTP.
       responses:
         "200":
           description: Estado del autenticador TOTP de la cuenta.
@@ -4412,7 +4500,7 @@ paths:
       operationId: disableAccountTOTP
       tags:
         - M01 local
-      description: Desactiva el autenticador TOTP verificando un código TOTP vigente o un código de respaldo válido.
+      description: Desactiva el autenticador TOTP tras verificar la contraseña actual y el código enviado al correo de la cuenta.
       requestBody:
         required: true
         content:
@@ -4433,6 +4521,7 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403": { $ref: "#/components/responses/Forbidden" }
         "422":
           $ref: "#/components/responses/UnprocessableEntity"
         "500":
@@ -8461,12 +8550,20 @@ components:
         verified_until: { type: string, format: date-time }
         rut_locked: { type: boolean }
         draft_saved: { type: boolean }
+    SecurityEmailChallenge:
+      type: object
+      required: [masked_email, expires_at]
+      properties:
+        masked_email: { type: string }
+        expires_at: { type: string, format: date-time }
     PinpassFactor:
       type: object
-      anyOf:
+      required: [email_code]
+      oneOf:
         - required: [current_password]
         - required: [otp_code]
       properties:
+        email_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
         current_password: { type: string, minLength: 1, writeOnly: true }
         otp_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
     PinpassStatus:
@@ -12575,14 +12672,10 @@ components:
     AccountTOTPDisableInput:
       type: object
       additionalProperties: false
-      required:
-        - code
+      required: [current_password, email_code]
       properties:
-        code:
-          type: string
-          minLength: 6
-          maxLength: 12
-          example: "123456"
+        current_password: { type: string, writeOnly: true }
+        email_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
     AccountTOTPDisableResponse:
       type: object
       additionalProperties: false
@@ -12989,7 +13082,15 @@ components:
         - passkeys
         - qr
         - facial_kyc
+        - pinpass
       properties:
+        pinpass:
+          type: object
+          additionalProperties: false
+          required: [enabled]
+          properties:
+            enabled:
+              type: boolean
         password:
           type: object
           additionalProperties: false
@@ -13581,6 +13682,8 @@ components:
       additionalProperties: false
       required: [ current_password, new_password, confirm_password ]
       properties:
+        pin: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+        otp_code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
         current_password: *id011
         new_password:
           type: string

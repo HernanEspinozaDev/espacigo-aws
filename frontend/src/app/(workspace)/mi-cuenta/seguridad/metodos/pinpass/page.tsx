@@ -9,7 +9,7 @@ export default function PinpassPage() {
         title="Pinpass"
         description="Administra tu clave de seis dígitos para desbloquear opciones y consultar tus datos privados."
       />
-      <PinpassAccountSection manage />
+      <PinpassAccountSection />
     </div>
   );
 }

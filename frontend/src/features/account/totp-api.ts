@@ -21,7 +21,8 @@ export interface AccountTOTPEnableResponse {
 }
 
 export interface AccountTOTPDisableInput {
-  code: string;
+  current_password: string;
+  email_code: string;
 }
 
 export interface AccountTOTPDisableResponse {
@@ -66,6 +67,9 @@ function parseErrorMessage(status: number, data: unknown): TOTPApiError {
   let userMessage = "Ocurrió un error al gestionar el autenticador TOTP.";
 
   switch (code) {
+    case "security_confirmation_required":
+      userMessage = "Revisa tu contraseña y el código del correo.";
+      break;
     case "invalid_code":
       userMessage =
         "Código de autenticación incorrecto o expirado. Verifica el código e inténtalo de nuevo.";
@@ -79,12 +83,10 @@ function parseErrorMessage(status: number, data: unknown): TOTPApiError {
         "No hay una configuración de autenticador TOTP pendiente. Inicia la configuración nuevamente.";
       break;
     case "totp_already_enabled":
-      userMessage =
-        "Google Authenticator ya se encuentra activado en tu cuenta.";
+      userMessage = "El autenticador ya se encuentra activado en tu cuenta.";
       break;
     case "totp_not_enabled":
-      userMessage =
-        "Google Authenticator no se encuentra activado en tu cuenta.";
+      userMessage = "El autenticador no se encuentra activado en tu cuenta.";
       break;
     case "invalid_request":
       userMessage =
@@ -215,7 +217,7 @@ export async function disableAccountTOTP(
       "Content-Type": "application/json",
       Accept: "application/json",
     },
-    body: JSON.stringify({ code: input.code }),
+    body: JSON.stringify(input),
     signal,
   });
 

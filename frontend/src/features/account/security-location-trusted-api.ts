@@ -52,6 +52,7 @@ export interface AccountSecurityMethodsSummary {
   qr: {
     enabled: boolean;
   };
+  pinpass: { enabled: boolean };
   facial_kyc: {
     enabled: boolean;
     status: string;
@@ -408,6 +409,7 @@ export async function getAccountSecurityMethodsSummary(
       qr: {
         enabled: Boolean(rawMethods?.qr?.enabled),
       },
+      pinpass: { enabled: Boolean(rawMethods?.pinpass?.enabled) },
       facial_kyc: {
         enabled: Boolean(rawMethods?.facial_kyc?.enabled),
         status:

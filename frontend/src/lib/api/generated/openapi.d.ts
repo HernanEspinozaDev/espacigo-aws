@@ -50,7 +50,7 @@ export interface paths {
     get: operations["getOwnIdentityProfile"];
     /**
      * Validar y guardar el formulario completo de identidad
-     * @description Requiere clave de cifrado del perfil. Un RUN verificado queda ligado a la cuenta. Enviar RUN vacío para conservar el existente cuando el estado indica rut_locked.
+     * @description Requiere clave de cifrado del perfil. Tras verificar la identidad se bloquean el nombre legal, la fecha de nacimiento, el documento y el RUN. Enviar RUN vacío conserva el existente cuando el estado indica rut_locked. El teléfono se puede actualizar sin cambiar la revisión de identidad.
      */
     put: operations["saveOwnIdentityProfile"];
     post?: never;
@@ -202,15 +202,86 @@ export interface paths {
     get: operations["getOwnPinpassStatus"];
     /**
      * Crear o sustituir el PIN propio con autenticación reciente
-     * @description Acepta contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos. El código TOTP se consume una sola vez.
+     * @description La primera configuración requiere contraseña y código de correo. El cambio requiere código de correo y código TOTP de un autenticador activo. Cada código solo puede usarse una vez.
      */
     put: operations["setOwnPinpass"];
     post?: never;
     /**
      * Eliminar el PIN propio y revocar los permisos activos
-     * @description Requiere contraseña actual, código TOTP del autenticador activo o ambos. Si se envían ambos, los dos deben ser válidos.
+     * @description Requiere código de correo y código TOTP de un autenticador activo.
      */
     delete: operations["resetOwnPinpass"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/pinpass/email-code": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Enviar un código al correo de la cuenta para administrar Pinpass
+     * @description Disponible cuando Pinpass y el correo transaccional están habilitados. El código dura cinco minutos, corresponde a esta cuenta y sesión y puede reenviarse después de un minuto.
+     */
+    post: operations["sendOwnPinpassEmailCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/confirmation/email-code": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Enviar un código para cambiar el autenticador */
+    post: operations["sendAccountSecurityEmailCode"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/email/change": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Confirmar el cambio con la contraseña y el autenticador y enviar un código a la nueva dirección */
+    post: operations["startOwnEmailChange"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/account/security/email/confirm": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Confirmar el código de la nueva dirección y cerrar las demás sesiones */
+    post: operations["confirmOwnEmailChange"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -2777,7 +2848,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description CU-50/RQF-214–218. Requiere Bearer y clave actual, rechaza clave idéntica, invalida todas las sesiones y envía correo local tras commit. Historial RQF-217 y entrega durable/outbox RQF-218 dependen de DB02-09. */
+    /** @description CU-50/RQF-214–218. Requiere Bearer, clave actual y Pinpass o código TOTP, rechaza clave idéntica, invalida todas las sesiones y envía correo local tras commit. Historial RQF-217 y entrega durable/outbox RQF-218 dependen de DB02-09. */
     post: operations["changePassword"];
     delete?: never;
     options?: never;
@@ -2928,7 +2999,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Obtiene el estado de configuración y activación del autenticador TOTP (Google Authenticator). */
+    /** @description Obtiene el estado de configuración y activación del autenticador TOTP. */
     get: operations["getAccountTOTPStatus"];
     put?: never;
     post?: never;
@@ -2981,7 +3052,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description Desactiva el autenticador TOTP verificando un código TOTP vigente o un código de respaldo válido. */
+    /** @description Desactiva el autenticador TOTP tras verificar la contraseña actual y el código enviado al correo de la cuenta. */
     post: operations["disableAccountTOTP"];
     delete?: never;
     options?: never;
@@ -5795,13 +5866,16 @@ export interface components {
       rut_locked: boolean;
       draft_saved: boolean;
     };
-    PinpassFactor:
-      | {
-          current_password?: $Write<string>;
-          otp_code?: $Write<string>;
-        }
-      | unknown
-      | unknown;
+    SecurityEmailChallenge: {
+      masked_email: string;
+      /** Format: date-time */
+      expires_at: string;
+    };
+    PinpassFactor: {
+      email_code: $Write<string>;
+      current_password?: $Write<string>;
+      otp_code?: $Write<string>;
+    } & (unknown | unknown);
     PinpassStatus: {
       configured: boolean;
       /** Format: date-time */
@@ -9807,8 +9881,8 @@ export interface components {
       backup_codes: string[];
     };
     AccountTOTPDisableInput: {
-      /** @example 123456 */
-      code: string;
+      current_password: $Write<string>;
+      email_code: $Write<string>;
     };
     AccountTOTPDisableResponse: {
       /** @example false */
@@ -9997,6 +10071,9 @@ export interface components {
       methods: components["schemas"]["AccountSecurityMethodsSummary"];
     };
     AccountSecurityMethodsSummary: {
+      pinpass: {
+        enabled: boolean;
+      };
       password: {
         enabled: boolean;
       };
@@ -10411,6 +10488,8 @@ export interface components {
       confirm_password: $Write<string>;
     };
     PasswordChangeRequest: {
+      pin?: $Write<string>;
+      otp_code?: $Write<string>;
       current_password: $Write<string>;
       new_password: $Write<string>;
       confirm_password: $Write<string>;
@@ -10953,7 +11032,7 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
-      /** @description Nombre de usuario ocupado o RUN verificado bloqueado. */
+      /** @description Nombre de usuario ocupado o intento de modificar datos legales verificados. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -11374,6 +11453,170 @@ export interface operations {
       };
       /** @description Factor temporalmente bloqueado. */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  sendOwnPinpassEmailCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Código enviado al correo de la cuenta. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            masked_email: string;
+            /** Format: date-time */
+            expires_at: string;
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Espera antes de solicitar otro código. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description El correo de Pinpass no está disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  sendAccountSecurityEmailCode: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          operation: "authenticator";
+        };
+      };
+    };
+    responses: {
+      /** @description Código enviado al correo registrado. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityEmailChallenge"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Espera antes de solicitar otro código. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description El correo transaccional no está disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  startOwnEmailChange: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: email */
+          email: string;
+          current_password: $Write<string>;
+          otp_code: $Write<string>;
+        };
+      };
+    };
+    responses: {
+      /** @description Código enviado a la nueva dirección. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SecurityEmailChallenge"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description No se confirmaron ambos factores. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Espera antes de solicitar otro código. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  confirmOwnEmailChange: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          email_code: $Write<string>;
+        };
+      };
+    };
+    responses: {
+      /** @description Correo principal actualizado. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      /** @description Código inválido */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description El correo ya está asociado a una cuenta. */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -17134,6 +17377,7 @@ export interface operations {
         content?: never;
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       405: components["responses"]["MethodNotAllowed"];
       415: components["responses"]["UnsupportedMediaType"];
       422: components["responses"]["UnprocessableEntity"];
@@ -17456,6 +17700,7 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
       422: components["responses"]["UnprocessableEntity"];
       500: components["responses"]["InternalServerError"];
     };

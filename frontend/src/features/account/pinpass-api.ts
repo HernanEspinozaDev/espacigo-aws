@@ -7,8 +7,8 @@ export interface PinpassStatus {
 }
 
 export type PinpassProof =
-  | { current_password: string; otp_code?: string }
-  | { current_password?: string; otp_code: string };
+  | { email_code: string; current_password: string }
+  | { email_code: string; otp_code: string };
 
 export interface PinpassSensitiveValue {
   field: PinpassField;
@@ -55,6 +55,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
         ? data.error.code
         : "unknown_error";
     const messages: Record<string, string> = {
+      pinpass_email_unavailable:
+        "No pudimos enviar el código a tu correo. Inténtalo nuevamente.",
       invalid_pin: "El Pinpass no coincide. Revisa los seis dígitos.",
       temporarily_locked:
         "Se pausaron los intentos. Espera antes de volver a probar.",
@@ -64,7 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       pinpass_access_required: "Ingresa tu Pinpass para consultar este dato.",
       reauthentication_required: "Confirma tu identidad para continuar.",
       reauthentication_failed:
-        "Revisa la contraseña o usa un código nuevo de tu autenticador.",
+        "Revisa los dos datos de confirmación y vuelve a intentarlo.",
       unauthorized: "Tu sesión venció. Vuelve a iniciar sesión.",
       unavailable:
         "Pinpass no está disponible en este momento. Si el problema persiste, contacta a soporte.",
@@ -83,6 +85,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getPinpassStatus(signal?: AbortSignal) {
   return request<PinpassStatus>("", { method: "GET", signal });
+}
+
+export function sendPinpassEmailCode(signal?: AbortSignal) {
+  return request<{ masked_email: string; expires_at: string }>("/email-code", {
+    method: "POST",
+    signal,
+  });
 }
 
 export function setPinpass(

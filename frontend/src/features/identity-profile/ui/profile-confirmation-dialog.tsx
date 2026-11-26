@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
+import { RectangleEllipsis } from "lucide-react";
+import { PinInput } from "@/features/account/ui/pin-input";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -62,6 +64,12 @@ export function ProfileConfirmationDialog({
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent>
         <DialogHeader>
+          {purpose === "reveal" && (
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
+              <RectangleEllipsis className="size-5" aria-hidden="true" />{" "}
+              EspaciGo Pinpass
+            </div>
+          )}
           <DialogTitle>Confirma tu identidad</DialogTitle>
           <DialogDescription>
             {purpose === "reveal"
@@ -103,32 +111,38 @@ export function ProfileConfirmationDialog({
           </Link>
         ) : (
           <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="profile-confirmation-value">
-                {password
-                  ? "Contraseña actual"
-                  : method === "pin"
-                    ? "Ingresa tu Pinpass"
-                    : "Código del autenticador"}
-              </Label>
-              <Input
+            {method === "pin" ? (
+              <PinInput
                 id="profile-confirmation-value"
-                type={method === "otp_code" ? "text" : "password"}
-                autoComplete={password ? "current-password" : "one-time-code"}
-                inputMode={password ? undefined : "numeric"}
-                maxLength={password ? 72 : 6}
+                label="Ingresa tu Pinpass"
                 value={value}
+                onChange={setValue}
                 disabled={busy}
-                onChange={(event) =>
-                  setValue(
-                    password
-                      ? event.target.value
-                      : event.target.value.replace(/\D/g, ""),
-                  )
-                }
-                required
               />
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="profile-confirmation-value">
+                  {password ? "Contraseña actual" : "Código del autenticador"}
+                </Label>
+                <Input
+                  id="profile-confirmation-value"
+                  type={method === "otp_code" ? "text" : "password"}
+                  autoComplete={password ? "current-password" : "one-time-code"}
+                  inputMode={password ? undefined : "numeric"}
+                  maxLength={password ? 72 : 6}
+                  value={value}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setValue(
+                      password
+                        ? event.target.value
+                        : event.target.value.replace(/\D/g, ""),
+                    )
+                  }
+                  required
+                />
+              </div>
+            )}
             {error && (
               <p className="text-sm text-destructive" role="alert">
                 {error}

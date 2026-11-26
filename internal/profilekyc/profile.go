@@ -21,14 +21,15 @@ import (
 )
 
 var (
-	ErrNotReady      = errors.New("identity profile incomplete")
-	ErrUsernameTaken = errors.New("username unavailable")
-	ErrRUTLocked     = errors.New("verified identity number cannot be changed")
-	ErrUnavailable   = errors.New("identity verification unavailable")
-	ErrConflict      = errors.New("identity verification conflict")
-	rutInputPattern  = regexp.MustCompile(`^(?:[0-9]{1,8}-?|[0-9]{1,2}(?:\.[0-9]{3}){1,2}-?)[0-9K]$`)
-	usernamePattern  = regexp.MustCompile("^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$")
-	phonePattern     = regexp.MustCompile(`^\+569[0-9]{8}$`)
+	ErrNotReady            = errors.New("identity profile incomplete")
+	ErrUsernameTaken       = errors.New("username unavailable")
+	ErrRUTLocked           = errors.New("verified identity number cannot be changed")
+	ErrLegalIdentityLocked = errors.New("verified legal identity is locked")
+	ErrUnavailable         = errors.New("identity verification unavailable")
+	ErrConflict            = errors.New("identity verification conflict")
+	rutInputPattern        = regexp.MustCompile(`^(?:[0-9]{1,8}-?|[0-9]{1,2}(?:\.[0-9]{3}){1,2}-?)[0-9K]$`)
+	usernamePattern        = regexp.MustCompile("^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$")
+	phonePattern           = regexp.MustCompile(`^\+569[0-9]{8}$`)
 )
 
 type FieldError struct{ Fields map[string]string }
@@ -180,13 +181,14 @@ func (s *Service) Status(ctx context.Context, account string) (Status, error) {
 		SELECT u.correo_original,COALESCE(p.username,''),p.account_id IS NOT NULL,
 		       COALESCE(CASE WHEN a.state='verified' AND a.verified_until<=$2 THEN 'expired' ELSE a.state END,
 		                CASE WHEN p.account_id IS NULL THEN 'incomplete' ELSE 'ready' END),
-		       COALESCE(r.masked_rut,''),COALESCE(r.masked_phone,''),
+		       COALESCE(r.masked_rut,''),COALESCE(ph.masked_phone,r.masked_phone,''),
 		       CASE WHEN a.state='verified' THEN a.verified_until END,
 		       EXISTS (SELECT 1 FROM public.account_identity_rut_claim c WHERE c.account_id=u.id),
 		       EXISTS (SELECT 1 FROM public.account_identity_profile_draft d WHERE d.account_id=u.id)
 		FROM public.usuario u
 		LEFT JOIN public.account_identity_profile p ON p.account_id=u.id
 		LEFT JOIN public.account_identity_profile_revision r ON r.account_id=u.id AND r.id=p.current_revision
+		LEFT JOIN public.account_identity_profile_phone ph ON ph.account_id=p.account_id
 		LEFT JOIN LATERAL (
 		    SELECT v.state,v.verified_until FROM public.account_identity_verification v
 		    WHERE v.account_id=u.id AND v.profile_revision=p.current_revision
@@ -230,6 +232,7 @@ func (s *Service) Save(ctx context.Context, account string, data Data) (Status, 
 	}
 
 	var claimedRevision, key string
+	locked := false
 	var ciphertext []byte
 	err = tx.QueryRow(ctx, `
 		SELECT r.id::text,r.key_version,r.encrypted_data FROM public.account_identity_rut_claim c
@@ -246,6 +249,7 @@ func (s *Service) Save(ctx context.Context, account string, data Data) (Status, 
 				return Status{}, ErrRUTLocked
 			}
 		}
+		locked = true
 		data.RUT = claimed.RUT
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return Status{}, err
@@ -265,6 +269,28 @@ func (s *Service) Save(ctx context.Context, account string, data Data) (Status, 
 		current, decodeErr := decryptData(s.keys, account, revision, key, ciphertext)
 		if decodeErr != nil {
 			return Status{}, decodeErr
+		}
+		if locked {
+			if data.FirstName != current.FirstName || data.FirstLastName != current.FirstLastName ||
+				data.SecondLastName != current.SecondLastName || data.NoSecondLastName != current.NoSecondLastName ||
+				data.DateOfBirth != current.DateOfBirth || data.DocumentType != current.DocumentType {
+				return Status{}, ErrLegalIdentityLocked
+			}
+			version, blob, err := s.keys.Seal(revisionAAD(account, "phone"), []byte(data.Phone))
+			if err != nil {
+				return Status{}, ErrUnavailable
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO public.account_identity_profile_phone
+				(account_id,key_version,encrypted_phone,masked_phone) VALUES($1,$2,$3,$4)
+				ON CONFLICT(account_id) DO UPDATE SET key_version=EXCLUDED.key_version,
+				encrypted_phone=EXCLUDED.encrypted_phone,masked_phone=EXCLUDED.masked_phone`,
+				account, version, blob, "••••"+data.Phone[len(data.Phone)-4:]); err != nil {
+				return Status{}, err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return Status{}, err
+			}
+			return s.Status(ctx, account)
 		}
 		current.Username = data.Username
 		useExisting = current == data
@@ -354,15 +380,29 @@ func (s *Service) ReadDraft(ctx context.Context, account string) (Data, error) {
 	return decryptData(s.keys, account, "draft", key, encrypted)
 }
 
+func (s *Service) readPhone(account string, data *Data, key *string, blob []byte) error {
+	if key == nil {
+		return nil
+	}
+	plain, err := s.keys.Open(*key, revisionAAD(account, "phone"), blob)
+	if err != nil {
+		return ErrUnavailable
+	}
+	data.Phone = string(plain)
+	return nil
+}
+
 func (s *Service) ReadForEdit(ctx context.Context, account string) (Data, error) {
 	var username, revision, key string
-	var encrypted []byte
+	var encrypted, phone []byte
+	var phoneKey *string
 	err := s.pool.QueryRow(ctx, `
-		SELECT p.username,r.id::text,r.key_version,r.encrypted_data
+		SELECT p.username,r.id::text,r.key_version,r.encrypted_data,ph.key_version,ph.encrypted_phone
 		FROM public.account_identity_profile p
 		JOIN public.usuario u ON u.id=p.account_id AND u.estado='activo'
 		JOIN public.account_identity_profile_revision r ON r.account_id=p.account_id AND r.id=p.current_revision
-		WHERE p.account_id=$1`, account).Scan(&username, &revision, &key, &encrypted)
+		LEFT JOIN public.account_identity_profile_phone ph ON ph.account_id=p.account_id
+		WHERE p.account_id=$1`, account).Scan(&username, &revision, &key, &encrypted, &phoneKey, &phone)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Data{}, ErrNotReady
 	}
@@ -370,8 +410,14 @@ func (s *Service) ReadForEdit(ctx context.Context, account string) (Data, error)
 		return Data{}, err
 	}
 	data, err := decryptData(s.keys, account, revision, key, encrypted)
+	if err != nil {
+		return Data{}, err
+	}
 	data.Username = username
-	return data, err
+	if err := s.readPhone(account, &data, phoneKey, phone); err != nil {
+		return Data{}, err
+	}
+	return data, nil
 }
 
 func (s *Service) SaveUsername(ctx context.Context, account, username string) (Status, error) {
@@ -393,16 +439,18 @@ func (s *Service) SaveUsername(ctx context.Context, account, username string) (S
 func (s *Service) OwnSensitiveProfile(ctx context.Context, account string) (map[string]string, error) {
 	var email string
 	var revision, key *string
-	var ciphertext []byte
+	var ciphertext, phone []byte
+	var phoneKey *string
 	var reader RowReader = s.pool
 	if transaction, ok := profilepin.SensitiveQueryerFromContext(ctx); ok {
 		reader = transaction
 	}
 	err := reader.QueryRow(ctx, `
-		SELECT u.correo_original,r.id::text,r.key_version,r.encrypted_data FROM public.usuario u
+		SELECT u.correo_original,r.id::text,r.key_version,r.encrypted_data,ph.key_version,ph.encrypted_phone FROM public.usuario u
 		LEFT JOIN public.account_identity_profile p ON p.account_id=u.id
 		LEFT JOIN public.account_identity_profile_revision r ON r.account_id=u.id AND r.id=p.current_revision
-		WHERE u.id=$1 AND u.estado='activo'`, account).Scan(&email, &revision, &key, &ciphertext)
+		LEFT JOIN public.account_identity_profile_phone ph ON ph.account_id=p.account_id
+		WHERE u.id=$1 AND u.estado='activo'`, account).Scan(&email, &revision, &key, &ciphertext, &phoneKey, &phone)
 	if err != nil {
 		return nil, err
 	}
@@ -410,6 +458,9 @@ func (s *Service) OwnSensitiveProfile(ctx context.Context, account string) (map[
 	if revision != nil {
 		data, err := decryptData(s.keys, account, *revision, *key, ciphertext)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.readPhone(account, &data, phoneKey, phone); err != nil {
 			return nil, err
 		}
 		out["run"], out["phone"], out["legal_name"], out["date_of_birth"] = data.RUT, data.Phone, data.LegalName(), data.DateOfBirth

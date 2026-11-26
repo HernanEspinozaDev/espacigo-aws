@@ -223,7 +223,9 @@ export function IdentityVerificationCard({
           {snapshot.summary?.complete && !snapshot.error ? (
             <Button asChild variant="outline">
               <Link href={profileEditHref(returnTo)}>
-                Editar datos del perfil
+                {snapshot.summary.rut_locked
+                  ? "Editar teléfono"
+                  : "Editar datos del perfil"}
               </Link>
             </Button>
           ) : null}

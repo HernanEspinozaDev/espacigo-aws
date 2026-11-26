@@ -82,7 +82,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
         ...profile,
         complete: true,
         draft_saved: false,
-        state: "ready",
+        state: profile.rut_locked ? "verified" : "ready",
         username: String(body.username),
         masked_rut: "•••••678-5",
       };
@@ -142,6 +142,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
           ? {
               ...profile,
               state: "verified",
+              rut_locked: true,
               verified_until: "2035-01-03T18:00:00Z",
             }
           : { ...profile, state: "in_review" };
@@ -405,6 +406,25 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
       .locator("#identity-verification")
       .getByText("Verificado", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Datos privados" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Mostrar Nombre legal completo" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Mostrar Fecha de nacimiento" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Editar teléfono" }).click();
+  await confirmation
+    .getByRole("button", { name: "Pinpass", exact: true })
+    .click();
+  await confirmation.getByLabel("Ingresa tu Pinpass").fill("123456");
+  await confirmation.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.locator("#identity-profile-phone")).toBeVisible();
+  await expect(page.locator("#identity-profile-first_name")).toHaveCount(0);
+  await expect(page.locator("#identity-profile-date_of_birth")).toHaveCount(0);
+  await page.getByRole("button", { name: "Cancelar", exact: true }).click();
   const showEmail = page.getByRole("button", {
     name: "Mostrar Correo electrónico",
   });
@@ -461,6 +481,7 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
     restricted_mode: false,
   };
   let configured = false;
+  let authenticatorEnabled = false;
   let available = true;
   let proof: unknown;
 
@@ -481,17 +502,29 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
         status: 200,
         body: {
           protected: false,
-          active_count: 2,
+          active_count: 2 + Number(configured) + Number(authenticatorEnabled),
           total_count: 7,
           methods: {
             phone: { enabled: false },
             password: { enabled: true },
             email: { enabled: true, masked_email: "i***@example.invalid" },
             passkeys: { enabled: false, count: 0 },
-            totp: { enabled: false },
+            totp: { enabled: authenticatorEnabled },
+            pinpass: { enabled: configured },
             qr: { enabled: false },
             facial_kyc: { enabled: false, status: "unavailable" },
           },
+        },
+      };
+    } else if (
+      path === pinpassPath + "/email-code" &&
+      request.method() === "POST"
+    ) {
+      result = {
+        status: 201,
+        body: {
+          masked_email: "i***@example.invalid",
+          expires_at: session.expires_at,
         },
       };
     } else if (path === pinpassPath && request.method() === "PUT") {
@@ -535,7 +568,7 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
     "Correo electrónico",
     "Teléfono",
     "Llaves de acceso",
-    "Google Authenticator",
+    "Aplicación de autenticación",
     "Código QR",
   ]);
   await expect(
@@ -558,12 +591,20 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
   await page.getByRole("button", { name: "Crear Pinpass" }).click();
   const dialog = page.getByRole("dialog", { name: "Confirma tu identidad" });
   await dialog.getByLabel("Contraseña actual").fill("SyntheticOnly123!");
+  await expect(dialog.getByLabel("Código del autenticador")).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: "Confirmar" }),
+  ).toBeDisabled();
+  await dialog.getByRole("button", { name: "Enviar código" }).click();
+  await expect(dialog.getByText(/Enviamos un código/)).toBeVisible();
+  await dialog.getByLabel("Código de correo electrónico").fill("987654");
   await dialog.getByRole("button", { name: "Confirmar" }).click();
   await expect(page.getByText("Tu Pinpass quedó configurado.")).toBeVisible();
   expect(proof).toEqual({
     pin: "134679",
     confirmation: "134679",
     current_password: "SyntheticOnly123!",
+    email_code: "987654",
   });
   await page.getByRole("link", { name: "Métodos de verificación" }).click();
   await expect(
@@ -572,6 +613,31 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
   await expect(
     page.getByText("Configurar Pinpass", { exact: true }),
   ).toHaveCount(0);
+
+  await expect(page.getByText("3 de 7 métodos configurados")).toBeVisible();
+  await expect(
+    page
+      .getByRole("link", { name: "Administrar Pinpass" })
+      .getByText("Configurado", { exact: true }),
+  ).toBeVisible();
+  authenticatorEnabled = true;
+  await page.getByRole("link", { name: "Administrar Pinpass" }).click();
+  await page.getByRole("button", { name: "Cambiar Pinpass" }).click();
+  await page.getByLabel("Nuevo Pinpass").fill("134680");
+  await page.getByLabel("Confirma tu Pinpass").fill("134680");
+  await page.getByRole("button", { name: "Actualizar Pinpass" }).click();
+  await expect(dialog.getByLabel("Contraseña actual")).toHaveCount(0);
+  await dialog.getByLabel("Código del autenticador").fill("123456");
+  await dialog.getByRole("button", { name: "Enviar código" }).click();
+  await dialog.getByLabel("Código de correo electrónico").fill("987654");
+  await dialog.getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.getByText("Tu Pinpass quedó actualizado.")).toBeVisible();
+  expect(proof).toEqual({
+    pin: "134680",
+    confirmation: "134680",
+    otp_code: "123456",
+    email_code: "987654",
+  });
 
   await page.goto(`${security}/metodos/reconocimiento-facial`);
   await expect(page).toHaveURL(new RegExp(`${security}/metodos$`));

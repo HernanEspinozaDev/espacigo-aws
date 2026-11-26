@@ -102,6 +102,7 @@ type SecurityMethodsDetails struct {
 	TOTP      TOTPMethodStatus      `json:"totp"`
 	Passkeys  PasskeysMethodStatus  `json:"passkeys"`
 	QR        QRMethodStatus        `json:"qr"`
+	Pinpass   PasswordMethodStatus  `json:"pinpass"`
 	FacialKYC FacialKYCMethodStatus `json:"facial_kyc"`
 }
 
@@ -433,6 +434,14 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 		Status:  "pending_kyc_module",
 	}
 
+	var pinpassActive bool
+	if s.pinpassConfigured != nil {
+		pinpassActive, err = s.pinpassConfigured(ctx, accountID)
+		if err != nil {
+			return SecurityMethodsSummaryResponse{}, err
+		}
+	}
+
 	// Count active methods
 	activeCount := 1 // password
 	if emailActive {
@@ -451,6 +460,10 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 		activeCount++
 	}
 
+	if pinpassActive {
+		activeCount++
+	}
+
 	// Protected: password + email + at least 1 additional method
 	hasAdditional := phoneActive || totpActive || passkeysActive || qrActive
 	protected := emailActive && hasAdditional
@@ -458,7 +471,7 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 	return SecurityMethodsSummaryResponse{
 		Protected:   protected,
 		ActiveCount: activeCount,
-		TotalCount:  6,
+		TotalCount:  7,
 		Methods: SecurityMethodsDetails{
 			Password:  passwordStatus,
 			Email:     emailStatus,
@@ -466,6 +479,7 @@ func (s *AuthenticationService) GetSecurityMethodsSummary(ctx context.Context, a
 			TOTP:      totpStatus,
 			Passkeys:  passkeysStatus,
 			QR:        qrStatus,
+			Pinpass:   PasswordMethodStatus{Enabled: pinpassActive},
 			FacialKYC: facialStatus,
 		},
 	}, nil

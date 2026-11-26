@@ -30,8 +30,9 @@ GRANT USAGE,CREATE ON SCHEMA public TO espacigo_schema_owner;
 GRANT USAGE ON SCHEMA public TO espacigo_runtime;
 ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO espacigo_runtime;
 SET ROLE espacigo_schema_owner;
-CREATE TABLE public.usuario(id uuid PRIMARY KEY, correo_original text NOT NULL, hash_clave text NOT NULL DEFAULT '', estado text NOT NULL);
+CREATE TABLE public.usuario(id uuid PRIMARY KEY, correo_original text NOT NULL, correo_normalizado text NOT NULL DEFAULT '', actualizado_en timestamptz NOT NULL DEFAULT now(), hash_clave text NOT NULL DEFAULT '', estado text NOT NULL);
 CREATE TABLE public.sesion(id uuid PRIMARY KEY, usuario_id uuid NOT NULL REFERENCES public.usuario(id), expira_en timestamptz NOT NULL, ultima_actividad_en timestamptz NOT NULL, revocada_en timestamptz);
+CREATE TABLE public.token_accion(usuario_id uuid NOT NULL REFERENCES public.usuario(id), invalidado_en timestamptz, consumido_en timestamptz);
 CREATE TABLE public.cuenta_totp(
     account_id uuid PRIMARY KEY REFERENCES public.usuario(id),
     secret_ciphertext bytea, key_version text, pending_secret_ciphertext bytea, pending_key_version text,
@@ -41,7 +42,7 @@ CREATE TABLE public.cuenta_totp(
 CREATE TABLE public.cuenta_totp_backup_code(account_id uuid NOT NULL, used_at timestamptz);
 CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY, propietario_id uuid NOT NULL, arrendatario_id uuid NOT NULL);
 SQL
-{ printf 'SET ROLE espacigo_schema_owner;\n'; cat db/migrations/V000007__perfil_identidad_didit.sql db/migrations/V000008__espacigo_pinpass.sql; } | profile_test_psql -q
+{ printf 'SET ROLE espacigo_schema_owner;\n'; cat db/migrations/V000007__perfil_identidad_didit.sql db/migrations/V000008__espacigo_pinpass.sql db/migrations/V000009__pinpass_codigo_correo.sql; } | profile_test_psql -q
 profile_test_psql -q <<'SQL'
 DO $$
 BEGIN
