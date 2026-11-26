@@ -10,7 +10,6 @@ import {
   EyeOff,
   Loader2,
   Pencil,
-  ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -41,10 +40,10 @@ import {
   validateIdentityProfile,
   type IdentityProfileErrors,
   type IdentityProfileInput,
-  type IdentityProfileState,
   type ProfileConfirmationMethod,
 } from "../domain/identity-profile";
 import { useIdentityProfile } from "./use-identity-profile";
+import { verificationReturnHref } from "@/features/host-listings/domain/publish-guide";
 import { PinpassAccountSection } from "@/features/account/ui/pinpass-card";
 import {
   getPinpassStatus,
@@ -78,17 +77,6 @@ const EMPTY: IdentityProfileInput = {
   consent: false,
 };
 
-const STATE_LABEL: Record<IdentityProfileState, string> = {
-  incomplete: "Perfil incompleto",
-  ready: "Listo para verificar",
-  in_progress: "Verificación en curso",
-  in_review: "Identidad en revisión",
-  needs_correction: "Requiere corrección",
-  verified: "Identidad verificada",
-  expired: "Verificación vencida",
-  revoked: "Verificación revocada",
-};
-
 function remainingAccess(expiresAt: string): number {
   return Date.parse(expiresAt) - Date.now();
 }
@@ -98,7 +86,7 @@ function errorCode(error: unknown): string | null {
 }
 
 interface IdentityProfileCardProps {
-  readonly refreshOnMount?: boolean;
+  readonly editOnMount?: boolean;
   readonly returnTo?: string | null;
 }
 
@@ -113,7 +101,7 @@ export function IdentityProfileCard(props: IdentityProfileCardProps) {
 }
 
 function IdentityProfileCardSession({
-  refreshOnMount = false,
+  editOnMount = false,
   returnTo,
 }: IdentityProfileCardProps) {
   const {
@@ -123,8 +111,6 @@ function IdentityProfileCardSession({
     saveDraft,
     readProtectedProfile,
     reload,
-    startVerification,
-    refreshVerification,
   } = useIdentityProfile();
   const [form, setForm] = useState<IdentityProfileInput>(EMPTY);
   const [username, setUsername] = useState("");
@@ -150,17 +136,12 @@ function IdentityProfileCardSession({
   const [busy, setBusy] = useState(false);
   const firstInvalid = useRef<HTMLElement | null>(null);
   const rutInput = useRef<HTMLInputElement>(null);
-  const autoRefreshStarted = useRef(false);
+  const openedInitialEditor = useRef(false);
 
   const status = snapshot.summary?.state ?? "incomplete";
   const rutLocked =
     snapshot.summary?.rut_locked ??
     ["verified", "expired", "revoked"].includes(status);
-  const canStartVerification =
-    snapshot.summary?.complete &&
-    ["ready", "in_progress", "needs_correction", "expired", "revoked"].includes(
-      status,
-    );
   const usernameValue = usernameTouched
     ? username
     : (snapshot.summary?.username ?? form.username);
@@ -173,23 +154,24 @@ function IdentityProfileCardSession({
   }, [errors]);
 
   useEffect(() => {
-    if (!refreshOnMount || !snapshot.accountId || autoRefreshStarted.current)
+    if (!editOnMount || !snapshot.summary || openedInitialEditor.current)
       return;
-    autoRefreshStarted.current = true;
-    const currentUrl = new URL(window.location.href);
-    currentUrl.searchParams.delete("refresh_identity");
-    window.history.replaceState(
-      window.history.state,
-      "",
-      currentUrl.pathname + currentUrl.search + currentUrl.hash,
-    );
-    setBusy(true);
-    void refreshVerification()
-      .catch(() =>
-        setSummaryError("No pudimos actualizar el resultado de verificación."),
-      )
-      .finally(() => setBusy(false));
-  }, [refreshOnMount, refreshVerification, snapshot.accountId]);
+    const { complete, draft_saved } = snapshot.summary;
+    const frame = window.requestAnimationFrame(() => {
+      openedInitialEditor.current = true;
+      const url = new URL(window.location.href);
+      url.searchParams.delete("editar");
+      window.history.replaceState(
+        window.history.state,
+        "",
+        url.pathname + url.search + url.hash,
+      );
+      if (complete) setConfirmation("edit");
+      else if (draft_saved) setConfirmation("draft");
+      else setEditor("identity");
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editOnMount, snapshot.summary]);
 
   useEffect(() => {
     if (!snapshot.accountId) return;
@@ -411,38 +393,6 @@ function IdentityProfileCardSession({
     }
   }
 
-  async function handleVerification() {
-    setBusy(true);
-    setSummaryError(null);
-    try {
-      const result = await startVerification(returnTo);
-      const url = new URL(result.url);
-      if (url.protocol !== "https:")
-        throw new Error("URL de verificación inválida");
-      window.location.assign(url.toString());
-    } catch {
-      setSummaryError(
-        "No pudimos iniciar la verificación. Revisa tu conexión e inténtalo nuevamente.",
-      );
-      setBusy(false);
-    }
-  }
-
-  async function handleRefreshVerification() {
-    setBusy(true);
-    setSummaryError(null);
-    try {
-      await refreshVerification();
-      setMessage("Estado de verificación actualizado.");
-    } catch {
-      setSummaryError(
-        "No pudimos actualizar el resultado. Inténtalo nuevamente.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleUsernameSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const usernameToSave = usernameTouched
@@ -572,7 +522,7 @@ function IdentityProfileCardSession({
 
   return (
     <div aria-labelledby="identity-profile-title" className="space-y-6">
-      <Card>
+      <Card id="profile-data" className="scroll-mt-24">
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -1091,90 +1041,20 @@ function IdentityProfileCardSession({
         </CardContent>
       </Card>
 
-      <Card
-        id="identity-verification"
-        aria-labelledby="identity-verification-title"
-        className="scroll-mt-24"
-      >
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <ShieldCheck className="size-5" aria-hidden="true" />
-            </div>
-            <div className="space-y-1">
-              <CardTitle id="identity-verification-title">
-                Verificación de identidad
-              </CardTitle>
-              <CardDescription>
-                {status === "verified" && snapshot.summary?.verified_until
-                  ? "Vigente hasta el " +
-                    new Date(
-                      snapshot.summary.verified_until,
-                    ).toLocaleDateString("es-CL", {
-                      timeZone: "America/Santiago",
-                    })
-                  : status === "in_review"
-                    ? "Estamos revisando el resultado de tu verificación."
-                    : snapshot.summary?.complete
-                      ? "Confirma tu identidad con tu cédula chilena en Didit."
-                      : "Completa los datos de tu perfil para iniciar este paso."}
-              </CardDescription>
-            </div>
-          </div>
-          <span
-            className="w-fit shrink-0 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground"
-            data-testid="identity-profile-state"
-            role="status"
-          >
-            {snapshot.loading
-              ? "Consultando estado…"
-              : snapshot.error
-                ? "Estado no disponible"
-                : STATE_LABEL[status]}
-          </span>
+      <Card id="identity-verification" className="scroll-mt-24">
+        <CardHeader>
+          <CardTitle>Verificación de identidad</CardTitle>
+          <CardDescription>
+            Consulta el estado de tu identidad o inicia la verificación con tu
+            cédula chilena.
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {status !== "verified" && status !== "in_review" ? (
-              <Button
-                type="button"
-                disabled={!canStartVerification || busy}
-                onClick={() => void handleVerification()}
-              >
-                {busy && (
-                  <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-                )}
-                {status === "in_progress"
-                  ? "Continuar verificación"
-                  : ["needs_correction", "expired", "revoked"].includes(status)
-                    ? "Volver a verificar"
-                    : "Iniciar verificación"}
-              </Button>
-            ) : null}
-            {["in_progress", "in_review"].includes(status) ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void handleRefreshVerification()}
-              >
-                Actualizar estado
-              </Button>
-            ) : null}
-          </div>
-          {status === "needs_correction" ? (
-            <p className="text-sm text-muted-foreground">
-              Revisa los datos de tu cédula. Si ya configuraste tu identidad en
-              otra cuenta, puedes{" "}
-              <Link
-                href="/recuperar-acceso"
-                className="font-medium text-primary underline"
-              >
-                recuperar el acceso
-              </Link>
-              .
-            </p>
-          ) : null}
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href={verificationReturnHref(returnTo)}>
+              Ir a verificaciones
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 

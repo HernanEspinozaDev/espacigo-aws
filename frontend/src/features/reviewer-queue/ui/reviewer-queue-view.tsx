@@ -3,8 +3,13 @@
 import Link from "next/link";
 import { useReviewerQueue } from "./use-reviewer-queue";
 
-export function ReviewerQueueView() {
+export function ReviewerQueueView({
+  assignedOnly = false,
+}: {
+  assignedOnly?: boolean;
+}) {
   const { state, rows } = useReviewerQueue();
+  if (assignedOnly && state !== "ready") return null;
 
   return (
     <section
@@ -12,7 +17,7 @@ export function ReviewerQueueView() {
       className="mx-auto max-w-5xl p-6"
     >
       <h2 id="reviewer-queue-title" className="text-2xl font-semibold">
-        Revisión de identidad
+        {assignedOnly ? "Expedientes asignados" : "Revisión de identidad"}
       </h2>
       <p className="mt-2 text-muted-foreground">
         Resumen de casos de identidad asignados.

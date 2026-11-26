@@ -8,6 +8,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   page,
 }) => {
   const bff = createBffFixtureState();
+  const profileReturnTo = "/anfitrion/espacios/nuevo";
   const requestsOutsideLoopback: string[] = [];
   const apiCalls: Array<{ path: string; method: string; body?: unknown }> = [];
   let pinpassExpiresAt: string | null = null;
@@ -33,7 +34,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     await route.fulfill({
       status: 200,
       contentType: "text/html; charset=utf-8",
-      body: `<main><h1>Verificación sintética</h1><a href="${localOrigin}/verificaciones/retorno">Volver a EspaciGo</a></main>`,
+      body: `<main><h1>Verificación sintética</h1><a href="${localOrigin}/verificaciones/retorno?return_to=${encodeURIComponent(profileReturnTo)}">Volver a EspaciGo</a></main>`,
     });
   });
 
@@ -194,27 +195,37 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     });
   });
 
-  const profileReturnTo = "/anfitrion/espacios/nuevo";
-  await page.goto(
-    `/acceso?return_to=${encodeURIComponent("/mi-cuenta/perfil")}`,
-  );
+  await page.goto("/acceso?return_to=%2Fmi-cuenta");
   await page.getByLabel("Correo electrónico").fill("identity@example.invalid");
   await page
     .getByLabel("Contraseña", { exact: true })
     .fill("SyntheticOnly123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
-  await page.waitForURL((url) => url.pathname === "/mi-cuenta/perfil");
-  await page.goto(
-    `/mi-cuenta/perfil?return_to=${encodeURIComponent(profileReturnTo)}`,
-  );
-
+  await page.waitForURL((url) => url.pathname === "/mi-cuenta");
+  const sidebar = page.getByRole("navigation", {
+    name: "Secciones de mi cuenta",
+  });
+  await expect(
+    sidebar.getByRole("link", {
+      name: /Verificar identidad|Revisión de identidad/,
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Ver verificaciones" }).click();
+  await expect(page).toHaveURL(/\/mi-cuenta\/verificaciones$/);
+  await expect(
+    page.getByRole("heading", { name: "Verificaciones" }),
+  ).toBeVisible();
   await expect(page.getByTestId("identity-profile-state")).toHaveText(
     "Perfil incompleto",
   );
   await expect(
-    page.getByRole("form", { name: "Editar datos del perfil" }),
+    page.getByRole("button", { name: "Iniciar verificación" }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Completar perfil" }).click();
+  await page.goto(
+    `/mi-cuenta/verificaciones?return_to=${encodeURIComponent(profileReturnTo)}`,
+  );
+  await page.getByRole("link", { name: "Completar perfil" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/mi-cuenta/perfil");
   const documentType = page.getByRole("combobox", {
     name: "Tipo de documento",
   });
@@ -243,7 +254,7 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   );
   await expect(
     page.getByRole("button", { name: "Iniciar verificación" }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   expect(apiCalls.filter((call) => call.method === "PUT")).toHaveLength(0);
 
   await page.locator("#identity-profile-rut").fill("12.345.678-0");
@@ -286,14 +297,18 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   await page.locator("#identity-profile-consent").check();
   await page.getByRole("button", { name: "Guardar perfil" }).click();
 
-  await expect(
-    page.getByText("Listo para verificar", { exact: true }),
-  ).toBeVisible();
   await expect(page.getByText("Datos guardados.")).toBeVisible();
   await expect(
     page.getByRole("form", { name: "Editar datos del perfil" }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Editar datos" }).click();
+  await expect(
+    page.getByRole("link", { name: /Ir a revisión de identidad/ }),
+  ).toHaveCount(0);
+  await page.getByRole("link", { name: "Ir a verificaciones" }).click();
+  await expect(
+    page.getByText("Listo para verificar", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Editar datos del perfil" }).click();
   await expect(
     confirmation.getByRole("button", { name: "Pinpass", exact: true }),
   ).toBeEnabled();
@@ -337,6 +352,8 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     page.getByRole("menu", { name: "Menú de cuenta" }),
   ).toContainText("sintetica_ana");
 
+  await accountMenuButton.click();
+  await page.getByRole("link", { name: "Ir a verificaciones" }).click();
   await page.getByRole("button", { name: "Iniciar verificación" }).click();
   await expect(page).toHaveURL(
     "https://verify.didit.me/session/synthetic-session",
@@ -348,7 +365,9 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
   expect(startCall?.method).toBe("POST");
   expect(startCall?.body).toEqual({ return_to: profileReturnTo });
   await page.getByRole("link", { name: "Volver a EspaciGo" }).click();
-  await expect(page).toHaveURL(/\/mi-cuenta\/perfil(?:\?|#|$)/);
+  await expect(page).toHaveURL(
+    (url) => url.pathname === "/mi-cuenta/verificaciones",
+  );
   await expect(
     page.getByText("Identidad en revisión", { exact: true }),
   ).toBeVisible();
@@ -362,6 +381,10 @@ test("perfil de identidad valida RUN, guarda, aparece en navbar e inicia verific
     ),
   ).toHaveLength(1);
 
+  await expect(
+    page.getByRole("link", { name: "Volver al borrador de publicación" }),
+  ).toHaveAttribute("href", profileReturnTo);
+  await page.goto("/mi-cuenta/perfil");
   const showEmail = page.getByRole("button", {
     name: "Mostrar Correo electrónico",
   });
