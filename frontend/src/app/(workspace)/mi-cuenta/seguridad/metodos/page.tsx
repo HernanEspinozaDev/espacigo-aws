@@ -9,7 +9,6 @@ import {
   Mail,
   QrCode,
   RectangleEllipsis,
-  ScanFace,
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
@@ -218,15 +217,6 @@ export default function MetodosVerificacionPage() {
             </li>
           );
         })}
-        <li className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 p-4 sm:gap-4 sm:px-5">
-          <span className="flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <ScanFace className="size-5" aria-hidden="true" />
-          </span>
-          <div className="space-y-1">
-            <h2 className="font-semibold">Reconocimiento facial</h2>
-            <p className="text-sm text-muted-foreground">No disponible</p>
-          </div>
-        </li>
       </ul>
     </div>
   );

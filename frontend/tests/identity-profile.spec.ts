@@ -537,7 +537,6 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
     "Llaves de acceso",
     "Google Authenticator",
     "Código QR",
-    "Reconocimiento facial",
   ]);
   await expect(
     page.getByText(
@@ -572,5 +571,11 @@ test("Pinpass es el primer método y se configura dentro de Seguridad", async ({
   ).toBeVisible();
   await expect(
     page.getByText("Configurar Pinpass", { exact: true }),
+  ).toHaveCount(0);
+
+  await page.goto(`${security}/metodos/reconocimiento-facial`);
+  await expect(page).toHaveURL(new RegExp(`${security}/metodos$`));
+  await expect(
+    page.getByRole("heading", { name: "Reconocimiento facial" }),
   ).toHaveCount(0);
 });
