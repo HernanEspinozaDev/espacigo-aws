@@ -3,11 +3,11 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import {
+  Building2,
   CheckCircle2,
   ChevronRight,
   Clock,
   CreditCard,
-  FileText,
   PenLine,
   Shield,
   ShieldCheck,
@@ -227,8 +227,8 @@ export default function MiCuentaPage() {
                 Privacidad
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Control de datos personales, solicitudes de derechos ARCO y
-                exportación.
+                Privacidad, derechos ARCO, documentos privados y revisión
+                documental.
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">
@@ -293,7 +293,7 @@ export default function MiCuentaPage() {
                 Verificaciones
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Estado de verificación de identidad y cumplimiento de cuenta.
+                Verificación de identidad y verificaciones de espacio (KYB).
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">
@@ -311,34 +311,33 @@ export default function MiCuentaPage() {
           </div>
         </div>
 
-        {/* 6. Documentos */}
+        {/* 6. Perfil empresas */}
         <div className="bg-card border border-border rounded-2xl p-5 shadow-sm hover:border-primary/40 hover:shadow-md transition-all flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="size-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-                <FileText className="size-5" />
+                <Building2 className="size-5" />
               </div>
             </div>
             <div>
               <h3 className="font-semibold text-foreground text-base">
-                Documentos
+                Perfil empresas
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Expedientes privados por finalidad y comprobantes asociados.
+                Registra tus empresas (razón social, nombre comercial y RUT),
+                gestiona representantes y verifica tu empresa.
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">
-              <p>
-                Revisa tu documentación respaldada en almacenamiento seguro.
-              </p>
+              <p>Administra tus empresas, equipo y carpeta KYB.</p>
             </div>
           </div>
           <div className="pt-4 mt-2">
             <Link
-              href="/mi-cuenta/documentos"
+              href="/mi-cuenta/empresas"
               className="w-full flex items-center justify-between text-xs font-semibold text-primary hover:text-primary/80 transition-colors py-1.5"
             >
-              <span>Ver documentos</span>
+              <span>Gestionar perfil empresas</span>
               <ChevronRight className="size-4" />
             </Link>
           </div>

@@ -1,6 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { Building2, ChevronRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/workspace/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/workspace/ui/card";
 import { safeHostReturnPath } from "@/features/host-listings/domain/publish-guide";
 import { IdentityVerificationCard } from "@/features/identity-profile/ui/identity-verification-card";
 import { ReviewerQueueView } from "@/features/reviewer-queue/ui/reviewer-queue-view";
@@ -41,6 +50,32 @@ export default async function VerificacionesPage({
         returnTo={returnTo}
         refreshOnMount={refresh_identity === "1"}
       />
+      <Card aria-labelledby="space-verifications-card-title">
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <Building2 className="size-5 text-primary" aria-hidden="true" />
+              <CardTitle id="space-verifications-card-title">
+                Verificaciones de espacio
+              </CardTitle>
+            </div>
+            <Badge variant="outline">Verificaciones KYB</Badge>
+          </div>
+          <CardDescription>
+            Consulta y envía la verificación documental, Certificado de Inicio
+            de Actividades SII y verificación empresarial KYB asignada a cada
+            espacio publicado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild>
+            <Link href="/mi-cuenta/verificaciones/espacios">
+              Ver verificaciones de espacio
+              <ChevronRight className="ml-2 size-4" aria-hidden="true" />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
       <ReviewerQueueView assignedOnly />
       {returnTo ? (
         <Link

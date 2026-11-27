@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   Building2,
@@ -9,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -22,6 +24,7 @@ import {
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { CompanyKYBCard } from "@/features/kyb/ui/company-kyb-card";
 import { isValidRut, normalizeRut } from "@/features/verifications/rut-utils";
 
 type Member = {
@@ -47,6 +50,8 @@ type Organization = {
   company_rut?: string;
   role?: string;
   my_role?: string;
+  compliance_status?: string;
+  grace_due_at?: string;
   members?: Member[];
 };
 type OrganizationJoinRequest = {
@@ -603,6 +608,136 @@ export function EmpresasView() {
           ) : null}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Plus className="size-5" />
+            Registrar empresa
+          </CardTitle>
+          <CardDescription>
+            Si el RUT ya está registrado, EspaciGo bloqueará el duplicado y
+            protegerá la información de sus miembros.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={createOrganization} className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="new-legal">Razón social</Label>
+                <Input
+                  id="new-legal"
+                  value={newLegalName}
+                  onChange={(e) => setNewLegalName(e.target.value)}
+                  required
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-trade">Nombre comercial</Label>
+                <Input
+                  id="new-trade"
+                  value={newTradeName}
+                  onChange={(e) => setNewTradeName(e.target.value)}
+                  maxLength={200}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-rut">RUT de la empresa</Label>
+                <Input
+                  id="new-rut"
+                  value={newCompanyRut}
+                  onChange={(e) => setNewCompanyRut(e.target.value)}
+                  placeholder="76.123.456-0"
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <Button type="submit" disabled={busy}>
+                {busy ? (
+                  <Loader2 className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 size-4" />
+                )}
+                Crear empresa
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+      {showJoinRequest ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Solicitar adhesión a una empresa existente</CardTitle>
+            <CardDescription>
+              Se enviará una solicitud privada a sus representantes legales. No
+              recibirás el nombre ni los datos de contacto de sus integrantes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form
+              onSubmit={submitJoinRequest}
+              className="grid gap-4 sm:grid-cols-[1fr_240px_auto]"
+            >
+              <div className="space-y-2">
+                <Label htmlFor="join-rut">RUT de la empresa</Label>
+                <Input
+                  id="join-rut"
+                  value={newCompanyRut}
+                  onChange={(event) => setNewCompanyRut(event.target.value)}
+                  placeholder="76.123.456-0"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="join-role">Rol solicitado</Label>
+                <select
+                  id="join-role"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={joinRole}
+                  onChange={(event) => setJoinRole(event.target.value)}
+                >
+                  <option value="representante_legal">
+                    Representante legal
+                  </option>
+                  <option value="administrador">Administrador</option>
+                  <option value="operador">Operador</option>
+                </select>
+              </div>
+              <div className="flex items-end">
+                <Button type="submit" disabled={busy}>
+                  Enviar solicitud
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
+      {joinRequest ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Estado de solicitud de adhesión</CardTitle>
+            <CardDescription>
+              {joinStatusLabel(joinRequest.estado)}
+              {joinRequest.expires_at
+                ? ` · vence ${new Date(joinRequest.expires_at).toLocaleDateString("es-CL")}`
+                : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void refreshJoinRequest()}
+            >
+              <RefreshCw className="mr-2 size-4" />
+              Actualizar estado
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
       {selected ? (
         <Card>
           <CardHeader>
@@ -791,133 +926,36 @@ export function EmpresasView() {
           </CardContent>
         </Card>
       ) : null}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Plus className="size-5" />
-            Registrar empresa
-          </CardTitle>
-          <CardDescription>
-            Si el RUT ya está registrado, EspaciGo bloqueará el duplicado y
-            protegerá la información de sus miembros.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={createOrganization} className="grid gap-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="new-legal">Razón social</Label>
-                <Input
-                  id="new-legal"
-                  value={newLegalName}
-                  onChange={(e) => setNewLegalName(e.target.value)}
-                  required
-                  maxLength={200}
-                />
+      {selected ? (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <ShieldCheck
+                    className="size-5 text-primary"
+                    aria-hidden="true"
+                  />
+                  Verificar empresa
+                </CardTitle>
+                <CardDescription>
+                  Envía la carpeta de verificación empresarial (KYB) de la
+                  empresa seleccionada.
+                </CardDescription>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-trade">Nombre comercial</Label>
-                <Input
-                  id="new-trade"
-                  value={newTradeName}
-                  onChange={(e) => setNewTradeName(e.target.value)}
-                  maxLength={200}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new-rut">RUT de la empresa</Label>
-                <Input
-                  id="new-rut"
-                  value={newCompanyRut}
-                  onChange={(e) => setNewCompanyRut(e.target.value)}
-                  placeholder="76.123.456-0"
-                  required
-                />
-              </div>
-            </div>
-            <div>
-              <Button type="submit" disabled={busy}>
-                {busy ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <Plus className="mr-2 size-4" />
-                )}
-                Crear empresa
+              <Button asChild variant="outline" size="sm">
+                <Link href="/mi-cuenta/verificaciones/espacios">
+                  Ir a Verificaciones de espacio
+                </Link>
               </Button>
             </div>
-          </form>
-        </CardContent>
-      </Card>
-      {showJoinRequest ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Solicitar adhesión a una empresa existente</CardTitle>
-            <CardDescription>
-              Se enviará una solicitud privada a sus representantes legales. No
-              recibirás el nombre ni los datos de contacto de sus integrantes.
-            </CardDescription>
           </CardHeader>
           <CardContent>
-            <form
-              onSubmit={submitJoinRequest}
-              className="grid gap-4 sm:grid-cols-[1fr_240px_auto]"
-            >
-              <div className="space-y-2">
-                <Label htmlFor="join-rut">RUT de la empresa</Label>
-                <Input
-                  id="join-rut"
-                  value={newCompanyRut}
-                  onChange={(event) => setNewCompanyRut(event.target.value)}
-                  placeholder="76.123.456-0"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="join-role">Rol solicitado</Label>
-                <select
-                  id="join-role"
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={joinRole}
-                  onChange={(event) => setJoinRole(event.target.value)}
-                >
-                  <option value="representante_legal">
-                    Representante legal
-                  </option>
-                  <option value="administrador">Administrador</option>
-                  <option value="operador">Operador</option>
-                </select>
-              </div>
-              <div className="flex items-end">
-                <Button type="submit" disabled={busy}>
-                  Enviar solicitud
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      ) : null}
-      {joinRequest ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Estado de solicitud de adhesión</CardTitle>
-            <CardDescription>
-              {joinStatusLabel(joinRequest.estado)}
-              {joinRequest.expires_at
-                ? ` · vence ${new Date(joinRequest.expires_at).toLocaleDateString("es-CL")}`
-                : ""}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void refreshJoinRequest()}
-            >
-              <RefreshCw className="mr-2 size-4" />
-              Actualizar estado
-            </Button>
+            <CompanyKYBCard
+              organization={selected}
+              variant="embedded"
+              onVerifiedSubmitted={() => void load()}
+            />
           </CardContent>
         </Card>
       ) : null}
