@@ -39,7 +39,7 @@ Parameters:
 
   CorsAllowedOrigins:
     Type: String
-    Default: https://espacigo.testingpage.store,https://espacigo-demo.testingpage.store
+    Default: https://espacigo.testingpage.store
 
   FrontendPublicOrigin:
     Type: String
@@ -624,6 +624,9 @@ Resources:
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
+      Volumes:
+        - Name: web-tmp
+        - Name: web-next-cache
       ContainerDefinitions:
         - Name: api
           Image: !Ref ApiSeedImage
@@ -792,6 +795,14 @@ Resources:
         - Name: web
           Image: !Ref WebSeedImage
           Essential: true
+          ReadonlyRootFilesystem: true
+          MountPoints:
+            - SourceVolume: web-tmp
+              ContainerPath: /tmp
+              ReadOnly: false
+            - SourceVolume: web-next-cache
+              ContainerPath: /app/.next/cache
+              ReadOnly: false
           DependsOn:
             - ContainerName: api
               Condition: START
@@ -906,6 +917,9 @@ Resources:
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
+      Volumes:
+        - Name: web-tmp
+        - Name: web-next-cache
       ContainerDefinitions:
         - Name: dbmigrate
           Image: !Ref MigratorSeedImage
