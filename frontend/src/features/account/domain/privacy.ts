@@ -73,11 +73,12 @@ export const PRIVACY_PURPOSE_DESCRIPTIONS: Record<PrivacyPurpose, string> = {
     "Integraciones opcionales con proveedores auxiliares del servicio.",
 };
 
-export const PRIVACY_PURPOSE_STATE_LABELS: Record<PrivacyPurposeState, string> = {
-  permitido: "Permitido",
-  opuesto: "Opuesto",
-  retirado: "Retirado",
-};
+export const PRIVACY_PURPOSE_STATE_LABELS: Record<PrivacyPurposeState, string> =
+  {
+    permitido: "Permitido",
+    opuesto: "Opuesto",
+    retirado: "Retirado",
+  };
 
 export const PRIVACY_TREATMENT_BLOCK_SCOPE_LABELS: Record<
   PrivacyTreatmentBlockScope,
