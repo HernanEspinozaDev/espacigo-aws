@@ -2,7 +2,7 @@ import "server-only";
 
 export const SESSION_COOKIE_NAME = "__Host-espacigo-session";
 export const EXPIRY_COOKIE_NAME = "__Host-espacigo-session-expiry";
-export const ADMIN_SESSION_COOKIE_NAME = "espacigo_admin_session";
+export const ADMIN_SESSION_COOKIE_NAME = "__Host-espacigo-admin-session";
 
 export interface BrowserSession {
   account_id: string;
