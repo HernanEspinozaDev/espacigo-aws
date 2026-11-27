@@ -189,6 +189,12 @@
     }
   },
   "review_required_migrations": {
+    "V000029__security_acl_hardening.sql": {
+      "checksum": "41f138ccdc274f20b6b754bad6d91294692741cd8ca51c469504a2a8f1cc596a",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Revokes historical ACLs. Requires review of production function ownership, explicit worker access and application smoke tests."
+    },
     "V000001__baseline.sql": {
       "checksum": "8c2c452556ca4dcb7da6ab1870cdcbd706164d12544825fd030a9cccff359a64",
       "strategy": "expand",

@@ -295,7 +295,7 @@ function createAdminStore(options?: {
           status: 403,
           body: {
             code: "forbidden",
-            message: "Acceso denegado o sesión revocada.",
+            message: "Acceso denegado.",
           },
         };
       }
@@ -1147,7 +1147,7 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
     // Mensaje de purga inmediata en banner de error
     await expect(
       page.getByText(
-        /Acceso denegado o sesión revocada. Los datos privados fueron purgados de la memoria./i,
+        /Acceso denegado. Los datos privados fueron purgados de la memoria./i,
       ),
     ).toBeVisible();
 

@@ -53,7 +53,7 @@ test.after(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
-test("espacigo_admin_session cookie is isolated from commercial session cookie", async () => {
+test("host-only admin session cookie is isolated from commercial session", async () => {
   const {
     ADMIN_SESSION_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -67,10 +67,13 @@ test("espacigo_admin_session cookie is isolated from commercial session cookie",
   const futureIso = new Date(Date.now() + 3600_000).toISOString();
   const cookie = buildAdminSessionCookie(token, futureIso);
 
+  assert.equal(ADMIN_SESSION_COOKIE_NAME, "__Host-espacigo-admin-session");
   assert.ok(cookie.startsWith(`${ADMIN_SESSION_COOKIE_NAME}=${token};`));
   assert.ok(cookie.includes("HttpOnly"));
   assert.ok(cookie.includes("SameSite=Lax"));
   assert.ok(cookie.includes("Path=/"));
+  assert.ok(cookie.includes("Secure"));
+  assert.doesNotMatch(cookie, /;\s*Domain=/i);
 
   assert.equal(
     parseAdminSessionCookie(`${ADMIN_SESSION_COOKIE_NAME}=${token}`),
@@ -90,6 +93,9 @@ test("espacigo_admin_session cookie is isolated from commercial session cookie",
   const cleared = buildClearAdminSessionCookie();
   assert.ok(cleared.startsWith(`${ADMIN_SESSION_COOKIE_NAME}=;`));
   assert.ok(cleared.includes("Max-Age=0"));
+  assert.ok(cleared.includes("Secure"));
+  assert.ok(cleared.includes("Path=/"));
+  assert.doesNotMatch(cleared, /;\s*Domain=/i);
 });
 
 test("AdminFacade dedicated admin session handles MFA challenge and 428 step-up", async () => {
@@ -186,4 +192,24 @@ test("AdminFacade dedicated admin session handles MFA challenge and 428 step-up"
   await facade.logoutAdminSession();
   assert.equal(facade.getSnapshot().adminSessionStatus, "anonymous");
   assert.equal(facade.getSnapshot().adminSession, null);
+});
+
+test("admin login identifies missing MFA and shows a safe correlation reference", async () => {
+  const { AdminFacade } = await import(pathToFileURL(facadePath).href);
+  const port = {
+    async startAdminSession() {
+      throw Object.assign(new Error("upstream denial"), {
+        status: 403,
+        code: "mfa_enrollment_required",
+        requestId: "req-admin-mfa-42",
+      });
+    },
+  };
+  const facade = new AdminFacade(port);
+  await facade.startAdminSession("staff@example.invalid", "synthetic-password");
+  const snapshot = facade.getSnapshot();
+  assert.equal(snapshot.adminSession, null);
+  assert.equal(snapshot.actionLoading, false);
+  assert.match(snapshot.error, /Activa el autenticador/);
+  assert.match(snapshot.error, /Referencia: req-admin-mfa-42/);
 });

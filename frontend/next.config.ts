@@ -14,6 +14,7 @@ if (
 const nextConfig: NextConfig = {
   ...(stablePreviewDistDir ? { distDir: stablePreviewDistDir } : {}),
   output: "standalone",
+  poweredByHeader: false,
   allowedDevOrigins: [
     "127.0.0.1",
     "localhost",
@@ -21,6 +22,31 @@ const nextConfig: NextConfig = {
     "localhost:3000",
     "prueba-mercadopago.testingpage.store",
   ],
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          {
+            key: "X-Content-Type-Options",
+            value: "nosniff",
+          },
+          {
+            key: "X-Frame-Options",
+            value: "DENY",
+          },
+          {
+            key: "Referrer-Policy",
+            value: "strict-origin-when-cross-origin",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=(self)",
+          },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

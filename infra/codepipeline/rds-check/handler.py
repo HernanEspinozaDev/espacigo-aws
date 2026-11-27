@@ -88,6 +88,117 @@ def migration_roles(conn):
     }
 
 
+def security_acl_audit(conn):
+    """Read-only metadata audit of SECURITY DEFINER functions, runtime ACLs, and espacigo_* roles."""
+    secdef_rows = conn.execute("""
+        SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')',
+               p.proconfig,
+               pg_catalog.has_function_privilege('public', p.oid, 'EXECUTE'),
+               pg_catalog.has_function_privilege('espacigo_runtime', p.oid, 'EXECUTE'),
+               pg_catalog.has_function_privilege('espacigo_api_login', p.oid, 'EXECUTE')
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.prosecdef
+          AND n.nspname = 'public'
+          AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_depend d
+              WHERE d.classid = 'pg_catalog.pg_proc'::regclass AND d.objid = p.oid
+                AND d.refclassid = 'pg_catalog.pg_extension'::regclass AND d.deptype = 'e'
+          )
+        ORDER BY 1, p.oid
+    """).fetchall()
+    has_search_path = [
+        any(item.startswith("search_path=") for item in (proconfig or ()))
+        for _, proconfig, _, _, _ in secdef_rows
+    ]
+    sensitive_names = [
+        "schema_migrations",
+        "evento_auditoria_local",
+        "administrador_global",
+        "sesion_administrativa",
+        "mercadopago_seller_connection",
+        "mercadopago_oauth_state",
+        "identity_provider_attempt",
+        "aviso_local_recuperacion_auditoria",
+        "verificacion_historial_local",
+    ]
+    public_tables = conn.execute("""
+        SELECT c.relname,
+               pg_catalog.has_table_privilege('espacigo_runtime', c.oid, 'SELECT'),
+               pg_catalog.has_table_privilege('espacigo_runtime', c.oid, 'INSERT'),
+               pg_catalog.has_table_privilege('espacigo_runtime', c.oid, 'UPDATE'),
+               pg_catalog.has_table_privilege('espacigo_runtime', c.oid, 'DELETE')
+        FROM pg_catalog.pg_class c
+        WHERE c.relnamespace = 'public'::pg_catalog.regnamespace
+          AND c.relkind IN ('r', 'p')
+        ORDER BY 1
+    """).fetchall()
+    rls_enabled_count = conn.execute("""
+        SELECT count(*)
+        FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'p')
+          AND c.relrowsecurity
+          AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+          AND NOT pg_catalog.starts_with(n.nspname, 'pg_')
+    """).fetchone()[0]
+    public_table_map = {
+        name: {"select": sel, "insert": ins, "update": upd, "delete": dele}
+        for name, sel, ins, upd, dele in public_tables
+    }
+    memberships = conn.execute("""
+        SELECT r.rolname, m.rolname, a.set_option, a.inherit_option, a.admin_option
+        FROM pg_catalog.pg_auth_members a
+        JOIN pg_catalog.pg_roles r ON r.oid = a.roleid
+        JOIN pg_catalog.pg_roles m ON m.oid = a.member
+        WHERE pg_catalog.starts_with(r.rolname, 'espacigo_')
+           OR pg_catalog.starts_with(m.rolname, 'espacigo_')
+        ORDER BY 1, 2, 3, 4, 5
+    """).fetchall()
+    roles = conn.execute("""
+        SELECT rolname, rolcanlogin, rolsuper, rolcreaterole, rolcreatedb, rolinherit, rolbypassrls
+        FROM pg_catalog.pg_roles
+        WHERE pg_catalog.starts_with(rolname, 'espacigo_')
+        ORDER BY 1
+    """).fetchall()
+    return {
+        "security_definer": {
+            "total": len(secdef_rows),
+            "with_search_path": sum(1 for ok in has_search_path if ok),
+            "public_execute_count": sum(1 for _, _, pub_exec, _, _ in secdef_rows if pub_exec),
+            "runtime_execute_count": sum(1 for _, _, _, rt_exec, _ in secdef_rows if rt_exec),
+            "api_login_execute_count": sum(1 for _, _, _, _, api_exec in secdef_rows if api_exec),
+            "public_execute_functions": [
+                name for name, _, pub_exec, _, _ in secdef_rows if pub_exec
+            ][:100],
+            "missing_search_path_functions": [
+                name for (name, _, _, _, _), ok in zip(secdef_rows, has_search_path) if not ok
+            ],
+        },
+        "runtime_table_privileges": {
+            "public_base_tables": len(public_tables),
+            "rls_enabled_count": rls_enabled_count,
+            "runtime_select_count": sum(1 for _, sel, _, _, _ in public_tables if sel),
+            "runtime_insert_count": sum(1 for _, _, ins, _, _ in public_tables if ins),
+            "runtime_update_count": sum(1 for _, _, _, upd, _ in public_tables if upd),
+            "runtime_delete_count": sum(1 for _, _, _, _, dele in public_tables if dele),
+            "sensitive_tables": {
+                name: public_table_map[name]
+                for name in sensitive_names
+                if name in public_table_map
+            },
+        },
+        "all_espacigo_memberships": [
+            dict(zip(("role", "member", "set", "inherit", "admin"), row))
+            for row in memberships
+        ],
+        "all_espacigo_roles": [
+            dict(zip(("role", "login", "superuser", "create_role", "create_db", "inherit", "bypass_rls"), row))
+            for row in roles
+        ],
+    }
+
+
 def inspect(host, password):
     with psycopg.connect(
         host=host, port=5432, dbname="espacigo_prod", user="espacigo_admin",
@@ -104,6 +215,7 @@ def inspect(host, password):
                 "SELECT count(*), max(version) FROM public.schema_migrations"
             ).fetchone()
             checks["migration_authority"] = migration_roles(conn)
+            checks["security_acl_audit"] = security_acl_audit(conn)
         return checks
 
 

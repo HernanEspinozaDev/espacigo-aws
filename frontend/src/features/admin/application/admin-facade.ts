@@ -413,11 +413,23 @@ export class AdminFacade {
       return;
     }
     if (isForbiddenError(err)) {
+      const denied =
+        err && typeof err === "object"
+          ? (err as { code?: unknown; requestId?: unknown })
+          : null;
+      const reference =
+        typeof denied?.requestId === "string" &&
+        /^[A-Za-z0-9._-]{1,128}$/.test(denied.requestId)
+          ? ` Referencia: ${denied.requestId}.`
+          : "";
+      const message =
+        denied?.code === "mfa_enrollment_required"
+          ? "Activa el autenticador en Mi cuenta → Seguridad para entrar a Administración."
+          : "Acceso denegado. Los datos privados fueron purgados de la memoria.";
       this.purgePrivateData();
       void this.#authSource?.checkSession().catch(() => undefined);
       this.#setSnapshot({
-        error:
-          "Acceso denegado o sesión revocada. Los datos privados fueron purgados de la memoria.",
+        error: message + reference,
         loading: false,
         actionLoading: false,
       });

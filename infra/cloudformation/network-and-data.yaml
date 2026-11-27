@@ -286,8 +286,22 @@ Resources:
       GroupDescription: NAT instance for private ECS outbound SMTP/HTTPS
       VpcId: !Ref MainVPC
       SecurityGroupIngress:
-        - IpProtocol: '-1'
-          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet1.CidrBlock
+        - IpProtocol: tcp
+          FromPort: 587
+          ToPort: 587
+          CidrIp: !GetAtt PrivateSubnet1.CidrBlock
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !GetAtt PrivateSubnet2.CidrBlock
+        - IpProtocol: tcp
+          FromPort: 587
+          ToPort: 587
+          CidrIp: !GetAtt PrivateSubnet2.CidrBlock
       SecurityGroupEgress:
         - IpProtocol: '-1'
           CidrIp: 0.0.0.0/0
