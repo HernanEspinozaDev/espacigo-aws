@@ -83,7 +83,8 @@ const termsV2Payload = {
 };
 
 const server = http.createServer((request, response) => {
-  const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+  const parsedUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+  const pathname = parsedUrl.pathname;
   response.setHeader("Content-Type", "application/json");
   response.setHeader("Cache-Control", "no-store");
 
@@ -93,12 +94,16 @@ const server = http.createServer((request, response) => {
     return;
   }
   if (pathname === "/api/v1/public/spaces") {
+    const verifiedOnly = parsedUrl.searchParams.get("verified_only") === "true";
+    const items = verifiedOnly
+      ? spaces.filter((item) => item.verification?.space_verified === true)
+      : spaces;
     response.writeHead(200);
     response.end(
       JSON.stringify({
-        items: spaces,
+        items,
         has_more: false,
-        total_count: spaces.length,
+        total_count: items.length,
       }),
     );
     return;

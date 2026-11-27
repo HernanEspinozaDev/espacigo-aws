@@ -77,14 +77,14 @@ func (r *Repository) SubmitSpaceProperty(ctx context.Context, item kyb.Complianc
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	var hostMode string
+	var hostMode, categoryCode string
 	var orgID *string
-	err = tx.QueryRow(ctx, `SELECT e.modo_anfitrion,e.organizacion_id::text FROM public.espacio e WHERE e.id=$1 AND e.estado<>'eliminada' AND `+canManageSpaceDocuments+` AND e.propietario_id=$3 FOR UPDATE OF e`, item.SpaceID, item.SubmittedBy, item.OwnerID).Scan(&hostMode, &orgID)
+	err = tx.QueryRow(ctx, `SELECT e.modo_anfitrion,e.organizacion_id::text,e.categoria_codigo FROM public.espacio e WHERE e.id=$1 AND e.estado<>'eliminada' AND `+canManageSpaceDocuments+` AND e.propietario_id=$3 FOR UPDATE OF e`, item.SpaceID, item.SubmittedBy, item.OwnerID).Scan(&hostMode, &orgID, &categoryCode)
 	if err != nil {
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.space_kyb_verification(id,espacio_id,host_mode,owner_usuario_id,organizacion_id,document_storage_ref,mime_type,size_bytes,content_sha256,status,submitted_by,submitted_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'PENDING',$10,$11)`, item.ID, item.SpaceID, hostMode, item.OwnerID, orgID, item.StorageRef, item.MIME, item.Size, item.SHA256, item.SubmittedBy, item.SubmittedAt)
+	_, err = tx.Exec(ctx, `INSERT INTO public.space_kyb_verification(id,espacio_id,host_mode,owner_usuario_id,organizacion_id,document_kind,categoria_codigo,document_storage_ref,mime_type,size_bytes,content_sha256,status,submitted_by,submitted_at)
+		VALUES($1,$2,$3,$4,$5,'property_or_sublease_authorization',$6,$7,$8,$9,$10,'PENDING',$11,$12)`, item.ID, item.SpaceID, hostMode, item.OwnerID, orgID, categoryCode, item.StorageRef, item.MIME, item.Size, item.SHA256, item.SubmittedBy, item.SubmittedAt)
 	if err != nil {
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
@@ -95,6 +95,41 @@ func (r *Repository) SubmitSpaceProperty(ctx context.Context, item kyb.Complianc
 	if err = tx.Commit(ctx); err != nil {
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
+	item.CategoryCode = categoryCode
+	return item, nil
+}
+
+func (r *Repository) SubmitSpaceCategorySII(ctx context.Context, item kyb.ComplianceDocument) (kyb.ComplianceDocument, error) {
+	if r == nil || r.pool == nil || !kyb.ValidUUID(item.ID) || !kyb.ValidUUID(item.OwnerID) || !kyb.ValidUUID(item.OrganizationID) || !kyb.ValidUUID(item.SpaceID) || !kyb.ValidUUID(item.StorageRef) || item.Kind != kyb.DocumentSIIStartActivities || item.Size < 1 || item.Size > kyb.MaxDocumentBytes || len(item.SHA256) != 32 {
+		return kyb.ComplianceDocument{}, kyb.ErrInvalid
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return kyb.ComplianceDocument{}, mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	var hostMode, categoryCode string
+	var orgID *string
+	err = tx.QueryRow(ctx, `SELECT e.modo_anfitrion,e.organizacion_id::text,e.categoria_codigo FROM public.espacio e WHERE e.id=$1 AND e.estado<>'eliminada' AND `+canManageSpaceDocuments+` AND e.propietario_id=$3 FOR UPDATE OF e`, item.SpaceID, item.SubmittedBy, item.OwnerID).Scan(&hostMode, &orgID, &categoryCode)
+	if err != nil {
+		return kyb.ComplianceDocument{}, mapError(err)
+	}
+	if hostMode != "empresa" || orgID == nil || *orgID != item.OrganizationID {
+		return kyb.ComplianceDocument{}, kyb.ErrInvalid
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.space_kyb_verification(id,espacio_id,host_mode,owner_usuario_id,organizacion_id,document_kind,sii_giro_code,categoria_codigo,document_storage_ref,mime_type,size_bytes,content_sha256,status,submitted_by,submitted_at)
+		VALUES($1,$2,$3,$4,$5,'sii_start_activities',$6,$7,$8,$9,$10,$11,'PENDING',$12,$13)`, item.ID, item.SpaceID, hostMode, item.OwnerID, *orgID, item.GiroCode, categoryCode, item.StorageRef, item.MIME, item.Size, item.SHA256, item.SubmittedBy, item.SubmittedAt)
+	if err != nil {
+		return kyb.ComplianceDocument{}, mapError(err)
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.host_compliance_event(espacio_id,actor_usuario_id,event_type,occurred_at) VALUES($1,$2,'space_property_submitted',$3)`, item.SpaceID, item.SubmittedBy, item.SubmittedAt)
+	if err != nil {
+		return kyb.ComplianceDocument{}, mapError(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return kyb.ComplianceDocument{}, mapError(err)
+	}
+	item.CategoryCode = categoryCode
 	return item, nil
 }
 
@@ -114,21 +149,41 @@ func (r *Repository) SpaceStorageScope(ctx context.Context, actorID, spaceID str
 func (r *Repository) SpaceEligibility(ctx context.Context, ownerID, spaceID string, at time.Time) (kyb.SpaceEligibility, error) {
 	var item kyb.SpaceEligibility
 	err := r.pool.QueryRow(ctx, `SELECT q.can_publish,q.can_book,q.space_verified,q.compliance_status,
-		COALESCE(d.status,''),COALESCE(o.grace_due_at,p.grace_due_at)
+		COALESCE(prop.status,''),d.grace_due_at,
+		d.property_approved,COALESCE(prop.status,''),COALESCE(prop.rejection_reason,''),
+		(d.host_status='compliant'),d.category_sii_required,d.category_sii_approved,
+		COALESCE(cat_sii.status,''),COALESCE(cat_sii.rejection_reason,''),
+		COALESCE(e.categoria_codigo,''),COALESCE(c.nombre,'')
 		FROM public.espacio e
+		JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo
 		CROSS JOIN LATERAL public.kyb_space_eligibility(e.id,$3) q
-		LEFT JOIN public.organizacion o ON o.id=e.organizacion_id
-		LEFT JOIN public.anfitrion_cumplimiento_personal p ON e.organizacion_id IS NULL AND p.usuario_id=e.propietario_id
+		CROSS JOIN LATERAL public.kyb_space_compliance_detail(e.id,$3) d
 		LEFT JOIN LATERAL (
-			SELECT v.status FROM public.space_kyb_verification v WHERE v.espacio_id=e.id
+			SELECT v.status,v.rejection_reason FROM public.space_kyb_verification v
+			WHERE v.espacio_id=e.id AND v.document_kind='property_or_sublease_authorization'
 			ORDER BY v.submitted_at DESC,v.id DESC LIMIT 1
-		) d ON true
+		) prop ON true
+		LEFT JOIN LATERAL (
+			SELECT v.status,v.rejection_reason FROM public.space_kyb_verification v
+			WHERE e.organizacion_id IS NOT NULL
+			  AND v.organizacion_id=e.organizacion_id
+			  AND v.document_kind='sii_start_activities'
+			  AND v.categoria_codigo=e.categoria_codigo
+			ORDER BY (v.status='APPROVED') DESC,v.submitted_at DESC,v.id DESC LIMIT 1
+		) cat_sii ON true
 		WHERE e.id=$1 AND e.estado<>'eliminada' AND (
 			(e.organizacion_id IS NULL AND e.propietario_id=$2)
 			OR EXISTS (SELECT 1 FROM public.organizacion_miembro m
 				WHERE m.organizacion_id=e.organizacion_id AND m.usuario_id=$2 AND m.estado='activo'
 				  AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(m.usuario_id,$3) k WHERE k.verified))
-		)`, spaceID, ownerID, at).Scan(&item.CanPublish, &item.CanBook, &item.SpaceVerified, &item.ComplianceStatus, &item.VerificationStatus, &item.GraceDueAt)
+		)`, spaceID, ownerID, at).Scan(
+		&item.CanPublish, &item.CanBook, &item.SpaceVerified, &item.ComplianceStatus,
+		&item.VerificationStatus, &item.GraceDueAt,
+		&item.PropertyApproved, &item.PropertyStatus, &item.PropertyRejectionReason,
+		&item.CompanyVerified, &item.RequiresCategorySII, &item.CategorySIIApproved,
+		&item.CategorySIIStatus, &item.CategorySIIRejectionReason,
+		&item.CategoryCode, &item.CategoryName,
+	)
 	return item, mapError(err)
 }
 

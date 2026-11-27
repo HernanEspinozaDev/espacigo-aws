@@ -19,7 +19,7 @@ type Application interface {
 	List(context.Context, string) ([]organizations.Organization, error)
 	Create(context.Context, string, string, string, string) (organizations.Organization, error)
 	Get(context.Context, string, string) (organizations.Organization, error)
-	Update(context.Context, string, string, string, string) (organizations.Organization, error)
+	Update(context.Context, string, string, string, string, string) (organizations.Organization, error)
 	Members(context.Context, string, string) ([]organizations.Member, error)
 	Invite(context.Context, string, string, string, organizations.Role) (organizations.Invitation, string, error)
 	Accept(context.Context, string, string, string, string) (organizations.Member, error)
@@ -127,13 +127,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeResult(w, map[string]any{"organization": o}, err, 200)
 		case http.MethodPatch:
 			var in struct {
-				LegalName string `json:"legal_name"`
-				TradeName string `json:"trade_name"`
+				LegalName     string `json:"legal_name"`
+				TradeName     string `json:"trade_name"`
+				PublicSummary string `json:"public_summary"`
 			}
 			if !decode(w, r, &in) {
 				return
 			}
-			o, err := h.app.Update(r.Context(), p.AccountID, id, in.LegalName, in.TradeName)
+			o, err := h.app.Update(r.Context(), p.AccountID, id, in.LegalName, in.TradeName, in.PublicSummary)
 			writeResult(w, map[string]any{"organization": o}, err, 200)
 		default:
 			method(w, "GET, PATCH")

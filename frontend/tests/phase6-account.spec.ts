@@ -617,10 +617,7 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
   });
 
   await loginAndNavigate(page, "/mi-cuenta");
-  await page
-    .getByRole("navigation", { name: "Secciones de mi cuenta" })
-    .getByRole("link", { name: "Privacidad" })
-    .click();
+  await page.getByRole("link", { name: "Gestionar privacidad" }).click();
   await page.waitForURL((url) => url.pathname === "/mi-cuenta/privacidad");
 
   // 1. Registrar derecho de acceso
@@ -1402,15 +1399,14 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
   for (const route of routes) {
     if (page.url().endsWith(route)) {
       // Already there
+    } else if (route === "/mi-cuenta/privacidad") {
+      await page.goto(route);
+      await page.waitForURL((url) => url.pathname === route);
+    } else if (route === "/mi-cuenta/verificaciones") {
+      await page.goto(route);
+      await page.waitForURL((url) => url.pathname === route);
     } else {
-      const linkName =
-        route === "/mi-cuenta"
-          ? "General"
-          : route === "/mi-cuenta/privacidad"
-            ? "Privacidad"
-            : route === "/mi-cuenta/seguridad"
-              ? "Seguridad"
-              : "Verificaciones";
+      const linkName = route === "/mi-cuenta" ? "General" : "Seguridad";
       await page
         .getByRole("navigation", { name: "Secciones de mi cuenta" })
         .getByRole("link", { name: linkName })

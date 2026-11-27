@@ -158,3 +158,18 @@ func TestListAdapterRejectsUnknownTypedAttributeBeforeQuery(t *testing.T) {
 		t.Fatalf("List() error=%v, want ErrInvalid", err)
 	}
 }
+
+func TestListAdapterAppliesVerifiedOnlyFilter(t *testing.T) {
+	pool := &coverSourcePool{row: listCursorFixtureRow()}
+	repo := &Repository{pool: pool}
+	if _, err := repo.List(context.Background(), publiccatalog.Filters{VerifiedOnly: true}, nil, 10); err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	if !strings.Contains(pool.query, "AND ($16::boolean = false OR space_verified)") {
+		t.Fatalf("query misses verified_only predicate: %s", pool.query)
+	}
+	wantTail := []any{true, 10}
+	if got := pool.args[len(pool.args)-2:]; !reflect.DeepEqual(got, wantTail) {
+		t.Fatalf("verified_only args=%#v, want %#v", got, wantTail)
+	}
+}

@@ -2693,6 +2693,16 @@ export const gatewayOperations = [
   },
   {
     method: "POST",
+    path: "/kyb/spaces/{spaceId}/sii",
+    operationId: "submitSpaceKYBCategorySII",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["multipart/form-data"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "POST",
     path: "/kyb/spaces/{spaceId}/verification",
     operationId: "submitSpaceKYBProperty",
     query: [],
@@ -3945,6 +3955,10 @@ export const gatewayOperations = [
         name: "start_at",
         allowRepeated: false,
       },
+      {
+        name: "verified_only",
+        allowRepeated: false,
+      },
     ],
     headers: [],
     bearer: false,
@@ -4103,6 +4117,10 @@ export const gatewayOperations = [
       },
       {
         name: "start_at",
+        allowRepeated: false,
+      },
+      {
+        name: "verified_only",
         allowRepeated: false,
       },
     ],

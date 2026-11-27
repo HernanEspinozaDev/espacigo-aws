@@ -58,6 +58,7 @@ func TestListRejectsCursorWhenBoundFiltersChange(t *testing.T) {
 		},
 		{name: "minimum area", setup: func(filters *Filters) { filters.MinAreaM2 = "10" }, mutate: func(filters *Filters) { filters.MinAreaM2 = "12" }},
 		{name: "minimum capacity", setup: func(filters *Filters) { filters.MinCapacity = intPointer(4) }, mutate: func(filters *Filters) { filters.MinCapacity = intPointer(6) }},
+		{name: "verified only", mutate: func(filters *Filters) { filters.VerifiedOnly = true }},
 		{
 			name: "commune",
 			setup: func(filters *Filters) {

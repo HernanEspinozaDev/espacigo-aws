@@ -361,4 +361,38 @@ test("accepts only positive integer minimum capacity within PostgreSQL integer r
   );
 });
 
+test("parses, serializes, and forwards verified_only only when true", () => {
+  const verified = queryModule.parseCatalogQuery({
+    verified_only: "true",
+    category_code: "oficina",
+  });
+  assert.equal(verified.verified_only, true);
+  assert.equal(queryModule.hasCatalogFilters(verified), true);
+  assert.equal(
+    queryModule.serializeCatalogQuery(verified).get("verified_only"),
+    "true",
+  );
+  assert.equal(
+    queryModule.serializeCatalogApiQuery(verified).get("verified_only"),
+    "true",
+  );
+
+  for (const invalid of ["false", "1", "yes", "", ["true", "false"]]) {
+    const parsed = queryModule.parseCatalogQuery({ verified_only: invalid });
+    assert.equal(parsed.verified_only, undefined);
+    assert.equal(queryModule.hasCatalogFilters(parsed), false);
+    assert.equal(
+      queryModule.serializeCatalogQuery(parsed).has("verified_only"),
+      false,
+    );
+  }
+
+  assert.equal(
+    queryModule
+      .serializeCatalogQuery({ verified_only: false, attribute: [] })
+      .has("verified_only"),
+    false,
+  );
+});
+
 test.after(async () => rm(scratch, { recursive: true, force: true }));

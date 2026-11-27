@@ -130,6 +130,14 @@
       "requires_schema_owner": [
         "public.version_terminos"
       ]
+    },
+    "V000020__space_category_sii_and_per_space_grace.sql": {
+      "checksum": "5bd52c9289fd0dc9db33d92ee317ac16d67d678549dffb3469531d2379dfa02e",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.espacio",
+        "public.space_kyb_verification"
+      ]
     }
   },
   "review_required_migrations": {

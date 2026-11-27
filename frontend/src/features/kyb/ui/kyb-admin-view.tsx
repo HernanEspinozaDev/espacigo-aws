@@ -240,8 +240,10 @@ export function KYBAdminView() {
       showPreviewBlob(blob);
       setPreviewName(
         item.document_kind === "sii_start_activities"
-          ? "Certificado de Inicio de Actividades SII"
-          : "Respaldo del inmueble",
+          ? item.space_id
+            ? "Certificado SII por categoría"
+            : "Certificado SII personal"
+          : "Respaldo de inmueble",
       );
     } catch (cause) {
       if (!isAbortError(cause))
@@ -675,59 +677,77 @@ export function KYBAdminView() {
               No hay documentos pendientes de revisión.
             </p>
           ) : (
-            complianceDocuments.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
-              >
-                <div>
-                  {(() => {
-                    const owner = compliance.find((profile) =>
-                      doc.organization_id
-                        ? profile.organization_id === doc.organization_id
-                        : profile.owner_usuario_id === doc.owner_usuario_id,
-                    );
-                    return (
-                      <p className="text-xs text-muted-foreground">
-                        {doc.organization_id
-                          ? `Empresa${owner?.legal_name ? ` · ${owner.legal_name}` : ""}`
-                          : doc.space_id
-                            ? `Espacio ${doc.space_id}`
-                            : "Persona natural"}
-                      </p>
-                    );
-                  })()}
-                  <p className="font-medium">
-                    {doc.document_kind === "sii_start_activities"
-                      ? "Certificado SII"
-                      : "Respaldo de inmueble"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {kybStatusLabel(doc.status)} ·{" "}
-                    {new Date(doc.submitted_at).toLocaleDateString("es-CL")}
-                  </p>
+            complianceDocuments.map((doc) => {
+              const owner = compliance.find((profile) =>
+                doc.organization_id
+                  ? profile.organization_id === doc.organization_id
+                  : profile.owner_usuario_id === doc.owner_usuario_id,
+              );
+              const isCategorySii =
+                doc.document_kind === "sii_start_activities" &&
+                Boolean(doc.space_id);
+              const isPersonalSii =
+                doc.document_kind === "sii_start_activities" && !doc.space_id;
+              const documentTitle = isCategorySii
+                ? "Certificado SII por categoría"
+                : isPersonalSii
+                  ? "Certificado SII personal"
+                  : "Respaldo de inmueble";
+              const contextParts = [
+                doc.organization_id
+                  ? `Empresa · ${owner?.legal_name || doc.organization_id}`
+                  : !doc.space_id
+                    ? "Persona natural"
+                    : null,
+                doc.space_id ? `Espacio ${doc.space_id}` : null,
+              ].filter(Boolean);
+              const detailParts = [
+                isCategorySii && doc.category_code
+                  ? `Categoría ${doc.category_code}`
+                  : null,
+                doc.sii_giro_code ? `Giro ${doc.sii_giro_code}` : null,
+                kybStatusLabel(doc.status),
+                new Date(doc.submitted_at).toLocaleDateString("es-CL"),
+              ].filter(Boolean);
+
+              return (
+                <div
+                  key={doc.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <div>
+                    <p className="text-xs text-muted-foreground">
+                      {contextParts.join(" · ")}
+                    </p>
+                    <p className="font-medium">{documentTitle}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {detailParts.join(" · ")}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void previewComplianceDocument(doc)}
+                    >
+                      <Eye className="mr-2 size-4" />
+                      Abrir
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void reviewComplianceDocument(doc)}
+                      disabled={working}
+                    >
+                      {doc.status === "PENDING"
+                        ? "Iniciar revisión"
+                        : "Revisar"}
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void previewComplianceDocument(doc)}
-                  >
-                    <Eye className="mr-2 size-4" />
-                    Abrir
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => void reviewComplianceDocument(doc)}
-                    disabled={working}
-                  >
-                    {doc.status === "PENDING" ? "Iniciar revisión" : "Revisar"}
-                  </Button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
           {selectedComplianceDocument?.status === "IN_REVIEW" ? (
             <div className="space-y-3 border-t pt-3">
