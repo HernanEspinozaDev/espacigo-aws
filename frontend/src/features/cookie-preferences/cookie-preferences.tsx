@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   createContext,
   useContext,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -24,7 +25,9 @@ import {
 } from "./preferences";
 
 const getServerPreference = () => undefined;
-const OpenPreferences = createContext<() => void>(() => {});
+const OpenPreferences = createContext<(trigger: HTMLButtonElement) => void>(
+  () => {},
+);
 
 export function CookiePreferencesProvider({
   children,
@@ -39,7 +42,10 @@ export function CookiePreferencesProvider({
   const [open, setOpen] = useState(false);
   const [visitedSpaces, setVisitedSpaces] = useState(false);
 
-  function openPreferences() {
+  const opener = useRef<HTMLButtonElement | null>(null);
+
+  function openPreferences(trigger: HTMLButtonElement) {
+    opener.current = trigger;
     setVisitedSpaces(choice === "visited-spaces");
     setOpen(true);
   }
@@ -51,7 +57,7 @@ export function CookiePreferencesProvider({
 
   return (
     <OpenPreferences.Provider value={openPreferences}>
-      {choice === null && !open && (
+      {choice === null && (
         <aside
           aria-label="Aviso de privacidad y cookies"
           className="border-b border-border bg-[var(--brand-surface-subtle)] text-foreground"
@@ -91,7 +97,11 @@ export function CookiePreferencesProvider({
               >
                 Rechazar opcionales
               </Button>
-              <Button type="button" variant="ghost" onClick={openPreferences}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={(event) => openPreferences(event.currentTarget)}
+              >
                 Configurar
               </Button>
             </div>
@@ -100,7 +110,14 @@ export function CookiePreferencesProvider({
       )}
       {children}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+        <DialogContent
+          className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+          finalFocus={() =>
+            opener.current?.isConnected
+              ? opener.current
+              : document.getElementById("main-content")
+          }
+        >
           <DialogHeader>
             <DialogTitle>Preferencias de cookies</DialogTitle>
             <DialogDescription>
@@ -154,7 +171,7 @@ export function CookiePreferencesButton() {
     <button
       type="button"
       className="text-sm text-[var(--brand-muted-on-subtle)] hover:text-primary"
-      onClick={openPreferences}
+      onClick={(event) => openPreferences(event.currentTarget)}
     >
       Preferencias de cookies
     </button>
