@@ -96,6 +96,7 @@ export type ListingCreateInput = Omit<
   ListingDraftInput,
   "address" | "region_code" | "comuna_code"
 > & {
+  organization_id?: string;
   location: Omit<LocationInput, "latitude" | "longitude"> & {
     latitude: number;
     longitude: number;

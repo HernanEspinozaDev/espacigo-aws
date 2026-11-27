@@ -34,6 +34,10 @@ import {
   ShieldCheck,
   CreditCard,
 } from "lucide-react";
+import {
+  HostPolicyConsent,
+  useHostPolicyConsent,
+} from "@/features/kyb/ui/host-policy-consent";
 import { Button } from "@/components/workspace/ui/button";
 import {
   Card,
@@ -227,6 +231,38 @@ export function ListingEditor({
 }: ListingEditorProps) {
   const router = useRouter();
   const { accessToken, snapshot: authSnapshot } = useAuth();
+  const policyState = useHostPolicyConsent(
+    accessToken ? authSnapshot.accountId : null,
+  );
+  const requiresHostPolicy = policyState.consent?.accepted === false;
+  const [blockedSpaceId, setBlockedSpaceId] = useState<string | null>(null);
+  const publicationBlocked = blockedSpaceId === listingId;
+  useEffect(() => {
+    if (!accessToken) return;
+    const controller = new AbortController();
+    void fetch(
+      `/api/backend/kyb/spaces/${encodeURIComponent(listingId)}/eligibility`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: controller.signal,
+      },
+    )
+      .then(async (response) => {
+        const eligibility = response.ok ? await response.json() : null;
+        if (!controller.signal.aborted) {
+          setBlockedSpaceId(
+            eligibility?.compliance_status === "disabled_missing_docs"
+              ? listingId
+              : null,
+          );
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBlockedSpaceId(null);
+      });
+    return () => controller.abort();
+  }, [accessToken, listingId]);
   const {
     snapshot,
     selectListing,
@@ -971,7 +1007,14 @@ export function ListingEditor({
 
   // Acciones Globales: Publicar / Archivar / Eliminar
   const handleGlobalPublish = async () => {
-    if (!accessToken || !currentListing || returnsBusy) return;
+    if (
+      !accessToken ||
+      !currentListing ||
+      returnsBusy ||
+      publicationBlocked ||
+      requiresHostPolicy
+    )
+      return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -1090,6 +1133,8 @@ export function ListingEditor({
       prerequisites.mpConnected &&
       prerequisites.contractPublishedVersion >= 1);
   const canPublishNow =
+    !publicationBlocked &&
+    !requiresHostPolicy &&
     publishCheck.eligible &&
     gatesReady &&
     !(prerequisites.loading && !prerequisites.loaded);
@@ -1258,6 +1303,27 @@ export function ListingEditor({
           )}
         </div>
       </div>
+
+      <HostPolicyConsent state={policyState} />
+
+      {publicationBlocked ? (
+        <p
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-950"
+        >
+          Este espacio tiene pendiente la documentación comercial del titular o
+          el respaldo del inmueble. Puedes seguir arrendando otros espacios.{" "}
+          <Link className="font-medium underline" href="/anfitrion/kyb">
+            Regularizar documentación
+          </Link>
+        </p>
+      ) : currentListing.state === "borrador" ? (
+        <p className="text-sm text-muted-foreground">
+          El plazo de dos meses empieza con la primera publicación del titular.
+          Los espacios adicionales conservan la misma fecha límite. Cada espacio
+          requiere su propio respaldo del inmueble.
+        </p>
+      ) : null}
 
       <PublishGuideModal
         open={guideOpen}

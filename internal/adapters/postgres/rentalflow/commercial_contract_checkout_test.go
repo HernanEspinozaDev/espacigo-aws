@@ -83,6 +83,22 @@ func contractCheckoutFixture(now time.Time) *contractCheckoutTx {
 	expires := now.Add(15 * time.Minute)
 	return &contractCheckoutTx{quote: q, opBinding: true, auth: commercialContractAuthorization{RequestID: "60000000-0000-4000-8000-000000000006", State: "ready_for_payment", Version: 1, Digest: make([]byte, 32), OccupancyID: "70000000-0000-4000-8000-000000000007", OccupancyType: "retencion_contrato_comercial", Active: true, Bound: true, CurrentLocation: true, ExpiresAt: expires, OccupancyExpiry: expires}}
 }
+
+func TestCommercialContractAuthorizationBindsCompanySignatureToSnapshotRepresentative(t *testing.T) {
+	for _, clause := range []string{
+		"p.es_b2b=s.es_b2b",
+		"p.organizacion_id IS NOT DISTINCT FROM s.organizacion_id",
+		"p.representante_legal_id IS NOT DISTINCT FROM s.representante_legal_id",
+		"s.es_b2b AND f.actor_id=s.representante_legal_id",
+		"NOT s.es_b2b AND f.actor_id=s.propietario_id",
+		"f.rol='arrendatario' AND f.actor_id=s.arrendatario_id",
+	} {
+		if !strings.Contains(commercialContractAuthorizationSQL, clause) {
+			t.Fatalf("contract payment authorization is missing %q", clause)
+		}
+	}
+}
+
 func TestContractsGateConvertsOneSignedHoldForEveryPaymentEntry(t *testing.T) {
 	now := time.Date(2030, 1, 2, 9, 0, 0, 0, time.UTC)
 	for _, entry := range []string{"checkout", "wallet", "payments_api"} {

@@ -31,11 +31,9 @@ func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone strin
 	if !active {
 		return domain.ErrNotFound
 	}
-	var currentZone *string
-	var state string
-	if err = tx.QueryRow(ctx, `SELECT zona_horaria,estado FROM public.espacio
-		WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&currentZone, &state); err != nil {
-		return mapError(err)
+	state, currentZone, err := lockCommercialSpace(ctx, tx, owner, spaceID, true)
+	if err != nil {
+		return err
 	}
 	if state == "activa" || state == "oculta" {
 		if currentZone != nil && strings.TrimSpace(*currentZone) != "" {
@@ -55,9 +53,9 @@ func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone strin
 		return domain.ErrNotFound
 	}
 	result, err := tx.Exec(ctx, `UPDATE public.espacio
-		SET zona_horaria=$3, actualizado_en=now()
-		WHERE id=$1 AND propietario_id=$2 AND estado=$4
-		AND ($4='borrador' OR zona_horaria IS NULL OR btrim(zona_horaria)='')`, spaceID, owner, zone, state)
+		SET zona_horaria=$2, actualizado_en=now()
+		WHERE id=$1 AND estado=$3
+		AND ($3='borrador' OR zona_horaria IS NULL OR btrim(zona_horaria)='')`, spaceID, zone, state)
 	if err != nil {
 		return err
 	}
@@ -83,10 +81,12 @@ func (r *Repository) SetTimeZoneCAS(ctx context.Context, owner, spaceID, zone st
 	if !active {
 		return time.Time{}, domain.ErrNotFound
 	}
-	var currentZone *string
-	var state string
+	state, currentZone, err := lockCommercialSpace(ctx, tx, owner, spaceID, true)
+	if err != nil {
+		return time.Time{}, err
+	}
 	var revision time.Time
-	err = tx.QueryRow(ctx, `SELECT zona_horaria,estado,actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&currentZone, &state, &revision)
+	err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, spaceID).Scan(&revision)
 	if err != nil {
 		return time.Time{}, mapError(err)
 	}
@@ -113,7 +113,7 @@ func (r *Repository) SetTimeZoneCAS(ctx context.Context, owner, spaceID, zone st
 	if currentZone != nil && *currentZone == zone {
 		return revision, tx.Commit(ctx)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET zona_horaria=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, zone); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET zona_horaria=$2 WHERE id=$1`, spaceID, zone); err != nil {
 		return time.Time{}, err
 	}
 	revision, err = spaceversion.Bump(ctx, tx, spaceID)
@@ -136,7 +136,7 @@ func (r *Repository) Availability(ctx context.Context, owner, spaceID string, st
 	err := r.pool.QueryRow(ctx, `SELECT e.zona_horaria,
 		NOT EXISTS (SELECT 1 FROM public.ocupacion o
 			WHERE o.espacio_id=e.id AND o.activo AND o.intervalo && tstzrange($3,$4,'[)'))
-		FROM public.espacio e WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador'`,
+		FROM public.espacio e WHERE e.id=$1 AND e.estado='borrador' AND `+memberAccess("e", "$2"),
 		spaceID, owner, start, end).Scan(&zone, &available)
 	if err != nil {
 		return domain.Availability{}, mapError(err)
@@ -155,7 +155,7 @@ func (r *Repository) ListBlocks(ctx context.Context, owner, spaceID string, star
 	rows, err := r.pool.Query(ctx, `SELECT o.id::text, o.espacio_id::text,
 		lower(o.intervalo), upper(o.intervalo), o.motivo, o.creada_en
 		FROM public.ocupacion o JOIN public.espacio e ON e.id=o.espacio_id
-		WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador'
+		WHERE e.id=$1 AND e.estado='borrador' AND `+memberAccess("e", "$2")+`
 		AND o.tipo='bloqueo_manual' AND o.activo AND o.intervalo && tstzrange($3,$4,'[)')
 		ORDER BY lower(o.intervalo), o.id`, spaceID, owner, start, end)
 	if err != nil {
@@ -188,10 +188,12 @@ func (r *Repository) CreateBlock(ctx context.Context, owner, spaceID, blockID st
 	if !active {
 		return domain.Block{}, domain.ErrNotFound
 	}
-	var zone *string
-	err = tx.QueryRow(ctx, `SELECT zona_horaria FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado='borrador'`, spaceID, owner).Scan(&zone)
+	state, zone, err := lockCommercialSpace(ctx, tx, owner, spaceID, false)
 	if err != nil {
-		return domain.Block{}, mapError(err)
+		return domain.Block{}, err
+	}
+	if state != "borrador" {
+		return domain.Block{}, domain.ErrNotFound
 	}
 	if zone == nil || *zone == "" {
 		return domain.Block{}, domain.ErrTimezoneRequired
@@ -201,7 +203,7 @@ func (r *Repository) CreateBlock(ctx context.Context, owner, spaceID, blockID st
 	err = tx.QueryRow(ctx, `INSERT INTO public.ocupacion
 		(id, espacio_id, reserva_id, intervalo, tipo, activo, motivo)
 		SELECT $1,e.id,NULL,tstzrange($4,$5,'[)'),'bloqueo_manual',true,$6
-		FROM public.espacio e WHERE e.id=$2 AND e.propietario_id=$3 AND e.estado='borrador'
+		FROM public.espacio e WHERE e.id=$2 AND e.estado='borrador' AND `+memberAccess("e", "$3")+`
 		RETURNING id::text, espacio_id::text, lower(intervalo), upper(intervalo), motivo, creada_en`,
 		blockID, spaceID, owner, start, end, reason).Scan(&block.ID, &block.SpaceID, &block.StartAt, &block.EndAt, &block.Reason, &block.CreatedAt)
 	if err != nil {
@@ -227,9 +229,13 @@ func (r *Repository) DeleteBlock(ctx context.Context, owner, spaceID, blockID st
 	if !active {
 		return domain.ErrNotFound
 	}
+	_, _, err = lockCommercialSpace(ctx, tx, owner, spaceID, false)
+	if err != nil {
+		return err
+	}
 	result, err := tx.Exec(ctx, `UPDATE public.ocupacion o SET activo=false, desactivada_en=now()
-		FROM public.espacio e WHERE o.espacio_id=e.id AND e.id=$1 AND e.propietario_id=$2
-		AND e.estado='borrador' AND o.id=$3 AND o.tipo='bloqueo_manual' AND o.activo`, spaceID, owner, blockID)
+		FROM public.espacio e WHERE o.espacio_id=e.id AND e.id=$1
+		AND e.estado='borrador' AND `+memberAccess("e", "$2")+` AND o.id=$3 AND o.tipo='bloqueo_manual' AND o.activo`, spaceID, owner, blockID)
 	if err != nil {
 		return err
 	}
@@ -239,10 +245,53 @@ func (r *Repository) DeleteBlock(ctx context.Context, owner, spaceID, blockID st
 	return tx.Commit(ctx)
 }
 
+func memberAccess(alias, actor string) string {
+	return `( (` + alias + `.modo_anfitrion='personal' AND ` + alias + `.propietario_id=` + actor + `) OR (` + alias + `.modo_anfitrion='empresa' AND EXISTS (
+		SELECT 1 FROM public.organizacion_miembro m WHERE m.organizacion_id=` + alias + `.organizacion_id AND m.usuario_id=` + actor + ` AND m.estado='activo'
+		AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(` + actor + `,clock_timestamp()) k WHERE k.verified))) )`
+}
+
+func lockCommercialSpace(ctx context.Context, tx pgx.Tx, actor, spaceID string, timezoneEdit bool) (string, *string, error) {
+	var state, mode, ownerID string
+	var orgID *string
+	var zone *string
+	err := tx.QueryRow(ctx, `SELECT estado,modo_anfitrion,propietario_id::text,organizacion_id::text,zona_horaria FROM public.espacio WHERE id=$1 FOR UPDATE`, spaceID).Scan(&state, &mode, &ownerID, &orgID, &zone)
+	if err != nil {
+		return "", nil, mapError(err)
+	}
+	if mode == "personal" {
+		if ownerID != actor {
+			return "", nil, domain.ErrNotFound
+		}
+	} else if mode == "empresa" && orgID != nil {
+		var role string
+		err = tx.QueryRow(ctx, `SELECT rol FROM public.organizacion_miembro WHERE organizacion_id=$1 AND usuario_id=$2 AND estado='activo' AND EXISTS(SELECT 1 FROM public.account_profile_identity_status($2,clock_timestamp()) k WHERE k.verified) FOR SHARE`, *orgID, actor).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, domain.ErrNotFound
+		}
+		if err != nil {
+			return "", nil, err
+		}
+		if timezoneEdit && role != "representante_legal" && role != "administrador" {
+			return "", nil, domain.ErrNotFound
+		}
+	} else {
+		return "", nil, domain.ErrNotFound
+	}
+	var canPublish bool
+	if err = tx.QueryRow(ctx, `SELECT can_publish FROM public.kyb_space_eligibility($1)`, spaceID).Scan(&canPublish); err != nil {
+		return "", nil, err
+	}
+	if !canPublish {
+		return "", nil, domain.ErrNotFound
+	}
+	return state, zone, nil
+}
+
 func (r *Repository) timeZone(ctx context.Context, owner, spaceID string) (string, error) {
 	var zone *string
-	err := r.pool.QueryRow(ctx, `SELECT zona_horaria FROM public.espacio
-		WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner).Scan(&zone)
+	err := r.pool.QueryRow(ctx, `SELECT zona_horaria FROM public.espacio e
+		WHERE e.id=$1 AND e.estado IN ('borrador','activa','oculta') AND `+memberAccess("e", "$2"), spaceID, owner).Scan(&zone)
 	if err != nil {
 		return "", mapError(err)
 	}

@@ -41,11 +41,21 @@ func maskEmail(email string) string {
 
 func (r *Repository) CreateOTPChallenge(ctx context.Context, actor domain.Actor, in domain.OTPChallengeInput) (domain.OTPChallengeResult, string, string, error) {
 	var ownerID, renterID, docSHA string
-	err := r.db.QueryRow(ctx, `SELECT propietario_id::text, arrendatario_id::text, encode(documento_sha256,'hex') FROM public.contrato_propuesta_comercial WHERE id=$1`, in.ProposalID).Scan(&ownerID, &renterID, &docSHA)
+	var isB2B bool
+	var representativeID *string
+	err := r.db.QueryRow(ctx, `SELECT propietario_id::text, arrendatario_id::text, encode(documento_sha256,'hex'),es_b2b,representante_legal_id::text FROM public.contrato_propuesta_comercial WHERE id=$1`, in.ProposalID).Scan(&ownerID, &renterID, &docSHA, &isB2B, &representativeID)
 	if err != nil {
 		return domain.OTPChallengeResult{}, "", "", mapError(err)
 	}
-	if (in.Role == "arrendatario" && actor.ID != renterID) || (in.Role == "arrendador" && actor.ID != ownerID) {
+	ownerSigner := actor.ID == ownerID
+	if isB2B && representativeID != nil && actor.ID == *representativeID {
+		var active bool
+		if err = r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.organizacion_miembro m WHERE m.organizacion_id=(SELECT organizacion_id FROM public.contrato_propuesta_comercial WHERE id=$1) AND m.usuario_id=$2 AND m.rol='representante_legal' AND m.estado='activo')`, in.ProposalID, actor.ID).Scan(&active); err != nil {
+			return domain.OTPChallengeResult{}, "", "", err
+		}
+		ownerSigner = active
+	}
+	if (in.Role == "arrendatario" && actor.ID != renterID) || (in.Role == "arrendador" && !ownerSigner) {
 		return domain.OTPChallengeResult{}, "", "", domain.ErrNotFound
 	}
 	if !hashMatches(docSHA, in.SHA256) {

@@ -98,25 +98,36 @@ type Signature struct {
 	AuthMethod      string    `json:"auth_method,omitempty"`
 	EvidenceSHA256  string    `json:"evidence_sha256,omitempty"`
 }
+type CompanyRepresentation struct {
+	OrganizationID            string `json:"organization_id"`
+	LegalName                 string `json:"legal_name"`
+	MaskedRUT                 string `json:"rut_masked"`
+	RUTVerified               bool   `json:"rut_verified"`
+	RepresentativeUserID      string `json:"representative_user_id"`
+	RepresentativeName        string `json:"representative_name"`
+	RepresentativeRUT         string `json:"representative_rut_masked"`
+	RepresentativeRUTVerified bool   `json:"representative_rut_verified"`
+}
 type Agreement struct {
-	ID               string      `json:"id"`
-	ProposalID       string      `json:"proposal_id"`
-	QuoteID          string      `json:"quote_id"`
-	SpaceID          string      `json:"space_id"`
-	OwnerID          string      `json:"-"`
-	RenterID         string      `json:"-"`
-	ProposalVersion  int64       `json:"proposal_version"`
-	SHA256           string      `json:"snapshot_sha256"`
-	State            string      `json:"state"`
-	ExpiresAt        time.Time   `json:"expires_at"`
-	PaymentExpiresAt *time.Time  `json:"payment_expires_at"`
-	OccupancyID      *string     `json:"-"`
-	SignatureMode    string      `json:"signature_mode,omitempty"`
-	Revision         int64       `json:"revision"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
-	Signatures       []Signature `json:"signatures"`
-	Replayed         bool        `json:"replayed,omitempty"`
+	ID                    string                 `json:"id"`
+	ProposalID            string                 `json:"proposal_id"`
+	QuoteID               string                 `json:"quote_id"`
+	SpaceID               string                 `json:"space_id"`
+	OwnerID               string                 `json:"-"`
+	RenterID              string                 `json:"-"`
+	ProposalVersion       int64                  `json:"proposal_version"`
+	SHA256                string                 `json:"snapshot_sha256"`
+	State                 string                 `json:"state"`
+	ExpiresAt             time.Time              `json:"expires_at"`
+	PaymentExpiresAt      *time.Time             `json:"payment_expires_at"`
+	OccupancyID           *string                `json:"-"`
+	SignatureMode         string                 `json:"signature_mode,omitempty"`
+	CompanyRepresentation *CompanyRepresentation `json:"company_representation,omitempty"`
+	Revision              int64                  `json:"revision"`
+	CreatedAt             time.Time              `json:"created_at"`
+	UpdatedAt             time.Time              `json:"updated_at"`
+	Signatures            []Signature            `json:"signatures"`
+	Replayed              bool                   `json:"replayed,omitempty"`
 }
 type Repository interface {
 	Create(context.Context, Actor, CreateInput, string) (Agreement, error)

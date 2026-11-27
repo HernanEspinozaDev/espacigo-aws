@@ -12,6 +12,7 @@ export default defineConfig({
     "**/public-catalog-map.spec.ts",
     "**/commercial-agreement-checkout.spec.ts",
     "**/commercial-reservation-documents.spec.ts",
+    "**/kyb-compliance-workflows.spec.ts",
   ],
   fullyParallel: true,
   reporter: "list",

@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/contracttemplate"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/kyb"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
+	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/google/uuid"
 )
 
@@ -46,25 +49,48 @@ type Location struct {
 	CommuneCode string  `json:"commune_code"`
 }
 
-// Terms deliberately excludes all user identifiers and legal identities.
+// CompanyRepresentation is a public, immutable part of a company-mode
+// contract. The RUT is deliberately masked; full RUT values remain in the
+// protected KYB record and never enter proposal JSON or contract responses.
+type CompanyRepresentation struct {
+	OrganizationID            string `json:"organization_id"`
+	LegalName                 string `json:"legal_name"`
+	MaskedRUT                 string `json:"rut_masked"`
+	RUTVerified               bool   `json:"rut_verified"`
+	RepresentativeUserID      string `json:"representative_user_id"`
+	RepresentativeName        string `json:"representative_name"`
+	RepresentativeRUT         string `json:"representative_rut_masked"`
+	RepresentativeRUTVerified bool   `json:"representative_rut_verified"`
+}
+
+// Terms omits personal identities; company-mode adds only the masked,
+// immutable business and signatory identifiers required by the contract.
 type Terms struct {
-	QuoteID            string                     `json:"quote_id"`
-	SpaceID            string                     `json:"space_id"`
-	SpaceTitle         string                     `json:"space_title"`
-	TemplateID         string                     `json:"template_id"`
-	TemplateVersion    int64                      `json:"template_version"`
-	Location           Location                   `json:"location"`
-	Sections           []contracttemplate.Section `json:"sections"`
-	RateUnit           string                     `json:"rate_unit"`
-	RateVersion        int64                      `json:"rate_version"`
-	UnitPriceCLP       int64                      `json:"unit_price_clp"`
-	Units              int64                      `json:"units"`
-	SubtotalCLP        int64                      `json:"subtotal_clp"`
-	Currency           string                     `json:"currency"`
-	StartAt            time.Time                  `json:"start_at"`
-	EndAt              time.Time                  `json:"end_at"`
-	TimeZone           string                     `json:"time_zone"`
-	CancellationPolicy CancellationPolicy         `json:"cancellation_policy"`
+	QuoteID               string                     `json:"quote_id"`
+	SpaceID               string                     `json:"space_id"`
+	SpaceTitle            string                     `json:"space_title"`
+	TemplateID            string                     `json:"template_id"`
+	TemplateVersion       int64                      `json:"template_version"`
+	Location              Location                   `json:"location"`
+	Sections              []contracttemplate.Section `json:"sections"`
+	RateUnit              string                     `json:"rate_unit"`
+	RateVersion           int64                      `json:"rate_version"`
+	UnitPriceCLP          int64                      `json:"unit_price_clp"`
+	Units                 int64                      `json:"units"`
+	SubtotalCLP           int64                      `json:"subtotal_clp"`
+	Currency              string                     `json:"currency"`
+	StartAt               time.Time                  `json:"start_at"`
+	EndAt                 time.Time                  `json:"end_at"`
+	TimeZone              string                     `json:"time_zone"`
+	CancellationPolicy    CancellationPolicy         `json:"cancellation_policy"`
+	CompanyRepresentation *CompanyRepresentation     `json:"company_representation,omitempty"`
+}
+
+// OrganizationContractIdentityReader resolves the active signing
+// representative bound to the latest approved KYB submission for a company.
+// Implementations return full RUTs only to the server-side proposal service.
+type OrganizationContractIdentityReader interface {
+	CurrentOrganizationContractIdentityForProposal(context.Context, string, time.Time) (kyb.ContractIdentity, error)
 }
 type EvidenceParty struct {
 	Role      string `json:"role"`
@@ -73,15 +99,16 @@ type EvidenceParty struct {
 	RUT       string `json:"rut"`
 }
 type Record struct {
-	ID         string
-	Version    int64
-	OwnerID    string
-	RenterID   string
-	Terms      Terms
-	SHA256     string
-	KeyVersion string
-	Ciphertext []byte
-	CreatedAt  time.Time
+	ID                            string
+	Version                       int64
+	OwnerID                       string
+	RenterID                      string
+	Terms                         Terms
+	SHA256                        string
+	KeyVersion                    string
+	Ciphertext                    []byte
+	CreatedAt                     time.Time
+	CompanyRepresentativeAuthorized bool
 }
 type View struct {
 	ID      string `json:"id"`
@@ -108,18 +135,28 @@ type Previewer interface {
 	Preview(context.Context, string, string) (rentalflow.ContractPreview, error)
 }
 type Service struct {
-	repo       Repository
-	quotes     rentalflow.QuoteRepository
-	preview    Previewer
-	gate       rentalflow.IdentityGate
-	identities rentalflow.ContractIdentityReader
-	cipher     Cipher
-	policy     CancellationPolicy
-	now        func() time.Time
+	repo                   Repository
+	quotes                 rentalflow.QuoteRepository
+	preview                Previewer
+	gate                   rentalflow.IdentityGate
+	identities             rentalflow.ContractIdentityReader
+	cipher                 Cipher
+	policy                 CancellationPolicy
+	now                    func() time.Time
+	organizationIdentities OrganizationContractIdentityReader
 }
 
 func New(repo Repository, quotes rentalflow.QuoteRepository, preview Previewer, gate rentalflow.IdentityGate, identities rentalflow.ContractIdentityReader, cipher Cipher, policy CancellationPolicy, now func() time.Time) *Service {
 	return &Service{repo: repo, quotes: quotes, preview: preview, gate: gate, identities: identities, cipher: cipher, policy: policy, now: now}
+}
+
+// WithOrganizationContractIdentityReader enables company-mode contract
+// snapshots without changing the personal-mode constructor contract.
+func (s *Service) WithOrganizationContractIdentityReader(reader OrganizationContractIdentityReader) *Service {
+	if s != nil {
+		s.organizationIdentities = reader
+	}
+	return s
 }
 func Digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 func AAD(r Record) []byte {
@@ -163,6 +200,27 @@ func (s *Service) Create(ctx context.Context, actor, quoteID string) (View, erro
 	if err != nil {
 		return View{}, err
 	}
+	if terms.CompanyRepresentation != nil {
+		if s.organizationIdentities == nil {
+			return View{}, rentalflow.ErrIdentityUnavailable
+		}
+		business, e := s.organizationIdentities.CurrentOrganizationContractIdentityForProposal(ctx, terms.CompanyRepresentation.OrganizationID, s.now().UTC())
+		if e != nil || strings.TrimSpace(business.LegalName) == "" || strings.TrimSpace(business.RepresentativeName) == "" || strings.TrimSpace(business.RepresentativeUserID) == "" {
+			return View{}, rentalflow.ErrIdentityUnavailable
+		}
+		maskedRut, ok := maskVerifiedRUT(business.CompanyRUT)
+		maskedRepresentativeRut, repOK := maskVerifiedRUT(business.RepresentativeRUT)
+		if !ok || !repOK {
+			return View{}, rentalflow.ErrIdentityUnavailable
+		}
+		terms.CompanyRepresentation.LegalName = business.LegalName
+		terms.CompanyRepresentation.MaskedRUT = maskedRut
+		terms.CompanyRepresentation.RUTVerified = true
+		terms.CompanyRepresentation.RepresentativeUserID = business.RepresentativeUserID
+		terms.CompanyRepresentation.RepresentativeName = business.RepresentativeName
+		terms.CompanyRepresentation.RepresentativeRUT = maskedRepresentativeRut
+		terms.CompanyRepresentation.RepresentativeRUTVerified = true
+	}
 	parties := make([]EvidenceParty, 0, 2)
 	asOf := s.now().UTC()
 	for i, id := range []string{quote.OwnerID, quote.RenterID} {
@@ -192,6 +250,14 @@ func (s *Service) Create(ctx context.Context, actor, quoteID string) (View, erro
 	}
 	return s.project(ctx, actor, r)
 }
+
+func maskVerifiedRUT(value string) (string, bool) {
+	canonical, err := verification.NormalizeRut(value)
+	if err != nil {
+		return "", false
+	}
+	return identity.MaskRUT(canonical), true
+}
 func (s *Service) Get(ctx context.Context, actor, id string) (View, error) {
 	if !contracttemplate.ValidIDs(actor, id) {
 		return View{}, ErrInvalid
@@ -204,7 +270,8 @@ func (s *Service) Get(ctx context.Context, actor, id string) (View, error) {
 	return s.project(ctx, actor, r)
 }
 func (s *Service) project(ctx context.Context, actor string, r Record) (View, error) {
-	if actor != r.OwnerID && actor != r.RenterID {
+	authorizedCompanyRep := r.Terms.CompanyRepresentation != nil && (r.CompanyRepresentativeAuthorized || actor == r.Terms.CompanyRepresentation.RepresentativeUserID)
+	if actor != r.OwnerID && actor != r.RenterID && !authorizedCompanyRep {
 		return View{}, ErrNotFound
 	}
 	parties, err := OpenEvidence(r, s.cipher)
@@ -218,6 +285,11 @@ func (s *Service) project(ctx context.Context, actor string, r Record) (View, er
 		if paid, err := checker.IsPaid(ctx, r.ID); err == nil && paid {
 			projectedParties = rentalflow.RevealedContractParties(actor, owner, renter)
 		}
+	}
+	if company := r.Terms.CompanyRepresentation; company != nil {
+		// A company is the contractual landlord in business mode. Do not expose
+		// the account owner's individual identity as a second landlord party.
+		projectedParties[0] = rentalflow.ContractParty{Role: "arrendador", LegalName: company.LegalName, RUT: company.MaskedRUT}
 	}
 	return View{ID: r.ID, Version: r.Version, SHA256: r.SHA256, Terms: r.Terms, Parties: projectedParties, ContactNotice: rentalflow.ContractContactNotice, GeneratedAt: r.CreatedAt}, nil
 }

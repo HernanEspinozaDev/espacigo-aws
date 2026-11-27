@@ -27,10 +27,10 @@ const rateCols = `espacio_id::text,version,modalidad,precio_base_clp,moneda,crea
 const joinedRateCols = `t.espacio_id::text,t.version,t.modalidad,t.precio_base_clp,t.moneda,t.creada_en`
 
 func (r *Repository) CurrentRate(ctx context.Context, owner, spaceID string) (pricing.Rate, error) {
-	return scanRate(r.pool.QueryRow(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado IN ('borrador','activa','oculta') ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
+	return scanRate(r.pool.QueryRow(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.estado IN ('borrador','activa','oculta') AND `+memberAccess("e", "$2")+` ORDER BY t.version DESC LIMIT 1`, spaceID, owner))
 }
 func (r *Repository) RateHistory(ctx context.Context, owner, spaceID string) ([]pricing.Rate, error) {
-	rows, err := r.pool.Query(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado IN ('borrador','activa','oculta') ORDER BY t.version`, spaceID, owner)
+	rows, err := r.pool.Query(ctx, `SELECT `+joinedRateCols+` FROM public.tarifa_espacio t JOIN public.espacio e ON e.id=t.espacio_id WHERE e.id=$1 AND e.estado IN ('borrador','activa','oculta') AND `+memberAccess("e", "$2")+` ORDER BY t.version`, spaceID, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +70,9 @@ func (r *Repository) updateRateCAS(ctx context.Context, owner, spaceID string, e
 	if !active {
 		return pricing.Rate{}, time.Time{}, pricing.ErrNotFound
 	}
-	var unit string
-	var amount int64
-	var revision time.Time
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta') FOR UPDATE`, spaceID, owner).Scan(&unit, &amount, &revision)
+	unit, amount, revision, err := lockPricingSpace(ctx, tx, owner, spaceID, true)
 	if err != nil {
-		return pricing.Rate{}, time.Time{}, mapError(err)
+		return pricing.Rate{}, time.Time{}, err
 	}
 	if !expected.IsZero() && !revision.Equal(expected) {
 		return pricing.Rate{}, time.Time{}, pricing.ErrPreconditionFailed
@@ -90,7 +87,7 @@ func (r *Repository) updateRateCAS(ctx context.Context, owner, spaceID string, e
 		}
 		return item, revision, nil
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$3,precio_base_clp=$4 WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner, in.Unit, in.Amount); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$2,precio_base_clp=$3 WHERE id=$1 AND estado IN ('borrador','activa','oculta')`, spaceID, in.Unit, in.Amount); err != nil {
 		return pricing.Rate{}, time.Time{}, mapError(err)
 	}
 	item, err := scanRate(tx.QueryRow(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) SELECT $1,COALESCE(max(version),0)+1,$2,$3 FROM public.tarifa_espacio WHERE espacio_id=$1 RETURNING `+rateCols, spaceID, in.Unit, in.Amount))
@@ -119,9 +116,12 @@ func (r *Repository) CreateSimulation(ctx context.Context, owner, spaceID, id, z
 	if !active {
 		return pricing.Simulation{}, pricing.ErrNotFound
 	}
+	if _, _, _, err = lockPricingSpace(ctx, tx, owner, spaceID, false); err != nil {
+		return pricing.Simulation{}, err
+	}
 	var s pricing.Simulation
 	err = tx.QueryRow(ctx, `INSERT INTO public.simulacion_precio_privada(id,espacio_id,propietario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades_facturadas,subtotal_clp,inicio,termino,zona_horaria)
-	SELECT $1,e.id,e.propietario_id,$4,$5,$6,'CLP',$7,$8,$9,$10,$11 FROM public.espacio e WHERE e.id=$2 AND e.propietario_id=$3 AND e.estado='borrador'
+	SELECT $1,e.id,e.propietario_id,$4,$5,$6,'CLP',$7,$8,$9,$10,$11 FROM public.espacio e WHERE e.id=$2 AND e.estado='borrador' AND `+memberAccess("e", "$3")+`
 	RETURNING id::text,espacio_id::text,tarifa_version,modalidad,precio_unitario_clp,unidades_facturadas,moneda,subtotal_clp,inicio,termino,zona_horaria,true,creada_en`, id, spaceID, owner, rate.Version, rate.Unit, rate.Amount, units, subtotal, start, end, zone).Scan(&s.ID, &s.SpaceID, &s.RateVersion, &s.RateUnit, &s.BasePrice, &s.BilledUnits, &s.Currency, &s.Subtotal, &s.StartAt, &s.EndAt, &s.TimeZone, &s.Private, &s.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pricing.Simulation{}, pricing.ErrNotFound
@@ -139,7 +139,7 @@ func (r *Repository) CreateSimulation(ctx context.Context, owner, spaceID, id, z
 }
 func (r *Repository) GetSimulation(ctx context.Context, owner, spaceID, id string) (pricing.Simulation, error) {
 	var s pricing.Simulation
-	err := r.pool.QueryRow(ctx, `SELECT id::text,espacio_id::text,tarifa_version,modalidad,precio_unitario_clp,unidades_facturadas,moneda,subtotal_clp,inicio,termino,zona_horaria,true,creada_en FROM public.simulacion_precio_privada WHERE id=$1 AND espacio_id=$2 AND propietario_id=$3`, id, spaceID, owner).Scan(&s.ID, &s.SpaceID, &s.RateVersion, &s.RateUnit, &s.BasePrice, &s.BilledUnits, &s.Currency, &s.Subtotal, &s.StartAt, &s.EndAt, &s.TimeZone, &s.Private, &s.CreatedAt)
+	err := r.pool.QueryRow(ctx, `SELECT s.id::text,s.espacio_id::text,s.tarifa_version,s.modalidad,s.precio_unitario_clp,s.unidades_facturadas,s.moneda,s.subtotal_clp,s.inicio,s.termino,s.zona_horaria,true,s.creada_en FROM public.simulacion_precio_privada s JOIN public.espacio e ON e.id=s.espacio_id WHERE s.id=$1 AND s.espacio_id=$2 AND `+memberAccess("e", "$3"), id, spaceID, owner).Scan(&s.ID, &s.SpaceID, &s.RateVersion, &s.RateUnit, &s.BasePrice, &s.BilledUnits, &s.Currency, &s.Subtotal, &s.StartAt, &s.EndAt, &s.TimeZone, &s.Private, &s.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pricing.Simulation{}, pricing.ErrNotFound
 	}
@@ -151,6 +151,56 @@ func (r *Repository) GetSimulation(ctx context.Context, owner, spaceID, id strin
 	s.CreatedAt = s.CreatedAt.UTC()
 	return s, nil
 }
+
+func memberAccess(alias, actor string) string {
+	return `( (` + alias + `.modo_anfitrion='personal' AND ` + alias + `.propietario_id=` + actor + `) OR (` + alias + `.modo_anfitrion='empresa' AND EXISTS (
+		SELECT 1 FROM public.organizacion_miembro m WHERE m.organizacion_id=` + alias + `.organizacion_id AND m.usuario_id=` + actor + ` AND m.estado='activo'
+		AND EXISTS(SELECT 1 FROM public.account_profile_identity_status(` + actor + `,clock_timestamp()) k WHERE k.verified))) )`
+}
+
+func lockPricingSpace(ctx context.Context, tx pgx.Tx, actor, spaceID string, edit bool) (string, int64, time.Time, error) {
+	var unit, state, mode, ownerID string
+	var amount int64
+	var orgID *string
+	var revision time.Time
+	err := tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en,estado,modo_anfitrion,propietario_id::text,organizacion_id::text FROM public.espacio WHERE id=$1 FOR UPDATE`, spaceID).Scan(&unit, &amount, &revision, &state, &mode, &ownerID, &orgID)
+	if err != nil {
+		return "", 0, time.Time{}, mapError(err)
+	}
+	if state != "borrador" && state != "activa" && state != "oculta" {
+		return "", 0, time.Time{}, pricing.ErrNotFound
+	}
+	if mode == "personal" {
+		if ownerID != actor {
+			return "", 0, time.Time{}, pricing.ErrNotFound
+		}
+	} else if mode == "empresa" && orgID != nil {
+		var role string
+		err = tx.QueryRow(ctx, `SELECT rol FROM public.organizacion_miembro WHERE organizacion_id=$1 AND usuario_id=$2 AND estado='activo' AND EXISTS(SELECT 1 FROM public.account_profile_identity_status($2,clock_timestamp()) k WHERE k.verified) FOR SHARE`, *orgID, actor).Scan(&role)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", 0, time.Time{}, pricing.ErrNotFound
+		}
+		if err != nil {
+			return "", 0, time.Time{}, err
+		}
+		if edit && role != "representante_legal" && role != "administrador" {
+			return "", 0, time.Time{}, pricing.ErrNotFound
+		}
+	} else {
+		return "", 0, time.Time{}, pricing.ErrNotFound
+	}
+	if edit {
+		var canPublish bool
+		if err = tx.QueryRow(ctx, `SELECT can_publish FROM public.kyb_space_eligibility($1)`, spaceID).Scan(&canPublish); err != nil {
+			return "", 0, time.Time{}, err
+		}
+		if !canPublish {
+			return "", 0, time.Time{}, pricing.ErrNotFound
+		}
+	}
+	return unit, amount, revision, nil
+}
+
 func mapError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pricing.ErrNotFound

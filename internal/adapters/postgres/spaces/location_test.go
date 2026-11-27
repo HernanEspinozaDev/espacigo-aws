@@ -38,6 +38,8 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 			*d[0].(*string) = "activo"
 		case strings.Contains(q, "bloqueo_cuenta_administrativo_local"):
 			*d[0].(*bool) = tx.blocked
+		case strings.Contains(q, "kyb_space_eligibility"):
+			*d[0].(*bool) = true
 		case strings.Contains(q, "reserva_ensayo_local_fixture"):
 			*d[0].(*bool) = tx.fixture
 		case strings.Contains(q, "RETURNING actualizado_en"):
@@ -69,6 +71,9 @@ func (tx *commercialLocationTx) QueryRow(_ context.Context, q string, args ...an
 	})
 }
 func (tx *commercialLocationTx) Exec(_ context.Context, q string, args ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(q, "INSERT INTO public.host_compliance_event") {
+		return pgconn.NewCommandTag("INSERT 0 0"), nil
+	}
 	if strings.Contains(q, "SET ubicacion_pin_origen") {
 		if len(args) != 6 || args[0] != monthReadSpaceID || tx.writes != 1 {
 			return pgconn.CommandTag{}, errors.New("metadata must follow the guarded location write")

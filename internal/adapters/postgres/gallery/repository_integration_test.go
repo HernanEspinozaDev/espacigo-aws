@@ -15,9 +15,11 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +37,21 @@ type pausedPutStore struct {
 	*deleteFaultStore
 	entered chan string
 	release chan struct{}
+}
+
+func insertVerifiedIdentityFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID, revisionID, verificationID, username string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `INSERT INTO public.account_identity_profile_revision(id,account_id,key_version,encrypted_data,masked_rut,masked_phone,saved_at)
+		VALUES($1,$2,'fixture-v1',convert_to(repeat('x',32),'UTF8'),'**.***.***-*','+56••••••••',clock_timestamp())`, revisionID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.account_identity_profile(account_id,username,current_revision) VALUES($1,$2,$3)`, userID, username, revisionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public.account_identity_verification(id,account_id,profile_revision,state,started_at,updated_at,verified_at,verified_until)
+		VALUES($1,$2,$3,'verified',clock_timestamp()-interval '1 minute',clock_timestamp(),clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 day')`, verificationID, userID, revisionID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (s *pausedPutStore) Put(ctx context.Context, id string, blob []byte) error {
@@ -164,6 +181,65 @@ func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	companyID := "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	companySpaceID := "99999999-9999-4999-8999-999999999999"
+	insertVerifiedIdentityFixture(t, ctx, adminPool, owner,
+		"f1111111-1111-4111-8111-111111111111", "f2222222-2222-4222-8222-222222222222", "galleryowner")
+	insertVerifiedIdentityFixture(t, ctx, adminPool, other,
+		"f3333333-3333-4333-8333-333333333333", "f4444444-4444-4444-8444-444444444444", "galleryadmin")
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.organizacion(id,usuario_id,created_by_usuario_id,legal_name,compliance_status)
+		VALUES($1,$2,$2,'Gallery fixture company','grace_active')`, companyID, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.organizacion_miembro(organizacion_id,usuario_id,rol,estado)
+		VALUES($1,$2,'representante_legal','activo'),($1,$3,'administrador','activo')`, companyID, owner, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria,es_b2b,organizacion_id,modo_anfitrion)
+		VALUES($1,$2,'oficina','Company gallery space',repeat('Synthetic company gallery description. ',4),20,2,'Synthetic rules','hora',8000,'Synthetic private address','borrador','UTC',true,$3,'empresa')`, companySpaceID, owner, companyID); err != nil {
+		t.Fatal(err)
+	}
+	canonicalOwner, err := repo.ResolveSpaceOwner(ctx, other, companySpaceID)
+	if err != nil || canonicalOwner != owner {
+		t.Fatalf("company administrator canonical owner=%q err=%v", canonicalOwner, err)
+	}
+	companyPhoto, reused, err := svc.AddSynthetic(gallery.WithActor(ctx, other), canonicalOwner, companySpaceID, "company-gallery-add-0001")
+	if err != nil || reused {
+		t.Fatalf("company administrator gallery add=%+v reused=%v err=%v", companyPhoto, reused, err)
+	}
+	var storedOwner, auditActor, auditReason string
+	if err = adminPool.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio_galeria_sintetica_local WHERE id=$1`, companyPhoto.ID).Scan(&storedOwner); err != nil || storedOwner != owner {
+		t.Fatalf("company media canonical owner=%q err=%v", storedOwner, err)
+	}
+	if err = adminPool.QueryRow(ctx, `SELECT actor_usuario_id::text,reason FROM public.host_compliance_event WHERE espacio_id=$1 AND event_type='space_edited' ORDER BY id DESC LIMIT 1`, companySpaceID).Scan(&auditActor, &auditReason); err != nil || auditActor != other || auditReason != "gallery_synthetic_photo_added:"+companyPhoto.ID {
+		t.Fatalf("company gallery audit actor=%q reason=%q err=%v", auditActor, auditReason, err)
+	}
+	mediaRepository := mediapg.New(pool)
+	mediaAssetID := "88888888-8888-4888-8888-888888888888"
+	now := time.Now().UTC()
+	reservation, reused, err := mediaRepository.Reserve(media.WithActor(ctx, other), mediaAssetID, owner, companySpaceID,
+		media.PurposeSpace, "company-media-reserve-0001", strings.Repeat("a", 64), now, now.Add(15*time.Minute), media.ReservationOptions{})
+	if err != nil || reused || reservation.OwnerID != owner {
+		t.Fatalf("company media reservation=%+v reused=%v err=%v", reservation, reused, err)
+	}
+	var assetOwner string
+	if err = adminPool.QueryRow(ctx, `SELECT propietario_id::text FROM public.media_asset WHERE id=$1`, mediaAssetID).Scan(&assetOwner); err != nil || assetOwner != owner {
+		t.Fatalf("company media reservation canonical owner=%q err=%v", assetOwner, err)
+	}
+	outsider := "77777777-7777-4777-8777-777777777777"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,'outsider@example.test','outsider@example.test','synthetic','activo')`, outsider); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repo.ResolveSpaceOwner(ctx, outsider, companySpaceID); !errors.Is(err, gallery.ErrNotFound) {
+		t.Fatalf("nonmember gallery access error=%v", err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.organizacion SET compliance_status='disabled_missing_docs',disabled_at=clock_timestamp(),disabled_reason='fixture disabled' WHERE id=$1`, companyID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = svc.AddSynthetic(gallery.WithActor(ctx, other), owner, companySpaceID, "company-gallery-disabled-0001"); !errors.Is(err, gallery.ErrNotFound) {
+		t.Fatalf("disabled company gallery mutation error=%v", err)
+	}
+
 	first, reused, err := svc.AddSynthetic(ctx, owner, spaceA, "gallery-key-0001")
 	if err != nil || reused {
 		t.Fatalf("first add reused=%v err=%v", reused, err)

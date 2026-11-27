@@ -64,6 +64,72 @@
         "public.checkout_preferencia_comercial",
         "public.usuario"
       ]
+    },
+    "V000011__business_kyb_verification.sql": {
+      "checksum": "d765eb4d6bb5539164b8e3c8660acfd14387f5218fde4ec458114a72411ffc62",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.espacio"
+      ]
+    },
+    "V000012__host_profiles_sii_grace_and_space_verification.sql": {
+      "checksum": "0e88190aefda6f6bddec8758a00ddfc25cc1c893aa0f37a56e230c0c67f122c6",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.contrato_propuesta_comercial",
+        "public.contrato_solicitud_comercial",
+        "public.espacio"
+      ]
+    },
+    "V000013__space_compliance_shared_deadline.sql": {
+      "checksum": "9d5144457c98121e96188a96f310240bb7de47308152727cfbbe6a8c681e4789",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.espacio"
+      ]
+    },
+    "V000014__publication_document_request_audit.sql": {
+      "checksum": "5961d129ae4b575442b6b594e8b46d5f10c1eeaed77b7a27c0e48385f6ad5253",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.espacio",
+        "public.espacio_publicacion_historial_local"
+      ]
+    },
+    "V000015__local_terms_v2_commercial_documentation.sql": {
+      "checksum": "cc91fc2a43406dd557fa7440feb20e0ae07c4efcfe4878e8b9be4b5b2f62621b",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.version_terminos"
+      ]
+    },
+    "V000016__kyb_grace_reminder_outbox.sql": {
+      "checksum": "73b4279cc199fbcec41c579bb670cd0ed325374f304df168f09e87bd6f911118",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.notificacion_usuario"
+      ]
+    },
+    "V000017__commercial_company_contract_signatures.sql": {
+      "checksum": "5018d925f1e168a445df78a24736d68bd4435ee52a7a64dac4c03d9ea9e49488",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.checkout_preferencia_comercial",
+        "public.contrato_firma_comercial",
+        "public.contrato_propuesta_comercial",
+        "public.contrato_solicitud_comercial"
+      ]
+    },
+    "V000018__kyb_document_level_decisions.sql": {
+      "checksum": "802bc07851813d08d4b9e875c0f4658f1d81e3c6f718943894c0257fc8e426f7",
+      "strategy": "expand"
+    },
+    "V000019__production_terms_v2_commercial_documentation.sql": {
+      "checksum": "6f5c645b370ea96731fab80507cba3b8143da100c9230fb6693fffe17885f3fa",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.version_terminos"
+      ]
     }
   },
   "review_required_migrations": {

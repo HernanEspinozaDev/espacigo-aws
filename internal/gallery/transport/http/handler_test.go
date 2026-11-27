@@ -264,6 +264,51 @@ func (r *repoStub) PendingCleanup(context.Context, int) ([]string, error)    { r
 func (r *repoStub) CompleteCleanup(context.Context, string, time.Time) error { return nil }
 func (r *repoStub) FailCleanup(context.Context, string, time.Time) error     { return nil }
 
+type spaceOwnerResolverRepoStub struct {
+	*repoStub
+	actorID       string
+	resolvedOwner string
+	listOwner     string
+}
+
+func (r *spaceOwnerResolverRepoStub) ResolveSpaceOwner(_ context.Context, actor, spaceID string) (string, error) {
+	if actor != r.actorID || spaceID != testSpace {
+		return "", gallery.ErrNotFound
+	}
+	return r.resolvedOwner, nil
+}
+
+func (r *spaceOwnerResolverRepoStub) List(_ context.Context, owner, _ string) ([]gallery.Photo, error) {
+	r.listOwner = owner
+	return append([]gallery.Photo{}, r.items...), nil
+}
+
+type memberAuthStub struct{ actor string }
+
+func (a memberAuthStub) Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error) {
+	return identity.Principal{AccountID: a.actor, Roles: []identity.Role{identity.RoleLandlord}}, nil
+}
+
+func TestCompanyMemberGalleryReadUsesCanonicalSpaceOwner(t *testing.T) {
+	actor := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	repo := &spaceOwnerResolverRepoStub{repoStub: &repoStub{items: []gallery.Photo{{ID: testPhoto}}}, actorID: actor, resolvedOwner: testOwner}
+	svc, err := gallery.NewService(repo, &filesStub{items: map[string][]byte{}}, idsStub{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(memberAuthStub{actor: actor}, svc, nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery", nil)
+	r.Header.Set("Authorization", "Bearer synthetic-test-token")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if repo.listOwner != testOwner {
+		t.Fatalf("gallery queried owner %q; want canonical owner %q", repo.listOwner, testOwner)
+	}
+}
+
 func TestDeleteMalformedIfMatchBeforeMutation(t *testing.T) {
 	files := &filesStub{items: map[string][]byte{}}
 	repo := &repoStub{idempotency: map[string]gallery.Photo{}}

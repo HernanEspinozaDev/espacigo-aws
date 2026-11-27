@@ -42,12 +42,21 @@ func New(pool *pgxpool.Pool, gate rentalflow.IdentityGate, now func() time.Time)
 	return &Repository{db: pool, gate: gate, now: now}, nil
 }
 
-const columns = `id::text,propuesta_id::text,cotizacion_id::text,espacio_id::text,propietario_id::text,arrendatario_id::text,propuesta_version,encode(documento_sha256,'hex'),estado,vence_en,pago_vence_en,ocupacion_id::text,modalidad_firma,revision,creada_en,actualizada_en`
+const columns = `id::text,propuesta_id::text,cotizacion_id::text,espacio_id::text,propietario_id::text,arrendatario_id::text,propuesta_version,encode(documento_sha256,'hex'),estado,vence_en,pago_vence_en,ocupacion_id::text,modalidad_firma,revision,creada_en,actualizada_en,es_b2b,organizacion_id::text,empresa_razon_social_snapshot,empresa_rut_masked_snapshot,empresa_rut_verificada,representante_legal_id::text,representante_nombre_snapshot,representante_rut_masked_snapshot,representante_rut_verificada`
 
 func scan(row pgx.Row) (domain.Agreement, error) {
 	var a domain.Agreement
+	var isB2B, companyRUTVerified, repRUTVerified bool
+	var organizationID, representativeID *string
+	var legalName, companyRUT, representativeName, representativeRUT *string
 	a.Signatures = []domain.Signature{}
-	err := row.Scan(&a.ID, &a.ProposalID, &a.QuoteID, &a.SpaceID, &a.OwnerID, &a.RenterID, &a.ProposalVersion, &a.SHA256, &a.State, &a.ExpiresAt, &a.PaymentExpiresAt, &a.OccupancyID, &a.SignatureMode, &a.Revision, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.ProposalID, &a.QuoteID, &a.SpaceID, &a.OwnerID, &a.RenterID, &a.ProposalVersion, &a.SHA256, &a.State, &a.ExpiresAt, &a.PaymentExpiresAt, &a.OccupancyID, &a.SignatureMode, &a.Revision, &a.CreatedAt, &a.UpdatedAt, &isB2B, &organizationID, &legalName, &companyRUT, &companyRUTVerified, &representativeID, &representativeName, &representativeRUT, &repRUTVerified)
+	if err == nil && isB2B {
+		if organizationID == nil || legalName == nil || companyRUT == nil || representativeID == nil || representativeName == nil || representativeRUT == nil || !companyRUTVerified || !repRUTVerified {
+			return a, domain.ErrConflict
+		}
+		a.CompanyRepresentation = &domain.CompanyRepresentation{OrganizationID: *organizationID, LegalName: *legalName, MaskedRUT: *companyRUT, RUTVerified: true, RepresentativeUserID: *representativeID, RepresentativeName: *representativeName, RepresentativeRUT: *representativeRUT, RepresentativeRUTVerified: true}
+	}
 	return a, mapError(err)
 }
 func mapError(err error) error {
@@ -96,7 +105,7 @@ func signatures(ctx context.Context, db rowReader, a *domain.Agreement) error {
 	return rows.Err()
 }
 func (r *Repository) Get(ctx context.Context, actor, id string) (domain.Agreement, error) {
-	a, err := scan(r.db.QueryRow(ctx, `SELECT `+columns+` FROM public.contrato_solicitud_comercial WHERE id=$1 AND ($2=propietario_id OR $2=arrendatario_id)`, id, actor))
+	a, err := scan(r.db.QueryRow(ctx, `SELECT `+columns+` FROM public.contrato_solicitud_comercial WHERE id=$1 AND ($2=propietario_id OR $2=arrendatario_id OR (es_b2b AND $2=representante_legal_id))`, id, actor))
 	if err != nil {
 		return a, err
 	}
@@ -104,7 +113,7 @@ func (r *Repository) Get(ctx context.Context, actor, id string) (domain.Agreemen
 	return a, err
 }
 func (r *Repository) List(ctx context.Context, actor, role string) ([]domain.Agreement, error) {
-	rows, err := r.db.Query(ctx, `SELECT `+columns+` FROM public.contrato_solicitud_comercial WHERE ($1=propietario_id OR $1=arrendatario_id) AND ($2='' OR ($2='landlord' AND $1=propietario_id) OR ($2='renter' AND $1=arrendatario_id)) ORDER BY creada_en DESC,id DESC LIMIT 100`, actor, role)
+	rows, err := r.db.Query(ctx, `SELECT `+columns+` FROM public.contrato_solicitud_comercial WHERE ($1=propietario_id OR $1=arrendatario_id OR (es_b2b AND $1=representante_legal_id)) AND ($2='' OR ($2='landlord' AND ($1=propietario_id OR (es_b2b AND $1=representante_legal_id))) OR ($2='renter' AND $1=arrendatario_id)) ORDER BY creada_en DESC,id DESC LIMIT 100`, actor, role)
 	if err != nil {
 		return nil, err
 	}
@@ -200,9 +209,26 @@ func proposal(ctx context.Context, tx pgx.Tx, id string) (source, error) {
 		Location        struct {
 			Revision int64 `json:"revision"`
 		} `json:"location"`
+		CompanyRepresentation *struct {
+			OrganizationID            string `json:"organization_id"`
+			LegalName                 string `json:"legal_name"`
+			MaskedRUT                 string `json:"rut_masked"`
+			RUTVerified               bool   `json:"rut_verified"`
+			RepresentativeUserID      string `json:"representative_user_id"`
+			RepresentativeName        string `json:"representative_name"`
+			RepresentativeRUT         string `json:"representative_rut_masked"`
+			RepresentativeRUTVerified bool   `json:"representative_rut_verified"`
+		} `json:"company_representation,omitempty"`
 	}
 	if err = json.Unmarshal(blob, &terms); err != nil {
 		return s, err
+	}
+	if terms.CompanyRepresentation != nil {
+		c := terms.CompanyRepresentation
+		if c.OrganizationID == "" || c.LegalName == "" || c.MaskedRUT == "" || !c.RUTVerified || c.RepresentativeUserID == "" || c.RepresentativeName == "" || c.RepresentativeRUT == "" || !c.RepresentativeRUTVerified {
+			return s, domain.ErrConflict
+		}
+		s.agreement.CompanyRepresentation = &domain.CompanyRepresentation{OrganizationID: c.OrganizationID, LegalName: c.LegalName, MaskedRUT: c.MaskedRUT, RUTVerified: c.RUTVerified, RepresentativeUserID: c.RepresentativeUserID, RepresentativeName: c.RepresentativeName, RepresentativeRUT: c.RepresentativeRUT, RepresentativeRUTVerified: c.RepresentativeRUTVerified}
 	}
 	s.locationRevision = terms.Location.Revision
 	s.templateVersion = terms.TemplateVersion
@@ -410,7 +436,15 @@ func (r *Repository) Create(ctx context.Context, actor domain.Actor, in domain.C
 		mode = in.SignatureMode
 	}
 	a.SignatureMode = mode
-	_, err = tx.Exec(ctx, `INSERT INTO public.contrato_solicitud_comercial(id,propuesta_id,cotizacion_id,espacio_id,propietario_id,arrendatario_id,propuesta_version,documento_sha256,idempotency_key,fingerprint,estado,vence_en,modalidad_firma,creada_en,actualizada_en) VALUES($1,$2,$3,$4,$5,$6,$7,decode($8,'hex'),$9,$10,$11,$12,$13,$14,$14)`, a.ID, a.ProposalID, a.QuoteID, a.SpaceID, a.OwnerID, a.RenterID, a.ProposalVersion, a.SHA256, key, domain.Fingerprint(in), a.State, a.ExpiresAt, mode, at)
+	c := a.CompanyRepresentation
+	var isB2B bool
+	var orgID, legalName, companyRUT, repID, repName, repRUT any
+	var companyRUTVerified, repRUTVerified bool
+	if c != nil {
+		isB2B, orgID, legalName, companyRUT, repID, repName, repRUT = true, c.OrganizationID, c.LegalName, c.MaskedRUT, c.RepresentativeUserID, c.RepresentativeName, c.RepresentativeRUT
+		companyRUTVerified, repRUTVerified = c.RUTVerified, c.RepresentativeRUTVerified
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO public.contrato_solicitud_comercial(id,propuesta_id,cotizacion_id,espacio_id,propietario_id,arrendatario_id,propuesta_version,documento_sha256,idempotency_key,fingerprint,estado,vence_en,modalidad_firma,creada_en,actualizada_en,es_b2b,organizacion_id,empresa_razon_social_snapshot,empresa_rut_masked_snapshot,empresa_rut_verificada,representante_legal_id,representante_nombre_snapshot,representante_rut_masked_snapshot,representante_rut_verificada) VALUES($1,$2,$3,$4,$5,$6,$7,decode($8,'hex'),$9,$10,$11,$12,$13,$14,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, a.ID, a.ProposalID, a.QuoteID, a.SpaceID, a.OwnerID, a.RenterID, a.ProposalVersion, a.SHA256, key, domain.Fingerprint(in), a.State, a.ExpiresAt, mode, at, isB2B, orgID, legalName, companyRUT, companyRUTVerified, repID, repName, repRUT, repRUTVerified)
 	if err != nil {
 		return a, mapError(err)
 	}
@@ -441,7 +475,7 @@ func (r *Repository) locked(ctx context.Context, tx pgx.Tx, actor, id string) (d
 	if err != nil {
 		return a, err
 	}
-	if actor != "" && actor != a.OwnerID && actor != a.RenterID {
+	if actor != "" && actor != a.OwnerID && actor != a.RenterID && (a.CompanyRepresentation == nil || actor != a.CompanyRepresentation.RepresentativeUserID) {
 		return a, domain.ErrNotFound
 	}
 	if err = lockParticipants(ctx, tx, a.OwnerID, a.RenterID); err != nil {
@@ -451,6 +485,21 @@ func (r *Repository) locked(ctx context.Context, tx pgx.Tx, actor, id string) (d
 		return a, mapError(err)
 	}
 	return scan(tx.QueryRow(ctx, `SELECT `+columns+` FROM public.contrato_solicitud_comercial WHERE id=$1 FOR UPDATE`, id))
+}
+
+func requireCompanyRepresentative(ctx context.Context, tx pgx.Tx, actor, ownerID, spaceID string, c *domain.CompanyRepresentation, asOf time.Time) error {
+	if c == nil || actor == "" || actor != c.RepresentativeUserID {
+		return domain.ErrNotFound
+	}
+	var allowed bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.organizacion_miembro m JOIN public.usuario u ON u.id=m.usuario_id JOIN public.espacio e ON e.id=$3 AND e.organizacion_id=m.organizacion_id AND e.es_b2b AND e.propietario_id=$4 JOIN LATERAL public.account_profile_identity_status(m.usuario_id,$5) k ON k.verified WHERE m.organizacion_id=$1 AND m.usuario_id=$2 AND m.rol='representante_legal' AND m.estado='activo' AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=m.usuario_id))`, c.OrganizationID, actor, spaceID, ownerID, asOf.UTC()).Scan(&allowed)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		return domain.ErrNotFound
+	}
+	return nil
 }
 func (r *Repository) Accept(ctx context.Context, actor domain.Actor, id string, revision int64, in domain.SignInput) (domain.Agreement, error) {
 	tx, err := r.db.Begin(ctx)
@@ -462,14 +511,20 @@ func (r *Repository) Accept(ctx context.Context, actor domain.Actor, id string, 
 	if err != nil {
 		return a, err
 	}
-	if actor.ID != a.OwnerID {
+	if a.CompanyRepresentation != nil {
+		if err = requireCompanyRepresentative(ctx, tx, actor.ID, a.OwnerID, a.SpaceID, a.CompanyRepresentation, r.now().UTC()); err != nil {
+			return a, err
+		}
+	} else if actor.ID != a.OwnerID {
 		return a, domain.ErrNotFound
 	}
 	if !hashMatches(a.SHA256, in.SHA256) {
 		return a, domain.ErrHash
 	}
-	if err = requireRole(ctx, tx, actor.ID, "arrendador"); err != nil {
-		return a, err
+	if a.CompanyRepresentation == nil {
+		if err = requireRole(ctx, tx, actor.ID, "arrendador"); err != nil {
+			return a, err
+		}
 	}
 	var signed bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.contrato_firma_comercial WHERE solicitud_id=$1 AND rol='arrendador')`, id).Scan(&signed); err != nil {

@@ -76,8 +76,9 @@ type ReservationCases struct {
 }
 
 type reservation struct {
-	host, renter, status string
-	start, end           time.Time
+	host, renter, status   string
+	start, end             time.Time
+	actingUser, actingRole string
 }
 
 func (r reservation) role(actor string) string {
@@ -90,6 +91,9 @@ func (r reservation) role(actor string) string {
 	case r.renter:
 		return "arrendatario"
 	default:
+		if actor == r.actingUser {
+			return r.actingRole
+		}
 		return ""
 	}
 }
@@ -103,9 +107,26 @@ func readReservation(ctx context.Context, tx pgx.Tx, id, actor string, admin boo
 	if !rentalflow.ValidUUID(id) {
 		return r, ErrInvalid
 	}
-	err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,estado,inicio,termino
-		FROM public.reserva_arriendo_comercial WHERE id=$1 FOR SHARE`, id).
-		Scan(&r.host, &r.renter, &r.status, &r.start, &r.end)
+	err := tx.QueryRow(ctx, `SELECT r.anfitrion_id::text,r.arrendatario_id::text,r.estado,r.inicio,r.termino,
+		CASE WHEN r.anfitrion_id=$2::uuid THEN 'anfitrion'
+		     WHEN r.arrendatario_id=$2::uuid THEN 'arrendatario'
+		     WHEN e.modo_anfitrion='empresa' AND e.propietario_id=r.anfitrion_id AND EXISTS(
+		       SELECT 1 FROM public.organizacion_miembro m WHERE m.organizacion_id=e.organizacion_id
+		        AND m.usuario_id=$2::uuid AND m.estado='activo'
+		        AND m.rol IN ('representante_legal','administrador','operador'))
+		     THEN 'anfitrion' ELSE '' END
+		FROM public.reserva_arriendo_comercial r JOIN public.espacio e ON e.id=r.espacio_id
+		WHERE r.id=$1 FOR SHARE OF r`, id, actor).
+		Scan(&r.host, &r.renter, &r.status, &r.start, &r.end, &r.actingRole)
+	r.actingUser = actor
+	if err == nil && r.actingRole == "anfitrion" && actor != r.host {
+		var memberID string
+		err = tx.QueryRow(ctx, `SELECT m.id::text FROM public.reserva_arriendo_comercial r
+			JOIN public.espacio e ON e.id=r.espacio_id JOIN public.organizacion_miembro m ON m.organizacion_id=e.organizacion_id
+			WHERE r.id=$1 AND e.modo_anfitrion='empresa' AND e.propietario_id=r.anfitrion_id
+			 AND m.usuario_id=$2 AND m.estado='activo'
+			 AND m.rol IN ('representante_legal','administrador','operador') FOR SHARE OF m`, id, actor).Scan(&memberID)
+	}
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !admin && r.role(actor) == "" {
 		return r, ErrNotFound
 	}
@@ -165,7 +186,7 @@ func (c Case) availableActions(r reservation, actor string, admin bool, now time
 	switch c.Status {
 	case "esperando_contraparte":
 		actions = append(actions, "responder", "escalar", "adjuntar")
-		if actor == c.initiator {
+		if actor == c.initiator || c.InitiatorRole == "anfitrion" && r.role(actor) == "anfitrion" {
 			actions = append(actions, "cerrar")
 		}
 	case "en_mediacion_espacigo":
@@ -382,7 +403,7 @@ func notify(ctx context.Context, tx pgx.Tx, c Case, r reservation, actor string,
 		SELECT gen_random_uuid(),usuario,'caso_soporte_reserva','Actualización del caso de la reserva',
 		'Abre la reserva para consultar la actualización.',ruta || $1::uuid::text,$2,$3
 		FROM (VALUES ($4::uuid,'/anfitrion/reservas/'),($5::uuid,'/reservas/')) AS destinatario(usuario,ruta)
-		WHERE $6::boolean OR usuario <> $7::uuid`, c.ReservationID, c.ID, now, r.host, r.renter, both, actor)
+		WHERE $6::boolean OR ($7='anfitrion' AND usuario=$5::uuid) OR ($7='arrendatario' AND usuario=$4::uuid)`, c.ReservationID, c.ID, now, r.host, r.renter, both, r.role(actor))
 	return err
 }
 
@@ -529,7 +550,11 @@ func (s *Service) Summary(ctx context.Context, reservationID, actor string) (Sum
 		(SELECT count(*) FROM public.resena_reserva_comercial v WHERE v.reserva_id=r.id AND v.estado <> 'oculta'),
 		(SELECT count(*) FROM public.caso_soporte_reserva_comercial c WHERE c.reserva_id=r.id
 			AND c.estado IN ('esperando_contraparte','en_mediacion_espacigo'))
-		FROM public.reserva_arriendo_comercial r WHERE r.id=$1 AND $2 IN (r.anfitrion_id,r.arrendatario_id)
+		FROM public.reserva_arriendo_comercial r JOIN public.espacio e ON e.id=r.espacio_id WHERE r.id=$1
+		AND ($2::uuid IN (r.anfitrion_id,r.arrendatario_id) OR EXISTS(
+		 SELECT 1 FROM public.organizacion_miembro m WHERE e.modo_anfitrion='empresa'
+		  AND e.propietario_id=r.anfitrion_id AND m.organizacion_id=e.organizacion_id
+		  AND m.usuario_id=$2 AND m.estado='activo' AND m.rol IN ('representante_legal','administrador','operador')))
 		AND r.anfitrion_id <> r.arrendatario_id`, reservationID, actor).Scan(&out.UnreadMessages, &out.Reviews, &out.OpenCases)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, ErrNotFound

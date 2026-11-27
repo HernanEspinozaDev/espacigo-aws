@@ -71,7 +71,7 @@ func (s *Service) CreateWithLocation(ctx context.Context, owner string, in Creat
 	if err := s.ResolvePin(ctx, *loc.Latitude, *loc.Longitude, loc.RegionCode, loc.CommuneCode); err != nil {
 		return Draft{}, err
 	}
-	base := Input{CategoryCode: in.CategoryCode, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, CancellationPolicyVersion: in.CancellationPolicyVersion, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: loc.Address, RegionCode: loc.RegionCode, CommuneCode: loc.CommuneCode, AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
+	base := Input{CategoryCode: in.CategoryCode, Title: in.Title, Description: in.Description, AreaM2: in.AreaM2, Capacity: in.Capacity, UsageRules: in.UsageRules, CancellationPolicyVersion: in.CancellationPolicyVersion, RateUnit: in.RateUnit, BasePriceCLP: in.BasePriceCLP, Address: loc.Address, RegionCode: loc.RegionCode, CommuneCode: loc.CommuneCode, OrganizationID: in.OrganizationID, IsB2B: in.IsB2B, AttributeSchemaVersion: in.AttributeSchemaVersion, Attributes: in.Attributes}
 	if fields := base.FieldErrors(); len(fields) != 0 {
 		return Draft{}, NewValidationError(fields)
 	}

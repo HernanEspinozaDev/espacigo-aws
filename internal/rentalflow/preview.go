@@ -139,7 +139,7 @@ func (s *ContractPreviewService) Preview(ctx context.Context, actorID, quoteID s
 	quote.OwnerID = canonicalUUID(quote.OwnerID)
 	quote.RenterID = canonicalUUID(quote.RenterID)
 	if quote.ID != quoteID || !validUUID(quote.SpaceID) || !validUUID(quote.OwnerID) || !validUUID(quote.RenterID) || quote.OwnerID == quote.RenterID ||
-		(actorID != quote.OwnerID && actorID != quote.RenterID) {
+		(actorID != quote.OwnerID && actorID != quote.RenterID && !quote.CompanyRepresentativeAuthorized) {
 		return ContractPreview{}, ErrNotFound
 	}
 	if !quote.ExpiresAt.After(now) {

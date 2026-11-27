@@ -16,13 +16,27 @@ const cancellationPolicy = {
 const future = () => new Date(Date.now() + 3600000).toISOString();
 const rentalDate = () =>
   new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-const proposal = () => ({
+const proposal = (companyRepresentation = false) => ({
   id: proposalId,
   version: 1,
   sha256: snapshot,
   quote_id: quoteId,
   space_id: spaceId,
   space_title: "Sala de contrato sintética",
+  ...(companyRepresentation
+    ? {
+        company_representation: {
+          organization_id: "10000000-0000-4000-8000-000000000009",
+          legal_name: "Inmobiliaria de Prueba SpA",
+          rut_masked: "••••4321",
+          rut_verified: true,
+          representative_user_id: "10000000-0000-4000-8000-000000000010",
+          representative_name: "Representante Sintético",
+          representative_rut_masked: "••••8765",
+          representative_rut_verified: true,
+        },
+      }
+    : {}),
   template_id: "10000000-0000-4000-8000-000000000006",
   template_version: 1,
   location: {
@@ -95,10 +109,12 @@ async function fixture(
     capabilitiesError = false,
     failFirstSend = false,
     actor = "arrendatario",
+    companyRepresentation = false,
   }: {
     capabilitiesError?: boolean;
     failFirstSend?: boolean;
     actor?: "arrendatario" | "arrendador";
+    companyRepresentation?: boolean;
   } = {},
 ) {
   let submitted = false;
@@ -201,16 +217,17 @@ async function fixture(
       status = 201;
       body = {
         data: {
-          ...proposal(),
+          ...proposal(companyRepresentation),
           id: quoteId,
           cancellation_policy: cancellationPolicy,
           created_at: new Date().toISOString(),
           expires_at: future(),
         },
       };
-    } else if (path.endsWith("/contract-proposal")) body = { data: proposal() };
+    } else if (path.endsWith("/contract-proposal"))
+      body = { data: proposal(companyRepresentation) };
     else if (path === `/api/backend/rental-contract-proposals/${proposalId}`)
-      body = { data: proposal() };
+      body = { data: proposal(companyRepresentation) };
     else if (
       path === "/api/backend/commercial-agreements/otp-challenge" &&
       r.method() === "POST"
@@ -374,6 +391,20 @@ test("renter reviews the immutable proposal, explicitly signs, and resumes only 
   await expect(
     page.getByText("Firmado por ambas partes", { exact: true }).first(),
   ).toBeVisible();
+});
+
+test("company representation is visible in the proposal document with masked RUTs and its legal signer", async ({
+  page,
+}) => {
+  await fixture(page, { companyRepresentation: true });
+  await page.goto(`/reservas/nueva?${selection()}`);
+  await page
+    .getByRole("button", { name: "Revisar y firmar contrato", exact: true })
+    .click();
+  await expect(page.getByText(/Inmobiliaria de Prueba SpA/)).toBeVisible();
+  await expect(page.getByText("••••4321", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Representante Sintético/)).toBeVisible();
+  await expect(page.getByText("••••8765", { exact: true })).toBeVisible();
 });
 
 test("capability lookup failure blocks the legacy pay button", async ({

@@ -57,6 +57,9 @@ func (r *repository) Accept(_ context.Context, a domain.Actor, _ string, revisio
 	r.calls++
 	r.lastActor = a
 	r.lastRevision = revision
+	if a.ID != ownerID {
+		return domain.Agreement{}, domain.ErrNotFound
+	}
 	return r.agreement, r.err
 }
 func (r *repository) Decide(_ context.Context, a domain.Actor, _ string, revision int64, _ domain.DecisionInput) (domain.Agreement, error) {
@@ -139,7 +142,6 @@ func TestCommercialAgreementRejectsUnsafeWritesBeforeRepository(t *testing.T) {
 		{name: "cross origin", method: "POST", path: "/api/v1/commercial-agreements", token: "renter", body: good, key: "key", origin: "https://attacker.test", status: 403},
 		{name: "missing CAS", method: "PUT", path: "/api/v1/commercial-agreements/" + agreementID + "/landlord-signature", token: "owner", body: `{}`, status: 428},
 		{name: "weak CAS", method: "PUT", path: "/api/v1/commercial-agreements/" + agreementID + "/landlord-signature", token: "owner", body: `{}`, etag: `W/` + ETag(agreementID, 1), status: 400},
-		{name: "renter second signature", method: "PUT", path: "/api/v1/commercial-agreements/" + agreementID + "/landlord-signature", token: "renter", body: `{}`, etag: ETag(agreementID, 1), status: 403},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo, h := fixture()
@@ -148,6 +150,14 @@ func TestCommercialAgreementRejectsUnsafeWritesBeforeRepository(t *testing.T) {
 				t.Fatalf("status%d want%d calls%d body%s", w.Code, tc.status, repo.calls, w.Body.String())
 			}
 		})
+	}
+}
+func TestCommercialAgreementSignatureAuthorizationIsEnforcedByRepository(t *testing.T) {
+	repo, h := fixture()
+	body := `{"snapshot_sha256":"` + strings.Repeat("a", 64) + `","consent":true,"consent_version":"commercial-agreement-v1"}`
+	w := invoke(h, "PUT", "/api/v1/commercial-agreements/"+agreementID+"/landlord-signature", "renter", body, ETag(agreementID, 1), "", "")
+	if w.Code != 404 || repo.calls != 1 {
+		t.Fatalf("repository did not reject non-owner/non-representative signer: status%d calls%d body%s", w.Code, repo.calls, w.Body.String())
 	}
 }
 func TestCommercialAgreementStableConflictCodes(t *testing.T) {

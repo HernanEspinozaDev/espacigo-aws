@@ -98,9 +98,10 @@ type Quote struct {
 	EndAt              time.Time                `json:"end_at"`
 	TimeZone           string                   `json:"time_zone"`
 	CreatedAt          time.Time                `json:"created_at"`
-	ExpiresAt          time.Time                `json:"expires_at"`
-	BillingMode        string                   `json:"billing_mode,omitempty"`
-	CancellationPolicy *commercialpolicy.Policy `json:"cancellation_policy,omitempty"`
+	ExpiresAt                       time.Time                `json:"expires_at"`
+	BillingMode                     string                   `json:"billing_mode,omitempty"`
+	CancellationPolicy              *commercialpolicy.Policy `json:"cancellation_policy,omitempty"`
+	CompanyRepresentativeAuthorized bool                     `json:"-"`
 }
 
 // QuoteRepository must atomically re-read the active publication and current

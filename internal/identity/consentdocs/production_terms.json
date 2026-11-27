@@ -1,8 +1,8 @@
 {
   "scope": "Plataforma EspaciGo — Chile",
-  "status": "Condiciones generales vigentes desde el 18 de noviembre de 2026 para el uso comercial y operativo de EspaciGo.",
-  "id": "00000000-0000-4000-8000-000000000101",
-  "code": "espacigo-terminos-20261118-v1",
+  "status": "Condiciones generales vigentes desde el 26 de noviembre de 2026 para el uso comercial y operativo de EspaciGo.",
+  "id": "00000000-0000-4000-8000-000000000104",
+  "code": "espacigo-terminos-20261126-v2",
   "type": "terminos",
   "title": "Términos y condiciones",
   "sections": [
@@ -15,31 +15,43 @@
       "body": "Para crear una cuenta y operar en EspaciGo debes ser mayor de 18 años y contar con plena capacidad legal para contratar conforme a la legislación chilena. El registro exige un correo electrónico válido y de uso exclusivo del titular, cuya verificación es obligatoria antes de iniciar sesión, publicar espacios o solicitar arriendos. Eres responsable de mantener la confidencialidad de tu contraseña, no compartir enlaces de verificación o recuperación de un solo uso y notificar de inmediato cualquier acceso no autorizado. Una misma cuenta puede actuar como Arrendatario y como Anfitrión, sujeta a los requisitos de verificación de cada flujo."
     },
     {
-      "heading": "3. Verificación de identidad (KYC) y acreditación documental",
-      "body": "Con el fin de resguardar la confianza y prevenir fraudes, EspaciGo requiere procesos de verificación de identidad (validación de cédula de identidad vigente, RUT y verificación biométrica cuando corresponda) antes de celebrar contratos de arriendo o activar publicaciones. Asimismo, quien publique un espacio deberá acreditar su titularidad o facultad legal para arrendarlo o subarrendarlo mediante documentos vigentes que son revisados antes de autorizar la publicación en el catálogo público."
+      "heading": "3. Acreditación de identidad y documentación comercial (KYC, KYB y SII)",
+      "body": "Para resguardar la seguridad jurídica de las operaciones, EspaciGo exige verificación de identidad personal (KYC: cédula de identidad vigente, RUT y validación biométrica cuando corresponda) antes de celebrar contratos de arriendo o activar publicaciones. Adicionalmente, la acreditación comercial del Anfitrión es diferenciada según su modalidad de operación: (a) el Anfitrión Persona Natural debe presentar su certificado de inicio de actividades vigente emitido por el Servicio de Impuestos Internos (SII); y (b) el Anfitrión en Modo Empresa debe completar la verificación de la persona jurídica (KYB), presentando el e-RUT vigente de la sociedad, su certificado de inicio de actividades ante el SII y los poderes vigentes que acrediten la personería de cada representante legal con identidad verificada."
     },
     {
-      "heading": "4. Publicación de espacios y obligaciones del Anfitrión",
+      "heading": "4. Plazo improrrogable para regularizar documentación y verificación por espacio",
+      "body": "El Anfitrión dispone de un plazo único e improrrogable de dos (2) meses calendario, computados según la zona horaria oficial de Chile continental (America/Santiago), contados desde la fecha de su primera publicación activa en la plataforma, sea como Persona Natural o en Modo Empresa. Agregar nuevos espacios, pausar publicaciones o reactivarlas no reinicia, suspende ni prorroga el plazo original del titular. Cada espacio publicado requiere, además, su propia acreditación documental vigente (certificado de dominio vigente o autorización expresa para arrendar o subarrendar, según corresponda). Únicamente los espacios que cuenten tanto con la acreditación aprobada del titular como con la documentación aprobada del inmueble respectivo obtienen y conservan la insignia de verificación por espacio."
+    },
+    {
+      "heading": "5. Vencimiento del plazo, inhabilitación automática y regularización",
+      "body": "Si al vencimiento del plazo de dos (2) meses calendario el titular (Persona Natural o Empresa) no ha completado y aprobado la documentación comercial exigida, EspaciGo procederá a la inhabilitación automática del perfil u organización para publicar nuevos espacios, administrar publicaciones existentes y recibir nuevas reservas, dejando habilitadas exclusivamente la carga de antecedentes para regularización documental y la solicitud de cierre de cuenta cuando no existan obligaciones vigentes pendientes. Si el titular se encuentra al día pero falta el respaldo documental de un inmueble específico, la restricción recaerá sobre dicho espacio. Los expedientes completos ingresados dentro de plazo conservan la publicación activa mientras EspaciGo concluye su revisión. La inhabilitación no exime del cumplimiento íntegro de reservas y contratos ya celebrados, ni impide operar como Arrendatario salvo suspensión por infracción o fraude."
+    },
+    {
+      "heading": "6. Modo Empresa, mandato, poderes y responsabilidad tributaria del Anfitrión",
+      "body": "Quien opere en Modo Empresa declara y garantiza que cuenta con mandato, personería y poderes vigentes y suficientes para publicar espacios, administrar la organización, designar representantes legales habilitados y celebrar contratos de arriendo en nombre de la sociedad, obligándose a revocar de inmediato a cualquier miembro cuyas facultades hayan cesado y respondiendo por todo perjuicio derivado de representación insuficiente o extemporánea. Asimismo, el Anfitrión —Persona Natural o Empresa— es el único y exclusivo responsable del cumplimiento oportuno de sus obligaciones tributarias ante el SII y demás autoridades competentes, incluyendo la emisión de boletas o facturas, la declaración de rentas e impuestos aplicables y la veracidad de su giro comercial, sin que EspaciGo asuma responsabilidad tributaria por los ingresos percibidos por el Anfitrión."
+    },
+    {
+      "heading": "7. Publicación de espacios y obligaciones del Anfitrión",
       "body": "Al publicar un espacio, el Anfitrión declara y garantiza que cuenta con derechos vigentes y suficientes sobre el inmueble, que el uso ofrecido cumple la normativa municipal y el reglamento de copropiedad aplicable, y que la información del anuncio (categoría, región y comuna, dimensiones, fotografías reales, atributos, horarios de acceso, reglas de uso, precio y calendario de disponibilidad) es veraz, completa y actualizada. El Anfitrión se obliga a entregar el espacio limpio, seguro y apto para el destino acordado, respetar las reservas confirmadas y abstenerse de solicitar pagos por fuera de la plataforma para operaciones originadas en EspaciGo."
     },
     {
-      "heading": "5. Reservas, contratos de arriendo y obligaciones del Arrendatario",
+      "heading": "8. Reservas, contratos de arriendo y obligaciones del Arrendatario",
       "body": "Toda reserva o arriendo en EspaciGo se formaliza mediante la selección de fechas o bloques disponibles, la revisión de la cotización desglosada, la aceptación del contrato de arriendo específico del espacio y la confirmación del pago correspondiente. El Arrendatario se obliga a utilizar el espacio únicamente para el destino permitido en la publicación y en el contrato, respetar los horarios, normas de acceso y convivencia del inmueble, no almacenar ni introducir bienes ilícitos, explosivos, inflamables, tóxicos o peligrosos, no ceder ni subarrendar el espacio a terceros sin autorización expresa, y restituirlo libre de objetos y en buen estado al término del período contratado."
     },
     {
-      "heading": "6. Tarifas, pagos, garantías y facturación",
+      "heading": "9. Tarifas, pagos, garantías y facturación",
       "body": "Antes de confirmar una operación, EspaciGo informa de manera transparente el valor de arriendo del espacio, la tarifa o comisión por servicio de plataforma, los impuestos aplicables y, cuando corresponda, el monto de garantía para cubrir eventuales daños o incumplimientos. Los pagos y comprobantes se registran dentro de la plataforma para resguardar a ambas partes. El incumplimiento en los pagos o el intento de evadir el flujo transaccional de EspaciGo faculta la cancelación de la solicitud y la suspensión de la cuenta."
     },
     {
-      "heading": "7. Entrega, recepción, cancelaciones y resolución de disputas",
+      "heading": "10. Entrega, recepción, cancelaciones y resolución de disputas",
       "body": "Las condiciones de cancelación y reembolso aplicables a cada reserva se informan de forma previa a la confirmación y quedan reflejadas en el contrato de arriendo. Durante la entrega inicial (check-in) y la restitución del espacio (check-out), las partes pueden registrar actas y evidencia fotográfica en la plataforma. En caso de discrepancias, daños materiales o incumplimientos contractuales, cualquiera de las partes podrá abrir un caso en el módulo de disputas dentro de los plazos establecidos, adjuntando los antecedentes para su revisión trazable."
     },
     {
-      "heading": "8. Conductas prohibidas, suspensión y limitación de responsabilidad",
+      "heading": "11. Conductas prohibidas, suspensión y limitación de responsabilidad",
       "body": "Queda estrictamente prohibido proporcionar identidad o documentación falsa, vulnerar controles técnicos de seguridad, extraer datos del catálogo de manera automatizada, publicar contenido ofensivo o engañoso y utilizar los espacios para fines contrarios a la ley. EspaciGo podrá pausar publicaciones, restringir funciones o suspender cuentas ante alertas fundadas de fraude, riesgo operativo o infracción a estos Términos. La responsabilidad de EspaciGo se circunscribe al correcto funcionamiento de sus servicios digitales conforme a la legislación chilena vigente, incluyendo la Ley N° 19.496 sobre Protección de los Derechos de los Consumidores en lo que resulte aplicable."
     },
     {
-      "heading": "9. Actualizaciones, legislación aplicable y contacto",
+      "heading": "12. Actualizaciones, legislación aplicable y contacto",
       "body": "EspaciGo podrá actualizar estos Términos y condiciones para reflejar mejoras operativas, nuevas funcionalidades o exigencias normativas; cada versión se identifica con un código único y huella criptográfica SHA-256, conservando el registro íntegro de las aceptaciones previas. Estos Términos se rigen por las leyes de la República de Chile y cualquier controversia se someterá a los tribunales ordinarios de justicia competentes. Para consultas operativas o legales puedes escribir a contacto@hotusoft.com (y al canal corporativo contacto@espacigo.cl)."
     }
   ]

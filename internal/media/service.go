@@ -12,6 +12,21 @@ import (
 
 type IDGenerator interface{ ID() (string, error) }
 
+type actorContextKey struct{}
+
+// WithActor keeps requester identity separate from the canonical owner used
+// for private object paths and per-space quota scopes.
+func WithActor(ctx context.Context, actorID string) context.Context {
+	return context.WithValue(ctx, actorContextKey{}, actorID)
+}
+
+func ActorFromContext(ctx context.Context, fallback string) string {
+	if actor, ok := ctx.Value(actorContextKey{}).(string); ok && actor != "" {
+		return actor
+	}
+	return fallback
+}
+
 type UploadResult struct {
 	Photo   Photo
 	Reused  bool

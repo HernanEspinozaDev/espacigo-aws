@@ -3629,6 +3629,602 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/host/organization-join-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Solicita adhesión por RUT desde una cuenta con KYC vigente. La respuesta no identifica a la organización ni a sus miembros. Disponible en evaluación local con KYB configurado. */
+    post: operations["requestKYBOrganizationMembership"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organization-join-requests/{requestId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Consulta el estado de la solicitud propia. Disponible en evaluación local con KYB configurado. */
+    get: operations["getOwnKYBOrganizationJoinRequest"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/join-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las solicitudes para un representante legal activo con KYC vigente. Disponible en evaluación local con KYB configurado. */
+    get: operations["listKYBOrganizationJoinRequests"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/join-requests/{requestId}/approve": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Aprueba la solicitud y emite una invitación de un solo uso. El solicitante debe aceptarla con su propia cuenta. Disponible en evaluación local con KYB configurado. */
+    post: operations["approveKYBOrganizationJoinRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/join-requests/{requestId}/reject": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Rechaza una solicitud como representante legal activo. Disponible en evaluación local con KYB configurado. */
+    post: operations["rejectKYBOrganizationJoinRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista las empresas en que la cuenta tiene una membresía activa con su estado de cumplimiento comercial y su plazo, si ya empezó. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    get: operations["listHostOrganizations"];
+    put?: never;
+    /** @description Registra una empresa única por RUT con el usuario autenticado como representante legal inicial. Requiere KYC personal vigente. Un RUT existente devuelve 409 sin identificar a los miembros. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    post: operations["createHostOrganization"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Consulta el perfil corporativo para un miembro activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    get: operations["getHostOrganization"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** @description Actualiza el nombre comercial y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    patch: operations["updateHostOrganization"];
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/members": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Lista las membresías del equipo de una empresa. Requiere una membresía activa. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    get: operations["listHostOrganizationMembers"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/members/{memberId}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        memberId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Revoca una membresía activa como representante legal. Protege al último representante activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    delete: operations["revokeHostOrganizationMember"];
+    options?: never;
+    head?: never;
+    /** @description Cambia el rol de un miembro como representante legal. Protege al último representante activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    patch: operations["changeHostOrganizationMemberRole"];
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/invitations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Emite una invitación de un solo uso por siete días. El representante legal recibe el token solo al crearlo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    post: operations["inviteHostOrganizationMember"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/host/organizations/{organizationId}/invitations/{invitationId}/accept": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        invitationId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Consume la invitación una sola vez con una cuenta cuyo correo verificado coincide y cuyo KYC personal está vigente. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    post: operations["acceptHostOrganizationInvitation"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/policy-consent": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Devuelve los términos de documentación comercial y la aceptación de la cuenta autenticada. Disponible en evaluación local con KYB_LOCAL_TERMS_V2 habilitado. */
+    get: operations["getKYBHostPolicyConsent"];
+    put?: never;
+    /** @description Registra de forma idempotente la aceptación de la versión vigente por la cuenta autenticada. Disponible en evaluación local con KYB_LOCAL_TERMS_V2 habilitado. */
+    post: operations["acceptKYBHostPolicyConsent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/personal/compliance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Devuelve cumplimiento, acreditación SII y plazo de gracia del anfitrión autenticado con KYB configurado. */
+    get: operations["getPersonalHostCompliance"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/personal/sii": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Carga el Certificado de Inicio de Actividades personal. Acepta PDF, JPEG o PNG de hasta 10 MiB y valida un giro de seis dígitos. */
+    post: operations["submitPersonalHostSII"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/spaces/{spaceId}/verification": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Carga el respaldo del inmueble para un espacio propio o de una empresa que el actor puede administrar. Acepta PDF, JPEG o PNG de hasta 10 MiB. */
+    post: operations["submitSpaceKYBProperty"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/spaces/{spaceId}/eligibility": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Devuelve el cumplimiento y la verificación del espacio para su titular o miembro autorizado de la empresa. El plazo de gracia se calcula desde la primera publicación activa del titular. Al vencer, el respaldo exigido se evalúa por espacio. */
+    get: operations["getSpaceKYBEligibility"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Lista el cumplimiento documental para revisión administrativa. */
+    get: operations["listAdminKYBCompliance"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/{profileId}/disable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profileId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inhabilita un perfil comercial con permisos administrativos. Registra la decisión en la bitácora. */
+    post: operations["disableAdminKYBCompliance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/{profileId}/enable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profileId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Rehabilita un perfil comercial con permisos administrativos. Registra la decisión en la bitácora. */
+    post: operations["enableAdminKYBCompliance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/documents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Devuelve la cola administrativa de SII personal y respaldos de inmueble que requieren revisión. */
+    get: operations["listAdminKYBComplianceDocuments"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/documents/{documentId}/review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia la revisión del certificado o respaldo identificado. */
+    post: operations["reviewAdminKYBComplianceDocument"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/documents/{documentId}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Registra aprobación o rechazo del certificado o respaldo con permisos administrativos. El rechazo requiere motivo. */
+    post: operations["decisionAdminKYBComplianceDocument"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/documents/{documentId}/url": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Emite un enlace temporal firmado para revisar un documento privado. */
+    get: operations["urlAdminKYBComplianceDocument"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/organizations/{organizationId}/disable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inhabilita el perfil comercial de una empresa y registra al actor administrativo. */
+    post: operations["disableAdminKYBOrganizationCompliance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/compliance/organizations/{organizationId}/enable": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Rehabilita el perfil comercial de una empresa y registra al actor administrativo. */
+    post: operations["enableAdminKYBOrganizationCompliance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/compliance-documents/{storageRef}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Entrega un documento privado de cumplimiento mediante un enlace breve firmado emitido para revisión administrativa. */
+    get: operations["readSignedKYBComplianceDocument"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/verifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Devuelve el expediente empresarial más reciente para representantes legales y administradores activos con KYC vigente de la empresa indicada. La consulta histórica sin empresa requiere el rol arrendador. No incluye RUTs ni referencias de almacenamiento. */
+    get: operations["getOwnKYBVerification"];
+    put?: never;
+    /** @description Presenta el expediente como representante legal activo de la empresa. El RUT del representante debe coincidir con su identidad verificada. El expediente incluye giro SII, e-RUT, certificado de Inicio de Actividades y vigencia de poderes. Cada respaldo de inmueble se envía por espacio. */
+    post: operations["submitKYBVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Devuelve solicitudes pendientes o en revisión; los RUTs cifrados y las claves de almacenamiento nunca aparecen en la respuesta. */
+    get: operations["listPendingKYBVerifications"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Devuelve RUTs descifrados al revisor autorizado para cotejo documental; no es accesible al titular ni a la lista. */
+    get: operations["getKYBVerificationForReview"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inicia la revisión administrativa de una solicitud KYB. */
+    post: operations["startKYBReview"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/decision": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Registra una decisión auditada sobre el expediente. La revisión por documento requiere decidir cada archivo una vez y se aprueba únicamente si todos los archivos son aprobados. La decisión general, si viene junto con el detalle, debe coincidir con el resultado. */
+    post: operations["decideKYBVerification"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/kyb/verifications/{id}/documents/{documentID}/url": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo administrador. Emite una URL firmada de cinco minutos hacia el proxy privado de descarga; no entrega URL S3. */
+    get: operations["getKYBDocumentReviewURL"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/documents/{storageRef}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Descarga un documento KYB descifrado mediante firma temporal. */
+    get: operations["downloadKYBDocumentWithTemporarySignature"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/document-verification/reviewer/cases": {
     parameters: {
       query?: never;
@@ -4092,10 +4688,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Lista exclusivamente espacios propios; borradores, publicaciones activas y espacios ocultos permanecen privados fuera de los recorridos autorizados. */
+    /** @description Lista espacios personales y de empresas donde la cuenta tiene una membresía activa. Los borradores y espacios ocultos se mantienen privados. */
     get: operations["listOwnSpaces"];
     put?: never;
-    /** @description Crea un borrador privado con ubicación validada en una sola transacción. El propietario se obtiene de la sesión. */
+    /** @description Crea un borrador privado con ubicación validada. Admite una empresa existente cuando el actor es representante legal o administrador. El perfil comercial se fija al crear el borrador. Si ese perfil está inhabilitado por documentación, responde 403 con `account_disabled_missing_documentation`. Con la política v2 local habilitada exige aceptación y devuelve 403 con `host_policy_acceptance_required` si falta. */
     post: operations["createOwnSpaceDraft"];
     delete?: never;
     options?: never;
@@ -4390,7 +4986,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
+    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Al vencer el plazo del titular, publicar requiere los documentos del titular y el respaldo aprobado del espacio. El bloqueo comercial devuelve 403 con `account_disabled_missing_documentation`. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
     put: operations["setOwnSpacePublicationState"];
     post?: never;
     delete?: never;
@@ -7108,7 +7704,23 @@ export interface components {
       /** @constant */
       commercial_activation_enabled: true;
     };
+    /** @description Identidad corporativa y representante legal incorporados al snapshot inmutable para las partes autorizadas. */
+    CommercialCompanyRepresentation: {
+      /** Format: uuid */
+      organization_id: string;
+      legal_name: string;
+      rut_masked: string;
+      /** @constant */
+      rut_verified: true;
+      /** Format: uuid */
+      representative_user_id: string;
+      representative_name: string;
+      representative_rut_masked: string;
+      /** @constant */
+      representative_rut_verified: true;
+    };
     CommercialAgreement: {
+      company_representation?: components["schemas"]["CommercialCompanyRepresentation"];
       /** Format: uuid */
       id: string;
       /** Format: uuid */
@@ -7180,6 +7792,7 @@ export interface components {
       decision: "reject" | "withdraw";
     };
     CommercialContractProposal: {
+      company_representation?: components["schemas"]["CommercialCompanyRepresentation"];
       /** Format: uuid */
       id: string;
       version: number;
@@ -9406,6 +10019,16 @@ export interface components {
       /** @enum {string} */
       rate_unit: "hora" | "dia" | "mes";
       base_price_clp: number;
+      /**
+       * Format: uuid
+       * @description Empresa registrada donde el actor es representante legal o administrador. Omitir para publicar como persona natural.
+       */
+      organization_id?: string;
+      /**
+       * @deprecated
+       * @description Si se proporciona debe coincidir con la presencia de organization_id.
+       */
+      is_b2b?: boolean;
       location: components["schemas"]["SpaceLocationInput"];
       /** @description Versión del perfil de atributos; se asume la vigente si se omite. */
       attribute_schema_version?: number;
@@ -9416,6 +10039,13 @@ export interface components {
       /** @enum {string} */
       cancellation_policy_version?:
         "facil_v1" | "flexible_v1" | "moderada_v1" | "estricta_v1";
+      /**
+       * Format: uuid
+       * @description Si se proporciona debe coincidir con el perfil comercial del borrador.
+       */
+      organization_id?: string;
+      /** @deprecated */
+      is_b2b?: boolean;
       category_code: string;
       title: string;
       description?: string;
@@ -9458,6 +10088,9 @@ export interface components {
       address: string;
       /** @enum {string} */
       state: "borrador" | "activa" | "oculta";
+      is_b2b?: boolean;
+      /** Format: uuid */
+      organization_id?: string;
       /** @description Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. */
       time_zone?: string | null;
       /** @description Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. */
@@ -10366,6 +10999,202 @@ export interface components {
       created_at: string;
       /** Format: date-time */
       resolved_at?: string | null;
+    };
+    KYBHostPolicyConsent: {
+      accepted: boolean;
+      document: {
+        /** Format: uuid */
+        id: string;
+        code: string;
+        /** @constant */
+        type: "terminos";
+        title: string;
+        scope: string;
+        status: string;
+        sections: {
+          heading: string;
+          body: string;
+        }[];
+      };
+    };
+    KYBOrganizationJoinRequest: {
+      /** Format: uuid */
+      id: string;
+      estado: string;
+      /** Format: date-time */
+      expires_at: string;
+      /**
+       * Format: uuid
+       * @description Visible para el representante legal.
+       */
+      usuario_id?: string;
+      rol_propuesto?: components["schemas"]["KYBOrganizationRole"];
+      /** Format: date-time */
+      created_at?: string;
+    };
+    /** @enum {string} */
+    KYBOrganizationRole: "representante_legal" | "administrador" | "operador";
+    KYBOrganization: {
+      /** Format: uuid */
+      id: string;
+      legal_name: string;
+      trade_name?: string;
+      public_summary?: string;
+      /** Format: date-time */
+      created_at: string;
+      compliance_status?: components["schemas"]["KYBComplianceStatus"];
+      /** Format: date-time */
+      grace_due_at?: string;
+      my_role?: components["schemas"]["KYBOrganizationRole"];
+    };
+    KYBOrganizationMember: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      usuario_id: string;
+      rol: components["schemas"]["KYBOrganizationRole"];
+      estado: string;
+      /** Format: date-time */
+      joined_at?: string;
+    };
+    KYBOrganizationInvitation: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      organizacion_id: string;
+      /** Format: email */
+      target_email?: string;
+      rol_propuesto: components["schemas"]["KYBOrganizationRole"];
+      estado: string;
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    /** @enum {string} */
+    KYBComplianceStatus:
+      "grace_active" | "in_review" | "compliant" | "disabled_missing_docs";
+    KYBComplianceProfile: {
+      /** Format: uuid */
+      owner_usuario_id: string;
+      /** Format: uuid */
+      organization_id?: string;
+      legal_name?: string;
+      compliance_status: components["schemas"]["KYBComplianceStatus"];
+      sii_giro_code?: string;
+      sii_status?: string;
+      /** Format: date-time */
+      grace_started_at?: string;
+      /** Format: date-time */
+      grace_due_at?: string;
+      /** Format: date-time */
+      disabled_at?: string;
+      disabled_reason?: string;
+    };
+    KYBComplianceDocument: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      owner_usuario_id: string;
+      /** Format: uuid */
+      organization_id?: string;
+      /** Format: uuid */
+      submitted_by?: string;
+      /** Format: uuid */
+      space_id?: string;
+      /** @enum {string} */
+      document_kind:
+        "sii_start_activities" | "property_or_sublease_authorization";
+      /** @enum {string} */
+      status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      mime_type: string;
+      size_bytes: number;
+      sii_giro_code?: string;
+      /** Format: date-time */
+      submitted_at: string;
+      rejection_reason?: string;
+    };
+    KYBSpaceEligibility: {
+      can_publish: boolean;
+      can_book: boolean;
+      space_verified: boolean;
+      compliance_status: components["schemas"]["KYBComplianceStatus"];
+      /** @enum {string} */
+      verification_status?: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      /** Format: date-time */
+      grace_due_at?: string;
+    };
+    KYBVerification: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      organization_id: string;
+      legal_name: string;
+      representative_name: string;
+      sii_giro_code: string;
+      /** @enum {string} */
+      status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      rejection_reason?: string;
+      /** Format: date-time */
+      submitted_at: string;
+      /** Format: date-time */
+      reviewed_at?: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      documents?: components["schemas"]["KYBDocument"][];
+      /** @description Presente únicamente en detalle admin; descifrado para revisión */
+      company_rut?: string;
+      /** @description Presente únicamente en detalle admin; descifrado para revisión */
+      representative_rut?: string;
+    };
+    KYBDocument: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      verification_id?: string;
+      /** @enum {string} */
+      kind:
+        | "erut"
+        | "sii_start_activities"
+        | "power_certificate"
+        | "property_or_sublease_authorization";
+      /** @enum {string} */
+      mime_type: "application/pdf" | "image/jpeg" | "image/png";
+      size_bytes: number;
+      /** @enum {string} */
+      review_status?: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      rejection_reason?: string;
+      /** Format: date-time */
+      reviewed_at?: string;
+    };
+    KYBVerificationList: {
+      items: components["schemas"]["KYBVerification"][];
+    };
+    KYBDecision: {
+      /**
+       * @description Decisión agregada del expediente; cuando se envía junto a documents debe coincidir con el resultado de los archivos.
+       * @enum {string}
+       */
+      decision: "APPROVE" | "REJECT";
+      /** @description Motivo del rechazo general cuando se decide el expediente completo sin detalle por documento. */
+      rejection_reason?: string;
+      documents?: components["schemas"]["KYBDocumentDecision"][];
+    };
+    KYBDocumentDecision: {
+      /** Format: uuid */
+      document_id: string;
+      /** @enum {string} */
+      decision: "APPROVE" | "REJECT";
+      /** @description Obligatorio al rechazar el archivo. */
+      rejection_reason?: string;
+    };
+    KYBDocumentReviewURL: {
+      /** Format: uri-reference */
+      download_url: string;
+      /** Format: date-time */
+      expires_at: string;
     };
     VerificationEligibilityList: {
       /** @constant */
@@ -19075,6 +19904,1149 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
     };
   };
+  requestKYBOrganizationMembership: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          company_rut: string;
+          rol_propuesto: components["schemas"]["KYBOrganizationRole"];
+        };
+      };
+    };
+    responses: {
+      /** @description Operación completada. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            request: components["schemas"]["KYBOrganizationJoinRequest"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  getOwnKYBOrganizationJoinRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación completada. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            request: components["schemas"]["KYBOrganizationJoinRequest"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  listKYBOrganizationJoinRequests: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación completada. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["KYBOrganizationJoinRequest"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  approveKYBOrganizationJoinRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        requestId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación completada. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            invitation: components["schemas"]["KYBOrganizationInvitation"];
+            invitation_token: string;
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  rejectKYBOrganizationJoinRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        requestId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación completada. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  listHostOrganizations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["KYBOrganization"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  createHostOrganization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          legal_name: string;
+          trade_name?: string;
+          /** @description RUT chileno de la empresa. Se conserva su huella HMAC. */
+          company_rut: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            organization: components["schemas"]["KYBOrganization"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  getHostOrganization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            organization: components["schemas"]["KYBOrganization"];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  updateHostOrganization: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          legal_name: string;
+          trade_name?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            organization: components["schemas"]["KYBOrganization"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  listHostOrganizationMembers: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["KYBOrganizationMember"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  revokeHostOrganizationMember: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        memberId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  changeHostOrganizationMemberRole: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        memberId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          rol: components["schemas"]["KYBOrganizationRole"];
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  inviteHostOrganizationMember: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: email */
+          email: string;
+          rol: components["schemas"]["KYBOrganizationRole"];
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            invitation: components["schemas"]["KYBOrganizationInvitation"];
+            invitation_token: string;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  acceptHostOrganizationInvitation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+        invitationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          token: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            member: components["schemas"]["KYBOrganizationMember"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  getKYBHostPolicyConsent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de aceptación de la versión vigente. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBHostPolicyConsent"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  acceptKYBHostPolicyConsent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Format: uuid */
+          version_id: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Aceptación registrada o ya existente. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBHostPolicyConsent"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getPersonalHostCompliance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceProfile"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  submitPersonalHostSII: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          sii_giro_code: string;
+          /** Format: binary */
+          sii_start_activities: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceDocument"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  submitSpaceKYBProperty: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: binary */
+          property_or_sublease_authorization: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceDocument"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  getSpaceKYBEligibility: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBSpaceEligibility"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  listAdminKYBCompliance: {
+    parameters: {
+      query?: {
+        status?: components["schemas"]["KYBComplianceStatus"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["KYBComplianceProfile"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  disableAdminKYBCompliance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profileId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          reason: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            updated: boolean;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  enableAdminKYBCompliance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profileId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            updated: boolean;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  listAdminKYBComplianceDocuments: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["KYBComplianceDocument"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  reviewAdminKYBComplianceDocument: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceDocument"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  decisionAdminKYBComplianceDocument: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          decision: "APPROVE" | "REJECT";
+          rejection_reason?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceDocument"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  urlAdminKYBComplianceDocument: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        documentId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            download_url: string;
+            /** Format: date-time */
+            expires_at: string;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  disableAdminKYBOrganizationCompliance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          reason: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            updated: boolean;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  enableAdminKYBOrganizationCompliance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        organizationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Operación exitosa. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            updated: boolean;
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  readSignedKYBComplianceDocument: {
+    parameters: {
+      query: {
+        expires: number | string;
+        key_version: string;
+        signature: string;
+      };
+      header?: never;
+      path: {
+        storageRef: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento binario como adjunto. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+          "image/jpeg": string;
+          "image/png": string;
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getOwnKYBVerification: {
+    parameters: {
+      query?: {
+        /** @description Empresa seleccionada cuando el titular opera varias. */
+        organization_id?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado de KYB propio. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  submitKYBVerification: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: uuid */
+          organization_id: string;
+          /**
+           * Format: binary
+           * @description Certificado SII en PDF
+           */
+          sii_start_activities: string;
+          legal_name: string;
+          /** @description RUT chileno de la empresa; se cifra y se persiste una huella HMAC versionada. */
+          company_rut: string;
+          representative_name: string;
+          /** @description RUT chileno del representante legal; se cifra y se persiste una huella HMAC versionada. */
+          representative_rut: string;
+          sii_giro_code: string;
+          /**
+           * Format: binary
+           * @description e-RUT en PDF
+           */
+          erut: string;
+          /**
+           * Format: binary
+           * @description Certificado de Vigencia de Poderes en PDF
+           */
+          power_certificate: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Solicitud creada en estado PENDING. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listPendingKYBVerifications: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Cola KYB. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerificationList"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+    };
+  };
+  getKYBVerificationForReview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle restringido de revisión KYB. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  startKYBReview: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Solicitud en estado IN_REVIEW. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+    };
+  };
+  decideKYBVerification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["KYBDecision"];
+      };
+    };
+    responses: {
+      /** @description Solicitud aprobada o rechazada con auditoría. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBVerification"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getKYBDocumentReviewURL: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+        documentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Enlace temporal de revisión. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBDocumentReviewURL"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  downloadKYBDocumentWithTemporarySignature: {
+    parameters: {
+      query: {
+        expires: number | string;
+        key_version: string;
+        signature: string;
+      };
+      header?: never;
+      path: {
+        storageRef: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Documento descifrado en respuesta privada sin caché. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": unknown;
+          "image/jpeg": unknown;
+          "image/png": unknown;
+        };
+      };
+      /** @description Firma inválida o vencida. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   listAssignedDocumentCases: {
     parameters: {
       query?: never;
@@ -19925,6 +21897,8 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
       503: components["responses"]["ServiceUnavailable"];
     };

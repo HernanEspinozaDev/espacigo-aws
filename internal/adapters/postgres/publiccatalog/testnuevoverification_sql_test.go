@@ -15,17 +15,10 @@ func TestPublicVerificationSQLDerivesCurrentOwnerBadges(t *testing.T) {
 	for _, fragment := range []string{
 		"account_profile_identity_status(owner.id,now())",
 		"SELECT p.username FROM public.account_identity_profile",
-		"space_case.purpose='space'",
-		"space_case.space_id=e.id",
-		"space_case.subject_id=owner.id",
-		"state='aprobada'",
-		"verified_at<=now()",
-		"verified_until>now()",
-		"document_expires_at>now()",
-		"revoked_at IS NULL",
-		"superseded_at IS NULL",
+		"JOIN LATERAL public.kyb_space_eligibility(e.id) commercial ON commercial.can_book",
+		"commercial.space_verified",
+		"company.trade_name",
 		"AS identity_verified",
-		"AS space_verified",
 		"verification.identity_verified,verification.space_verified",
 		"&v.Verification.IdentityVerified, &v.Verification.SpaceVerified",
 	} {
@@ -45,48 +38,5 @@ func TestPublicVerificationSQLDerivesCurrentOwnerBadges(t *testing.T) {
 		if !strings.Contains(text, guard) {
 			t.Errorf("required public eligibility guard removed: %s", guard)
 		}
-	}
-}
-
-func TestPublicVerificationSQLUsesLatestFinalizedDecision(t *testing.T) {
-	source, err := os.ReadFile("repository.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(source)
-	const declaration = "const eligiblePublicSQL = `"
-	start := strings.Index(text, declaration)
-	if start < 0 {
-		t.Fatal("eligible public SQL declaration not found")
-	}
-	start += len(declaration)
-	end := strings.Index(text[start:], "`")
-	if end < 0 {
-		t.Fatal("eligible public SQL declaration is not terminated")
-	}
-	eligibleSQL := text[start : start+end]
-	if !strings.Contains(text, "` + eligiblePublicSQL + `") {
-		t.Fatal("eligible public SQL is not included in a query")
-	}
-	for _, decision := range []struct {
-		name     string
-		fragment string
-	}{
-		{
-			name:     "identity",
-			fragment: "SELECT verified FROM public.account_profile_identity_status(owner.id,now())",
-		},
-		{
-			name: "space",
-			fragment: "WHERE purpose='space' AND space_id=e.id AND subject_id=owner.id\n" +
-				"         AND state IN ('aprobada','revocada','vencida')\n" +
-				"       ORDER BY updated_at DESC,id DESC LIMIT 1",
-		},
-	} {
-		t.Run(decision.name, func(t *testing.T) {
-			if !strings.Contains(eligibleSQL, decision.fragment) {
-				t.Fatalf("latest finalized %s decision must be selected deterministically", decision.name)
-			}
-		})
 	}
 }

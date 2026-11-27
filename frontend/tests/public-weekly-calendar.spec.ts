@@ -230,6 +230,7 @@ test("active owner listing CTA reaches the public SSR detail fixture", async ({
     description:
       "Espacio sintético de oficina destinado exclusivamente a validar el contrato de listado del anfitrión en un ensayo local.",
     state: "activa",
+    is_b2b: false,
     base_price_clp: 12000,
     rate_unit: "hora",
     area_m2: 12,

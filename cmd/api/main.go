@@ -66,6 +66,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/kyb"
 	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
@@ -276,6 +277,8 @@ func run() error {
 	var localPaymentService *booking.Service
 	var marketplaceTokens *marketplaceoauth.Service
 	var localIdentityService *identity.AuthenticationService
+	var localHostPolicy *hostPolicy
+	var localKYBService *kyb.Service
 	var localPrivacyService *privacy.Service
 	var localM02Service *m02local.Service
 	var localGalleryService *gallery.Service
@@ -348,6 +351,20 @@ func run() error {
 			service.SetTOTPLoginEnabled(os.Getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 		}
 		localIdentityService = service
+		localKYBService, err = mountKYBRoutes(mux, pool, service, cfg, os.Getenv, false, true)
+		if err != nil {
+			return err
+		}
+		if os.Getenv("KYB_LOCAL_TERMS_V2") == "1" && os.Getenv("APP_PROFILE") != productionAppProfile {
+			documents, err := identity.PublicConsentDocuments()
+			if err != nil {
+				return err
+			}
+			localHostPolicy = &hostPolicy{db: pool, auth: service, document: documents[0]}
+			mux.Handle("GET /api/v1/kyb/policy-consent", localHostPolicy)
+			mux.Handle("POST /api/v1/kyb/policy-consent", localHostPolicy)
+		}
+
 		identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, service, authMailer, cfg, os.Getenv, false)
 		if err != nil {
 			return err
@@ -416,7 +433,7 @@ func run() error {
 			commercialQuoteRepository.RequireCommercialContracts(commercialContractsEnabled)
 			if commercialContractsEnabled {
 				mountCommercialAuthorization(mux, pool, service, localNoticeSender, cfg.allowedOrigins)
-				cipher, proposalErr := mountCommercialContractProposals(mux, pool, service, commercialQuoteRepository, previewService, identityVerifier, commercialQuoteRepository, cfg.allowedOrigins, os.Getenv)
+				cipher, proposalErr := mountCommercialContractProposals(mux, pool, service, commercialQuoteRepository, previewService, identityVerifier, commercialQuoteRepository, cfg.allowedOrigins, os.Getenv, localKYBService)
 				if proposalErr != nil {
 					return proposalErr
 				}
@@ -846,6 +863,17 @@ func run() error {
 	// worker-free profile can suppress them as one enforceable startup gate.
 	workers := make([]namedWorker, 0, 16)
 	workers = append(workers, commercialAgreementWorkers...)
+	if localKYBService != nil {
+		var reminderMailer kybReminderMailer
+		if os.Getenv("APP_PROFILE") != "cloud-test" {
+			reminderMailer = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
+		}
+		workers = append(workers, namedWorker{"kyb-compliance", func() {
+			trackedWorkers.Go(func(workerCtx context.Context) {
+				runKYBComplianceWorker(workerCtx, localKYBService, reminderMailer, time.Now)
+			})
+		}})
+	}
 	if commercialQuoteRepository != nil {
 		workers = append(workers, namedWorker{"commercial-rental-quote-expiry", func() {
 			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(error) {
@@ -1015,7 +1043,11 @@ func run() error {
 	if err := validateWorkerRegistry(runtimeProfileValue, workers); err != nil {
 		return errors.New("background worker registry is invalid")
 	}
-	apiHandler := handlerForRuntimeProfile(runtimeProfileValue, mux)
+	var applicationHandler http.Handler = mux
+	if localHostPolicy != nil {
+		applicationHandler = localHostPolicy.requireForSpaceWrites(applicationHandler)
+	}
+	apiHandler := handlerForRuntimeProfile(runtimeProfileValue, applicationHandler)
 	if localIdentityService != nil {
 		apiHandler = identityhttp.RestrictedAccountMiddleware(localIdentityService, apiHandler, cfg.allowedOrigins...)
 	}

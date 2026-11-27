@@ -425,6 +425,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     void idempotencyKey;
     const result = await apiClient.POST("/spaces", {
       body: {
+        ...(input.organization_id
+          ? { organization_id: input.organization_id }
+          : {}),
         category_code: input.category_code,
         title: input.title,
         description: input.description,

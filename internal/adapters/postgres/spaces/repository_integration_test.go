@@ -29,25 +29,106 @@ func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	}
 	defer admin.Close(context.Background())
 	name := fmt.Sprintf("space_draft_test_%d", time.Now().UnixNano())
+	var createdRoles []string
+	for _, role := range []struct {
+		name  string
+		login bool
+	}{
+		{"espacigo_runtime", false},
+		{"espacigo_schema_owner", false},
+		{"espacigo_migrator_login", true},
+		{"espacigo_privacy_cleanup_worker", false},
+		{"espacigo_gadm_bootstrap", false},
+		{"espacigo_document_verification_fn", false},
+	} {
+		var exists bool
+		if err = admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)`, role.name).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			loginClause := "NOLOGIN"
+			if role.login {
+				loginClause = "LOGIN"
+			}
+			if _, err = admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role.name}.Sanitize()+" "+loginClause+" NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"); err != nil {
+				t.Fatal(err)
+			}
+			createdRoles = append(createdRoles, role.name)
+		}
+	}
 	if _, err = admin.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{name}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		_, _ = admin.Exec(context.Background(), `DROP DATABASE `+pgx.Identifier{name}.Sanitize()+` WITH (FORCE)`)
+		for _, role := range createdRoles {
+			_, _ = admin.Exec(context.Background(), `DROP ROLE IF EXISTS `+pgx.Identifier{role}.Sanitize())
+		}
 	})
 	u, err := url.Parse(adminURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u.Path = "/" + name
-	if _, err = migrator.Run(ctx, u.String(), "../../../../db/migrations"); err != nil {
-		t.Fatal(err)
-	}
 	pool, err := pgxpool.New(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	for _, ext := range []string{"unaccent", "postgis", "btree_gist", "pgcrypto"} {
+		if _, err = pool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{ext}.Sanitize()+" SCHEMA public"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = pool.Exec(ctx, `GRANT CONNECT ON DATABASE `+pgx.Identifier{name}.Sanitize()+` TO espacigo_migrator_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO espacigo_schema_owner;
+		GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;`); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migConn, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `SET SESSION AUTHORIZATION espacigo_migrator_login; SET ROLE espacigo_schema_owner;`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.schema_migrations (
+		version bigint PRIMARY KEY CHECK (version > 0),
+		name text NOT NULL UNIQUE,
+		checksum text NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+		runner_checksum text NOT NULL CHECK (runner_checksum ~ '^[0-9a-f]{64}$'),
+		applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
+	)`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		tx, txErr := migConn.Begin(ctx)
+		if txErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatal(txErr)
+		}
+		if _, execErr := tx.Conn().PgConn().Exec(ctx, string(m.SQL)).ReadAll(); execErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("execute migration %s: %v", m.Name, execErr)
+		}
+		if _, recErr := tx.Exec(ctx, `INSERT INTO public.schema_migrations(version,name,checksum,runner_checksum) VALUES($1,$2,$3,$4)`, m.Version, m.Name, m.Checksum, strings.Repeat("0", 64)); recErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("record migration %s: %v", m.Name, recErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatalf("commit migration %s: %v", m.Name, commitErr)
+		}
+	}
+	_ = migConn.Close(ctx)
 	ownerA, ownerB := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	for _, id := range []string{ownerA, ownerB} {
 		if _, err := pool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'x','activo')`, id, id+"@example.test"); err != nil {

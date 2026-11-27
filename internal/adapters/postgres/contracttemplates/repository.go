@@ -36,14 +36,58 @@ func (r *Repository) begin(ctx context.Context, actor string, spaces ...string) 
 		if i > 0 && id == spaces[i-1] {
 			continue
 		}
-		var found string
-		err = tx.QueryRow(ctx, `SELECT id::text FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado <> 'eliminada' FOR UPDATE`, id, actor).Scan(&found)
+		var found, owner, hostMode, organizationID string
+		err = tx.QueryRow(ctx, `SELECT id::text,propietario_id::text,modo_anfitrion,COALESCE(organizacion_id::text,'')
+			FROM public.espacio WHERE id=$1 AND estado <> 'eliminada' FOR UPDATE`, id).Scan(&found, &owner, &hostMode, &organizationID)
 		if err != nil {
 			_ = tx.Rollback(ctx)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, contracttemplate.ErrNotFound
 			}
 			return nil, err
+		}
+		switch hostMode {
+		case "personal":
+			if owner != uuid.MustParse(actor).String() {
+				_ = tx.Rollback(ctx)
+				return nil, contracttemplate.ErrNotFound
+			}
+		case "empresa":
+			if organizationID == "" {
+				_ = tx.Rollback(ctx)
+				return nil, contracttemplate.ErrNotFound
+			}
+			var memberID string
+			err = tx.QueryRow(ctx, `SELECT m.id::text
+				FROM public.organizacion o
+				JOIN public.organizacion_miembro m ON m.organizacion_id=o.id
+				WHERE o.id=$1 AND o.usuario_id=$2 AND m.usuario_id=$3
+				  AND m.estado='activo' AND m.rol IN ('representante_legal','administrador')
+				  AND EXISTS (SELECT 1 FROM public.account_profile_identity_status($3,clock_timestamp()) k WHERE k.verified)
+				FOR SHARE OF m`, organizationID, owner, actor).Scan(&memberID)
+			if err != nil {
+				_ = tx.Rollback(ctx)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil, contracttemplate.ErrNotFound
+				}
+				return nil, err
+			}
+		default:
+			_ = tx.Rollback(ctx)
+			return nil, contracttemplate.ErrNotFound
+		}
+		var canPublish bool
+		err = tx.QueryRow(ctx, `SELECT can_publish FROM public.kyb_space_eligibility($1,clock_timestamp())`, id).Scan(&canPublish)
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, contracttemplate.ErrNotFound
+			}
+			return nil, err
+		}
+		if !canPublish {
+			_ = tx.Rollback(ctx)
+			return nil, contracttemplate.ErrConflict
 		}
 	}
 	return tx, nil

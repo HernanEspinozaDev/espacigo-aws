@@ -28,7 +28,7 @@ func (r *Repository) GetCalendarConfiguration(ctx context.Context, owner, spaceI
 	var zone *string
 	var basePrice int
 	if err = tx.QueryRow(ctx, `SELECT COALESCE(zona_horaria,'America/Santiago'), precio_base_clp, actualizado_en
-		FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado <> 'eliminada' FOR SHARE`, spaceID, owner).
+		FROM public.espacio e WHERE `+viewSpaceAccess+` AND e.id=$2 AND e.estado <> 'eliminada' FOR SHARE OF e`, owner, spaceID).
 		Scan(&zone, &basePrice, &out.UpdatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return out, spaces.ErrNotFound

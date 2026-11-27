@@ -21,13 +21,18 @@ import (
 )
 
 const (
-	communityHost   = "11111111-1111-4111-8111-111111111111"
-	communityRenter = "22222222-2222-4222-8222-222222222222"
-	communityOther  = "33333333-3333-4333-8333-333333333333"
-	communitySpace  = "44444444-4444-4444-8444-444444444444"
-	communityEnded  = "55555555-5555-4555-8555-555555555555"
-	communityFuture = "66666666-6666-4666-8666-666666666666"
-	communityUnpaid = "77777777-7777-4777-8777-777777777777"
+	communityHost          = "11111111-1111-4111-8111-111111111111"
+	communityRenter        = "22222222-2222-4222-8222-222222222222"
+	communityOther         = "33333333-3333-4333-8333-333333333333"
+	communitySpace         = "44444444-4444-4444-8444-444444444444"
+	communityCompanySpace  = "44444444-4444-4444-8444-444444444445"
+	communityOrganization  = "44444444-4444-4444-8444-444444444446"
+	communityCompanyMember = "33333333-3333-4333-8333-333333333334"
+	communityRevokedMember = "33333333-3333-4333-8333-333333333335"
+	communityEnded         = "55555555-5555-4555-8555-555555555555"
+	communityCompanyEnded  = "55555555-5555-4555-8555-555555555556"
+	communityFuture        = "66666666-6666-4666-8666-666666666666"
+	communityUnpaid        = "77777777-7777-4777-8777-777777777777"
 )
 
 func TestCommercialConversationAndReviewPostgres(t *testing.T) {
@@ -70,7 +75,9 @@ func TestCommercialConversationAndReviewPostgres(t *testing.T) {
 	if _, err = pool.Exec(ctx, `
 DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN CREATE ROLE espacigo_runtime NOLOGIN; END IF; END $$;
 CREATE TABLE public.usuario(id uuid PRIMARY KEY);
-CREATE TABLE public.espacio(id uuid PRIMARY KEY, estado text NOT NULL);
+CREATE TABLE public.organizacion(id uuid PRIMARY KEY, usuario_id uuid NOT NULL, compliance_status text NOT NULL DEFAULT 'grace_active');
+CREATE TABLE public.organizacion_miembro(id uuid PRIMARY KEY, organizacion_id uuid NOT NULL, usuario_id uuid NOT NULL, rol text NOT NULL, estado text NOT NULL);
+CREATE TABLE public.espacio(id uuid PRIMARY KEY, estado text NOT NULL, propietario_id uuid, modo_anfitrion text NOT NULL DEFAULT 'personal', organizacion_id uuid);
 -- The commercial review migration is incremental over the production baseline.
 -- Keep the legacy review table needed by ListSpace's UNION in this isolated fixture.
 CREATE TABLE public.resena_ensayo_local(
@@ -104,14 +111,24 @@ CREATE TABLE public.notificacion_usuario(
 		}
 	}
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
-	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id) VALUES($1),($2),($3)`, communityHost, communityRenter, communityOther); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id) VALUES($1),($2),($3),($4),($5)`, communityHost, communityRenter, communityOther, communityCompanyMember, communityRevokedMember); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,estado) VALUES($1,'activa')`, communitySpace); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO public.organizacion(id,usuario_id,compliance_status) VALUES($1,$2,'disabled_missing_docs')`, communityOrganization, communityHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.organizacion_miembro(id,organizacion_id,usuario_id,rol,estado) VALUES
+ ($1,$2,$3,'operador','activo'),($4,$2,$5,'administrador','retirado')`, "88888888-8888-4888-8888-888888888881", communityOrganization, communityCompanyMember, "88888888-8888-4888-8888-888888888882", communityRevokedMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,estado,propietario_id,modo_anfitrion) VALUES($1,'activa',$2,'personal')`, communitySpace, communityHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,estado,propietario_id,modo_anfitrion,organizacion_id) VALUES($1,'activa',$2,'empresa',$3)`, communityCompanySpace, communityHost, communityOrganization); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_arriendo_comercial(id,anfitrion_id,arrendatario_id,espacio_id,estado,inicio,termino)
- VALUES($1,$2,$3,$4,'pagada',$5,$6),($7,$2,$3,$4,'pagada',$8,$9),($10,$2,$3,$4,'pendiente_de_pago',$11,$12)`, communityEnded, communityHost, communityRenter, communitySpace, now.Add(-3*time.Hour), now.Add(-time.Hour), communityFuture, now.Add(time.Hour), now.Add(2*time.Hour), communityUnpaid, now.Add(-3*time.Hour), now.Add(-time.Hour)); err != nil {
+VALUES($1,$2,$3,$4,'pagada',$5,$6),($7,$2,$3,$4,'pagada',$8,$9),($10,$2,$3,$4,'pendiente_de_pago',$11,$12),($13,$2,$3,$14,'pagada',$5,$6)`, communityEnded, communityHost, communityRenter, communitySpace, now.Add(-3*time.Hour), now.Add(-time.Hour), communityFuture, now.Add(time.Hour), now.Add(2*time.Hour), communityUnpaid, now.Add(-3*time.Hour), now.Add(-time.Hour), communityCompanyEnded, communityCompanySpace); err != nil {
 		t.Fatal(err)
 	}
 	clock := func() time.Time { return now }
@@ -152,6 +169,29 @@ CREATE TABLE public.notificacion_usuario(
 	}
 	if _, err = conversationService.MarkCommercialRead(ctx, communityHost, communityEnded, message.Sequence+1); !errors.Is(err, conversation.ErrInvalid) {
 		t.Fatalf("unknown read sequence err=%v", err)
+	}
+
+	companyMessage, err := conversationService.SendCommercial(ctx, communityCompanyMember, communityCompanyEnded, "company-message-1", "Coordino la entrega en nombre de la empresa.")
+	if err != nil || companyMessage.AuthorID != communityCompanyMember {
+		t.Fatalf("company message=%+v err=%v; actor must remain the author", companyMessage, err)
+	}
+	var companyNotice int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.notificacion_usuario WHERE tipo='mensaje_reserva' AND usuario_id=$1 AND referencia_id=$2`, communityRenter, communityCompanyEnded).Scan(&companyNotice); err != nil || companyNotice != 1 {
+		t.Fatalf("company sender notice count=%d err=%v; expected renter recipient", companyNotice, err)
+	}
+	companyPage, err := conversationService.ListCommercial(ctx, communityCompanyMember, communityCompanyEnded, nil, 30)
+	if err != nil || len(companyPage.Items) != 1 || companyPage.Items[0].AuthorID != communityCompanyMember {
+		t.Fatalf("company member message page=%+v err=%v", companyPage, err)
+	}
+	companyCursor, err := conversationService.MarkCommercialRead(ctx, communityCompanyMember, communityCompanyEnded, companyMessage.Sequence)
+	if err != nil || companyCursor != companyMessage.Sequence {
+		t.Fatalf("company member read cursor=%d err=%v", companyCursor, err)
+	}
+	if _, err = conversationService.ListCommercial(ctx, communityRevokedMember, communityCompanyEnded, nil, 30); !errors.Is(err, conversation.ErrNotFound) {
+		t.Fatalf("retired company member message list err=%v", err)
+	}
+	if _, err = conversationService.SendCommercial(ctx, communityRevokedMember, communityCompanyEnded, "revoked-company-message", "No debo acceder."); !errors.Is(err, conversation.ErrNotFound) {
+		t.Fatalf("retired company member send err=%v", err)
 	}
 
 	futureGate, err := reputationService.ListCommercial(ctx, communityRenter, communityFuture)

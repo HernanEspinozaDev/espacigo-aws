@@ -83,6 +83,46 @@ func TestRuntimeS3DocumentStoreKeepsPurposesInSeparateBuckets(t *testing.T) {
 	}
 }
 
+func TestRuntimeKYBDocumentStoreUsesDedicatedEncryptedBucket(t *testing.T) {
+	values := map[string]string{
+		"DOCUMENT_VERIFICATION_STORAGE_BACKEND":    "s3",
+		"DOCUMENT_VERIFICATION_IDENTITY_S3_BUCKET": "kyc-identity-bucket",
+		"DOCUMENT_VERIFICATION_SPACE_S3_BUCKET":    "kyc-space-bucket",
+		"S3_STORAGE_BUCKET":                        "private-evidence-bucket",
+		"S3_MEDIA_BUCKET":                          "media-bucket",
+		"KYB_DOCUMENTS_S3_BUCKET":                  "kyb-documents-bucket",
+		"KYB_DOCUMENT_KEYRING_JSON":                `{"current_version":"v1","keys":{"v1":"` + strings.Repeat("01", 32) + `"}}`,
+	}
+	fake := &runtimeDocumentObjectFake{objects: make(map[string]runtimeDocumentBlob)}
+	var gotBucket, gotPrefix string
+	store, err := newRuntimeKYBDocumentStoreWithFactory(func(key string) string { return values[key] }, func(_ context.Context, bucket, prefix string) (documents3.ObjectStore, error) {
+		gotBucket, gotPrefix = bucket, prefix
+		return fake, nil
+	})
+	if err != nil || store == nil {
+		t.Fatalf("KYB S3 store=%v err=%v", store, err)
+	}
+	if gotBucket != "kyb-documents-bucket" || gotPrefix != "kyb-documents" {
+		t.Fatalf("KYB storage target bucket=%q prefix=%q", gotBucket, gotPrefix)
+	}
+	ownerID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	organizationID := "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	verificationID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	storageRef := "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+	content := []byte("%PDF-1.4\nsynthetic kyb document")
+	if err := store.Put(context.Background(), ownerID, organizationID, verificationID, storageRef, content); err != nil {
+		t.Fatal(err)
+	}
+	stored := fake.objects[storageRef]
+	if bytes.Contains(stored.blob, content) || stored.metadata["key_version"] != "v1" {
+		t.Fatal("KYB S3 object was not encrypted or omitted the key version metadata")
+	}
+	opened, err := store.Read(context.Background(), ownerID, organizationID, verificationID, storageRef)
+	if err != nil || !bytes.Equal(opened, content) {
+		t.Fatalf("KYB S3 read=%q err=%v", opened, err)
+	}
+}
+
 func TestRuntimeS3DocumentStoreAcceptsContainerSecretVolumeMode(t *testing.T) {
 	parent := t.TempDir()
 	keyringPath := filepath.Join(parent, "keyring.json")
