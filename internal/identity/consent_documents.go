@@ -32,6 +32,8 @@ func PublicConsentDocuments() ([]ConsentDocument, error) {
 	names := []string{"terms", "privacy"}
 	if os.Getenv("APP_PROFILE") == "production" {
 		names = []string{"production_terms", "production_privacy"}
+	} else if os.Getenv("KYB_LOCAL_TERMS_V2") == "1" {
+		names[0] = "evaluation_terms_v2"
 	}
 	result := []ConsentDocument{}
 	for _, name := range names {

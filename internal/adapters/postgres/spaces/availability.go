@@ -38,7 +38,7 @@ func (r *Repository) GetMonthlyAvailability(ctx context.Context, spaceID, month 
 	err = r.pool.QueryRow(ctx, `
 		SELECT estado, zona_horaria, modalidad_tarifa, precio_base_clp
 		FROM public.espacio
-		WHERE id = $1 AND estado='activa'
+		WHERE id = $1 AND estado='activa' AND EXISTS (SELECT 1 FROM public.kyb_space_eligibility($1) eligibility WHERE eligibility.can_book)
 	`, spaceID).Scan(&estado, &zonePtr, &rateUnit, &precioBaseCLP)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -344,10 +344,10 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 	var currentBasePrice int64
 	err = tx.QueryRow(ctx, `
 		SELECT zona_horaria, estado, precio_base_clp, actualizado_en
-		FROM public.espacio
-		WHERE id = $1 AND propietario_id = $2
-		FOR UPDATE
-	`, spaceID, owner).Scan(&currentZone, &estado, &currentBasePrice, &currentUpdatedAt)
+		FROM public.espacio e
+		WHERE `+manageSpaceAccess+` AND e.id = $2
+		FOR UPDATE OF e
+	`, owner, spaceID).Scan(&currentZone, &estado, &currentBasePrice, &currentUpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return spaces.AvailabilityRule{}, "", spaces.ErrNotFound
@@ -356,6 +356,9 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 	}
 	if estado == "eliminada" {
 		return spaces.AvailabilityRule{}, "", spaces.ErrNotFound
+	}
+	if err = requireCommercialSpaceAccess(ctx, tx, spaceID); err != nil {
+		return spaces.AvailabilityRule{}, "", err
 	}
 	if in.ExpectedUpdatedAt.IsZero() || !currentUpdatedAt.Equal(in.ExpectedUpdatedAt.UTC()) {
 		return spaces.AvailabilityRule{}, "", spaces.ErrPreconditionFailed
@@ -593,12 +596,15 @@ func (r *Repository) UpdateAvailability(ctx context.Context, owner, spaceID stri
 	// an override changed. The row stays locked from the CAS comparison above.
 	err = tx.QueryRow(ctx, `UPDATE public.espacio
 		SET actualizado_en = GREATEST(clock_timestamp(), actualizado_en + interval '1 microsecond')
-		WHERE id = $1 AND propietario_id = $2
-		RETURNING actualizado_en`, spaceID, owner).Scan(&resRule.ActualizadoEn)
+		WHERE id = $1
+		RETURNING actualizado_en`, spaceID).Scan(&resRule.ActualizadoEn)
 	if err != nil {
 		return spaces.AvailabilityRule{}, "", err
 	}
 
+	if err = auditCompanySpaceEdit(ctx, tx, spaceID, owner, "space_edited"); err != nil {
+		return spaces.AvailabilityRule{}, "", err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return spaces.AvailabilityRule{}, "", err
 	}

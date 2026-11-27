@@ -42,6 +42,12 @@ function partyDescription(
   return `<strong>Parte con identidad verificada electrónicamente</strong> (datos completos se revelan al confirmar el pago), en adelante «${label}»`;
 }
 
+function companyPartyDescription(
+  representation: NonNullable<ContractProposal["company_representation"]>,
+) {
+  return `<strong>${escapeHtml(representation.legal_name)}</strong>, RUT N.º <strong>${escapeHtml(representation.rut_masked)}</strong>, representada legalmente por <strong>${escapeHtml(representation.representative_name)}</strong>, cédula de identidad / RUT N.º <strong>${escapeHtml(representation.representative_rut_masked)}</strong>, en adelante «EL ARRENDADOR»`;
+}
+
 interface ContractPdfShellOptions {
   documentTitle: string;
   metaHtml: string;
@@ -201,9 +207,11 @@ function printProposalAsPdf(
       ${agreement ? `<div>Estado: ${escapeHtml(agreementStateLabel(agreement.state))}</div>` : ""}
     `,
     issueDate,
-    landlordComparecenciaHtml: landlordParty
-      ? partyDescription(landlordParty, "EL ARRENDADOR")
-      : "EL ARRENDADOR",
+    landlordComparecenciaHtml: proposal.company_representation
+      ? companyPartyDescription(proposal.company_representation)
+      : landlordParty
+        ? partyDescription(landlordParty, "EL ARRENDADOR")
+        : "EL ARRENDADOR",
     renterComparecenciaHtml: renterParty
       ? partyDescription(renterParty, "EL ARRENDATARIO")
       : "EL ARRENDATARIO",

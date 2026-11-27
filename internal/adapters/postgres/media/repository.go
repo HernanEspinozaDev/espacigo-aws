@@ -17,6 +17,82 @@ import (
 
 type Repository struct{ pool *pgxpool.Pool }
 
+func (r *Repository) lockWritableSpace(ctx context.Context, tx pgx.Tx, owner, spaceID string) (time.Time, error) {
+	actor := media.ActorFromContext(ctx, owner)
+	var revision time.Time
+	var mode string
+	var organizationID string
+	err := tx.QueryRow(ctx, `SELECT s.actualizado_en,s.modo_anfitrion,COALESCE(s.organizacion_id::text,'')
+		FROM public.espacio s
+		WHERE s.id=$1 AND s.propietario_id=$2 AND s.estado<>'eliminada'
+		FOR UPDATE`, spaceID, owner).Scan(&revision, &mode, &organizationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, media.ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if mode == "personal" {
+		if actor != owner {
+			return time.Time{}, media.ErrNotFound
+		}
+		var lockedProfile string
+		err = tx.QueryRow(ctx, `SELECT usuario_id::text FROM public.anfitrion_cumplimiento_personal WHERE usuario_id=$1 FOR SHARE`, owner).Scan(&lockedProfile)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return time.Time{}, err
+		}
+		var eligible bool
+		if err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT e.can_publish FROM public.kyb_space_eligibility($1) e),false)`, spaceID).Scan(&eligible); err != nil {
+			return time.Time{}, err
+		}
+		if !eligible {
+			return time.Time{}, media.ErrNotFound
+		}
+		return revision, nil
+	}
+	if mode != "empresa" || organizationID == "" {
+		return time.Time{}, media.ErrNotFound
+	}
+	var complianceStatus string
+	if err = tx.QueryRow(ctx, `SELECT compliance_status FROM public.organizacion WHERE id=$1 FOR SHARE`, organizationID).Scan(&complianceStatus); errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, media.ErrNotFound
+	} else if err != nil {
+		return time.Time{}, err
+	}
+	var role string
+	err = tx.QueryRow(ctx, `SELECT m.rol FROM public.organizacion_miembro m
+		WHERE m.organizacion_id=$1 AND m.usuario_id=$2 AND m.estado='activo'
+		  AND m.rol IN ('representante_legal','administrador') FOR SHARE`, organizationID, actor).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, media.ErrNotFound
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	var verified bool
+	if err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT k.verified FROM public.account_profile_identity_status($1,clock_timestamp()) k),false)`, actor).Scan(&verified); err != nil {
+		return time.Time{}, err
+	}
+	if !verified {
+		return time.Time{}, media.ErrNotFound
+	}
+	var eligible bool
+	if err = tx.QueryRow(ctx, `SELECT COALESCE((SELECT e.can_publish FROM public.kyb_space_eligibility($1) e),false)`, spaceID).Scan(&eligible); err != nil {
+		return time.Time{}, err
+	}
+	if !eligible {
+		return time.Time{}, media.ErrNotFound
+	}
+	return revision, nil
+}
+
+func recordGalleryMutation(ctx context.Context, tx pgx.Tx, owner, spaceID, reason string) error {
+	actor := media.ActorFromContext(ctx, owner)
+	_, err := tx.Exec(ctx, `INSERT INTO public.host_compliance_event(espacio_id,actor_usuario_id,event_type,reason,occurred_at)
+		VALUES($1,$2,'space_edited',$3,clock_timestamp())`, spaceID, actor, reason)
+	return err
+}
+
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 
 func (r *Repository) PlanVariant(ctx context.Context, id string, token int64, name media.VariantName, key string) error {
@@ -119,7 +195,7 @@ func (r *Repository) Reserve(ctx context.Context, assetID, owner, spaceID string
 		return media.Reservation{}, false, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return media.Reservation{}, false, err
 	}
@@ -130,9 +206,8 @@ func (r *Repository) Reserve(ctx context.Context, assetID, owner, spaceID string
 	var actualRevision time.Time
 	if purpose == media.PurposeSpace {
 		scope = spaceID
-		if err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&actualRevision); errors.Is(err, pgx.ErrNoRows) {
-			return media.Reservation{}, false, media.ErrNotFound
-		} else if err != nil {
+		actualRevision, err = r.lockWritableSpace(ctx, tx, owner, spaceID)
+		if err != nil {
 			return media.Reservation{}, false, err
 		}
 	}
@@ -272,7 +347,7 @@ func (r *Repository) FinalizeSpace(ctx context.Context, id string, token int64, 
 		return media.Photo{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return media.Photo{}, err
 	}
@@ -280,9 +355,8 @@ func (r *Repository) FinalizeSpace(ctx context.Context, id string, token int64, 
 		return media.Photo{}, media.ErrNotFound
 	}
 	var actualRevision time.Time
-	if err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&actualRevision); errors.Is(err, pgx.ErrNoRows) {
-		return media.Photo{}, media.ErrNotFound
-	} else if err != nil {
+	actualRevision, err = r.lockWritableSpace(ctx, tx, owner, spaceID)
+	if err != nil {
 		return media.Photo{}, err
 	}
 	var replacementTargetID string
@@ -350,6 +424,9 @@ func (r *Repository) FinalizeSpace(ctx context.Context, id string, token int64, 
 		if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 			return media.Photo{}, err
 		}
+		if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_media_replaced:"+id); err != nil {
+			return media.Photo{}, err
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return media.Photo{}, err
 		}
@@ -388,6 +465,9 @@ func (r *Repository) FinalizeSpace(ctx context.Context, id string, token int64, 
 		return media.Photo{}, mapError(err)
 	}
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+		return media.Photo{}, err
+	}
+	if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_media_added:"+id); err != nil {
 		return media.Photo{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -527,17 +607,14 @@ func (r *Repository) UpdateSpacePhoto(ctx context.Context, owner, spaceID, id st
 		return media.Photo{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return media.Photo{}, err
 	}
 	if !active {
 		return media.Photo{}, media.ErrNotFound
 	}
-	var ok bool
-	if err = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&ok); errors.Is(err, pgx.ErrNoRows) {
-		return media.Photo{}, media.ErrNotFound
-	} else if err != nil {
+	if _, err = r.lockWritableSpace(ctx, tx, owner, spaceID); err != nil {
 		return media.Photo{}, err
 	}
 	var old int
@@ -578,6 +655,9 @@ func (r *Repository) UpdateSpacePhoto(ctx context.Context, owner, spaceID, id st
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
 		return media.Photo{}, err
 	}
+	if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_media_updated:"+id); err != nil {
+		return media.Photo{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return media.Photo{}, err
 	}
@@ -593,18 +673,14 @@ func (r *Repository) UpdateSpacePhotoCAS(ctx context.Context, owner, spaceID, id
 		return media.Photo{}, time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return media.Photo{}, time.Time{}, err
 	}
 	if !active {
 		return media.Photo{}, time.Time{}, media.ErrNotFound
 	}
-	var revision time.Time
-	err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&revision)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return media.Photo{}, time.Time{}, media.ErrNotFound
-	}
+	revision, err := r.lockWritableSpace(ctx, tx, owner, spaceID)
 	if err != nil {
 		return media.Photo{}, time.Time{}, err
 	}
@@ -646,6 +722,9 @@ func (r *Repository) UpdateSpacePhotoCAS(ctx context.Context, owner, spaceID, id
 	if err != nil {
 		return media.Photo{}, time.Time{}, err
 	}
+	if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_media_updated:"+id); err != nil {
+		return media.Photo{}, time.Time{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return media.Photo{}, time.Time{}, err
 	}
@@ -664,18 +743,14 @@ func (r *Repository) RemoveSpacePhotoCAS(ctx context.Context, owner, spaceID, id
 		return time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return time.Time{}, err
 	}
 	if !active {
 		return time.Time{}, media.ErrNotFound
 	}
-	var updated time.Time
-	err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&updated)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, media.ErrNotFound
-	}
+	updated, err := r.lockWritableSpace(ctx, tx, owner, spaceID)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -709,6 +784,9 @@ func (r *Repository) RemoveSpacePhotoCAS(ctx context.Context, owner, spaceID, id
 	if err != nil {
 		return time.Time{}, err
 	}
+	if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_media_removed:"+id); err != nil {
+		return time.Time{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return time.Time{}, err
 	}
@@ -726,20 +804,19 @@ func (r *Repository) SelectSpaceCoverCAS(ctx context.Context, owner, spaceID, id
 		return time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	active, err := accountlock.LockActive(ctx, tx, owner)
+	active, err := accountlock.LockActive(ctx, tx, media.ActorFromContext(ctx, owner))
 	if err != nil {
 		return time.Time{}, err
 	}
 	if !active {
 		return time.Time{}, media.ErrNotFound
 	}
-	var updated time.Time
-	var oldCover string
-	err = tx.QueryRow(ctx, `SELECT actualizado_en,COALESCE(portada_media_id::text,'') FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&updated, &oldCover)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return time.Time{}, media.ErrNotFound
-	}
+	updated, err := r.lockWritableSpace(ctx, tx, owner, spaceID)
 	if err != nil {
+		return time.Time{}, err
+	}
+	var oldCover string
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(portada_media_id::text,'') FROM public.espacio WHERE id=$1 AND propietario_id=$2`, spaceID, owner).Scan(&oldCover); err != nil {
 		return time.Time{}, err
 	}
 	if !expected.IsZero() && !updated.Equal(expected.UTC()) {
@@ -759,6 +836,9 @@ func (r *Repository) SelectSpaceCoverCAS(ctx context.Context, owner, spaceID, id
 		}
 		updated, err = spaceversion.Bump(ctx, tx, spaceID)
 		if err != nil {
+			return time.Time{}, err
+		}
+		if err = recordGalleryMutation(ctx, tx, owner, spaceID, "gallery_cover_selected:"+id); err != nil {
 			return time.Time{}, err
 		}
 	}

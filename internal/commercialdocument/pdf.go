@@ -44,19 +44,29 @@ func (PDFRenderer) Render(ctx context.Context, source Source, parties []commerci
 		}
 		return "CLÁUSULA " + strconv.Itoa(i+5)
 	}
+	appearance := fmt.Sprintf("En Chile, comparecen: por una parte, %s, RUT %s, en adelante EL ARRENDADOR; y por la otra, %s, RUT %s, en adelante EL ARRENDATARIO; ambos mayores de edad, con identidad verificada en EspaciGo, quienes convienen en celebrar el siguiente Contrato de Arrendamiento Simple regido por la Ley N.º 18.101, el Código Civil de Chile y la Ley N.º 19.799 (FES):", landlord.LegalName, landlord.RUT, renter.LegalName, renter.RUT)
+	appearanceLines := []string{appearance}
+	if company := terms.CompanyRepresentation; company != nil {
+		appearanceLines = []string{
+			fmt.Sprintf("En Chile, comparecen: por una parte, %s, RUT %s (RUT verificado y enmascarado), en adelante EL ARRENDADOR, representada en este acto por %s, representante legal con identidad verificada en EspaciGo; y por la otra, %s, RUT %s, en adelante EL ARRENDATARIO; quienes convienen en celebrar el siguiente Contrato de Arrendamiento Simple regido por la Ley N.º 18.101, el Código Civil de Chile y la Ley N.º 19.799 (FES):", company.LegalName, company.MaskedRUT, company.RepresentativeName, renter.LegalName, renter.RUT),
+			"Actor usuario ID firmante: " + company.RepresentativeUserID,
+		}
+	}
 	lines := []string{
 		"ESPACIGO — CONTRATO DE ARRENDAMIENTO DE ESPACIO",
 		"Propuesta: " + source.Proposal.ID + " · Versión: " + strconv.FormatInt(source.Proposal.Version, 10),
 		"SHA-256 documento firmado: " + source.Proposal.SHA256,
 		"",
-		fmt.Sprintf("En Chile, comparecen: por una parte, %s, RUT %s, en adelante EL ARRENDADOR; y por la otra, %s, RUT %s, en adelante EL ARRENDATARIO; ambos mayores de edad, con identidad verificada en EspaciGo, quienes convienen en celebrar el siguiente Contrato de Arrendamiento Simple regido por la Ley N.º 18.101, el Código Civil de Chile y la Ley N.º 19.799 (FES):", landlord.LegalName, landlord.RUT, renter.LegalName, renter.RUT),
+	}
+	lines = append(lines, appearanceLines...)
+	lines = append(lines,
 		"",
 		fmt.Sprintf("PRIMERO. INDIVIDUALIZACIÓN DEL INMUEBLE: EL ARRENDADOR entrega en arrendamiento el espacio denominado «%s», ubicado en %s, en condiciones aptas para el uso acordado.", terms.SpaceTitle, spaces.StripPostalCodeFromAddress(terms.Location.Address)),
 		"SEGUNDO. OBJETO Y USO PERMITIDO: EL ARRENDATARIO no podrá subarrendar, ceder ni destinar el espacio a un uso distinto o ilícito sin autorización previa y escrita de EL ARRENDADOR.",
 		fmt.Sprintf("TERCERO. VIGENCIA, HORARIO Y RESTITUCIÓN: El arrendamiento regirá desde %s hasta %s (zona horaria %s). Al término de dicho período, EL ARRENDATARIO restituirá el inmueble de inmediato en el mismo estado de conservación y aseo.", terms.StartAt.Format("2006-01-02T15:04:05Z07:00"), terms.EndAt.Format("2006-01-02T15:04:05Z07:00"), terms.TimeZone),
 		fmt.Sprintf("CUARTO. CANON DE ARRIENDO Y FORMA DE PAGO: La renta se fija en %d %s (%d %s a razón de %d %s por %s), pagadera en línea mediante EspaciGo / Mercado Pago.", terms.SubtotalCLP, terms.Currency, terms.Units, terms.RateUnit, terms.UnitPriceCLP, terms.Currency, terms.RateUnit),
 		"",
-	}
+	)
 	for i, section := range terms.Sections {
 		lines = append(lines, ordinal(i)+". "+strings.ToUpper(section.Title)+": "+section.Body, "")
 	}

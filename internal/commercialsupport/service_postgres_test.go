@@ -17,11 +17,17 @@ import (
 )
 
 const (
-	supportHost     = "11111111-1111-4111-8111-111111111111"
-	supportRenter   = "22222222-2222-4222-8222-222222222222"
-	supportOther    = "33333333-3333-4333-8333-333333333333"
-	supportAdmin    = "44444444-4444-4444-8444-444444444444"
-	supportRentalID = "66666666-6666-4666-8666-666666666666"
+	supportHost          = "11111111-1111-4111-8111-111111111111"
+	supportRenter        = "22222222-2222-4222-8222-222222222222"
+	supportOther         = "33333333-3333-4333-8333-333333333333"
+	supportAdmin         = "44444444-4444-4444-8444-444444444444"
+	supportRentalID      = "66666666-6666-4666-8666-666666666666"
+	supportCompanySpace  = "77777777-7777-4777-8777-777777777771"
+	supportPersonalSpace = "77777777-7777-4777-8777-777777777773"
+	supportOrganization  = "77777777-7777-4777-8777-777777777772"
+	supportCompanyMember = "33333333-3333-4333-8333-333333333334"
+	supportRevokedMember = "33333333-3333-4333-8333-333333333335"
+	supportCompanyRental = "66666666-6666-4666-8666-666666666667"
 )
 
 type memoryEvidence struct {
@@ -94,9 +100,12 @@ func TestCommercialSupportPostgresWorkflow(t *testing.T) {
 	if _, err = pool.Exec(ctx, `
 DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN CREATE ROLE espacigo_runtime NOLOGIN; END IF; END $$;
 CREATE TABLE public.usuario(id uuid PRIMARY KEY);
+CREATE TABLE public.organizacion(id uuid PRIMARY KEY, usuario_id uuid NOT NULL, compliance_status text NOT NULL DEFAULT 'grace_active');
+CREATE TABLE public.organizacion_miembro(id uuid PRIMARY KEY, organizacion_id uuid NOT NULL, usuario_id uuid NOT NULL, rol text NOT NULL, estado text NOT NULL);
+CREATE TABLE public.espacio(id uuid PRIMARY KEY, propietario_id uuid NOT NULL, modo_anfitrion text NOT NULL DEFAULT 'personal', organizacion_id uuid);
 CREATE TABLE public.reserva_arriendo_comercial(
  id uuid PRIMARY KEY, anfitrion_id uuid NOT NULL REFERENCES public.usuario(id),
- arrendatario_id uuid NOT NULL REFERENCES public.usuario(id), estado text NOT NULL,
+ arrendatario_id uuid NOT NULL REFERENCES public.usuario(id), espacio_id uuid NOT NULL REFERENCES public.espacio(id), estado text NOT NULL,
  inicio timestamptz NOT NULL, termino timestamptz NOT NULL,
  CHECK (anfitrion_id <> arrendatario_id)
 );
@@ -119,10 +128,23 @@ CREATE TABLE public.notificacion_usuario(
 
 	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
 	ended := now.Add(-time.Hour)
-	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id) VALUES($1),($2),($3),($4)`, supportHost, supportRenter, supportOther, supportAdmin); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO public.usuario(id) VALUES($1),($2),($3),($4),($5),($6)`, supportHost, supportRenter, supportOther, supportAdmin, supportCompanyMember, supportRevokedMember); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_arriendo_comercial(id,anfitrion_id,arrendatario_id,estado,inicio,termino) VALUES($1,$2,$3,'pagada',$4,$5)`, supportRentalID, supportHost, supportRenter, ended.Add(-4*time.Hour), ended); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO public.organizacion(id,usuario_id,compliance_status) VALUES($1,$2,'disabled_missing_docs')`, supportOrganization, supportHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.organizacion_miembro(id,organizacion_id,usuario_id,rol,estado) VALUES
+ ('88888888-8888-4888-8888-888888888881',$1,$2,'operador','activo'),('88888888-8888-4888-8888-888888888882',$1,$3,'administrador','retirado')`, supportOrganization, supportCompanyMember, supportRevokedMember); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,modo_anfitrion,organizacion_id) VALUES($1,$2,'empresa',$3)`, supportCompanySpace, supportHost, supportOrganization); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,modo_anfitrion,organizacion_id) VALUES($1,$2,'personal',NULL)`, supportPersonalSpace, supportHost); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_arriendo_comercial(id,anfitrion_id,arrendatario_id,espacio_id,estado,inicio,termino) VALUES($1,$2,$3,$4,'pagada',$5,$6),($7,$2,$3,$8,'pagada',$5,$6)`, supportRentalID, supportHost, supportRenter, supportPersonalSpace, ended.Add(-4*time.Hour), ended, supportCompanyRental, supportCompanySpace); err != nil {
 		t.Fatal(err)
 	}
 	files := &memoryEvidence{}
@@ -211,6 +233,39 @@ CREATE TABLE public.notificacion_usuario(
 	}
 	if _, err = service.Act(ctx, supportRentalID, damage.ID, supportOther, "descargo", "No soy parte.", "third-defense-1", false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("third-party action err=%v, want not found", err)
+	}
+
+	companyCase, err := service.Open(ctx, supportCompanyRental, supportCompanyMember, "problemas_acceso", "Coordino el acceso por la empresa.", "company-open-1")
+	if err != nil || companyCase.InitiatorRole != "anfitrion" {
+		t.Fatalf("company support case=%+v err=%v; member acts on host side", companyCase, err)
+	}
+	var companyActor, companyHostNotice, companyRenterNotice string
+	if err = pool.QueryRow(ctx, `SELECT actor_id::text FROM public.evento_caso_soporte_comercial WHERE caso_id=$1 AND accion='abrir'`, companyCase.ID).Scan(&companyActor); err != nil || companyActor != supportCompanyMember {
+		t.Fatalf("company case audit actor=%q err=%v", companyActor, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*)::text FROM public.notificacion_usuario WHERE usuario_id=$1 AND referencia_id=$3),
+		(SELECT count(*)::text FROM public.notificacion_usuario WHERE usuario_id=$2 AND referencia_id=$3)`, supportHost, supportRenter, companyCase.ID).Scan(&companyHostNotice, &companyRenterNotice); err != nil || companyHostNotice != "0" || companyRenterNotice != "1" {
+		t.Fatalf("company-side notices host=%s renter=%s err=%v", companyHostNotice, companyRenterNotice, err)
+	}
+	if _, err = service.List(ctx, supportCompanyRental, supportCompanyMember, false); err != nil {
+		t.Fatalf("active company member list: %v", err)
+	}
+	if _, err = service.List(ctx, supportCompanyRental, supportRevokedMember, false); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("retired company member list err=%v", err)
+	}
+	if _, err = service.Open(ctx, supportCompanyRental, supportRevokedMember, "problemas_acceso", "No debo acceder.", "revoked-open-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("retired company member open err=%v", err)
+	}
+	companyOwnerCase, err := service.Open(ctx, supportCompanyRental, supportHost, "problemas_acceso", "Caso abierto por el titular.", "company-owner-open-1")
+	if err != nil {
+		t.Fatalf("company owner support case: %v", err)
+	}
+	if _, err = service.Act(ctx, supportCompanyRental, companyOwnerCase.ID, supportCompanyMember, "cerrar", "", "company-member-close-1", false); err != nil {
+		t.Fatalf("active company member should manage an existing case: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT actor_id::text FROM public.evento_caso_soporte_comercial WHERE caso_id=$1 AND accion='cerrar'`, companyOwnerCase.ID).Scan(&companyActor); err != nil || companyActor != supportCompanyMember {
+		t.Fatalf("company close audit actor=%q err=%v", companyActor, err)
 	}
 }
 

@@ -15,18 +15,19 @@ import (
 )
 
 var (
-	ErrInvalid                  = errors.New("spaces: invalid draft")
-	ErrNotFound                 = errors.New("spaces: draft not found")
-	ErrPublicationConflict      = errors.New("spaces: publication state conflict")
-	ErrEnabledFixture           = errors.New("spaces: enabled synthetic fixture prevents publication transition")
-	ErrTimeZoneRequired         = errors.New("spaces: valid IANA time zone required before publication")
-	ErrLocationRequired         = errors.New("spaces: confirmed commercial location required before first publication")
-	ErrProfileIncomplete        = errors.New("spaces: complete profile required before publication")
-	ErrIdentityRequired         = errors.New("spaces: approved identity verification required before publication")
-	ErrMercadoPagoRequired      = errors.New("spaces: active Mercado Pago seller connection required before publication")
-	ErrContractTemplateRequired = errors.New("spaces: published contract template required before publication")
-	ErrDeleteBlocked            = errors.New("spaces: publication has open obligations")
-	ErrPreconditionFailed       = errors.New("spaces: draft revision precondition failed")
+	ErrInvalid                   = errors.New("spaces: invalid draft")
+	ErrNotFound                  = errors.New("spaces: draft not found")
+	ErrPublicationConflict       = errors.New("spaces: publication state conflict")
+	ErrEnabledFixture            = errors.New("spaces: enabled synthetic fixture prevents publication transition")
+	ErrTimeZoneRequired          = errors.New("spaces: valid IANA time zone required before publication")
+	ErrCommercialProfileDisabled = errors.New("spaces: commercial profile disabled for missing documentation")
+	ErrLocationRequired          = errors.New("spaces: confirmed commercial location required before first publication")
+	ErrProfileIncomplete         = errors.New("spaces: complete profile required before publication")
+	ErrIdentityRequired          = errors.New("spaces: approved identity verification required before publication")
+	ErrMercadoPagoRequired       = errors.New("spaces: active Mercado Pago seller connection required before publication")
+	ErrContractTemplateRequired  = errors.New("spaces: published contract template required before publication")
+	ErrDeleteBlocked             = errors.New("spaces: publication has open obligations")
+	ErrPreconditionFailed        = errors.New("spaces: draft revision precondition failed")
 )
 
 // FieldError exposes only a stable field path and local validation code. It
@@ -69,6 +70,8 @@ type Draft struct {
 	TimeZone                  *string        `json:"time_zone,omitempty"`
 	RegionCode                *string        `json:"region_code,omitempty"`
 	CommuneCode               *string        `json:"comuna_code,omitempty"`
+	OrganizationID            string         `json:"organization_id,omitempty"`
+	IsB2B                     bool           `json:"is_b2b"`
 	CoverPhotoID              *string        `json:"cover_photo_id,omitempty"`
 	AttributeSchemaVersion    int            `json:"attribute_schema_version"`
 	Attributes                map[string]any `json:"attributes"`
@@ -88,6 +91,8 @@ type Input struct {
 	Address                   string         `json:"address"`
 	RegionCode                string         `json:"region_code,omitempty"`
 	CommuneCode               string         `json:"comuna_code,omitempty"`
+	OrganizationID            string         `json:"organization_id,omitempty"`
+	IsB2B                     *bool          `json:"is_b2b,omitempty"`
 	AttributeSchemaVersion    int            `json:"attribute_schema_version,omitempty"`
 	Attributes                map[string]any `json:"attributes,omitempty"`
 	AddressProvided           bool           `json:"-"`
@@ -129,6 +134,8 @@ type CreateInput struct {
 	RateUnit                        string         `json:"rate_unit"`
 	BasePriceCLP                    int64          `json:"base_price_clp"`
 	Location                        LocationInput  `json:"location"`
+	OrganizationID                  string         `json:"organization_id,omitempty"`
+	IsB2B                           *bool          `json:"is_b2b,omitempty"`
 	AttributeSchemaVersion          int            `json:"attribute_schema_version,omitempty"`
 	Attributes                      map[string]any `json:"attributes,omitempty"`
 	LocationPublicConfirmedProvided bool           `json:"-"`
@@ -247,6 +254,9 @@ func (i Input) Validate() error {
 
 func (i Input) FieldErrors() []FieldError {
 	var fields []FieldError
+	if i.OrganizationID != "" && (!validOwner(i.OrganizationID) || (i.IsB2B != nil && !*i.IsB2B)) {
+		fields = append(fields, FieldError{Field: "organization_id", Code: "invalid_value"})
+	}
 	if strings.TrimSpace(i.CategoryCode) == "" {
 		fields = append(fields, FieldError{Field: "category_code", Code: "required"})
 	}

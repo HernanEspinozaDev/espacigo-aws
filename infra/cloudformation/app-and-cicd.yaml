@@ -16,6 +16,19 @@ Parameters:
     Default: espacigo-network-prod
     Description: Nombre del stack network-and-data del cual importar VPC, Subredes, SGs, RDS y S3.
 
+  EnableKYBInfrastructure:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Activa el bucket KYB y la inyección de keyrings SSM SecureString. Requiere recursos y parámetros previamente creados.
+
+  KYBParameterKmsKeyArn:
+    Type: String
+    Default: ''
+    Description: ARN opcional de CMK usada para SecureString KYB. Vacío usa la clave AWS administrada de SSM.
+
   MonthlyBudgetLimitUsd:
     Type: String
     Default: '28.0'
@@ -118,6 +131,10 @@ Conditions:
     - !Condition HasPublicTls
   EnableMercadoPago: !Not [!Equals [!Ref MercadoPagoSecretArn, '']]
   EnableDidit: !Not [!Equals [!Ref DiditSecretArn, '']]
+  EnableKYB: !Equals [!Ref EnableKYBInfrastructure, 'true']
+  EnableKYBCustomKMS: !And
+    - !Condition EnableKYB
+    - !Not [!Equals [!Ref KYBParameterKmsKeyArn, '']]
   HasDeployAlertEmail: !Not [!Equals [!Ref DeployAlertEmail, '']]
   EnableGitHubCommitStatus: !And
     - !Not [!Equals [!Ref GitHubStatusSsmParameterName, '']]
@@ -225,6 +242,15 @@ Resources:
       Type: String
       Value:
         Fn::ImportValue: !Sub ${NetworkStackName}-PrivacyReplayBucketName
+
+  SsmKYBDocumentsBucket:
+    Type: AWS::SSM::Parameter
+    Condition: EnableKYB
+    Properties:
+      Name: !Sub /espacigo/${Environment}/s3/kyb_documents_bucket
+      Type: String
+      Value:
+        Fn::ImportValue: !Sub ${NetworkStackName}-KYBDocumentsBucketName
 
   # ============================================================================
   # 2. Observabilidad (CloudWatch Log Groups) y Secretos gestionados
@@ -428,6 +454,28 @@ Resources:
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/auth/pinpass_pepper'
                   - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
               - !If
+                - EnableKYB
+                - Effect: Allow
+                  Action:
+                    - ssm:GetParameter
+                    - ssm:GetParameters
+                  Resource:
+                    - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/document_keyring_json'
+                    - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/rut_encryption_keyring_json'
+                    - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/rut_hmac_keyring_json'
+                - !Ref AWS::NoValue
+              - !If
+                - EnableKYBCustomKMS
+                - Effect: Allow
+                  Action: kms:Decrypt
+                  Resource: !Ref KYBParameterKmsKeyArn
+                  Condition:
+                    StringEquals:
+                      kms:ViaService: !Sub ssm.${AWS::Region}.amazonaws.com
+                    StringLike:
+                      kms:EncryptionContext:PARAMETER_ARN: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/*'
+                - !Ref AWS::NoValue
+              - !If
                 - EnableMercadoPago
                 - Effect: Allow
                   Action: secretsmanager:GetSecretValue
@@ -487,6 +535,29 @@ Resources:
                   - geo-places:Geocode
                   - geo-places:ReverseGeocode
                 Resource: !Sub 'arn:aws:geo-places:${AWS::Region}::provider/default'
+        - !If
+          - EnableKYB
+          - PolicyName: read-kyb-private-documents
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - s3:ListBucket
+                    - s3:GetBucketLocation
+                  Resource:
+                    Fn::ImportValue: !Sub ${NetworkStackName}-KYBDocumentsBucketArn
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                    - s3:DeleteObject
+                  Resource:
+                    - !Sub
+                      - ${Arn}/*
+                      - Arn:
+                          Fn::ImportValue: !Sub ${NetworkStackName}-KYBDocumentsBucketArn
+          - !Ref AWS::NoValue
 
   # ============================================================================
   # 4. NLB + TLS 443
@@ -598,6 +669,22 @@ Resources:
             - Name: S3_MEDIA_BUCKET
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-MediaBucketName
+            - !If
+              - EnableKYB
+              - Name: DOCUMENT_VERIFICATION_STORAGE_BACKEND
+                Value: s3
+              - !Ref AWS::NoValue
+            - !If
+              - EnableKYB
+              - Name: KYB_DOCUMENTS_S3_BUCKET
+                Value:
+                  Fn::ImportValue: !Sub ${NetworkStackName}-KYBDocumentsBucketName
+              - !Ref AWS::NoValue
+            - !If
+              - EnableKYB
+              - Name: KYB_REQUIRED
+                Value: 'true'
+              - !Ref AWS::NoValue
             - Name: AUTH_SMTP_HOST
               Value: smtp.zoho.com
             - Name: AUTH_SMTP_PORT
@@ -631,6 +718,21 @@ Resources:
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
             - Name: IDENTITY_DECLARATION_KEYRING_JSON
               ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/contracts/proposal_keyring'
+            - !If
+              - EnableKYB
+              - Name: KYB_DOCUMENT_KEYRING_JSON
+                ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/document_keyring_json'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableKYB
+              - Name: KYB_RUT_ENCRYPTION_KEYRING_JSON
+                ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/rut_encryption_keyring_json'
+              - !Ref AWS::NoValue
+            - !If
+              - EnableKYB
+              - Name: KYB_RUT_HMAC_KEYRING_JSON
+                ValueFrom: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/espacigo/${Environment}/kyb/rut_hmac_keyring_json'
+              - !Ref AWS::NoValue
             - !If
               - EnableMercadoPago
               - Name: MERCADOPAGO_CLIENT_ID

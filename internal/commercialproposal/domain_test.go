@@ -10,6 +10,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/commercialpolicy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/contracttemplate"
+	"github.com/HernanEspinozaDev/espaciGo/internal/kyb"
 	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification/declarationcrypto"
 )
@@ -89,6 +90,17 @@ type identityStub struct {
 	malformed bool
 }
 
+type organizationIdentityStub struct {
+	value        kyb.ContractIdentity
+	err          error
+	organization string
+}
+
+func (s *organizationIdentityStub) CurrentOrganizationContractIdentityForProposal(_ context.Context, organization string, _ time.Time) (kyb.ContractIdentity, error) {
+	s.organization = organization
+	return s.value, s.err
+}
+
 func (i *identityStub) CurrentForRentalContract(_ context.Context, _, _, subject string, _ time.Time) (rentalflow.ContractIdentity, error) {
 	i.calls++
 	name, rut := "Propietario Privado", "11111111-1"
@@ -151,6 +163,32 @@ func TestCommercialProposalEncryptsEvidenceAndRedactsBothDirections(t *testing.T
 	check(other, ownerID)
 	if _, err = s.Get(context.Background(), outsiderID, v.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("outsider access: %v", err)
+	}
+}
+
+func TestCompanyModeProposalSnapshotsMaskedCompanyAndSigningRepresentative(t *testing.T) {
+	svc, repo, _, _, _ := fixture(t)
+	orgID := "10000000-0000-4000-8000-000000000007"
+	repo.terms.CompanyRepresentation = &CompanyRepresentation{OrganizationID: orgID}
+	identity := &organizationIdentityStub{value: kyb.ContractIdentity{LegalName: "Empresa Sintética SpA", CompanyRUT: "76086428-5", RepresentativeUserID: ownerID, RepresentativeName: "Representante Sintético", RepresentativeRUT: "11111111-1"}}
+	svc.WithOrganizationContractIdentityReader(identity)
+	view, err := svc.Create(context.Background(), renterID, quoteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	company := view.CompanyRepresentation
+	if company == nil || company.OrganizationID != orgID || company.LegalName != "Empresa Sintética SpA" || !company.RUTVerified || company.MaskedRUT == "76086428-5" || company.RepresentativeUserID != ownerID || company.RepresentativeName != "Representante Sintético" || company.RepresentativeRUT == "11111111-1" || !company.RepresentativeRUTVerified {
+		t.Fatalf("company representation was not safely snapshotted: %+v", company)
+	}
+	if len(view.Parties) != 2 || view.Parties[0].LegalName != company.LegalName || view.Parties[0].RUT != company.MaskedRUT {
+		t.Fatalf("company mode projected the individual account as landlord: %+v", view.Parties)
+	}
+	if identity.organization != orgID {
+		t.Fatalf("identity source used wrong org: %+v", identity)
+	}
+	serialized, _ := json.Marshal(view)
+	if strings.Contains(string(serialized), "76086428-5") || strings.Contains(string(serialized), "11111111-1") {
+		t.Fatalf("full RUT leaked in company proposal: %s", serialized)
 	}
 }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import {
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
   FileCheck,
@@ -21,6 +22,12 @@ const items = [
     href: "/mi-cuenta",
     icon: User,
     description: "Información personal y contacto",
+  },
+  {
+    title: "Verificación KYB",
+    href: "/anfitrion/kyb",
+    icon: BriefcaseBusiness,
+    description: "Datos y documentos empresariales",
   },
   {
     title: "Mis espacios",

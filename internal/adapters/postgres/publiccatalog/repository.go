@@ -132,23 +132,14 @@ const eligiblePublicSQL = ` FROM public.espacio e
 JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo AND c.activa
 JOIN LATERAL (SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1) t ON true
 JOIN public.usuario owner ON owner.id=e.propietario_id AND owner.estado='activo'
+LEFT JOIN public.organizacion company ON company.id=e.organizacion_id
+JOIN LATERAL public.kyb_space_eligibility(e.id) commercial ON commercial.can_book
 LEFT JOIN LATERAL (
  SELECT
-   COALESCE((SELECT verified FROM public.account_profile_identity_status(owner.id,now())),false) AS identity_verified,
-   EXISTS (
-     SELECT 1 FROM (
-       SELECT * FROM public.document_verification_case
-       WHERE purpose='space' AND space_id=e.id AND subject_id=owner.id
-         AND state IN ('aprobada','revocada','vencida')
-       ORDER BY updated_at DESC,id DESC LIMIT 1
-     ) space_case
-     WHERE space_case.purpose='space' AND space_case.space_id=e.id
-       AND space_case.subject_id=owner.id AND space_case.state='aprobada'
-       AND space_case.verified_at<=now() AND space_case.verified_until>now()
-       AND space_case.document_expires_at>now() AND space_case.revoked_at IS NULL
-       AND space_case.superseded_at IS NULL
-       AND COALESCE((SELECT verified FROM public.account_profile_identity_status(owner.id,now())),false)
-   ) AS space_verified
+   CASE WHEN e.organizacion_id IS NULL
+      THEN COALESCE((SELECT verified FROM public.account_profile_identity_status(owner.id,now())),false)
+      ELSE commercial.space_verified END AS identity_verified,
+   commercial.space_verified
 ) verification ON true
 LEFT JOIN public.region_publica r ON r.catalogo_version=e.ubicacion_catalogo_version AND r.codigo=e.region_codigo
 LEFT JOIN public.comuna_publica m ON m.catalogo_version=e.ubicacion_catalogo_version AND m.region_codigo=e.region_codigo AND m.codigo=e.comuna_codigo
@@ -437,7 +428,7 @@ const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.
 const confirmedLocationSQL = `CASE WHEN e.ubicacion_confirmada_en IS NOT NULL THEN jsonb_build_object('address',CASE WHEN e.ubicacion_visibilidad='approximate' THEN COALESCE(NULLIF(concat_ws(', ',m.nombre,r.nombre),''),'Ubicación aproximada') ELSE e.direccion END,'latitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_latitud ELSE e.ubicacion_latitud END,'longitude',CASE WHEN e.ubicacion_visibilidad='approximate' AND e.ubicacion_publica_latitud IS NOT NULL AND e.ubicacion_publica_longitud IS NOT NULL THEN e.ubicacion_publica_longitud ELSE e.ubicacion_longitud END,'visibility',COALESCE(e.ubicacion_visibilidad,'exact')) END`
 
 func detailQuery() string {
-	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,(SELECT p.username FROM public.account_identity_profile p WHERE p.account_id=owner.id),owner.creado_en,(SELECT count(*) FROM (SELECT e.propietario_id` + eligiblePublicSQL + `) public_spaces WHERE public_spaces.propietario_id=owner.id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint,e.politica_cancelacion_version` + eligiblePublicSQL + ` AND e.id=$1`
+	return `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,e.capacidad_maxima,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C",e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule,CASE WHEN e.organizacion_id IS NULL THEN (SELECT p.username FROM public.account_identity_profile p WHERE p.account_id=owner.id) ELSE COALESCE(NULLIF(company.trade_name,''),NULLIF(company.legal_name,'')) END,COALESCE(company.created_at,owner.creado_en),(SELECT count(*) FROM (SELECT e.propietario_id,e.organizacion_id` + eligiblePublicSQL + `) public_spaces WHERE (e.organizacion_id IS NULL AND public_spaces.organizacion_id IS NULL AND public_spaces.propietario_id=owner.id) OR public_spaces.organizacion_id=e.organizacion_id),` + confirmedLocationSQL + ` AS public_location,NULL::text,NULL::smallint,e.politica_cancelacion_version` + eligiblePublicSQL + ` AND e.id=$1`
 }
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
@@ -580,7 +571,7 @@ WHERE sm.id=$2 AND sm.retired_at IS NULL AND sm.visible AND a.estado='ready' AND
 
 func (r *Repository) PublicHostAvatar(ctx context.Context, spaceID string) (publiccatalog.PublicImage, error) {
 	var item publiccatalog.PublicImage
-	err := r.pool.QueryRow(ctx, `WITH eligible AS (SELECT e.id,e.propietario_id`+eligiblePublicSQL+` AND e.id=$1)
+	err := r.pool.QueryRow(ctx, `WITH eligible AS (SELECT e.id,e.propietario_id`+eligiblePublicSQL+` AND e.id=$1 AND e.organizacion_id IS NULL)
 SELECT v.mime_type,v.sha256,v.size_bytes,v.object_key,v.bucket_name,v.generation
 FROM eligible e
 JOIN public.media_asset a ON a.propietario_id=e.propietario_id AND a.espacio_id IS NULL AND a.proposito='perfil' AND a.estado='ready'

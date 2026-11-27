@@ -38,7 +38,7 @@ func scanCommercialLocation(row pgx.Row) (spaces.CommercialLocation, error) {
 	return item, mapError(err)
 }
 func (r *Repository) GetOwnLocation(ctx context.Context, owner, id string) (spaces.CommercialLocation, error) {
-	return scanCommercialLocation(r.pool.QueryRow(ctx, `SELECT `+commercialLocationColumns+` FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado IN ('borrador','activa','oculta')`, owner, id))
+	return scanCommercialLocation(r.pool.QueryRow(ctx, `SELECT `+commercialLocationColumns+` FROM public.espacio e WHERE `+viewSpaceAccess+` AND e.id=$2 AND e.estado IN ('borrador','activa','oculta')`, owner, id))
 }
 func (r *Repository) SetOwnLocation(ctx context.Context, owner, id string, expected time.Time, in spaces.LocationInput) (spaces.CommercialLocation, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -49,8 +49,11 @@ func (r *Repository) SetOwnLocation(ctx context.Context, owner, id string, expec
 	if err = lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.CommercialLocation{}, err
 	}
-	old, err := scanCommercialLocation(tx.QueryRow(ctx, `SELECT `+commercialLocationColumns+` FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado IN ('borrador','activa','oculta') FOR UPDATE`, owner, id))
+	old, err := scanCommercialLocation(tx.QueryRow(ctx, `SELECT `+commercialLocationColumns+` FROM public.espacio e WHERE `+manageSpaceAccess+` AND e.id=$2 AND e.estado IN ('borrador','activa','oculta') FOR UPDATE OF e`, owner, id))
 	if err != nil {
+		return spaces.CommercialLocation{}, err
+	}
+	if err = requireCommercialSpaceAccess(ctx, tx, id); err != nil {
 		return spaces.CommercialLocation{}, err
 	}
 	if err = checkRevision(expected, old.UpdatedAt); err != nil {
@@ -64,11 +67,11 @@ func (r *Repository) SetOwnLocation(ctx context.Context, owner, id string, expec
 	if fixture {
 		return spaces.CommercialLocation{}, spaces.ErrEnabledFixture
 	}
-	_, err = tx.Exec(ctx, `UPDATE public.espacio SET direccion=$3,
- ubicacion_catalogo_version=CASE WHEN $4='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,
- region_codigo=NULLIF($4,''),comuna_codigo=NULLIF($5,''),ubicacion_latitud=$6,ubicacion_longitud=$7,
- ubicacion_confirmada_en=CASE WHEN $8 THEN GREATEST(clock_timestamp(),COALESCE(ubicacion_confirmada_en,'-infinity'::timestamptz)+interval '1 microsecond') ELSE NULL END
- WHERE propietario_id=$1 AND id=$2`, owner, id, in.Address, in.RegionCode, in.CommuneCode, in.Latitude, in.Longitude, in.PublicConfirmed)
+	_, err = tx.Exec(ctx, `UPDATE public.espacio SET direccion=$2,
+ ubicacion_catalogo_version=CASE WHEN $3='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,
+ region_codigo=NULLIF($3,''),comuna_codigo=NULLIF($4,''),ubicacion_latitud=$5,ubicacion_longitud=$6,
+ ubicacion_confirmada_en=CASE WHEN $7 THEN GREATEST(clock_timestamp(),COALESCE(ubicacion_confirmada_en,'-infinity'::timestamptz)+interval '1 microsecond') ELSE NULL END
+ WHERE id=$1`, id, in.Address, in.RegionCode, in.CommuneCode, in.Latitude, in.Longitude, in.PublicConfirmed)
 	if err != nil {
 		return spaces.CommercialLocation{}, mapError(err)
 	}
@@ -85,6 +88,9 @@ func (r *Repository) SetOwnLocation(ctx context.Context, owner, id string, expec
 	_, err = tx.Exec(ctx, `UPDATE public.espacio SET ubicacion_pin_origen=NULLIF($2,''),ubicacion_pin_precision=NULLIF($3,''),ubicacion_visibilidad=$4,ubicacion_publica_latitud=$5,ubicacion_publica_longitud=$6 WHERE id=$1`, id, in.Source, in.Precision, visibility, publicLat, publicLng)
 	if err != nil {
 		return spaces.CommercialLocation{}, mapError(err)
+	}
+	if err = auditCompanySpaceEdit(ctx, tx, id, owner, "space_edited"); err != nil {
+		return spaces.CommercialLocation{}, err
 	}
 	if _, err = spaceversion.Bump(ctx, tx, id); err != nil {
 		return spaces.CommercialLocation{}, err

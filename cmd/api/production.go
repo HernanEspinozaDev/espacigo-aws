@@ -145,6 +145,26 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
+	kybService, err := mountKYBRoutes(mux, pool, authService, cfg, getenv, strings.EqualFold(strings.TrimSpace(getenv("KYB_REQUIRED")), "true"), true)
+	if err != nil {
+		return nil, errors.New("production KYB initialization failed")
+	}
+	var prodHostPolicy *hostPolicy
+	if kybService != nil {
+		consentDocs, docErr := identity.PublicConsentDocuments()
+		if docErr != nil || len(consentDocs) == 0 {
+			return nil, errors.New("production consent documents initialization failed")
+		}
+		prodHostPolicy = &hostPolicy{db: pool, auth: authService, document: consentDocs[0]}
+		mux.Handle("GET /api/v1/kyb/policy-consent", prodHostPolicy)
+		mux.Handle("POST /api/v1/kyb/policy-consent", prodHostPolicy)
+		if workers != nil {
+			reminderMailer, _ := mailer.(kybReminderMailer)
+			workers.Go(func(workerCtx context.Context) {
+				runKYBComplianceWorker(workerCtx, kybService, reminderMailer, time.Now)
+			})
+		}
+	}
 	identityProfiles, profileKeys, err := mountIdentityProfile(mux, pool, authService, mailer, cfg, getenv, true)
 	if err != nil {
 		return nil, err
@@ -179,8 +199,12 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err := configureLocationGeocoder(ctx, spacesHandler, pool, getenv, false); err != nil {
 		return nil, err
 	}
-	mux.Handle("/api/v1/spaces", spacesHandler)
-	mux.Handle("/api/v1/spaces/", spacesHandler)
+	var registeredSpacesHandler http.Handler = spacesHandler
+	if prodHostPolicy != nil {
+		registeredSpacesHandler = prodHostPolicy.requireForSpaceWrites(spacesHandler)
+	}
+	mux.Handle("/api/v1/spaces", registeredSpacesHandler)
+	mux.Handle("/api/v1/spaces/", registeredSpacesHandler)
 	mountContractTemplates(mux, pool, authService, cfg.allowedOrigins)
 	registerPublicSpaceMonthRoute(mux, spacesHandler)
 	ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
@@ -281,7 +305,7 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	}
 	commercialQuoteRepo.RequireCommercialContracts(true)
 	mountCommercialAuthorization(mux, pool, authService, noticeSender, cfg.allowedOrigins)
-	cipher, proposalErr := mountCommercialContractProposals(mux, pool, authService, commercialQuoteRepo, previewService, identityVerifier, commercialQuoteRepo, cfg.allowedOrigins, getenv)
+	cipher, proposalErr := mountCommercialContractProposals(mux, pool, authService, commercialQuoteRepo, previewService, identityVerifier, commercialQuoteRepo, cfg.allowedOrigins, getenv, nil)
 	if proposalErr != nil {
 		return nil, proposalErr
 	}

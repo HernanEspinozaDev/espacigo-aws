@@ -11,6 +11,25 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/verification"
 )
 
+type SpaceOwnerResolver interface {
+	ResolveSpaceOwner(context.Context, string, string) (string, error)
+}
+
+type actorContextKey struct{}
+
+// WithActor carries an authenticated requester separately from the canonical
+// media owner used for storage paths and gallery quotas.
+func WithActor(ctx context.Context, actorID string) context.Context {
+	return context.WithValue(ctx, actorContextKey{}, actorID)
+}
+
+func ActorFromContext(ctx context.Context, fallback string) string {
+	if actor, ok := ctx.Value(actorContextKey{}).(string); ok && actor != "" {
+		return actor
+	}
+	return fallback
+}
+
 type Service struct {
 	repo  Repository
 	files FileStore
@@ -69,6 +88,27 @@ func (s *Service) AddSynthetic(ctx context.Context, owner, spaceID, key string) 
 		return Photo{}, false, err
 	}
 	return result, reused, nil
+}
+
+// ResolveSpaceOwner permits read-only gallery access for an active company
+// administrator or legal representative while returning the canonical media owner.
+// Repositories without this capability retain personal-owner behavior.
+func (s *Service) ResolveSpaceOwner(ctx context.Context, actor, spaceID string) (string, error) {
+	if !validUUID(actor) || !validUUID(spaceID) {
+		return "", ErrNotFound
+	}
+	resolver, ok := s.repo.(SpaceOwnerResolver)
+	if !ok {
+		return actor, nil
+	}
+	owner, err := resolver.ResolveSpaceOwner(ctx, actor, spaceID)
+	if err != nil {
+		return "", err
+	}
+	if !validUUID(owner) {
+		return "", ErrNotFound
+	}
+	return owner, nil
 }
 
 func (s *Service) List(ctx context.Context, owner, spaceID string) ([]Photo, error) {

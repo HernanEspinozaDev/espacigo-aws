@@ -126,29 +126,103 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{db}.Sanitize()); err != nil {
 		t.Fatal(err)
 	}
+	var createdRoles []string
+	for _, role := range []struct {
+		name  string
+		login bool
+	}{
+		{"espacigo_runtime", false},
+		{"espacigo_schema_owner", false},
+		{"espacigo_migrator_login", true},
+		{"espacigo_privacy_cleanup_worker", false},
+		{"espacigo_gadm_bootstrap", false},
+		{"espacigo_document_verification_fn", false},
+	} {
+		var exists bool
+		if err = admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)`, role.name).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			loginClause := "NOLOGIN"
+			if role.login {
+				loginClause = "LOGIN"
+			}
+			if _, err = admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role.name}.Sanitize()+" "+loginClause+" NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"); err != nil {
+				t.Fatal(err)
+			}
+			createdRoles = append(createdRoles, role.name)
+		}
+	}
 	t.Cleanup(func() {
 		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+pgx.Identifier{db}.Sanitize()+" WITH (FORCE)")
-		_, _ = admin.Exec(context.Background(), `DROP ROLE IF EXISTS espacigo_runtime`)
+		for _, role := range createdRoles {
+			_, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
+		}
 	})
 	u, err := url.Parse(adminURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u.Path = "/" + db
-	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN PASSWORD 'runtime-test-only'`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = migrator.Run(ctx, u.String(), "../../../../db/migrations"); err != nil {
-		t.Fatal(err)
-	}
 	adminPool, err := pgxpool.New(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer adminPool.Close()
-	if _, err = adminPool.Exec(ctx, `DO $$ BEGIN CREATE ROLE espacigo_runtime LOGIN PASSWORD 'runtime-test-only'; EXCEPTION WHEN duplicate_object THEN ALTER ROLE espacigo_runtime LOGIN PASSWORD 'runtime-test-only'; END $$;`); err != nil {
+	for _, ext := range []string{"unaccent", "postgis", "btree_gist", "pgcrypto"} {
+		if _, err = adminPool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{ext}.Sanitize()+" SCHEMA public"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = adminPool.Exec(ctx, `GRANT CONNECT ON DATABASE `+pgx.Identifier{db}.Sanitize()+` TO espacigo_migrator_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO espacigo_schema_owner;
+		GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;`); err != nil {
 		t.Fatal(err)
 	}
+	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migConn, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `SET SESSION AUTHORIZATION espacigo_migrator_login; SET ROLE espacigo_schema_owner;`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.schema_migrations (
+		version bigint PRIMARY KEY CHECK (version > 0),
+		name text NOT NULL UNIQUE,
+		checksum text NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+		runner_checksum text NOT NULL CHECK (runner_checksum ~ '^[0-9a-f]{64}$'),
+		applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
+	)`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		tx, txErr := migConn.Begin(ctx)
+		if txErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatal(txErr)
+		}
+		if _, execErr := tx.Conn().PgConn().Exec(ctx, string(m.SQL)).ReadAll(); execErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("execute migration %s: %v", m.Name, execErr)
+		}
+		if _, recErr := tx.Exec(ctx, `INSERT INTO public.schema_migrations(version,name,checksum,runner_checksum) VALUES($1,$2,$3,$4)`, m.Version, m.Name, m.Checksum, strings.Repeat("0", 64)); recErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("record migration %s: %v", m.Name, recErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatalf("commit migration %s: %v", m.Name, commitErr)
+		}
+	}
+	_ = migConn.Close(ctx)
 	bootstrapConn, err := pgx.Connect(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
@@ -157,9 +231,15 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 		t.Fatal(err)
 	}
 	_ = bootstrapConn.Close(ctx)
-	runtimeURL := *u
-	runtimeURL.User = url.UserPassword("espacigo_runtime", "runtime-test-only")
-	pool, err := pgxpool.New(ctx, runtimeURL.String())
+	runtimeConfig, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE espacigo_runtime`)
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, runtimeConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1020,4 +1100,390 @@ func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *test
 	if err != nil || retained.UnitPrice != 8000 || retained.Subtotal != 8000 || retained.State != "finalizada" || len(retained.History) < 2 || retained.History[len(retained.History)-1].To != "finalizada" {
 		t.Fatalf("deleted publication history/snapshot unavailable: detail=%+v err=%v", retained, err)
 	}
+}
+
+type testB2BBoundaryChecker struct{}
+
+func (testB2BBoundaryChecker) Contains(code string, _, _ float64) (bool, bool) {
+	return code == "13101", code == "13101"
+}
+
+func (testB2BBoundaryChecker) Bounds(code string) (float64, float64, float64, float64, bool) {
+	if code != "13101" {
+		return 0, 0, 0, 0, false
+	}
+	return -70.7, -33.5, -70.6, -33.4, true
+}
+
+func (testB2BBoundaryChecker) Find(lat, lng float64) (string, bool) {
+	if lat >= -33.5 && lat <= -33.4 && lng >= -70.7 && lng <= -70.6 {
+		return "13101", true
+	}
+	return "", false
+}
+
+type testB2BLocationCatalog struct{}
+
+func (testB2BLocationCatalog) ResolveLocation(_ context.Context, region, commune string) (string, string, bool, error) {
+	return region, commune, region == "13" && commune == "13101", nil
+}
+
+func TestCompanyPublicationWorksInGraceAndStopsWhenOverdue(t *testing.T) {
+	adminURL := os.Getenv("TEST_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL integration")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	admin, err := pgx.Connect(ctx, adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = admin.Close(context.Background()) })
+
+	var createdRoles []string
+	for _, role := range []struct {
+		name  string
+		login bool
+	}{
+		{"espacigo_runtime", false},
+		{"espacigo_schema_owner", false},
+		{"espacigo_migrator_login", true},
+		{"espacigo_privacy_cleanup_worker", false},
+		{"espacigo_gadm_bootstrap", false},
+		{"espacigo_document_verification_fn", false},
+	} {
+		var exists bool
+		if err = admin.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=$1)`, role.name).Scan(&exists); err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			loginClause := "NOLOGIN"
+			if role.login {
+				loginClause = "LOGIN"
+			}
+			if _, err = admin.Exec(ctx, "CREATE ROLE "+pgx.Identifier{role.name}.Sanitize()+" "+loginClause+" NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT"); err != nil {
+				t.Fatal(err)
+			}
+			createdRoles = append(createdRoles, role.name)
+		}
+	}
+
+	db := fmt.Sprintf("space_b2b_kyb_%d", time.Now().UnixNano())
+	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{db}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE "+pgx.Identifier{db}.Sanitize()+" WITH (FORCE)")
+		for _, role := range createdRoles {
+			_, _ = admin.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{role}.Sanitize())
+		}
+	})
+
+	u, err := url.Parse(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Path = "/" + db
+	adminPool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer adminPool.Close()
+	for _, ext := range []string{"unaccent", "postgis", "btree_gist", "pgcrypto"} {
+		if _, err = adminPool.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS "+pgx.Identifier{ext}.Sanitize()+" SCHEMA public"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = adminPool.Exec(ctx, `GRANT CONNECT ON DATABASE `+pgx.Identifier{db}.Sanitize()+` TO espacigo_migrator_login;
+		GRANT USAGE, CREATE ON SCHEMA public TO espacigo_schema_owner;
+		GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;`); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := migrator.DiscoverMigrations("../../../../db/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migConn, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `SET SESSION AUTHORIZATION espacigo_migrator_login; SET ROLE espacigo_schema_owner;`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	if _, err = migConn.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.schema_migrations (
+		version bigint PRIMARY KEY CHECK (version > 0),
+		name text NOT NULL UNIQUE,
+		checksum text NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
+		runner_checksum text NOT NULL CHECK (runner_checksum ~ '^[0-9a-f]{64}$'),
+		applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
+	)`); err != nil {
+		_ = migConn.Close(ctx)
+		t.Fatal(err)
+	}
+	for _, m := range migrations {
+		tx, txErr := migConn.Begin(ctx)
+		if txErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatal(txErr)
+		}
+		if _, execErr := tx.Conn().PgConn().Exec(ctx, string(m.SQL)).ReadAll(); execErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("execute migration %s: %v", m.Name, execErr)
+		}
+		if _, recErr := tx.Exec(ctx, `INSERT INTO public.schema_migrations(version,name,checksum,runner_checksum) VALUES($1,$2,$3,$4)`, m.Version, m.Name, m.Checksum, strings.Repeat("0", 64)); recErr != nil {
+			_ = tx.Rollback(ctx)
+			_ = migConn.Close(ctx)
+			t.Fatalf("record migration %s: %v", m.Name, recErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			_ = migConn.Close(ctx)
+			t.Fatalf("commit migration %s: %v", m.Name, commitErr)
+		}
+	}
+	_ = migConn.Close(ctx)
+
+	bootstrapConn, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = dbbootstrap.GrantRuntimePermissions(ctx, bootstrapConn); err != nil {
+		t.Fatal(err)
+	}
+	_ = bootstrapConn.Close(ctx)
+
+	runtimeConfig, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE espacigo_runtime`)
+		return err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, runtimeConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	owner := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	adminID := "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	for i, id := range []string{owner, adminID} {
+		email := fmt.Sprintf("b2b-pub-%d@example.test", i)
+		if _, err = adminPool.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'x','activo')`, id, email); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revID := "11111111-1111-4111-8111-111111111111"
+	verifID := "22222222-2222-4222-8222-222222222222"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.account_identity_profile_revision(id,account_id,key_version,encrypted_data,masked_rut,masked_phone,saved_at)
+	VALUES($1,$2,'v1',decode(repeat('ab',32),'hex'),'12.***.***-5','+569****1234',now())`, revID, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.account_identity_profile(account_id,username,current_revision) VALUES($1,'b2bowner',$2)`, owner, revID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.account_identity_verification(id,account_id,profile_revision,state,started_at,updated_at,verified_at,verified_until)
+	VALUES($1,$2,$3,'verified',now()-interval '1 day',now(),now()-interval '1 hour',now()+interval '30 days')`, verifID, owner, revID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.mercadopago_seller_connection(anfitrion_id,seller_id,encrypted_access_token,encrypted_refresh_token,token_expires_at,scopes,live_mode,connection_state)
+	VALUES($1,'123456789',decode(repeat('aa',40),'hex'),decode(repeat('bb',40),'hex'),now()+interval '30 days',ARRAY['read','write'],false,'active')`, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := New(pool, credentials.Generator{})
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.SetLocationBoundaryChecker(testB2BBoundaryChecker{})
+	svc.SetLocationCatalog(testB2BLocationCatalog{})
+	calendarService, err := occupancy.NewService(occupancypg.New(pool), credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pricingService, err := pricing.NewService(pricingpg.New(pool), calendarService, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesAPI := spaceshttp.NewHandlerWithPricing(publicationFlowAuth{ownerID: owner}, svc, nil, calendarService, pricingService)
+
+	const organizationID = "b2923b93-6ef5-4a8b-878f-a0148ed32745"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.organizacion(id,usuario_id,created_by_usuario_id,legal_name)
+		VALUES($1,$2,$2,'Empresa de prueba')`, organizationID, owner); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.organizacion_miembro(organizacion_id,usuario_id,rol)
+		VALUES($1,$2,'representante_legal') ON CONFLICT DO NOTHING`, organizationID, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	lat, lng := -33.45, -70.65
+	createBody, err := json.Marshal(spaces.CreateInput{
+		CategoryCode:   "oficina",
+		Title:          "Oficina B2B HTTP",
+		Description:    strings.Repeat("Espacio empresarial B2B sintético. ", 3),
+		AreaM2:         30,
+		Capacity:       8,
+		UsageRules:     "Uso corporativo",
+		RateUnit:       "hora",
+		BasePriceCLP:   15000,
+		OrganizationID: organizationID,
+		Location: spaces.LocationInput{
+			Address:         "Av. Empresarial 100",
+			RegionCode:      "13",
+			CommuneCode:     "13101",
+			Latitude:        &lat,
+			Longitude:       &lng,
+			Source:          "manual",
+			PublicConfirmed: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createResp := invokePublicationAPI(spacesAPI, http.MethodPost, "/api/v1/spaces", "owner-token", createBody)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create B2B draft status=%d body=%s", createResp.Code, createResp.Body.String())
+	}
+	var b2bDraft spaces.Draft
+	if err = json.Unmarshal(createResp.Body.Bytes(), &b2bDraft); err != nil || !b2bDraft.IsB2B || b2bDraft.OrganizationID == "" {
+		t.Fatalf("decoded B2B draft=%+v err=%v body=%s", b2bDraft, err, createResp.Body.String())
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, b2bDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+	VALUES($1,2,'[{"key":"uso","title":"Uso","body":"Uso corporativo permitido"}]'::jsonb,1)`, b2bDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := svc.GetOwn(ctx, owner, b2bDraft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publishReq := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+b2bDraft.ID+"/publication", strings.NewReader(`{"state":"activa"}`))
+	publishReq.Header.Set("Authorization", "Bearer owner-token")
+	publishReq.Header.Set("Content-Type", "application/json")
+	publishReq.Header.Set("If-Match", spaceshttp.DraftETag(reloaded))
+	publishResp := httptest.NewRecorder()
+	spacesAPI.ServeHTTP(publishResp, publishReq)
+	if publishResp.Code != http.StatusOK {
+		t.Fatalf("publish during grace without approved KYB: status=%d body=%s", publishResp.Code, publishResp.Body.String())
+	}
+	var startedAt, dueAt time.Time
+	if err = adminPool.QueryRow(ctx, `SELECT grace_started_at,grace_due_at FROM public.organizacion WHERE id=$1`, organizationID).Scan(&startedAt, &dueAt); err != nil {
+		t.Fatal(err)
+	}
+	if !dueAt.After(startedAt) {
+		t.Fatal("first publication did not establish a grace deadline")
+	}
+	// A second publication uses the same deadline. Set the clock just before
+	// it expires, then publish the second space through the normal service.
+	testNow := time.Now().Truncate(time.Microsecond)
+	startedAt, dueAt = testNow.AddDate(0, -2, 1), testNow.AddDate(0, 0, 1)
+	if _, err = adminPool.Exec(ctx, `UPDATE public.organizacion
+		SET grace_started_at=$2,grace_due_at=$3 WHERE id=$1`, organizationID, startedAt, dueAt); err != nil {
+		t.Fatal(err)
+	}
+	secondResponse := invokePublicationAPI(spacesAPI, http.MethodPost, "/api/v1/spaces", "owner-token", createBody)
+	if secondResponse.Code != http.StatusCreated {
+		t.Fatalf("create second company draft: status=%d body=%s", secondResponse.Code, secondResponse.Body.String())
+	}
+	var second spaces.Draft
+	if err = json.Unmarshal(secondResponse.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada)
+		SELECT $1,revision,secciones,version_publicada FROM public.espacio_contrato_borrador WHERE espacio_id=$2`, second.ID, b2bDraft.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, second.ID, "activa", "publish-second-company-space"); err != nil {
+		t.Fatal(err)
+	}
+	var sharedDeadline time.Time
+	if err = adminPool.QueryRow(ctx, `SELECT grace_due_at FROM public.organizacion WHERE id=$1`, organizationID).Scan(&sharedDeadline); err != nil || !sharedDeadline.Equal(dueAt.Truncate(time.Microsecond)) {
+		t.Fatalf("second publication renewed grace: due=%s want=%s err=%v", sharedDeadline, dueAt, err)
+	}
+
+	var requestCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_solicitud_documental
+		WHERE espacio_id IN ($1,$2) AND organizacion_id=$3 AND actor_usuario_id=$4
+		  AND vence_en=$5 AND version_politica='documentacion-comercial-v1'
+		  AND documentos_titular @> ARRAY['sii_start_activities']
+		  AND documento_espacio='property_or_sublease_authorization'`,
+		b2bDraft.ID, second.ID, organizationID, owner, sharedDeadline).Scan(&requestCount); err != nil || requestCount != 1 {
+		t.Fatalf("second space must get its own document request with the shared deadline: count=%d err=%v", requestCount, err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, second.ID, "oculta", "pause-second-company-space"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, second.ID, "activa", "republish-second-company-space"); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.espacio_solicitud_documental WHERE espacio_id=$1 AND vence_en=$2`, second.ID, sharedDeadline).Scan(&requestCount); err != nil || requestCount != 1 {
+		t.Fatalf("republication changed the original document request: count=%d err=%v", requestCount, err)
+	}
+
+	var canBook, verified bool
+	if err = pool.QueryRow(ctx, `SELECT can_book,space_verified FROM public.kyb_space_eligibility($1)`, b2bDraft.ID).Scan(&canBook, &verified); err != nil {
+		t.Fatal(err)
+	}
+	if !canBook || verified {
+		t.Fatalf("during grace: can_book=%t space_verified=%t", canBook, verified)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.organizacion
+		SET grace_started_at=now()-interval '3 months',grace_due_at=now()-interval '1 month' WHERE id=$1`, organizationID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT can_book FROM public.kyb_space_eligibility($1)`, b2bDraft.ID).Scan(&canBook); err != nil || canBook {
+		t.Fatalf("after grace before worker: can_book=%t err=%v", canBook, err)
+	}
+	if _, err = svc.SetPublicationState(ctx, owner, b2bDraft.ID, "activa", "publish-overdue-company"); !errors.Is(err, spaces.ErrCommercialProfileDisabled) {
+		t.Fatalf("overdue company publication error=%v, want %v", err, spaces.ErrCommercialProfileDisabled)
+	}
+	if response := invokePublicationAPI(spacesAPI, http.MethodPost, "/api/v1/spaces", "owner-token", createBody); response.Code != http.StatusForbidden {
+		t.Fatalf("overdue holder created another space: status=%d body=%s", response.Code, response.Body.String())
+	}
+	var accountState string
+	if err = adminPool.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1`, owner).Scan(&accountState); err != nil || accountState != "activo" {
+		t.Fatalf("commercial restriction changed the account state: %q %v", accountState, err)
+	}
+
+	// The holder can regularize independently of each property's evidence.
+	const verificationID = "297d9fe2-c715-4cb6-bda2-aec42e3cb954"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.kyb_verifications(
+		id,organization_id,submitted_by,idempotency_key,legal_name,company_rut_fingerprint,
+		company_rut_key_version,company_rut_ciphertext,representative_name,representative_rut_fingerprint,
+		representative_rut_key_version,representative_rut_ciphertext,sii_giro_code,status,reviewed_at,reviewer_id)
+	VALUES($1,$2,$3,'post-grace-review','Empresa de prueba','v1:'||repeat('a',64),
+		'v1',decode(repeat('aa',29),'hex'),'Representante','v1:'||repeat('b',64),'v1',decode(repeat('ab',29),'hex'),
+		'123456','APPROVED',clock_timestamp(),$4)`, verificationID, organizationID, owner, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.kyb_verification_document(id,verification_id,document_kind,storage_ref,mime_type,size_bytes,content_sha256)
+		SELECT gen_random_uuid(),$1,kind,gen_random_uuid(),'application/pdf',100,decode(repeat('ab',32),'hex')
+		FROM (VALUES('erut'),('sii_start_activities'),('power_certificate')) AS documents(kind)`, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `UPDATE public.organizacion SET compliance_status='compliant' WHERE id=$1`, organizationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.space_kyb_verification(
+		espacio_id,host_mode,owner_usuario_id,organizacion_id,document_storage_ref,mime_type,size_bytes,content_sha256,status,submitted_by,reviewer_id,reviewed_at)
+	VALUES($1,'empresa',$2,$3,gen_random_uuid(),'application/pdf',100,decode(repeat('ab',32),'hex'),'APPROVED',$2,$4,clock_timestamp())`, b2bDraft.ID, owner, organizationID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT can_book,space_verified FROM public.kyb_space_eligibility($1)`, b2bDraft.ID).Scan(&canBook, &verified); err != nil || !canBook || !verified {
+		t.Fatalf("first space failed to reactivate after approval: can_book=%t verified=%t err=%v", canBook, verified, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT can_book,space_verified FROM public.kyb_space_eligibility($1)`, second.ID).Scan(&canBook, &verified); err != nil || canBook || verified {
+		t.Fatalf("second space inherited property approval: can_book=%t verified=%t err=%v", canBook, verified, err)
+	}
+
 }

@@ -32,6 +32,10 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError } from "@/lib/api/errors";
 import { listingErrorMessage } from "../domain/listing-error-message";
 import {
+  HostComplianceNotice,
+  useHostCompliance,
+} from "@/features/kyb/ui/host-compliance-notice";
+import {
   isPublishGateReasonCode,
   type PublishGateReasonCode,
 } from "../domain/publish-guide";
@@ -48,6 +52,7 @@ const PAGE_SIZE = 6;
 
 export function HostListingsList() {
   const { snapshot: authSnapshot, accessToken } = useAuth();
+  const { profile: hostCompliance } = useHostCompliance();
   const {
     snapshot,
     loadListings,
@@ -308,6 +313,8 @@ export function HostListingsList() {
           </Button>
         </div>
       </div>
+
+      <HostComplianceNotice profile={hostCompliance} />
 
       <PublishGuideModal
         open={guideOpen}

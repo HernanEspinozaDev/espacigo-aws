@@ -63,6 +63,26 @@ func activeSuppressionObligations(ctx context.Context, tx pgx.Tx, subjectID stri
 		   AND COALESCE((SELECT sum(p.importe_clp) FROM public.reserva_pago_ensayo p WHERE p.reserva_id=r.id AND p.resultado='exito_simulado'),0)
 		       > COALESCE((SELECT sum(d.importe_clp) FROM public.reserva_devolucion_ensayo d WHERE d.reserva_id=r.id AND d.estado='completada'),0)
 		   AND NOT EXISTS (SELECT 1 FROM public.reserva_liquidacion_ensayo_local s WHERE s.reserva_id=r.id))`},
+		{"reserva_comercial_activa", `SELECT EXISTS (
+		 SELECT 1 FROM public.reserva_arriendo_comercial r WHERE $1 IN (r.anfitrion_id,r.arrendatario_id)
+		   AND (r.estado='pendiente_de_pago' OR (r.estado='pagada' AND r.termino>clock_timestamp())))`},
+		{"contrato_comercial_pendiente", `SELECT EXISTS (
+		 SELECT 1 FROM public.contrato_solicitud_comercial a
+		 WHERE $1 IN (a.propietario_id,a.arrendatario_id,a.representante_legal_id)
+		   AND ((a.estado='pending_landlord' AND a.vence_en>clock_timestamp())
+		     OR (a.estado='ready_for_payment' AND a.pago_vence_en>clock_timestamp())))`},
+		{"pago_comercial_o_reembolso_pendiente", `SELECT EXISTS (
+		 SELECT 1 FROM public.reserva_arriendo_comercial r
+		 LEFT JOIN public.reserva_comercial_cancelacion c ON c.reserva_id=r.id
+		 WHERE $1 IN (r.anfitrion_id,r.arrendatario_id)
+		   AND (r.estado='reconciliation_required' OR (c.monto_reembolso_clp>0 AND c.refund_status IN ('pendiente','fallido')))
+		 UNION ALL SELECT 1 FROM public.checkout_preferencia_comercial c
+		 WHERE $1 IN (c.host_id,c.arrendatario_id) AND c.estado IN ('pending','reconciliation_required'))`},
+		{"caso_comercial_abierto", `SELECT EXISTS (
+		 SELECT 1 FROM public.caso_soporte_reserva_comercial c
+		 JOIN public.reserva_arriendo_comercial r ON r.id=c.reserva_id
+		 WHERE $1 IN (r.anfitrion_id,r.arrendatario_id,c.iniciador_id)
+		   AND c.estado IN ('esperando_contraparte','en_mediacion_espacigo'))`},
 	}
 	for _, item := range queries {
 		if err := tx.QueryRow(ctx, item.sql, subjectID).Scan(&found); err != nil {

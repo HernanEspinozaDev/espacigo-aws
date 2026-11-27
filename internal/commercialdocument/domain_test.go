@@ -225,3 +225,35 @@ func TestPDFRendererStripsPostalCodeFromLocationAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestPDFRendererIdentifiesCompanyAndSigningRepresentative(t *testing.T) {
+	source, parties, _ := documentFixture(t)
+	source.Proposal.Terms.CompanyRepresentation = &commercialproposal.CompanyRepresentation{
+		OrganizationID: "40000000-0000-4000-8000-000000000009", LegalName: "Empresa Sintética SpA",
+		MaskedRUT: "**.***.428-5", RUTVerified: true, RepresentativeUserID: "20000000-0000-4000-8000-000000000002",
+		RepresentativeName: "Representante Legal", RepresentativeRUT: "**.***.111-1", RepresentativeRUTVerified: true,
+	}
+	pdf, err := (PDFRenderer{}).Render(context.Background(), source, parties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tool, e := exec.LookPath("pdftotext"); e == nil {
+		path := filepath.Join(t.TempDir(), "contrato-empresa.pdf")
+		if err = os.WriteFile(path, pdf, 0600); err != nil {
+			t.Fatal(err)
+		}
+		out, e := exec.Command(tool, "-layout", path, "-").Output()
+		if e != nil {
+			t.Fatal(e)
+		}
+		normalized := strings.Join(strings.Fields(string(out)), " ")
+		for _, expected := range []string{"Empresa Sintética SpA", "**.***.428-5", "Representante Legal", source.Proposal.Terms.CompanyRepresentation.RepresentativeUserID, "RUT verificado y enmascarado"} {
+			if !strings.Contains(normalized, expected) {
+				t.Fatalf("company contract omitted %q: %s", expected, normalized)
+			}
+		}
+		if strings.Contains(normalized, "76086428-5") || strings.Contains(normalized, "11111111-1") {
+			t.Fatal("full company or representative RUT leaked to the contract")
+		}
+	}
+}

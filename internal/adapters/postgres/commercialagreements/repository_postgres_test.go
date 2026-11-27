@@ -76,7 +76,7 @@ func TestCommercialAgreementPostgresAtomicSignaturesAndHolds(t *testing.T) {
 	const foundation = `CREATE TABLE public.usuario(id uuid PRIMARY KEY,estado text NOT NULL DEFAULT 'activo',correo_original text);
 CREATE TABLE public.rol_usuario(usuario_id uuid,rol text,PRIMARY KEY(usuario_id,rol));
 CREATE TABLE public.bloqueo_cuenta_administrativo_local(cuenta_id uuid PRIMARY KEY);
-CREATE TABLE public.espacio(id uuid PRIMARY KEY,propietario_id uuid NOT NULL REFERENCES public.usuario(id),estado text NOT NULL,zona_horaria text,direccion text,ubicacion_latitud double precision,ubicacion_longitud double precision,ubicacion_confirmada_en timestamptz,ubicacion_revision bigint NOT NULL DEFAULT 1,region_codigo text,comuna_codigo text);
+CREATE TABLE public.espacio(id uuid PRIMARY KEY,propietario_id uuid NOT NULL REFERENCES public.usuario(id),estado text NOT NULL,zona_horaria text,direccion text,ubicacion_latitud double precision,ubicacion_longitud double precision,ubicacion_confirmada_en timestamptz,ubicacion_revision bigint NOT NULL DEFAULT 1,region_codigo text,comuna_codigo text,modo_anfitrion text NOT NULL DEFAULT 'personal',organizacion_id uuid);
 CREATE TABLE public.tarifa_espacio(espacio_id uuid,version integer,modalidad text,precio_base_clp bigint,moneda text);
 CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY,espacio_id uuid,propietario_id uuid,arrendatario_id uuid,titulo_espacio text,tarifa_version integer,modalidad text,precio_unitario_clp bigint,unidades bigint,subtotal_clp bigint,moneda text,inicio timestamptz,termino timestamptz,zona_horaria text,vence_en timestamptz);
 CREATE TABLE public.cotizacion_arriendo_tramo(id uuid PRIMARY KEY,cotizacion_id uuid,inicio timestamptz,termino timestamptz,unidades bigint,orden integer);
@@ -110,6 +110,12 @@ GRANT SELECT,INSERT,UPDATE ON public.ocupacion TO espacigo_runtime;`
 		if _, e = setup.Exec(ctx, string(blob)); e != nil {
 			t.Fatal(file, e)
 		}
+	}
+	if _, err = setup.Exec(ctx, `ALTER TABLE public.contrato_propuesta_comercial ADD COLUMN es_b2b boolean NOT NULL DEFAULT false, ADD COLUMN organizacion_id uuid, ADD COLUMN empresa_razon_social_snapshot varchar(200), ADD COLUMN empresa_rut_masked_snapshot varchar(16), ADD COLUMN empresa_rut_verificada boolean NOT NULL DEFAULT false, ADD COLUMN representante_legal_id uuid, ADD COLUMN representante_nombre_snapshot varchar(200), ADD COLUMN representante_rut_masked_snapshot varchar(16), ADD COLUMN representante_rut_verificada boolean NOT NULL DEFAULT false;
+ALTER TABLE public.contrato_solicitud_comercial ADD COLUMN es_b2b boolean NOT NULL DEFAULT false, ADD COLUMN organizacion_id uuid, ADD COLUMN empresa_razon_social_snapshot varchar(200), ADD COLUMN empresa_rut_masked_snapshot varchar(16), ADD COLUMN empresa_rut_verificada boolean NOT NULL DEFAULT false, ADD COLUMN representante_legal_id uuid, ADD COLUMN representante_nombre_snapshot varchar(200), ADD COLUMN representante_rut_masked_snapshot varchar(16), ADD COLUMN representante_rut_verificada boolean NOT NULL DEFAULT false;
+CREATE TABLE public.organizacion_miembro(organizacion_id uuid, usuario_id uuid, rol text, estado text);
+GRANT SELECT ON public.organizacion_miembro TO espacigo_runtime;`); err != nil {
+		t.Fatal(err)
 	}
 	config, err := pgxpool.ParseConfig(u.String())
 	if err != nil {

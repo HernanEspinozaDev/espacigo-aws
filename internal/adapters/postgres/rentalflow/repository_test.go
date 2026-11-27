@@ -428,6 +428,7 @@ func TestGetForParticipantScansQuote(t *testing.T) {
 				fixedNow.Add(24 * time.Hour), fixedNow.Add(31 * 24 * time.Hour),
 				"America/Santiago", fixedNow, fixedNow.Add(15 * time.Minute),
 				"estricta_v1", "Estricta: sin reembolso después de confirmar la reserva.",
+				false,
 			},
 		},
 	}
@@ -438,14 +439,29 @@ func TestGetForParticipantScansQuote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected quote, got err=%v", err)
 	}
-	if q.ID != "q-1" || q.OwnerID != "host-1" || q.SpaceTitle != "Oficina Privada" {
+	if q.ID != "q-1" || q.OwnerID != "host-1" || q.SpaceTitle != "Oficina Privada" || q.CompanyRepresentativeAuthorized {
 		t.Fatalf("unexpected quote: %+v", q)
 	}
 	if q.CancellationPolicy == nil || q.CancellationPolicy.Version != "estricta_v1" || q.CancellationPolicy.Text == "" {
 		t.Fatalf("cancellation policy snapshot not scanned: %+v", q.CancellationPolicy)
 	}
-	if !strings.Contains(m.lastSQL, "public.cotizacion_arriendo_comercial") || !strings.Contains(m.lastSQL, "q.titulo_espacio") || strings.Contains(m.lastSQL, "JOIN public.espacio") {
-		t.Fatalf("quote read does not use the persisted title snapshot: %s", m.lastSQL)
+	if !strings.Contains(m.lastSQL, "public.cotizacion_arriendo_comercial") || !strings.Contains(m.lastSQL, "q.titulo_espacio") || strings.Contains(m.lastSQL, "JOIN public.espacio") || !strings.Contains(m.lastSQL, "organizacion_miembro") || !strings.Contains(m.lastSQL, "representante_legal") {
+		t.Fatalf("quote read does not preserve snapshot and company rep gate: %s", m.lastSQL)
+	}
+
+	m.row = mockRow{
+		vals: []any{
+			"q-1", "space-1", "host-1", "renter-1", "Oficina Privada",
+			int64(2), "mes", int64(200000), "CLP", int64(1), int64(200000),
+			fixedNow.Add(24 * time.Hour), fixedNow.Add(31 * 24 * time.Hour),
+			"America/Santiago", fixedNow, fixedNow.Add(15 * time.Minute),
+			"estricta_v1", "Estricta: sin reembolso después de confirmar la reserva.",
+			true,
+		},
+	}
+	qRep, err := repo.GetForParticipant(ctx, "rep-2", "q-1")
+	if err != nil || !qRep.CompanyRepresentativeAuthorized {
+		t.Fatalf("expected active company representative quote access, got q=%+v err=%v", qRep, err)
 	}
 
 	m.row = mockRow{err: pgx.ErrNoRows}

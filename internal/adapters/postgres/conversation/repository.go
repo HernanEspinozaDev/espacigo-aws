@@ -96,12 +96,11 @@ RETURNING ultima_secuencia_leida`, reservationID, actor, throughSequence).Scan(&
 }
 
 func (r *Repository) ListCommercial(ctx context.Context, actor, reservationID string, before *int64, limit int) (conversation.Page, error) {
-	var participant bool
-	if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))`, reservationID, actor).Scan(&participant); err != nil {
+	if _, _, _, err := commercialParty(ctx, r.pool, actor, reservationID, false); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return conversation.Page{}, conversation.ErrNotFound
+		}
 		return conversation.Page{}, err
-	}
-	if !participant {
-		return conversation.Page{}, conversation.ErrNotFound
 	}
 	rows, err := r.pool.Query(ctx, `SELECT id::text,reserva_id::text,COALESCE(autor_id::text,''),secuencia,cuerpo,creada_en FROM public.mensaje_reserva_comercial WHERE reserva_id=$1 AND ($2::bigint IS NULL OR secuencia<$2) ORDER BY secuencia DESC LIMIT $3`, reservationID, before, limit+1)
 	if err != nil {
@@ -119,6 +118,10 @@ func (r *Repository) ListCommercial(ctx context.Context, actor, reservationID st
 	if err = rows.Err(); err != nil {
 		return conversation.Page{}, err
 	}
+	return pageFromDescending(descending, limit), nil
+}
+
+func pageFromDescending(descending []conversation.Message, limit int) conversation.Page {
 	hasOlder := len(descending) > limit
 	if hasOlder {
 		descending = descending[:limit]
@@ -132,19 +135,30 @@ func (r *Repository) ListCommercial(ctx context.Context, actor, reservationID st
 		cursor := items[0].Sequence
 		page.OlderCursor = &cursor
 	}
-	return page, nil
+	return page
 }
 
 func (r *Repository) MarkCommercialRead(ctx context.Context, actor, reservationID string, throughSequence int64) (int64, error) {
 	var cursor int64
 	err := r.pool.QueryRow(ctx, `INSERT INTO public.reserva_comercial_mensaje_lectura(reserva_id,usuario_id,ultima_secuencia_leida,actualizada_en)
-SELECT $1,$2,$3,clock_timestamp() WHERE EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))
+SELECT $1,$2,$3,clock_timestamp()
+WHERE EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial r JOIN public.espacio e ON e.id=r.espacio_id
+ WHERE r.id=$1 AND r.anfitrion_id<>r.arrendatario_id AND
+ ($2::uuid=r.arrendatario_id OR $2::uuid=r.anfitrion_id OR EXISTS(
+   SELECT 1 FROM public.organizacion_miembro m WHERE e.modo_anfitrion='empresa'
+    AND e.propietario_id=r.anfitrion_id AND m.organizacion_id=e.organizacion_id AND m.usuario_id=$2
+    AND m.estado='activo' AND m.rol IN ('representante_legal','administrador','operador'))))
 AND EXISTS(SELECT 1 FROM public.mensaje_reserva_comercial WHERE reserva_id=$1 AND secuencia=$3)
 ON CONFLICT(reserva_id,usuario_id) DO UPDATE SET ultima_secuencia_leida=GREATEST(reserva_comercial_mensaje_lectura.ultima_secuencia_leida,EXCLUDED.ultima_secuencia_leida),actualizada_en=CASE WHEN EXCLUDED.ultima_secuencia_leida>reserva_comercial_mensaje_lectura.ultima_secuencia_leida THEN EXCLUDED.actualizada_en ELSE reserva_comercial_mensaje_lectura.actualizada_en END
 RETURNING ultima_secuencia_leida`, reservationID, actor, throughSequence).Scan(&cursor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var participant bool
-		if readErr := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id AND $2::uuid IN(anfitrion_id,arrendatario_id))`, reservationID, actor).Scan(&participant); readErr != nil {
+		if readErr := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_arriendo_comercial r JOIN public.espacio e ON e.id=r.espacio_id
+ WHERE r.id=$1 AND r.anfitrion_id<>r.arrendatario_id AND
+ ($2::uuid=r.arrendatario_id OR $2::uuid=r.anfitrion_id OR EXISTS(
+   SELECT 1 FROM public.organizacion_miembro m WHERE e.modo_anfitrion='empresa'
+    AND e.propietario_id=r.anfitrion_id AND m.organizacion_id=e.organizacion_id AND m.usuario_id=$2
+    AND m.estado='activo' AND m.rol IN ('representante_legal','administrador','operador'))))`, reservationID, actor).Scan(&participant); readErr != nil {
 			return 0, readErr
 		}
 		if !participant {
@@ -161,13 +175,20 @@ func (r *Repository) SendCommercial(ctx context.Context, actor, reservationID, k
 		return conversation.Message{}, err
 	}
 	defer tx.Rollback(ctx)
-	var host, renter string
-	err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_arriendo_comercial WHERE id=$1 AND anfitrion_id<>arrendatario_id FOR UPDATE`, reservationID).Scan(&host, &renter)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actor != host && actor != renter) {
+	host, renter, hostSide, err := commercialParty(ctx, tx, actor, reservationID, true)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return conversation.Message{}, conversation.ErrNotFound
 	}
 	if err != nil {
 		return conversation.Message{}, err
+	}
+	if hostSide && actor != host {
+		if err = lockCommercialHostMember(ctx, tx, actor, reservationID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return conversation.Message{}, conversation.ErrNotFound
+			}
+			return conversation.Message{}, err
+		}
 	}
 	var item conversation.Message
 	var priorHash []byte
@@ -190,7 +211,7 @@ func (r *Repository) SendCommercial(ctx context.Context, actor, reservationID, k
 		return conversation.Message{}, err
 	}
 	recipient, href, recipientLabel := host, "/anfitrion/reservas/"+reservationID, "Arrendatario"
-	if actor == host {
+	if hostSide {
 		recipient, href, recipientLabel = renter, "/reservas/"+reservationID, "Anfitrión"
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en) VALUES(gen_random_uuid(),$1,'mensaje_reserva','Nuevo mensaje de ' || $2,'Tienes un nuevo mensaje sobre tu reserva.',$3,$4,$5)`, recipient, recipientLabel, href, reservationID, createdAt)
@@ -201,6 +222,39 @@ func (r *Repository) SendCommercial(ctx context.Context, actor, reservationID, k
 		return conversation.Message{}, err
 	}
 	return item, nil
+}
+
+type rowQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func commercialParty(ctx context.Context, q rowQuerier, actor, reservationID string, lockReservation bool) (host, renter string, hostSide bool, err error) {
+	query := `SELECT r.anfitrion_id::text,r.arrendatario_id::text,
+ (r.anfitrion_id=$2::uuid OR EXISTS(SELECT 1 FROM public.organizacion_miembro m
+   WHERE e.modo_anfitrion='empresa' AND e.propietario_id=r.anfitrion_id
+    AND m.organizacion_id=e.organizacion_id AND m.usuario_id=$2::uuid AND m.estado='activo'
+    AND m.rol IN ('representante_legal','administrador','operador')))
+ FROM public.reserva_arriendo_comercial r JOIN public.espacio e ON e.id=r.espacio_id
+ WHERE r.id=$1 AND r.anfitrion_id<>r.arrendatario_id
+   AND (r.arrendatario_id=$2::uuid OR r.anfitrion_id=$2::uuid OR EXISTS(
+     SELECT 1 FROM public.organizacion_miembro m WHERE e.modo_anfitrion='empresa'
+      AND e.propietario_id=r.anfitrion_id AND m.organizacion_id=e.organizacion_id
+      AND m.usuario_id=$2::uuid AND m.estado='activo'
+      AND m.rol IN ('representante_legal','administrador','operador')))`
+	if lockReservation {
+		query += ` FOR UPDATE OF r`
+	}
+	err = q.QueryRow(ctx, query, reservationID, actor).Scan(&host, &renter, &hostSide)
+	return host, renter, hostSide, err
+}
+
+func lockCommercialHostMember(ctx context.Context, tx pgx.Tx, actor, reservationID string) error {
+	var memberID string
+	return tx.QueryRow(ctx, `SELECT m.id::text FROM public.reserva_arriendo_comercial r
+ JOIN public.espacio e ON e.id=r.espacio_id JOIN public.organizacion_miembro m ON m.organizacion_id=e.organizacion_id
+ WHERE r.id=$1 AND e.modo_anfitrion='empresa' AND e.propietario_id=r.anfitrion_id
+  AND m.usuario_id=$2 AND m.estado='activo' AND m.rol IN ('representante_legal','administrador','operador')
+ FOR SHARE OF m`, reservationID, actor).Scan(&memberID)
 }
 
 func (r *Repository) Send(ctx context.Context, actor, reservationID, key, body string, fingerprint []byte, id string, now func() time.Time) (conversation.Message, error) {

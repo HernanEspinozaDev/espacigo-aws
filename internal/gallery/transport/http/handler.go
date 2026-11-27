@@ -101,6 +101,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	spaceCtx := media.WithActor(gallery.WithActor(r.Context(), principal.AccountID), principal.AccountID)
+	spaceOwner, err := h.service.ResolveSpaceOwner(spaceCtx, principal.AccountID, spaceID)
+	if err != nil {
+		galleryError(w, err)
+		return
+	}
 	switch {
 	case photoID == "" && r.Method == http.MethodPost && isMultipartFormData(r.Header.Get("Content-Type")):
 		if h.media == nil {
@@ -127,7 +133,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
 			return
 		}
-		result, err := h.media.UploadSpace(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"), body)
+		result, err := h.media.UploadSpace(spaceCtx, spaceOwner, spaceID, r.Header.Get("Idempotency-Key"), body)
 		if err != nil {
 			mediaError(w, err)
 			return
@@ -191,7 +197,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, http.StatusRequestEntityTooLarge, "upload_too_large", "La imagen supera el tamaño permitido.")
 			return
 		}
-		result, err := h.media.UploadSpaceReplacement(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"), photoID, revision, body)
+		result, err := h.media.UploadSpaceReplacement(spaceCtx, spaceOwner, spaceID, r.Header.Get("Idempotency-Key"), photoID, revision, body)
 		if err != nil {
 			mediaError(w, err)
 			return
@@ -222,7 +228,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		variant := media.VariantName(strings.TrimPrefix(r.URL.Path[strings.LastIndex(r.URL.Path, "/variants/")+len("/variants/"):], "/"))
-		_, v, body, err := h.media.ContentSpace(r.Context(), principal.AccountID, spaceID, photoID, variant)
+		_, v, body, err := h.media.ContentSpace(spaceCtx, spaceOwner, spaceID, photoID, variant)
 		if err != nil {
 			mediaError(w, err)
 			return
@@ -260,9 +266,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		result, err := h.service.SelectCoverCAS(r.Context(), principal.AccountID, spaceID, input.PhotoID, revision)
+		result, err := h.service.SelectCoverCAS(spaceCtx, spaceOwner, spaceID, input.PhotoID, revision)
 		if err != nil && errors.Is(err, gallery.ErrNotFound) && h.media != nil {
-			updated, mediaErr := h.media.SelectCoverCAS(r.Context(), principal.AccountID, spaceID, input.PhotoID, revision)
+			updated, mediaErr := h.media.SelectCoverCAS(spaceCtx, spaceOwner, spaceID, input.PhotoID, revision)
 			if mediaErr != nil {
 				mediaError(w, mediaErr)
 				return
@@ -279,20 +285,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
 			return
 		}
-		photoID, state, err := h.media.LookupSpaceUpload(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"))
+		photoID, state, err := h.media.LookupSpaceUpload(spaceCtx, spaceOwner, spaceID, r.Header.Get("Idempotency-Key"))
 		if err != nil {
 			mediaError(w, err)
 			return
 		}
 		write(w, http.StatusOK, map[string]string{"photo_id": photoID, "state": state})
 	case photoID == "" && r.Method == http.MethodGet:
-		items, err := h.service.List(r.Context(), principal.AccountID, spaceID)
+		items, err := h.service.List(spaceCtx, spaceOwner, spaceID)
 		if err != nil {
 			galleryError(w, err)
 			return
 		}
 		if h.media != nil {
-			real, e := h.media.ListSpace(r.Context(), principal.AccountID, spaceID)
+			real, e := h.media.ListSpace(spaceCtx, spaceOwner, spaceID)
 			if e != nil {
 				mediaError(w, e)
 				return
@@ -323,7 +329,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !emptyBody(w, r) {
 			return
 		}
-		item, reused, err := h.service.AddSynthetic(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"))
+		item, reused, err := h.service.AddSynthetic(spaceCtx, spaceOwner, spaceID, r.Header.Get("Idempotency-Key"))
 		if err != nil {
 			galleryError(w, err)
 			return
@@ -334,7 +340,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, status, map[string]any{"photo": item, "reused": reused, "synthetic": true})
 	case photoID != "" && content && r.Method == http.MethodGet:
-		item, blob, err := h.service.Content(r.Context(), principal.AccountID, spaceID, photoID)
+		item, blob, err := h.service.Content(spaceCtx, spaceOwner, spaceID, photoID)
 		if err != nil {
 			galleryError(w, err)
 			return
@@ -371,14 +377,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		result, renewed, err := h.service.SetPublicInCatalogCAS(r.Context(), principal.AccountID, spaceID, photoID, *input.PublicInCatalog, revision)
+		result, renewed, err := h.service.SetPublicInCatalogCAS(spaceCtx, spaceOwner, spaceID, photoID, *input.PublicInCatalog, revision)
 		if err != nil {
 			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
 				galleryError(w, err)
 				return
 			}
 			visible := *input.PublicInCatalog
-			real, mediaRevision, mediaErr := h.media.UpdateSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, nil, &visible, nil, revision)
+			real, mediaRevision, mediaErr := h.media.UpdateSpaceCAS(spaceCtx, spaceOwner, spaceID, photoID, nil, &visible, nil, revision)
 			if mediaErr != nil {
 				mediaError(w, mediaErr)
 				return
@@ -418,7 +424,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		item, updatedAt, err := h.media.UpdateSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, input.AltText, input.Visible, input.Position, revision)
+		item, updatedAt, err := h.media.UpdateSpaceCAS(spaceCtx, spaceOwner, spaceID, photoID, input.AltText, input.Visible, input.Position, revision)
 		if err != nil {
 			mediaError(w, err)
 			return
@@ -426,13 +432,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: updatedAt}))
 		write(w, http.StatusOK, item)
 	case photoID != "" && !content && r.Method == http.MethodGet:
-		item, err := h.service.Metadata(r.Context(), principal.AccountID, spaceID, photoID)
+		item, err := h.service.Metadata(spaceCtx, spaceOwner, spaceID, photoID)
 		if err != nil {
 			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
 				galleryError(w, err)
 				return
 			}
-			real, mediaErr := h.media.GetSpace(r.Context(), principal.AccountID, spaceID, photoID)
+			real, mediaErr := h.media.GetSpace(spaceCtx, spaceOwner, spaceID, photoID)
 			if mediaErr != nil {
 				mediaError(w, mediaErr)
 				return
@@ -454,13 +460,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		result, updated, err := h.service.RemoveCAS(r.Context(), principal.AccountID, spaceID, photoID, revision)
+		result, updated, err := h.service.RemoveCAS(spaceCtx, spaceOwner, spaceID, photoID, revision)
 		if err != nil {
 			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
 				galleryError(w, err)
 				return
 			}
-			updated, err = h.media.RemoveSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, revision)
+			updated, err = h.media.RemoveSpaceCAS(spaceCtx, spaceOwner, spaceID, photoID, revision)
 			if err != nil {
 				mediaError(w, err)
 				return

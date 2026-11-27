@@ -30,6 +30,20 @@ export function ContractProposalTerms({
       <p className="rounded-lg border border-border bg-muted/30 p-3">
         {proposal.contact_notice}
       </p>
+      {proposal.company_representation ? (
+        <section className="rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <h4 className="font-semibold">Anfitrión empresa</h4>
+          <p className="mt-1">
+            <strong>{proposal.company_representation.legal_name}</strong> · RUT{" "}
+            {proposal.company_representation.rut_masked}
+          </p>
+          <p className="text-muted-foreground">
+            Representada por{" "}
+            {proposal.company_representation.representative_name} · RUT{" "}
+            {proposal.company_representation.representative_rut_masked}
+          </p>
+        </section>
+      ) : null}
       <dl className="grid gap-3 sm:grid-cols-2">
         {proposal.parties.map((p) => (
           <div className="rounded-lg border border-border p-3" key={p.role}>

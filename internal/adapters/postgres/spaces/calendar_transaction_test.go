@@ -26,6 +26,7 @@ type calendarTestTx struct {
 	current, next                   time.Time
 	writes, commits, bumps          int
 	ruleErr, streamErr, errorAtBump error
+	disabled                        bool
 	notFound                        bool
 }
 
@@ -36,6 +37,8 @@ func (tx *calendarTestTx) QueryRow(_ context.Context, q string, args ...any) pgx
 			*d[0].(*string) = "activo"
 		case strings.Contains(q, "bloqueo_cuenta_administrativo_local"):
 			*d[0].(*bool) = false
+		case strings.Contains(q, "kyb_space_eligibility"):
+			*d[0].(*bool) = !tx.disabled
 		case strings.Contains(q, "UPDATE public.espacio"):
 			tx.bumps++
 			tx.writes++
@@ -54,7 +57,7 @@ func (tx *calendarTestTx) QueryRow(_ context.Context, q string, args ...any) pgx
 		case strings.Contains(q, "FROM public.espacio_regla_mensual"):
 			return pgx.ErrNoRows
 		case strings.Contains(q, "FROM public.espacio"):
-			if len(args) != 2 || args[0] != monthReadSpaceID || args[1] != calendarOwnerID {
+			if len(args) != 2 || args[0] != calendarOwnerID || args[1] != monthReadSpaceID {
 				return errors.New("owner scope missing")
 			}
 			if !strings.Contains(q, "FOR UPDATE") && !strings.Contains(q, "FOR SHARE") {
@@ -112,6 +115,14 @@ func TestCalendarUpdateRejectsStaleBeforeAnyMutation(t *testing.T) {
 		if !errors.Is(err, spaces.ErrPreconditionFailed) || tx.writes != 0 || tx.commits != 0 {
 			t.Fatalf("stale accepted: err=%v writes=%d commits=%d", err, tx.writes, tx.commits)
 		}
+	}
+}
+func TestCalendarUpdateBlocksDisabledCommercialProfile(t *testing.T) {
+	r, tx := calendarTransactionFixture()
+	tx.disabled = true
+	_, _, err := r.UpdateAvailability(context.Background(), calendarOwnerID, monthReadSpaceID, spaces.AvailabilityUpdateInput{ExpectedUpdatedAt: tx.current})
+	if !errors.Is(err, spaces.ErrCommercialProfileDisabled) || tx.writes != 0 || tx.commits != 0 {
+		t.Fatalf("disabled profile wrote calendar: err=%v writes=%d commits=%d", err, tx.writes, tx.commits)
 	}
 }
 func TestCalendarOverrideOnlyRenewsSharedRevision(t *testing.T) {

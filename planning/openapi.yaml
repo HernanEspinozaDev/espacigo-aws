@@ -11,6 +11,8 @@ security:
 tags:
   - name: Public catalog
     description: Exploración, categorías, destinos, mapa y espacios cercanos.
+  - name: KYB
+    description: Empresas, acreditación tributaria y respaldos por espacio.
   - name: Host
     description: Conexiones, herramientas comerciales y liquidaciones del anfitrión.
   - name: Payments
@@ -65,6 +67,8 @@ tags:
     description: Reseñas públicas, reputación y moderación de reportes.
   - name: Operational notices
     description: Avisos operativos heredados y recuperación de entrega.
+  - name: Administration
+    description: Operaciones administrativas y revisión documental.
 paths:
   /account/identity-profile:
     get:
@@ -5378,6 +5382,712 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /host/organization-join-requests:
+    post:
+      operationId: requestKYBOrganizationMembership
+      tags: [ KYB ]
+      description: >-
+        Solicita adhesión por RUT desde una cuenta con KYC vigente. La respuesta no identifica a la organización ni a sus miembros. Disponible en evaluación local con KYB configurado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [company_rut, rol_propuesto]
+              properties:
+                company_rut: { type: string }
+                rol_propuesto: { $ref: "#/components/schemas/KYBOrganizationRole" }
+      responses:
+        "202":
+          description: Operación completada.
+          content:
+            application/json:
+              schema: { type: object, required: [request], properties: { request: { $ref: "#/components/schemas/KYBOrganizationJoinRequest" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organization-join-requests/{requestId}:
+    get:
+      operationId: getOwnKYBOrganizationJoinRequest
+      tags: [ KYB ]
+      description: >-
+        Consulta el estado de la solicitud propia. Disponible en evaluación local con KYB configurado.
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación completada.
+          content:
+            application/json:
+              schema: { type: object, required: [request], properties: { request: { $ref: "#/components/schemas/KYBOrganizationJoinRequest" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/join-requests:
+    get:
+      operationId: listKYBOrganizationJoinRequests
+      tags: [ KYB ]
+      description: >-
+        Lista las solicitudes para un representante legal activo con KYC vigente. Disponible en evaluación local con KYB configurado.
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación completada.
+          content:
+            application/json:
+              schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: "#/components/schemas/KYBOrganizationJoinRequest" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/join-requests/{requestId}/approve:
+    post:
+      operationId: approveKYBOrganizationJoinRequest
+      tags: [ KYB ]
+      description: >-
+        Aprueba la solicitud y emite una invitación de un solo uso. El solicitante debe aceptarla con su propia cuenta. Disponible en evaluación local con KYB configurado.
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: Operación completada.
+          content:
+            application/json:
+              schema: { type: object, required: [invitation, invitation_token], properties: { invitation: { $ref: "#/components/schemas/KYBOrganizationInvitation" }, invitation_token: { type: string } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/join-requests/{requestId}/reject:
+    post:
+      operationId: rejectKYBOrganizationJoinRequest
+      tags: [ KYB ]
+      description: >-
+        Rechaza una solicitud como representante legal activo. Disponible en evaluación local con KYB configurado.
+      parameters:
+        - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: requestId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "204":
+          description: Operación completada.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations:
+    get:
+      operationId: listHostOrganizations
+      tags: [ KYB ]
+      description: >-
+        Lista las empresas en que la cuenta tiene una membresía activa con su estado de cumplimiento comercial y su plazo, si ya empezó. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ items ], properties: { items: { type: array, items: { $ref: "#/components/schemas/KYBOrganization" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createHostOrganization
+      tags: [ KYB ]
+      description: >-
+        Registra una empresa única por RUT con el usuario autenticado como representante legal inicial. Requiere KYC personal vigente. Un RUT existente devuelve 409 sin identificar a los miembros. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ legal_name, company_rut ], properties: { legal_name: { type: string, minLength: 2, maxLength: 200 }, trade_name: { type: string, maxLength: 200 }, company_rut: { type: string, description: RUT chileno de la empresa. Se conserva su huella HMAC. } } }
+      responses:
+        "201":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ organization ], properties: { organization: { $ref: "#/components/schemas/KYBOrganization" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getHostOrganization
+      tags: [ KYB ]
+      description: >-
+        Consulta el perfil corporativo para un miembro activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ organization ], properties: { organization: { $ref: "#/components/schemas/KYBOrganization" } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateHostOrganization
+      tags: [ KYB ]
+      description: >-
+        Actualiza el nombre comercial y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ legal_name ], properties: { legal_name: { type: string, minLength: 2, maxLength: 200 }, trade_name: { type: string, maxLength: 200 } } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ organization ], properties: { organization: { $ref: "#/components/schemas/KYBOrganization" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/members:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: listHostOrganizationMembers
+      tags: [ KYB ]
+      description: >-
+        Lista las membresías del equipo de una empresa. Requiere una membresía activa. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ items ], properties: { items: { type: array, items: { $ref: "#/components/schemas/KYBOrganizationMember" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /host/organizations/{organizationId}/members/{memberId}:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: memberId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      operationId: changeHostOrganizationMemberRole
+      tags: [ KYB ]
+      description: >-
+        Cambia el rol de un miembro como representante legal. Protege al último representante activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ rol ], properties: { rol: { $ref: "#/components/schemas/KYBOrganizationRole" } } }
+      responses:
+        "204": { description: Operación exitosa. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: revokeHostOrganizationMember
+      tags: [ KYB ]
+      description: >-
+        Revoca una membresía activa como representante legal. Protege al último representante activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      responses:
+        "204": { description: Operación exitosa. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/invitations:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: inviteHostOrganizationMember
+      tags: [ KYB ]
+      description: >-
+        Emite una invitación de un solo uso por siete días. El representante legal recibe el token solo al crearlo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ email, rol ], properties: { email: { type: string, format: email }, rol: { $ref: "#/components/schemas/KYBOrganizationRole" } } }
+      responses:
+        "201":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ invitation, invitation_token ], properties: { invitation: { $ref: "#/components/schemas/KYBOrganizationInvitation" }, invitation_token: { type: string } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /host/organizations/{organizationId}/invitations/{invitationId}/accept:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: acceptHostOrganizationInvitation
+      tags: [ KYB ]
+      description: >-
+        Consume la invitación una sola vez con una cuenta cuyo correo verificado coincide y cuyo KYC personal está vigente. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ token ], properties: { token: { type: string } } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ member ], properties: { member: { $ref: "#/components/schemas/KYBOrganizationMember" } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /kyb/policy-consent:
+    get:
+      operationId: getKYBHostPolicyConsent
+      tags: [ KYB ]
+      description: Devuelve los términos de documentación comercial y la aceptación de la cuenta autenticada. Disponible en evaluación local con KYB_LOCAL_TERMS_V2 habilitado.
+      responses:
+        "200":
+          description: Estado de aceptación de la versión vigente.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBHostPolicyConsent" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      operationId: acceptKYBHostPolicyConsent
+      tags: [ KYB ]
+      description: Registra de forma idempotente la aceptación de la versión vigente por la cuenta autenticada. Disponible en evaluación local con KYB_LOCAL_TERMS_V2 habilitado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version_id]
+              properties:
+                version_id: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Aceptación registrada o ya existente.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBHostPolicyConsent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /kyb/personal/compliance:
+    get:
+      operationId: getPersonalHostCompliance
+      tags: [ KYB ]
+      description: >-
+        Devuelve cumplimiento, acreditación SII y plazo de gracia del anfitrión autenticado con KYB configurado.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceProfile" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /kyb/personal/sii:
+    post:
+      operationId: submitPersonalHostSII
+      tags: [ KYB ]
+      description: >-
+        Carga el Certificado de Inicio de Actividades personal. Acepta PDF, JPEG o PNG de hasta 10 MiB y valida un giro de seis dígitos.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [ sii_giro_code, sii_start_activities ], properties: { sii_giro_code: { type: string, pattern: "^[0-9]{6}$" }, sii_start_activities: { type: string, format: binary } } }
+      responses:
+        "201":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /kyb/spaces/{spaceId}/verification:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: submitSpaceKYBProperty
+      tags: [ KYB ]
+      description: >-
+        Carga el respaldo del inmueble para un espacio propio o de una empresa que el actor puede administrar. Acepta PDF, JPEG o PNG de hasta 10 MiB.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [ property_or_sublease_authorization ], properties: { property_or_sublease_authorization: { type: string, format: binary } } }
+      responses:
+        "201":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /kyb/spaces/{spaceId}/eligibility:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getSpaceKYBEligibility
+      tags: [ KYB ]
+      description: >-
+        Devuelve el cumplimiento y la verificación del espacio para su titular o miembro autorizado de la empresa. El plazo de gracia se calcula desde la primera publicación activa del titular. Al vencer, el respaldo exigido se evalúa por espacio.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBSpaceEligibility" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/kyb/compliance:
+    get:
+      operationId: listAdminKYBCompliance
+      tags: [ KYB ]
+      description: >-
+        Lista el cumplimiento documental para revisión administrativa.
+      parameters:
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/KYBComplianceStatus" } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ items ], properties: { items: { type: array, items: { $ref: "#/components/schemas/KYBComplianceProfile" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/kyb/compliance/{profileId}/disable:
+    parameters:
+      - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: disableAdminKYBCompliance
+      tags: [ KYB ]
+      description: >-
+        Inhabilita un perfil comercial con permisos administrativos. Registra la decisión en la bitácora.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ reason ], properties: { reason: { type: string, minLength: 5, maxLength: 500 } } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ updated ], properties: { updated: { type: boolean } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/kyb/compliance/{profileId}/enable:
+    parameters:
+      - { name: profileId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: enableAdminKYBCompliance
+      tags: [ KYB ]
+      description: >-
+        Rehabilita un perfil comercial con permisos administrativos. Registra la decisión en la bitácora.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ updated ], properties: { updated: { type: boolean } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/kyb/compliance/documents:
+    get:
+      operationId: listAdminKYBComplianceDocuments
+      tags: [ KYB ]
+      description: >-
+        Devuelve la cola administrativa de SII personal y respaldos de inmueble que requieren revisión.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ items ], properties: { items: { type: array, items: { $ref: "#/components/schemas/KYBComplianceDocument" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/kyb/compliance/documents/{documentId}/review:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: reviewAdminKYBComplianceDocument
+      tags: [ KYB ]
+      description: >-
+        Inicia la revisión del certificado o respaldo identificado.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/kyb/compliance/documents/{documentId}/decision:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: decisionAdminKYBComplianceDocument
+      tags: [ KYB ]
+      description: >-
+        Registra aprobación o rechazo del certificado o respaldo con permisos administrativos. El rechazo requiere motivo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ decision ], properties: { decision: { type: string, enum: [ APPROVE, REJECT ] }, rejection_reason: { type: string, minLength: 5, maxLength: 500 } } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/kyb/compliance/documents/{documentId}/url:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: urlAdminKYBComplianceDocument
+      tags: [ KYB ]
+      description: >-
+        Emite un enlace temporal firmado para revisar un documento privado.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ download_url, expires_at ], properties: { download_url: { type: string }, expires_at: { type: string, format: date-time } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/kyb/compliance/organizations/{organizationId}/disable:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: disableAdminKYBOrganizationCompliance
+      tags: [ KYB ]
+      description: >-
+        Inhabilita el perfil comercial de una empresa y registra al actor administrativo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [ reason ], properties: { reason: { type: string, minLength: 5, maxLength: 500 } } }
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ updated ], properties: { updated: { type: boolean } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/kyb/compliance/organizations/{organizationId}/enable:
+    parameters:
+      - { name: organizationId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: enableAdminKYBOrganizationCompliance
+      tags: [ KYB ]
+      description: >-
+        Rehabilita el perfil comercial de una empresa y registra al actor administrativo.
+      responses:
+        "200":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { type: object, required: [ updated ], properties: { updated: { type: boolean } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /kyb/compliance-documents/{storageRef}:
+    get:
+      operationId: readSignedKYBComplianceDocument
+      tags: [ KYB ]
+      description: Entrega un documento privado de cumplimiento mediante un enlace breve firmado emitido para revisión administrativa.
+      security: []
+      parameters:
+        - { name: storageRef, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: expires, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: key_version, in: query, required: true, schema: { type: string } }
+        - { name: signature, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Documento binario como adjunto.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /kyb/verifications:
+    get:
+      operationId: getOwnKYBVerification
+      tags: [ KYB ]
+      description: Devuelve el expediente empresarial más reciente para representantes legales y administradores activos con KYC vigente de la empresa indicada. La consulta histórica sin empresa requiere el rol arrendador. No incluye RUTs ni referencias de almacenamiento.
+      parameters:
+        - { name: organization_id, in: query, schema: { type: string, format: uuid }, description: Empresa seleccionada cuando el titular opera varias. }
+      responses:
+        "200": { description: Estado de KYB propio., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerification" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: submitKYBVerification
+      tags: [ KYB ]
+      description: Presenta el expediente como representante legal activo de la empresa. El RUT del representante debe coincidir con su identidad verificada. El expediente incluye giro SII, e-RUT, certificado de Inicio de Actividades y vigencia de poderes. Cada respaldo de inmueble se envía por espacio.
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 1, maxLength: 120 } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [ organization_id, legal_name, company_rut, representative_name, representative_rut, sii_giro_code, erut, sii_start_activities, power_certificate ]
+              properties:
+                organization_id: { type: string, format: uuid }
+                sii_start_activities: { type: string, format: binary, description: Certificado SII en PDF, JPEG o PNG de hasta 10 MiB. }
+                legal_name: { type: string, minLength: 2, maxLength: 200 }
+                company_rut: { type: string, description: RUT chileno de la empresa; se cifra y se persiste una huella HMAC versionada. }
+                representative_name: { type: string, minLength: 2, maxLength: 200 }
+                representative_rut: { type: string, description: RUT chileno del representante legal; se cifra y se persiste una huella HMAC versionada. }
+                sii_giro_code: { type: string, pattern: "^[0-9]{6}$" }
+                erut: { type: string, format: binary, description: e-RUT en PDF, JPEG o PNG, máximo 10 MiB. }
+                power_certificate: { type: string, format: binary, description: Certificado de Vigencia de Poderes en PDF, JPEG o PNG, máximo 10 MiB. }
+      responses:
+        "201": { description: Solicitud creada en estado PENDING., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerification" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/kyb/verifications:
+    get:
+      operationId: listPendingKYBVerifications
+      tags: [ KYB, Administration ]
+      description: Solo administrador. Devuelve solicitudes pendientes o en revisión; los RUTs cifrados y las claves de almacenamiento nunca aparecen en la respuesta.
+      responses:
+        "200": { description: Cola KYB., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerificationList" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/kyb/verifications/{id}:
+    get:
+      operationId: getKYBVerificationForReview
+      tags: [ KYB, Administration ]
+      description: Solo administrador. Devuelve RUTs descifrados al revisor autorizado para cotejo documental; no es accesible al titular ni a la lista.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Detalle restringido de revisión KYB., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerification" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /admin/kyb/verifications/{id}/review:
+    post:
+      operationId: startKYBReview
+      tags: [ KYB, Administration ]
+      description: Inicia la revisión administrativa de una solicitud KYB.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Solicitud en estado IN_REVIEW., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerification" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/kyb/verifications/{id}/decision:
+    post:
+      operationId: decideKYBVerification
+      tags: [ KYB, Administration ]
+      description: Registra una decisión auditada sobre el expediente. La revisión por documento requiere decidir cada archivo una vez y se aprueba únicamente si todos los archivos son aprobados. La decisión general, si viene junto con el detalle, debe coincidir con el resultado.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KYBDecision" }
+      responses:
+        "200": { description: Solicitud aprobada o rechazada con auditoría., content: { application/json: { schema: { $ref: "#/components/schemas/KYBVerification" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/kyb/verifications/{id}/documents/{documentID}/url:
+    get:
+      operationId: getKYBDocumentReviewURL
+      tags: [ KYB, Administration ]
+      description: Solo administrador. Emite una URL firmada de cinco minutos hacia el proxy privado de descarga; no entrega URL S3.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: documentID, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Enlace temporal de revisión., content: { application/json: { schema: { $ref: "#/components/schemas/KYBDocumentReviewURL" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /kyb/documents/{storageRef}:
+    get:
+      operationId: downloadKYBDocumentWithTemporarySignature
+      tags: [ KYB ]
+      description: Descarga un documento KYB descifrado mediante firma temporal.
+      security: []
+      parameters:
+        - { name: storageRef, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: expires, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: key_version, in: query, required: true, schema: { type: string, maxLength: 64 } }
+        - { name: signature, in: query, required: true, schema: { type: string, pattern: "^[0-9a-f]{64}$" } }
+      responses:
+        "200": { description: Documento descifrado en respuesta privada sin caché., content: { application/pdf: {}, image/jpeg: {}, image/png: {} } }
+        "403": { description: Firma inválida o vencida. }
   /document-verification/reviewer/cases:
     get:
       operationId: listAssignedDocumentCases
@@ -6152,7 +6862,7 @@ paths:
     get:
       operationId: listOwnSpaces
       tags: [ M04 local ]
-      description: Lista exclusivamente espacios propios; borradores, publicaciones activas y espacios ocultos permanecen privados fuera de los recorridos autorizados.
+      description: Lista espacios personales y de empresas donde la cuenta tiene una membresía activa. Los borradores y espacios ocultos se mantienen privados.
       responses:
         "200":
           description: Espacios propios.
@@ -6163,7 +6873,7 @@ paths:
     post:
       operationId: createOwnSpaceDraft
       tags: [ M04 local ]
-      description: Crea un borrador privado con ubicación validada en una sola transacción. El propietario se obtiene de la sesión.
+      description: Crea un borrador privado con ubicación validada. Admite una empresa existente cuando el actor es representante legal o administrador. El perfil comercial se fija al crear el borrador. Si ese perfil está inhabilitado por documentación, responde 403 con `account_disabled_missing_documentation`. Con la política v2 local habilitada exige aceptación y devuelve 403 con `host_policy_acceptance_required` si falta.
       requestBody:
         required: true
         content:
@@ -6180,6 +6890,8 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SpaceDraft" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /spaces/{spaceId}:
@@ -6596,7 +7308,7 @@ paths:
       operationId: setOwnSpacePublicationState
       tags: [ M04 local ]
       description: >-
-        Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
+        Publica u oculta un espacio propio. Requiere rol arrendador; activar requiere perfil completo, identidad vigente, Mercado Pago conectado y plantilla contractual publicada. Cambia el estado sin alterar las reservas existentes. Al vencer el plazo del titular, publicar requiere los documentos del titular y el respaldo aprobado del espacio. El bloqueo comercial devuelve 403 con `account_disabled_missing_documentation`. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
       parameters:
         - name: If-Match
           in: header
@@ -9961,11 +10673,26 @@ components:
         manual_review_required: { type: boolean }
         human_signature_recorded: { type: boolean }
         commercial_activation_enabled: { type: boolean, const: true }
+    CommercialCompanyRepresentation:
+      type: object
+      additionalProperties: false
+      description: Identidad corporativa y representante legal incorporados al snapshot inmutable para las partes autorizadas.
+      required: [organization_id, legal_name, rut_masked, rut_verified, representative_user_id, representative_name, representative_rut_masked, representative_rut_verified]
+      properties:
+        organization_id: { type: string, format: uuid }
+        legal_name: { type: string, maxLength: 200 }
+        rut_masked: { type: string }
+        rut_verified: { type: boolean, const: true }
+        representative_user_id: { type: string, format: uuid }
+        representative_name: { type: string, maxLength: 200 }
+        representative_rut_masked: { type: string }
+        representative_rut_verified: { type: boolean, const: true }
     CommercialAgreement:
       type: object
       additionalProperties: false
       required: [id, proposal_id, quote_id, space_id, proposal_version, snapshot_sha256, state, expires_at, payment_expires_at, revision, created_at, updated_at, signatures]
       properties:
+        company_representation: { $ref: "#/components/schemas/CommercialCompanyRepresentation" }
         id: { type: string, format: uuid }
         proposal_id: { type: string, format: uuid }
         quote_id: { type: string, format: uuid }
@@ -10030,6 +10757,7 @@ components:
       additionalProperties: false
       required: [id, version, sha256, quote_id, space_id, space_title, template_id, template_version, location, sections, rate_unit, rate_version, unit_price_clp, units, subtotal_clp, currency, start_at, end_at, time_zone, cancellation_policy, parties, contact_notice, generated_at]
       properties:
+        company_representation: { $ref: "#/components/schemas/CommercialCompanyRepresentation" }
         id: { type: string, format: uuid }
         version: { type: integer, minimum: 1 }
         sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
@@ -12019,6 +12747,8 @@ components:
         usage_rules: { type: string, minLength: 1, maxLength: 250 }
         rate_unit: { type: string, enum: [ hora, dia, mes ] }
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854776000 }
+        organization_id: { type: string, format: uuid, description: Empresa registrada donde el actor es representante legal o administrador. Omitir para publicar como persona natural. }
+        is_b2b: { type: boolean, deprecated: true, description: Si se proporciona debe coincidir con la presencia de organization_id. }
         location: { $ref: "#/components/schemas/SpaceLocationInput" }
         attribute_schema_version: { type: integer, minimum: 1, description: Versión del perfil de atributos; se asume la vigente si se omite. }
         attributes: { type: object, maxProperties: 80, description: Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. }
@@ -12028,6 +12758,8 @@ components:
       required: [ category_code, title, area_m2, capacity, usage_rules, rate_unit, base_price_clp ]
       properties:
         cancellation_policy_version: { type: string, enum: [ facil_v1, flexible_v1, moderada_v1, estricta_v1 ] }
+        organization_id: { type: string, format: uuid, description: Si se proporciona debe coincidir con el perfil comercial del borrador. }
+        is_b2b: { type: boolean, deprecated: true }
         category_code: { type: string }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string }
@@ -12059,6 +12791,8 @@ components:
         base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854776000 }
         address: { type: string, minLength: 1, maxLength: 500 }
         state: { type: string, enum: [ borrador, activa, oculta ] }
+        is_b2b: { type: boolean }
+        organization_id: { type: string, format: uuid }
         time_zone: { type: string, nullable: true, maxLength: 100, description: Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. }
         region_code: { type: string, pattern: "^[0-9]{2}$", description: Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. }
         comuna_code: { type: string, pattern: "^[0-9]{5}$", description: Código comunal público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. }
@@ -13477,6 +14211,116 @@ components:
         revocation_reason_code: { type: string, enum: [ aprobacion_fixture_incorrecta, revision_fixture_actualizada ] }
         created_at: { type: string, format: date-time }
         resolved_at: { type: [ string, "null" ], format: date-time }
+    KYBHostPolicyConsent:
+      type: object
+      required: [accepted, document]
+      properties:
+        accepted: { type: boolean }
+        document:
+          type: object
+          required: [id, code, type, title, scope, status, sections]
+          properties:
+            id: { type: string, format: uuid }
+            code: { type: string }
+            type: { const: terminos }
+            title: { type: string }
+            scope: { type: string }
+            status: { type: string }
+            sections:
+              type: array
+              items:
+                type: object
+                required: [heading, body]
+                properties:
+                  heading: { type: string }
+                  body: { type: string }
+    KYBOrganizationJoinRequest:
+      type: object
+      required: [id, estado, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string }
+        expires_at: { type: string, format: date-time }
+        usuario_id: { type: string, format: uuid, description: Visible para el representante legal. }
+        rol_propuesto: { $ref: "#/components/schemas/KYBOrganizationRole" }
+        created_at: { type: string, format: date-time }
+    KYBOrganizationRole: { type: string, enum: [ representante_legal, administrador, operador ] }
+    KYBOrganization: { type: object, required: [ id, legal_name, created_at ], properties: { id: { type: string, format: uuid }, legal_name: { type: string }, trade_name: { type: string }, public_summary: { type: string }, created_at: { type: string, format: date-time }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, grace_due_at: { type: string, format: date-time }, my_role: { $ref: "#/components/schemas/KYBOrganizationRole" } } }
+    KYBOrganizationMember: { type: object, required: [ id, usuario_id, rol, estado ], properties: { id: { type: string, format: uuid }, usuario_id: { type: string, format: uuid }, rol: { $ref: "#/components/schemas/KYBOrganizationRole" }, estado: { type: string }, joined_at: { type: string, format: date-time } } }
+    KYBOrganizationInvitation: { type: object, required: [ id, organizacion_id, rol_propuesto, estado, expires_at, created_at ], properties: { id: { type: string, format: uuid }, organizacion_id: { type: string, format: uuid }, target_email: { type: string, format: email }, rol_propuesto: { $ref: "#/components/schemas/KYBOrganizationRole" }, estado: { type: string }, expires_at: { type: string, format: date-time }, created_at: { type: string, format: date-time } } }
+    KYBComplianceStatus: { type: string, enum: [ grace_active, in_review, compliant, disabled_missing_docs ] }
+    KYBComplianceProfile: { type: object, required: [ owner_usuario_id, compliance_status ], properties: { owner_usuario_id: { type: string, format: uuid }, organization_id: { type: string, format: uuid }, legal_name: { type: string }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, sii_giro_code: { type: string }, sii_status: { type: string }, grace_started_at: { type: string, format: date-time }, grace_due_at: { type: string, format: date-time }, disabled_at: { type: string, format: date-time }, disabled_reason: { type: string } } }
+    KYBComplianceDocument: { type: object, required: [ id, owner_usuario_id, document_kind, status, mime_type, size_bytes, submitted_at ], properties: { id: { type: string, format: uuid }, owner_usuario_id: { type: string, format: uuid }, organization_id: { type: string, format: uuid }, submitted_by: { type: string, format: uuid }, space_id: { type: string, format: uuid }, document_kind: { type: string, enum: [ sii_start_activities, property_or_sublease_authorization ] }, status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, mime_type: { type: string }, size_bytes: { type: integer }, sii_giro_code: { type: string }, submitted_at: { type: string, format: date-time }, rejection_reason: { type: string } } }
+    KYBSpaceEligibility: { type: object, required: [ can_publish, can_book, space_verified, compliance_status ], properties: { can_publish: { type: boolean }, can_book: { type: boolean }, space_verified: { type: boolean }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, verification_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, grace_due_at: { type: string, format: date-time } } }
+    KYBVerification:
+      type: object
+      additionalProperties: false
+      required: [ id, organization_id, legal_name, representative_name, sii_giro_code, status, submitted_at, created_at, updated_at ]
+      properties:
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        legal_name: { type: string, minLength: 2, maxLength: 200 }
+        representative_name: { type: string, minLength: 2, maxLength: 200 }
+        sii_giro_code: { type: string, pattern: "^[0-9]{6}$" }
+        status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }
+        rejection_reason: { type: string, maxLength: 500 }
+        submitted_at: { type: string, format: date-time }
+        reviewed_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        documents:
+          type: array
+          items: { $ref: "#/components/schemas/KYBDocument" }
+        company_rut: { type: string, description: Presente únicamente en detalle admin; descifrado para revisión, nunca devuelto a la lista o al titular. }
+        representative_rut: { type: string, description: Presente únicamente en detalle admin; descifrado para revisión, nunca devuelto a la lista o al titular. }
+    KYBDocument:
+      type: object
+      additionalProperties: false
+      required: [ id, kind, mime_type, size_bytes ]
+      properties:
+        id: { type: string, format: uuid }
+        verification_id: { type: string, format: uuid }
+        kind: { type: string, enum: [ erut, sii_start_activities, power_certificate, property_or_sublease_authorization ] }
+        mime_type: { type: string, enum: [ application/pdf, image/jpeg, image/png ] }
+        size_bytes: { type: integer, minimum: 1, maximum: 10485760 }
+        review_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }
+        rejection_reason: { type: string, minLength: 5, maxLength: 500 }
+        reviewed_at: { type: string, format: date-time }
+    KYBVerificationList:
+      type: object
+      additionalProperties: false
+      required: [ items ]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/KYBVerification" }
+    KYBDecision:
+      type: object
+      additionalProperties: false
+      required: [ decision ]
+      properties:
+        decision: { type: string, enum: [ APPROVE, REJECT ], description: Decisión agregada del expediente; cuando se envía junto a documents debe coincidir con el resultado de los archivos. }
+        rejection_reason: { type: string, minLength: 5, maxLength: 500, description: Motivo del rechazo general cuando se decide el expediente completo sin detalle por documento. }
+        documents:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items: { $ref: "#/components/schemas/KYBDocumentDecision" }
+    KYBDocumentDecision:
+      type: object
+      additionalProperties: false
+      required: [ document_id, decision ]
+      properties:
+        document_id: { type: string, format: uuid }
+        decision: { type: string, enum: [ APPROVE, REJECT ] }
+        rejection_reason: { type: string, minLength: 5, maxLength: 500, description: Obligatorio al rechazar el archivo. }
+    KYBDocumentReviewURL:
+      type: object
+      additionalProperties: false
+      required: [ download_url, expires_at ]
+      properties:
+        download_url: { type: string, format: uri-reference }
+        expires_at: { type: string, format: date-time }
     VerificationEligibilityList:
       type: object
       required: [ items, scope ]

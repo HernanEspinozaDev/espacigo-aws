@@ -34,6 +34,12 @@ func SpaceScope(ownerID, spaceID, caseID, fileID string) (Scope, error) {
 	}
 	return Scope{aad: path.Join("users", ownerID, "spaces", spaceID, "documents", caseID, fileID+".bin")}, nil
 }
+func KYBScope(ownerID, organizationID, verificationID, fileID string) (Scope, error) {
+	if !valid(ownerID, organizationID, verificationID, fileID) {
+		return Scope{}, ErrInvalid
+	}
+	return Scope{aad: path.Join("users", ownerID, "organizations", organizationID, "kyb", verificationID, fileID+".bin")}, nil
+}
 func valid(ids ...string) bool {
 	for _, id := range ids {
 		if documentverification.ValidateID(id) != nil {
@@ -53,6 +59,11 @@ func ScopeFromAAD(aad string) Scope {
 	}
 	if len(p) == 7 && p[0] == "users" && p[2] == "spaces" && p[4] == "documents" && strings.HasSuffix(p[6], ".bin") {
 		if s, e := SpaceScope(p[1], p[3], p[5], strings.TrimSuffix(p[6], ".bin")); e == nil && s.aad == aad {
+			return s
+		}
+	}
+	if len(p) == 7 && p[0] == "users" && p[2] == "organizations" && p[4] == "kyb" && strings.HasSuffix(p[6], ".bin") {
+		if s, e := KYBScope(p[1], p[3], p[5], strings.TrimSuffix(p[6], ".bin")); e == nil && s.aad == aad {
 			return s
 		}
 	}

@@ -199,7 +199,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	principal, e := h.auth.Authorize(r.Context(), identity.Secret(bearer(r.Header.Get("Authorization"))), requiredRole, identity.UserOperation)
+	token := identity.Secret(bearer(r.Header.Get("Authorization")))
+	principal, e := h.auth.Authorize(r.Context(), token, requiredRole, identity.UserOperation)
+	if requiredRole == identity.RoleLandlord && errors.Is(e, identity.ErrForbidden) {
+		spaceID, _, _ := strings.Cut(strings.TrimPrefix(path, "/api/v1/spaces/"), "/")
+		if spaces.ValidID(spaceID) {
+			member, authErr := h.auth.Authorize(r.Context(), token, "", identity.UserOperation)
+			if authErr == nil {
+				item, accessErr := h.service.GetOwn(r.Context(), member.AccountID, spaceID)
+				if accessErr == nil && item.IsB2B && item.OrganizationID != "" {
+					principal, e = member, nil
+				}
+			}
+		}
+	}
 	if e != nil {
 		if errors.Is(e, identity.ErrForbidden) {
 			failure(w, 403, "forbidden", "Permiso insuficiente.")
@@ -826,6 +839,8 @@ func serviceError(w http.ResponseWriter, e error) {
 		failure(w, 409, "fixture_enabled", "Deshabilita el fixture de ensayo antes de cambiar la publicación del espacio.")
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
+	case errors.Is(e, spaces.ErrCommercialProfileDisabled):
+		failure(w, 403, "account_disabled_missing_documentation", "Regulariza la documentación del perfil comercial para administrar y publicar espacios.")
 	case errors.Is(e, spaces.ErrLocationRequired):
 		failure(w, 409, "location_confirmation_required", "Confirma la dirección y el pin públicos antes de publicar por primera vez.")
 	case errors.Is(e, spaces.ErrProfileIncomplete):

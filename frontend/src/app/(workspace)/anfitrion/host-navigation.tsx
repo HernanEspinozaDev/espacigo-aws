@@ -9,6 +9,8 @@ import {
   FileText,
   User,
   WalletCards,
+  Users,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Breadcrumb,
@@ -28,6 +30,8 @@ export function HostNavigation() {
   const isContratos = pathname.includes("/anfitrion/contratos");
   const isReservas = pathname.includes("/anfitrion/reservas");
   const isPayments = pathname === "/anfitrion/mercado-pago";
+  const isEmpresas = pathname.startsWith("/anfitrion/empresas");
+  const isKyb = pathname.startsWith("/anfitrion/kyb");
   const isListado =
     (pathname === "/anfitrion/espacios" || pathname === "/anfitrion") &&
     !isContratos &&
@@ -89,6 +93,22 @@ export function HostNavigation() {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbPage>Pagos</BreadcrumbPage>
+              </BreadcrumbItem>
+            </>
+          )}
+          {isEmpresas && (
+            <>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Empresas</BreadcrumbPage>
+              </BreadcrumbItem>
+            </>
+          )}
+          {isKyb && (
+            <>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Verificación y documentos</BreadcrumbPage>
               </BreadcrumbItem>
             </>
           )}
@@ -162,6 +182,34 @@ export function HostNavigation() {
         >
           <WalletCards className="size-4" aria-hidden="true" />
           <span>Pagos</span>
+        </Link>
+
+        <Link
+          href="/anfitrion/empresas"
+          aria-current={isEmpresas ? "page" : undefined}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+            isEmpresas
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+          )}
+        >
+          <Users className="size-4" aria-hidden="true" />
+          <span>Empresas</span>
+        </Link>
+
+        <Link
+          href="/anfitrion/kyb"
+          aria-current={isKyb ? "page" : undefined}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+            isKyb
+              ? "border-primary text-[var(--brand-primary-soft-ink)] bg-[var(--brand-primary-soft)] font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+          )}
+        >
+          <ShieldCheck className="size-4" aria-hidden="true" />
+          <span>Verificación</span>
         </Link>
 
         <Link

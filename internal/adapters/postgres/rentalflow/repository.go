@@ -76,7 +76,8 @@ JOIN LATERAL (
     WHERE espacio_id = e.id
     ORDER BY version DESC LIMIT 1
 ) t ON true
-WHERE e.id = $1 AND e.estado = 'activa'`
+WHERE e.id = $1 AND e.estado = 'activa'
+  AND EXISTS (SELECT 1 FROM public.kyb_space_eligibility(e.id) eligibility WHERE eligibility.can_book)`
 
 	var l rentalflow.Listing
 	err := r.db.QueryRow(ctx, q, spaceID).Scan(
@@ -788,9 +789,23 @@ func (r *Repository) GetForParticipant(ctx context.Context, actorID string, quot
     q.creada_en,
     q.vence_en,
     q.politica_cancelacion_version,
-    q.politica_cancelacion_texto
+    q.politica_cancelacion_texto,
+    EXISTS (
+        SELECT 1 FROM public.espacio e, public.organizacion_miembro m
+        WHERE e.id = q.espacio_id AND e.modo_anfitrion = 'empresa'
+          AND m.organizacion_id = e.organizacion_id AND m.usuario_id = $2
+          AND m.rol = 'representante_legal' AND m.estado = 'activo'
+    )
 FROM public.cotizacion_arriendo_comercial q
-WHERE q.id = $1 AND (q.propietario_id = $2 OR q.arrendatario_id = $2)`
+WHERE q.id = $1 AND (
+    q.propietario_id = $2 OR q.arrendatario_id = $2
+    OR EXISTS (
+        SELECT 1 FROM public.espacio e, public.organizacion_miembro m
+        WHERE e.id = q.espacio_id AND e.modo_anfitrion = 'empresa'
+          AND m.organizacion_id = e.organizacion_id AND m.usuario_id = $2
+          AND m.rol = 'representante_legal' AND m.estado = 'activo'
+    )
+)`
 
 	var quote rentalflow.Quote
 	var policyVersion, policyText *string
@@ -813,6 +828,7 @@ WHERE q.id = $1 AND (q.propietario_id = $2 OR q.arrendatario_id = $2)`
 		&quote.ExpiresAt,
 		&policyVersion,
 		&policyText,
+		&quote.CompanyRepresentativeAuthorized,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return rentalflow.Quote{}, rentalflow.ErrNotFound
@@ -842,9 +858,18 @@ func (r *Repository) CurrentForRentalContract(
 	if r.db == nil {
 		return rentalflow.ContractIdentity{}, rentalflow.ErrIdentityUnavailable
 	}
-	const participantCheck = `SELECT 1 FROM public.cotizacion_arriendo_comercial
-WHERE id = $1 AND (propietario_id = $2 OR arrendatario_id = $2)
-  AND (propietario_id = $3 OR arrendatario_id = $3)`
+	const participantCheck = `SELECT 1 FROM public.cotizacion_arriendo_comercial q
+WHERE q.id = $1
+  AND (
+      q.propietario_id = $2 OR q.arrendatario_id = $2
+      OR EXISTS (
+          SELECT 1 FROM public.espacio e, public.organizacion_miembro m
+          WHERE e.id = q.espacio_id AND e.modo_anfitrion = 'empresa'
+            AND m.organizacion_id = e.organizacion_id AND m.usuario_id = $2
+            AND m.rol = 'representante_legal' AND m.estado = 'activo'
+      )
+  )
+  AND (q.propietario_id = $3 OR q.arrendatario_id = $3)`
 	if r.beginner == nil {
 		var check int
 		err := r.db.QueryRow(ctx, participantCheck, quoteID, actorID, subjectID).Scan(&check)

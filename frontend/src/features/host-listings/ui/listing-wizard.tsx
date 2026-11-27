@@ -20,7 +20,16 @@ import {
   Clock,
   Lock,
 } from "lucide-react";
+import type { components } from "@/lib/api/generated/openapi";
+import {
+  HostPolicyConsent,
+  useHostPolicyConsent,
+} from "@/features/kyb/ui/host-policy-consent";
 import { Button } from "@/components/workspace/ui/button";
+import {
+  HostComplianceNotice,
+  useHostCompliance,
+} from "@/features/kyb/ui/host-compliance-notice";
 import {
   Card,
   CardContent,
@@ -100,6 +109,11 @@ export function ListingWizard() {
     accessToken,
     getAccessToken,
   } = useAuth();
+  const policyState = useHostPolicyConsent(
+    accessToken ? authSnapshot.accountId : null,
+  );
+  const requiresHostPolicy = policyState.consent?.accepted === false;
+
   const recoveryScope = authFacade.getSessionIdentityScope();
   const {
     snapshot,
@@ -117,11 +131,69 @@ export function ListingWizard() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [hostMode, setHostMode] = useState<"personal" | "empresa">("personal");
+  const { profile: personalCompliance } = useHostCompliance();
+  const [organizations, setOrganizations] = useState<
+    components["schemas"]["KYBOrganization"][]
+  >([]);
+  const [organizationLoading, setOrganizationLoading] = useState(false);
+  const [organizationLoadError, setOrganizationLoadError] = useState(false);
+  const [organizationId, setOrganizationId] = useState("");
+  const hostCompliance =
+    hostMode === "personal"
+      ? personalCompliance
+      : (organizations.find(
+          (organization) => organization.id === organizationId,
+        ) ?? null);
+  const publicationDisabled =
+    hostCompliance?.compliance_status === "disabled_missing_docs";
   const isAuthenticated =
     authSnapshot.status === "authenticated" && Boolean(accessToken);
   const isHost =
     authSnapshot.status === "authenticated" &&
     authSnapshot.roles.includes("arrendador");
+  useEffect(() => {
+    if (!accessToken) return;
+    const controller = new AbortController();
+    void Promise.resolve()
+      .then(() => {
+        if (!controller.signal.aborted) setOrganizationLoading(true);
+        return fetch("/api/backend/host/organizations", {
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+      })
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error("No fue posible consultar tus empresas.");
+        const payload = (await response.json()) as {
+          items?: components["schemas"]["KYBOrganization"][];
+        };
+        const items = (payload.items ?? []).filter(
+          (item) =>
+            item.my_role === "representante_legal" ||
+            item.my_role === "administrador",
+        );
+        setOrganizations(items);
+        setOrganizationLoadError(false);
+        setOrganizationId((current) =>
+          current && items.some((organization) => organization.id === current)
+            ? current
+            : "",
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setOrganizations([]);
+          setOrganizationId("");
+          setOrganizationLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setOrganizationLoading(false);
+      });
+    return () => controller.abort();
+  }, [accessToken]);
   const prerequisites = usePublishPrerequisites({
     accessToken: isAuthenticated ? accessToken : null,
     isHost,
@@ -401,6 +473,10 @@ export function ListingWizard() {
   };
 
   const handleNext = () => {
+    if (currentStep === 1 && hostMode === "empresa" && !organizationId) {
+      setStepError("Selecciona una empresa para publicar este espacio.");
+      return;
+    }
     if (validateStep(currentStep)) {
       const next = returnToConfirmation ? 6 : Math.min(6, currentStep + 1);
       setReturnToConfirmation(false);
@@ -416,6 +492,7 @@ export function ListingWizard() {
 
   const handleCreateDraft = async () => {
     if (isSubmitting || partialDraft) return;
+    if (publicationDisabled || requiresHostPolicy) return;
     if (
       authSnapshot.status !== "authenticated" ||
       !accessToken ||
@@ -493,7 +570,12 @@ export function ListingWizard() {
 
     let createdDraftId: string | null = null;
     try {
-      const created = await createDraft(accessToken, draftPayload);
+      const created = await createDraft(
+        accessToken,
+        hostMode === "empresa"
+          ? { ...draftPayload, organization_id: organizationId }
+          : draftPayload,
+      );
       createdDraftId = created.id;
       markPartialDraftRecoveryPending(recoveryScope);
 
@@ -595,6 +677,9 @@ export function ListingWizard() {
           </Button>
         </div>
       </div>
+
+      <HostPolicyConsent state={policyState} />
+      <HostComplianceNotice profile={hostCompliance} />
 
       {/* Guía compacta de requisitos previos para publicar */}
       {prerequisites.loaded &&
@@ -820,6 +905,93 @@ export function ListingWizard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              <fieldset className="space-y-3 rounded-lg border p-4">
+                <legend className="px-1 text-sm font-semibold">
+                  ¿Cómo deseas publicar y administrar este espacio?
+                </legend>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label
+                    className={`cursor-pointer rounded-lg border p-3 ${hostMode === "personal" ? "border-primary bg-primary/5" : ""}`}
+                  >
+                    <input
+                      className="mr-2"
+                      type="radio"
+                      name="host-mode"
+                      value="personal"
+                      checked={hostMode === "personal"}
+                      onChange={() => {
+                        setHostMode("personal");
+                        setOrganizationId("");
+                      }}
+                    />
+                    <span className="font-medium">Como Persona Natural</span>
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                      Con tu perfil personal.
+                    </p>
+                  </label>
+                  <label
+                    className={`cursor-pointer rounded-lg border p-3 ${hostMode === "empresa" ? "border-primary bg-primary/5" : ""}`}
+                  >
+                    <input
+                      className="mr-2"
+                      type="radio"
+                      name="host-mode"
+                      value="empresa"
+                      checked={hostMode === "empresa"}
+                      onChange={() => setHostMode("empresa")}
+                    />
+                    <span className="font-medium">Como Empresa</span>
+                    <p className="mt-1 pl-6 text-xs text-muted-foreground">
+                      Publica con el perfil comercial de una empresa.
+                    </p>
+                  </label>
+                </div>
+                {hostMode === "empresa" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="wizard-organization">Empresa *</Label>
+                    <select
+                      id="wizard-organization"
+                      value={organizationId}
+                      onChange={(event) =>
+                        setOrganizationId(event.target.value)
+                      }
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      required
+                    >
+                      <option value="">
+                        {organizationLoading
+                          ? "Cargando empresas…"
+                          : "Selecciona una empresa"}
+                      </option>
+                      {organizations.map((organization) => (
+                        <option key={organization.id} value={organization.id}>
+                          {organization.trade_name || organization.legal_name}
+                        </option>
+                      ))}
+                    </select>
+                    {organizationLoadError ? (
+                      <p role="alert" className="text-sm text-destructive">
+                        No fue posible cargar tus empresas. Actualiza la página
+                        o vuelve a intentarlo más tarde.
+                      </p>
+                    ) : null}
+                    {organizations.length === 0 &&
+                    !organizationLoading &&
+                    !organizationLoadError ? (
+                      <p className="text-xs text-muted-foreground">
+                        Primero registra o acepta una invitación en{" "}
+                        <Link
+                          className="text-primary underline"
+                          href="/anfitrion/empresas"
+                        >
+                          Empresas
+                        </Link>
+                        .
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </fieldset>
               <div className="space-y-2">
                 <Label htmlFor="wizard-category" className="font-semibold">
                   Categoría del espacio *
@@ -1888,7 +2060,12 @@ export function ListingWizard() {
             <Button
               type="button"
               onClick={handleCreateDraft}
-              disabled={isSubmitting || Boolean(partialDraft)}
+              disabled={
+                isSubmitting ||
+                Boolean(partialDraft) ||
+                publicationDisabled ||
+                requiresHostPolicy
+              }
               className="gap-2 font-bold bg-primary text-primary-foreground shadow-sm"
             >
               {isSubmitting ? (

@@ -59,6 +59,7 @@ export interface TemplatePreviewInput {
   templateVersion?: number;
   rateUnit?: string;
   basePriceClp?: number | null;
+  companyRepresentation?: ContractProposal["company_representation"];
 }
 
 export function ContractDocumentView({
@@ -91,6 +92,8 @@ export function ContractDocumentView({
   const tzLabel = proposal
     ? formatTimeZoneLabel(proposal.time_zone)
     : "hora de Chile continental";
+  const companyRepresentation =
+    proposal?.company_representation ?? templatePreview?.companyRepresentation;
 
   const renterSig = agreement?.signatures.find(
     (s) => s.role === "arrendatario",
@@ -153,7 +156,16 @@ export function ContractDocumentView({
       {/* Comparecencia */}
       <p className="text-sm leading-relaxed text-justify">
         En Chile, a {issueDate}, comparecen: por una parte,{" "}
-        {isPreview ? (
+        {companyRepresentation ? (
+          <>
+            <strong>{companyRepresentation.legal_name}</strong>, RUT N.º{" "}
+            <strong>{companyRepresentation.rut_masked}</strong>, representada
+            legalmente por{" "}
+            <strong>{companyRepresentation.representative_name}</strong>, cédula
+            de identidad / RUT N.º{" "}
+            <strong>{companyRepresentation.representative_rut_masked}</strong>
+          </>
+        ) : isPreview ? (
           <span className="rounded bg-amber-100/80 px-1.5 py-0.5 font-sans text-xs font-medium text-amber-950">
             [Identidad verificada del Arrendador]
           </span>

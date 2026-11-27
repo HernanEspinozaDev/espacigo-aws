@@ -112,7 +112,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		required = identity.RoleTenant
 	}
 	if action == "landlord-signature" {
-		required = identity.RoleLandlord
+		// Company-mode contracts may be signed by a legal representative who
+		// does not hold the individual landlord role. The repository checks the
+		// exact owner or active representative against the immutable snapshot.
+		required = ""
 	}
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") || len(r.Header.Values("Authorization")) != 1 {
