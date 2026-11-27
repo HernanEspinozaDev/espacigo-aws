@@ -138,6 +138,14 @@
         "public.espacio",
         "public.space_kyb_verification"
       ]
+    },
+    "V000021__hotusoft_legal_documents.sql": {
+      "checksum": "08a7736423c47228d7b893644dd12e616c79f58157994443d6626d776604abd1",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.contrato_propuesta_comercial",
+        "public.version_terminos"
+      ]
     }
   },
   "review_required_migrations": {
