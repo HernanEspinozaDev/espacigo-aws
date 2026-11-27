@@ -138,6 +138,16 @@
         "public.espacio",
         "public.space_kyb_verification"
       ]
+    },
+    "V000021__security_acl_hardening.sql": {
+      "checksum": "d581ddcf37f36b67c60f120a6ce72c9f73f2a13af52c48f3da6c74bf3dd0675e",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.aviso_local_recuperacion_auditoria",
+        "public.document_verification_reviewer_grant_event",
+        "public.rol_usuario_evento",
+        "public.schema_migrations"
+      ]
     }
   },
   "review_required_migrations": {
