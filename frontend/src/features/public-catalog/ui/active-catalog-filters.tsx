@@ -40,6 +40,11 @@ export function ActiveCatalogFilters({
     chips.push({ key, label, next: { ...query, ...update } });
   }
 
+  if (query.verified_only) {
+    add("verified_only", "Solo espacios verificados", {
+      verified_only: undefined,
+    });
+  }
   if (query.category_code) {
     add(
       "category",

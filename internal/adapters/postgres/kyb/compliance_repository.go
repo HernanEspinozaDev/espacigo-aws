@@ -9,27 +9,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const complianceDocumentSelect = `SELECT id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text
+const complianceDocumentSelect = `SELECT id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text,''::text,''::text
 	FROM public.anfitrion_cumplimiento_documento`
 
+const spaceComplianceDocumentSelect = `SELECT id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,document_kind,status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text),COALESCE(sii_giro_code,''),COALESCE(categoria_codigo,'')
+	FROM public.space_kyb_verification`
+
 func (r *Repository) ListPendingComplianceDocuments(ctx context.Context) ([]kyb.ComplianceDocument, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,'property_or_sublease_authorization',status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text)
-		FROM public.space_kyb_verification WHERE status IN ('PENDING','IN_REVIEW')
+	rows, err := r.pool.Query(ctx, spaceComplianceDocumentSelect+` WHERE status IN ('PENDING','IN_REVIEW')
 		UNION ALL
-		SELECT id::text,usuario_id::text,'','',document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text
-		FROM public.anfitrion_cumplimiento_documento WHERE status IN ('PENDING','IN_REVIEW') ORDER BY submitted_at,id`)
+		`+complianceDocumentSelect+` WHERE status IN ('PENDING','IN_REVIEW') ORDER BY submitted_at,id`)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	defer rows.Close()
 	items := make([]kyb.ComplianceDocument, 0)
 	for rows.Next() {
-		item := kyb.ComplianceDocument{}
-		var org string
-		if err = rows.Scan(&item.ID, &item.OwnerID, &org, &item.SpaceID, &item.Kind, &item.Status, &item.MIME, &item.Size, &item.SHA256, &item.StorageRef, &item.SubmittedAt, &item.RejectionReason, &item.ScopeOrganizationID); err != nil {
-			return nil, mapError(err)
+		item, scanErr := scanComplianceDocument(rows)
+		if scanErr != nil {
+			return nil, mapError(scanErr)
 		}
-		item.OrganizationID = org
 		items = append(items, item)
 	}
 	return items, mapError(rows.Err())
@@ -43,7 +42,7 @@ func (r *Repository) GetComplianceDocument(ctx context.Context, id string) (kyb.
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
-	return scanComplianceDocument(r.pool.QueryRow(ctx, `SELECT id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,'property_or_sublease_authorization',status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text) FROM public.space_kyb_verification WHERE id=$1`, id))
+	return scanComplianceDocument(r.pool.QueryRow(ctx, spaceComplianceDocumentSelect+` WHERE id=$1`, id))
 }
 
 func (r *Repository) GetComplianceDocumentByStorageRef(ctx context.Context, ref string) (kyb.ComplianceDocument, error) {
@@ -54,13 +53,13 @@ func (r *Repository) GetComplianceDocumentByStorageRef(ctx context.Context, ref 
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return kyb.ComplianceDocument{}, mapError(err)
 	}
-	return scanComplianceDocument(r.pool.QueryRow(ctx, `SELECT id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,'property_or_sublease_authorization',status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text) FROM public.space_kyb_verification WHERE document_storage_ref=$1`, ref))
+	return scanComplianceDocument(r.pool.QueryRow(ctx, spaceComplianceDocumentSelect+` WHERE document_storage_ref=$1`, ref))
 }
 
 func scanComplianceDocument(row rowScanner) (kyb.ComplianceDocument, error) {
 	var item kyb.ComplianceDocument
 	var organizationID string
-	err := row.Scan(&item.ID, &item.OwnerID, &organizationID, &item.SpaceID, &item.Kind, &item.Status, &item.MIME, &item.Size, &item.SHA256, &item.StorageRef, &item.SubmittedAt, &item.RejectionReason, &item.ScopeOrganizationID)
+	err := row.Scan(&item.ID, &item.OwnerID, &organizationID, &item.SpaceID, &item.Kind, &item.Status, &item.MIME, &item.Size, &item.SHA256, &item.StorageRef, &item.SubmittedAt, &item.RejectionReason, &item.ScopeOrganizationID, &item.GiroCode, &item.CategoryCode)
 	item.OrganizationID = organizationID
 	return item, err
 }
@@ -85,7 +84,7 @@ func (r *Repository) StartComplianceReview(ctx context.Context, id, reviewer str
 }
 
 func startPersonalComplianceReview(ctx context.Context, tx pgx.Tx, id, reviewer string, now time.Time) (kyb.ComplianceDocument, error) {
-	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.anfitrion_cumplimiento_documento SET status='IN_REVIEW' WHERE id=$1 AND status='PENDING' RETURNING id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text`, id))
+	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.anfitrion_cumplimiento_documento SET status='IN_REVIEW' WHERE id=$1 AND status='PENDING' RETURNING id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text,''::text,''::text`, id))
 	if err != nil {
 		return item, err
 	}
@@ -98,7 +97,7 @@ func startPersonalComplianceReview(ctx context.Context, tx pgx.Tx, id, reviewer 
 }
 
 func startSpaceComplianceReview(ctx context.Context, tx pgx.Tx, id, reviewer string, now time.Time) (kyb.ComplianceDocument, error) {
-	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.space_kyb_verification SET status='IN_REVIEW' WHERE id=$1 AND status='PENDING' RETURNING id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,'property_or_sublease_authorization',status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text)`, id))
+	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.space_kyb_verification SET status='IN_REVIEW' WHERE id=$1 AND status='PENDING' RETURNING id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,document_kind,status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text),COALESCE(sii_giro_code,''),COALESCE(categoria_codigo,'')`, id))
 	if err != nil {
 		return item, err
 	}
@@ -133,7 +132,7 @@ func decidePersonalComplianceDocument(ctx context.Context, tx pgx.Tx, id, review
 	if status == kyb.StatusRejected {
 		reject = reason
 	}
-	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.anfitrion_cumplimiento_documento SET status=$2,rejection_reason=$3,reviewer_id=$4,reviewed_at=$5 WHERE id=$1 AND status='IN_REVIEW' RETURNING id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text`, id, status, reject, reviewer, now))
+	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.anfitrion_cumplimiento_documento SET status=$2,rejection_reason=$3,reviewer_id=$4,reviewed_at=$5 WHERE id=$1 AND status='IN_REVIEW' RETURNING id::text,usuario_id::text,''::text,''::text,document_kind,status,mime_type,size_bytes,content_sha256,storage_ref::text,submitted_at,COALESCE(rejection_reason,''),usuario_id::text,''::text,''::text`, id, status, reject, reviewer, now))
 	if err != nil {
 		return item, err
 	}
@@ -154,7 +153,7 @@ func decideSpaceComplianceDocument(ctx context.Context, tx pgx.Tx, id, reviewer 
 	if status == kyb.StatusRejected {
 		reject = reason
 	}
-	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.space_kyb_verification SET status=$2,rejection_reason=$3,reviewer_id=$4,reviewed_at=$5 WHERE id=$1 AND status='IN_REVIEW' RETURNING id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,'property_or_sublease_authorization',status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text)`, id, status, reject, reviewer, now))
+	item, err := scanComplianceDocument(tx.QueryRow(ctx, `UPDATE public.space_kyb_verification SET status=$2,rejection_reason=$3,reviewer_id=$4,reviewed_at=$5 WHERE id=$1 AND status='IN_REVIEW' RETURNING id::text,owner_usuario_id::text,COALESCE(organizacion_id::text,''),espacio_id::text,document_kind,status,mime_type,size_bytes,content_sha256,document_storage_ref::text,submitted_at,COALESCE(rejection_reason,''),COALESCE(organizacion_id::text,owner_usuario_id::text),COALESCE(sii_giro_code,''),COALESCE(categoria_codigo,'')`, id, status, reject, reviewer, now))
 	if err != nil {
 		return item, err
 	}

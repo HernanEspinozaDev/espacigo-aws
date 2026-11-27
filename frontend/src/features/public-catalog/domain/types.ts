@@ -49,6 +49,7 @@ export type CatalogQuery = {
   sort?: CatalogSort;
   page_size?: number;
   cursor?: string;
+  verified_only?: boolean;
 };
 
 export type RawCatalogParams = Record<string, string | string[] | undefined>;

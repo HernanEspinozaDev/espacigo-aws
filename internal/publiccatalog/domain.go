@@ -171,6 +171,7 @@ type Filters struct {
 	EndAt            *time.Time
 	MinTotalCLP      *int64
 	MaxTotalCLP      *int64
+	VerifiedOnly     bool
 }
 
 type Cursor struct {

@@ -593,9 +593,10 @@ func filtersFingerprint(filters Filters) string {
 		EndAt            *time.Time                    `json:"end_at"`
 		MinTotal         *int64                        `json:"min_total"`
 		MaxTotal         *int64                        `json:"max_total"`
+		VerifiedOnly     bool                          `json:"verified_only,omitempty"`
 	}{filters.Bounds, filters.Proximity, filters.MapOnly, filters.CategoryCode, filters.RateUnit, filters.MinUnitPriceCLP, filters.MaxUnitPriceCLP, filters.Sort, filters.PageSize,
 		filters.Query, filters.RegionCode, filters.CommuneCode, filters.MinAreaM2, filters.MinCapacity, filters.Attributes, filters.TypedAttributes, filters.AttributeVersion,
-		filters.StartAt, filters.EndAt, filters.MinTotalCLP, filters.MaxTotalCLP}
+		filters.StartAt, filters.EndAt, filters.MinTotalCLP, filters.MaxTotalCLP, filters.VerifiedOnly}
 	raw, _ := json.Marshal(canonical)
 	digest := sha256.Sum256(raw)
 	return base64.RawURLEncoding.EncodeToString(digest[:])

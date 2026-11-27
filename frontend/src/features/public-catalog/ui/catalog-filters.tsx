@@ -1,6 +1,6 @@
 "use client";
 
-import { SlidersHorizontal } from "lucide-react";
+import { ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
@@ -124,6 +124,9 @@ function buildSubmission(
     const value = data.get(key);
     if (typeof value === "string" && value !== "") params.set(key, value);
   }
+  if (data.get("verified_only") === "true") {
+    params.set("verified_only", "true");
+  }
 
   const startLocal = data.get("start_local");
   const endLocal = data.get("end_local");
@@ -233,6 +236,29 @@ function FilterFields({
   return (
     <>
       {query.q ? <input type="hidden" name="q" value={query.q} /> : null}
+      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-[var(--brand-surface-subtle)]/60 p-3.5 text-sm transition-colors hover:border-emerald-700/35">
+        <input
+          key={query.verified_only ? "verified-on" : "verified-off"}
+          type="checkbox"
+          name="verified_only"
+          value="true"
+          defaultChecked={Boolean(query.verified_only)}
+          className="mt-0.5 size-4 shrink-0 accent-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <span className="space-y-1">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+            <ShieldCheck
+              className="size-4 text-[var(--brand-success)]"
+              aria-hidden="true"
+            />
+            Solo espacios verificados
+          </span>
+          <span className="block text-xs leading-relaxed text-muted-foreground">
+            Mostrar únicamente espacios con titularidad y documentación
+            aprobada.
+          </span>
+        </span>
+      </label>
       {fixedCategoryCode ? (
         <input type="hidden" name="category_code" value={fixedCategoryCode} />
       ) : (

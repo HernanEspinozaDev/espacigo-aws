@@ -28,11 +28,14 @@ export interface KYBComplianceDocument {
   id: string;
   owner_usuario_id: string;
   organization_id?: string;
+  submitted_by?: string;
   space_id?: string;
   document_kind: "sii_start_activities" | "property_or_sublease_authorization";
   status: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
   mime_type: string;
   size_bytes: number;
+  sii_giro_code?: string;
+  category_code?: string;
   submitted_at: string;
   rejection_reason?: string;
 }

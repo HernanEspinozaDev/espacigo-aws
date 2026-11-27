@@ -54,6 +54,16 @@ type SpaceEligibility = {
   compliance_status?: string;
   verification_status?: string;
   grace_due_at?: string;
+  property_approved?: boolean;
+  property_status?: string;
+  property_rejection_reason?: string;
+  company_verified?: boolean;
+  requires_category_sii?: boolean;
+  category_sii_approved?: boolean;
+  category_sii_status?: string;
+  category_sii_rejection_reason?: string;
+  category_code?: string;
+  category_name?: string;
 };
 
 const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png"]);
@@ -122,6 +132,11 @@ function verificationStatusLabel(status?: string): string {
   );
 }
 
+function documentStatusLabel(status?: string): string {
+  if (!status) return "Sin enviar";
+  return verificationStatusLabel(status);
+}
+
 export function SpaceVerificationsHub() {
   const { snapshot: auth, getAccessToken } = useAuth();
   const token = auth.status === "authenticated" ? getAccessToken() : null;
@@ -135,6 +150,7 @@ export function SpaceVerificationsHub() {
   const [eligibility, setEligibility] = useState<
     Record<string, SpaceEligibility>
   >({});
+  const [filterOrgId, setFilterOrgId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [submittingKey, setSubmittingKey] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -143,6 +159,23 @@ export function SpaceVerificationsHub() {
   const [spaceFiles, setSpaceFiles] = useState<Record<string, File | null>>({});
   const [siiGiros, setSiiGiros] = useState<Record<string, string>>({});
   const [siiFiles, setSiiFiles] = useState<Record<string, File | null>>({});
+  const [categorySiiGiros, setCategorySiiGiros] = useState<
+    Record<string, string>
+  >({});
+  const [categorySiiFiles, setCategorySiiFiles] = useState<
+    Record<string, File | null>
+  >({});
+
+  useEffect(() => {
+    void Promise.resolve().then(() => {
+      const orgParam = new URLSearchParams(window.location.search).get(
+        "organizationId",
+      );
+      if (orgParam) {
+        setFilterOrgId(orgParam);
+      }
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -252,36 +285,46 @@ export function SpaceVerificationsHub() {
     }
   }
 
-  async function submitPersonalSii(
+  async function submitSiiDocument(
     event: FormEvent<HTMLFormElement>,
-    spaceId: string,
+    options: {
+      spaceId: string;
+      endpoint: string;
+      submittingId: string;
+      giro: string;
+      file: File | null;
+      successNotice: string;
+      onClearFile: () => void;
+    },
   ) {
     event.preventDefault();
     setError("");
     setNotice("");
     if (!token) return;
-    const giro = siiGiros[spaceId] ?? "";
-    const file = siiFiles[spaceId] ?? null;
-    if (!/^\d{6}$/.test(giro)) {
+    if (!/^\d{6}$/.test(options.giro)) {
       setError("El código de giro SII debe tener 6 dígitos.");
       return;
     }
-    const invalid = fileError(file);
+    const invalid = fileError(options.file);
     if (invalid) {
       setError(invalid);
       return;
     }
-    setSubmittingKey(`sii:${spaceId}`);
+    setSubmittingKey(options.submittingId);
     try {
       const form = new FormData();
-      form.append("sii_giro_code", giro);
-      form.append("sii_start_activities", file as File, (file as File).name);
-      await jsonRequest(`${kybApi}/personal/sii`, {
+      form.append("sii_giro_code", options.giro);
+      form.append(
+        "sii_start_activities",
+        options.file as File,
+        (options.file as File).name,
+      );
+      await jsonRequest(options.endpoint, {
         method: "POST",
         body: form,
       });
-      setNotice("Certificado SII enviado para revisión.");
-      setSiiFiles((prev) => ({ ...prev, [spaceId]: null }));
+      setNotice(options.successNotice);
+      options.onClearFile();
       await refresh();
     } catch (cause) {
       setError(
@@ -292,6 +335,13 @@ export function SpaceVerificationsHub() {
     } finally {
       setSubmittingKey(null);
     }
+  }
+
+  function clearOrganizationFilter() {
+    setFilterOrgId("");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("organizationId");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
   }
 
   if (auth.status === "checking") {
@@ -365,9 +415,41 @@ export function SpaceVerificationsHub() {
 
   const personalDisabled =
     personalCompliance?.compliance_status === "disabled_missing_docs";
+  const filteredOrg = filterOrgId
+    ? organizations.find((item) => item.id === filterOrgId)
+    : undefined;
+  const filteredOrgName = filteredOrg
+    ? filteredOrg.trade_name ||
+      filteredOrg.legal_name ||
+      filteredOrg.razon_social ||
+      "esta empresa"
+    : "la empresa seleccionada";
+  const visibleSpaces = filterOrgId
+    ? spaces.filter((space) => space.organization_id === filterOrgId)
+    : spaces;
 
   return (
     <div className="space-y-6">
+      {filterOrgId ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3 text-sm">
+          <div className="flex items-center gap-2">
+            <Building2 className="size-4 text-primary" aria-hidden="true" />
+            <span>
+              Mostrando espacios de{" "}
+              <strong className="font-semibold">{filteredOrgName}</strong>
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={clearOrganizationFilter}
+          >
+            Ver todos los espacios
+          </Button>
+        </div>
+      ) : null}
+
       {error ? (
         <div
           role="alert"
@@ -387,7 +469,32 @@ export function SpaceVerificationsHub() {
         </div>
       ) : null}
 
-      {spaces.map((space) => {
+      {visibleSpaces.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              No hay espacios registrados para {filteredOrgName}
+            </CardTitle>
+            <CardDescription>
+              Puedes publicar un espacio asociado a esta empresa o volver a ver
+              todos tus espacios.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-3">
+            <Button type="button" onClick={clearOrganizationFilter}>
+              Ver todos los espacios
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/anfitrion/espacios/nuevo">
+                <Plus className="mr-2 size-4" aria-hidden="true" />
+                Publicar un espacio
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {visibleSpaces.map((space) => {
         const spaceElig = eligibility[space.id];
         const org = space.organization_id
           ? organizations.find((item) => item.id === space.organization_id)
@@ -412,11 +519,31 @@ export function SpaceVerificationsHub() {
               ? org?.grace_due_at
               : personalCompliance?.grace_due_at),
         );
+        const isCompanyVerified =
+          Boolean(space.organization_id) &&
+          (spaceElig?.company_verified === true ||
+            org?.compliance_status === "compliant");
         const spaceDisabled =
           spaceElig?.compliance_status === "disabled_missing_docs" ||
           (!space.organization_id && personalDisabled) ||
           (Boolean(space.organization_id) &&
             org?.compliance_status === "disabled_missing_docs");
+
+        const propertyStatus =
+          spaceElig?.property_status || spaceElig?.verification_status || "";
+        const isPropertyApproved =
+          spaceElig?.property_approved === true ||
+          propertyStatus === "APPROVED" ||
+          (!spaceElig?.property_status && spaceElig?.space_verified === true);
+        const isPropertyInReview =
+          propertyStatus === "PENDING" || propertyStatus === "IN_REVIEW";
+
+        const catSiiStatus = spaceElig?.category_sii_status || "";
+        const isCatSiiApproved =
+          spaceElig?.category_sii_approved === true ||
+          catSiiStatus === "APPROVED";
+        const isCatSiiInReview =
+          catSiiStatus === "PENDING" || catSiiStatus === "IN_REVIEW";
 
         return (
           <Card
@@ -435,6 +562,11 @@ export function SpaceVerificationsHub() {
                   </CardTitle>
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <Badge variant="secondary">{spaceStateLabel(space)}</Badge>
+                    {spaceElig?.category_name ? (
+                      <Badge variant="secondary">
+                        {spaceElig.category_name}
+                      </Badge>
+                    ) : null}
                     <Badge variant="outline" className="gap-1">
                       {space.organization_id ? (
                         <Building2 className="size-3" aria-hidden="true" />
@@ -466,14 +598,65 @@ export function SpaceVerificationsHub() {
               <CardDescription>
                 {spaceDisabled
                   ? "Publicación o administración comercial inhabilitada por documentación pendiente."
-                  : graceDays !== null && !spaceElig?.space_verified
-                    ? `Plazo de gracia: quedan ${graceDays} días para completar la documentación pendiente.`
-                    : "Al aprobarse el respaldo del inmueble y la documentación del titular, el espacio obtiene la insignia verificada."}
+                  : isCompanyVerified && !spaceElig?.space_verified
+                    ? `${
+                        graceDays !== null
+                          ? `Plazo de gracia: quedan ${graceDays} días. `
+                          : ""
+                      }La empresa ya está verificada y tus espacios aprobados siguen habilitados. Para verificar y habilitar este espacio, completa su documentación pendiente.`
+                    : graceDays !== null && !spaceElig?.space_verified
+                      ? `Plazo de gracia: quedan ${graceDays} días para completar la documentación pendiente.`
+                      : "Al aprobarse el respaldo del inmueble y la documentación del titular, el espacio obtiene la insignia verificada."}
               </CardDescription>
             </CardHeader>
 
             <CardContent className="space-y-5">
-              {/* 1. Respaldo del espacio */}
+              {/* Paso 1: Documentación de empresa (KYB) o aviso compacto si ya está verificada */}
+              {space.organization_id ? (
+                isCompanyVerified ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                    <div className="flex items-start gap-2.5">
+                      <CheckCircle2
+                        className="mt-0.5 size-4 shrink-0 text-emerald-700"
+                        aria-hidden="true"
+                      />
+                      <p>
+                        Empresa verificada (KYB aprobado): no necesitas volver a
+                        subir e-RUT ni Vigencia de Poderes para este espacio.
+                      </p>
+                    </div>
+                    <Link
+                      href={`/mi-cuenta/empresas?organizationId=${encodeURIComponent(space.organization_id)}`}
+                      className="text-xs font-medium underline underline-offset-2"
+                    >
+                      Ver perfil de empresa
+                    </Link>
+                  </div>
+                ) : org ? (
+                  <CompanyKYBCard
+                    organization={org}
+                    variant="embedded"
+                    onVerifiedSubmitted={() => void refresh()}
+                  />
+                ) : (
+                  <div className="space-y-3 rounded-lg border border-border/80 bg-muted/20 p-4 text-sm">
+                    <p className="font-medium">
+                      Verificación empresarial KYB vinculada
+                    </p>
+                    <p className="text-muted-foreground">
+                      No encontramos esta empresa en tus perfiles activos.
+                      Revisa o gestiona tu acceso en Perfil empresas.
+                    </p>
+                    <Button asChild variant="outline" size="sm">
+                      <Link href="/mi-cuenta/empresas">
+                        Ir a Perfil empresas
+                      </Link>
+                    </Button>
+                  </div>
+                )
+              ) : null}
+
+              {/* Paso 2: Respaldo del inmueble (obligatorio por cada espacio) */}
               <section
                 aria-labelledby={`space-doc-heading-${space.id}`}
                 className="space-y-3 rounded-lg border p-4"
@@ -484,20 +667,52 @@ export function SpaceVerificationsHub() {
                       id={`space-doc-heading-${space.id}`}
                       className="text-sm font-semibold"
                     >
-                      Respaldo del espacio
+                      Respaldo del inmueble
                     </h2>
                     <p className="text-xs text-muted-foreground">
                       Estado:{" "}
-                      {spaceElig?.space_verified
+                      {isPropertyApproved
                         ? "Aprobado"
-                        : verificationStatusLabel(
-                            spaceElig?.verification_status,
-                          )}
+                        : documentStatusLabel(propertyStatus)}
                     </p>
                   </div>
                 </div>
 
-                {canUploadSpaceDoc ? (
+                {propertyStatus === "REJECTED" &&
+                spaceElig?.property_rejection_reason ? (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+                  >
+                    <AlertCircle
+                      className="mt-0.5 size-4 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      Motivo del rechazo: {spaceElig.property_rejection_reason}
+                    </span>
+                  </div>
+                ) : null}
+
+                {isPropertyApproved ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                    <CheckCircle2
+                      className="size-4 shrink-0 text-emerald-700"
+                      aria-hidden="true"
+                    />
+                    <span>Respaldo del inmueble aprobado.</span>
+                  </div>
+                ) : isPropertyInReview ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                    <Clock3
+                      className="size-4 shrink-0 text-sky-700"
+                      aria-hidden="true"
+                    />
+                    <span>
+                      Respaldo del inmueble enviado y en proceso de revisión.
+                    </span>
+                  </div>
+                ) : canUploadSpaceDoc ? (
                   <form
                     onSubmit={(event) =>
                       void submitSpaceDocument(event, space.id)
@@ -538,31 +753,155 @@ export function SpaceVerificationsHub() {
                 )}
               </section>
 
-              {/* 2. Documentación del titular (Empresa vs Persona Natural) */}
-              {space.organization_id ? (
-                org ? (
-                  <CompanyKYBCard
-                    organization={org}
-                    variant="embedded"
-                    onVerifiedSubmitted={() => void refresh()}
-                  />
-                ) : (
-                  <div className="space-y-3 rounded-lg border border-border/80 bg-muted/20 p-4 text-sm">
-                    <p className="font-medium">
-                      Verificación empresarial KYB vinculada
+              {/* Paso 3: Certificado SII por nueva categoría (solo espacios de empresa que lo requieran) */}
+              {space.organization_id &&
+              spaceElig?.requires_category_sii === true ? (
+                <section
+                  aria-labelledby={`category-sii-heading-${space.id}`}
+                  className="space-y-4 rounded-lg border p-4"
+                >
+                  <div>
+                    <h2
+                      id={`category-sii-heading-${space.id}`}
+                      className="text-sm font-semibold"
+                    >
+                      Certificado SII por categoría (
+                      {spaceElig.category_name ||
+                        spaceElig.category_code ||
+                        "nueva categoría"}
+                      )
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Este espacio pertenece a una categoría distinta a las ya
+                      acreditadas por tu empresa. Sube el Certificado de Inicio
+                      de Actividades del SII y su código de giro (6 dígitos)
+                      para habilitar y verificar esta categoría.
                     </p>
-                    <p className="text-muted-foreground">
-                      No encontramos esta empresa en tus perfiles activos.
-                      Revisa o gestiona tu acceso en Perfil empresas.
+                    <p className="mt-1 text-xs font-medium text-muted-foreground">
+                      Estado:{" "}
+                      {isCatSiiApproved
+                        ? "Aprobado"
+                        : documentStatusLabel(catSiiStatus)}
                     </p>
-                    <Button asChild variant="outline" size="sm">
-                      <Link href="/mi-cuenta/empresas">
-                        Ir a Perfil empresas
-                      </Link>
-                    </Button>
                   </div>
-                )
-              ) : (
+
+                  {catSiiStatus === "REJECTED" &&
+                  spaceElig.category_sii_rejection_reason ? (
+                    <div
+                      role="alert"
+                      className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+                    >
+                      <AlertCircle
+                        className="mt-0.5 size-4 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        Motivo del rechazo:{" "}
+                        {spaceElig.category_sii_rejection_reason}
+                      </span>
+                    </div>
+                  ) : null}
+
+                  {isCatSiiApproved ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                      <CheckCircle2
+                        className="size-4 shrink-0 text-emerald-700"
+                        aria-hidden="true"
+                      />
+                      <span>Certificado SII por categoría aprobado.</span>
+                    </div>
+                  ) : isCatSiiInReview ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                      <Clock3
+                        className="size-4 shrink-0 text-sky-700"
+                        aria-hidden="true"
+                      />
+                      <span>
+                        Certificado SII por categoría enviado y en proceso de
+                        revisión.
+                      </span>
+                    </div>
+                  ) : canUploadSpaceDoc ? (
+                    <form
+                      onSubmit={(event) =>
+                        void submitSiiDocument(event, {
+                          spaceId: space.id,
+                          endpoint: `${kybApi}/spaces/${encodeURIComponent(space.id)}/sii`,
+                          submittingId: `category-sii:${space.id}`,
+                          giro: categorySiiGiros[space.id] ?? "",
+                          file: categorySiiFiles[space.id] ?? null,
+                          successNotice:
+                            "Certificado SII por categoría enviado para revisión.",
+                          onClearFile: () =>
+                            setCategorySiiFiles((prev) => ({
+                              ...prev,
+                              [space.id]: null,
+                            })),
+                        })
+                      }
+                      className="grid gap-4"
+                    >
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`cat-sii-giro-${space.id}`}>
+                            Código de giro SII (6 dígitos)
+                          </Label>
+                          <Input
+                            id={`cat-sii-giro-${space.id}`}
+                            value={categorySiiGiros[space.id] ?? ""}
+                            onChange={(event) =>
+                              setCategorySiiGiros((prev) => ({
+                                ...prev,
+                                [space.id]: event.target.value
+                                  .replace(/\D/g, "")
+                                  .slice(0, 6),
+                              }))
+                            }
+                            placeholder="620100"
+                            inputMode="numeric"
+                            required
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`cat-sii-file-${space.id}`}>
+                            Certificado de Inicio de Actividades del SII
+                          </Label>
+                          <Input
+                            id={`cat-sii-file-${space.id}`}
+                            type="file"
+                            accept="application/pdf,image/jpeg,image/png"
+                            onChange={(event) =>
+                              setCategorySiiFiles((prev) => ({
+                                ...prev,
+                                [space.id]: event.target.files?.[0] ?? null,
+                              }))
+                            }
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <Button type="submit" disabled={submittingKey !== null}>
+                          {submittingKey === `category-sii:${space.id}` ? (
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                          ) : (
+                            <FileCheck2 className="mr-2 size-4" />
+                          )}
+                          Enviar SII por categoría
+                        </Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Solo un representante legal o administrador de la empresa
+                      puede cargar este certificado.
+                    </p>
+                  )}
+                </section>
+              ) : null}
+
+              {/* Documentación personal SII (Persona Natural) */}
+              {!space.organization_id ? (
                 <section
                   aria-labelledby={`personal-sii-heading-${space.id}`}
                   className="space-y-4 rounded-lg border p-4"
@@ -577,9 +916,7 @@ export function SpaceVerificationsHub() {
                       </h2>
                       <p className="text-xs text-muted-foreground">
                         Estado SII:{" "}
-                        {verificationStatusLabel(
-                          personalCompliance?.sii_status,
-                        )}
+                        {documentStatusLabel(personalCompliance?.sii_status)}
                         {personalCompliance?.sii_giro_code
                           ? ` · Giro ${personalCompliance.sii_giro_code}`
                           : ""}
@@ -617,7 +954,19 @@ export function SpaceVerificationsHub() {
 
                   <form
                     onSubmit={(event) =>
-                      void submitPersonalSii(event, space.id)
+                      void submitSiiDocument(event, {
+                        spaceId: space.id,
+                        endpoint: `${kybApi}/personal/sii`,
+                        submittingId: `sii:${space.id}`,
+                        giro: siiGiros[space.id] ?? "",
+                        file: siiFiles[space.id] ?? null,
+                        successNotice: "Certificado SII enviado para revisión.",
+                        onClearFile: () =>
+                          setSiiFiles((prev) => ({
+                            ...prev,
+                            [space.id]: null,
+                          })),
+                      })
                     }
                     className="grid gap-4"
                   >
@@ -672,7 +1021,7 @@ export function SpaceVerificationsHub() {
                     </div>
                   </form>
                 </section>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         );

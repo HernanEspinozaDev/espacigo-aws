@@ -3,6 +3,7 @@ package organizations
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,9 @@ type testRepository struct {
 	candidates         []string
 	createErr          error
 	role               Role
+	updatedLegal       string
+	updatedTrade       string
+	updatedSummary     string
 	joinCandidates     []string
 	joinRequest        JoinRequest
 	approvedInvitation Invitation
@@ -41,8 +45,11 @@ func (r *testRepository) Create(_ context.Context, _ string, _ string, _ string,
 func (r *testRepository) Get(context.Context, string, string) (Organization, error) {
 	return Organization{}, nil
 }
-func (r *testRepository) Update(context.Context, string, string, string, string) (Organization, error) {
-	return Organization{}, nil
+func (r *testRepository) Update(_ context.Context, _, _, legal, trade, publicSummary string) (Organization, error) {
+	r.updatedLegal = legal
+	r.updatedTrade = trade
+	r.updatedSummary = publicSummary
+	return Organization{LegalName: legal, TradeName: trade, PublicSummary: publicSummary}, nil
 }
 func (r *testRepository) Members(context.Context, string, string) ([]Member, error) { return nil, nil }
 func (r *testRepository) Invite(context.Context, string, string, string, Role, string, []byte, time.Time) (Invitation, error) {
@@ -124,5 +131,30 @@ func TestJoinRequestUsesEveryRutFingerprintAndDoesNotGrantMembership(t *testing.
 	}
 	if inv.State != "pendiente" || token == "" {
 		t.Fatalf("approval must yield invitation, not member: %+v token-empty=%t", inv, token == "")
+	}
+}
+
+func TestUpdateTrimsAndValidatesPublicSummary(t *testing.T) {
+	repo := &testRepository{}
+	svc, _ := New(repo, testFingerprinter{}, time.Now)
+	userID := "00000000-0000-4000-8000-000000000001"
+	orgID := "00000000-0000-4000-8000-000000000002"
+
+	org, err := svc.Update(context.Background(), userID, orgID, "  Empresa SpA  ", "  Marca  ", "  Resumen público corporativo  ")
+	if err != nil {
+		t.Fatalf("Update with valid summary failed: %v", err)
+	}
+	if repo.updatedLegal != "Empresa SpA" || repo.updatedTrade != "Marca" || repo.updatedSummary != "Resumen público corporativo" || org.PublicSummary != "Resumen público corporativo" {
+		t.Fatalf("unexpected Update result: org=%+v repo=(%q,%q,%q)", org, repo.updatedLegal, repo.updatedTrade, repo.updatedSummary)
+	}
+
+	org, err = svc.Update(context.Background(), userID, orgID, "Empresa SpA", "Marca", "   ")
+	if err != nil || repo.updatedSummary != "" || org.PublicSummary != "" {
+		t.Fatalf("Update clearing summary failed: org=%+v err=%v", org, err)
+	}
+
+	tooLong := strings.Repeat("á", 2001)
+	if _, err := svc.Update(context.Background(), userID, orgID, "Empresa SpA", "Marca", tooLong); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for >2000 runes summary, got %v", err)
 	}
 }

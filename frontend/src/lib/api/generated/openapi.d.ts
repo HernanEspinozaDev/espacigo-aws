@@ -3748,7 +3748,7 @@ export interface paths {
     delete?: never;
     options?: never;
     head?: never;
-    /** @description Actualiza el nombre comercial y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    /** @description Actualiza el nombre comercial, el resumen público y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
     patch: operations["updateHostOrganization"];
     trace?: never;
   };
@@ -3896,6 +3896,25 @@ export interface paths {
     put?: never;
     /** @description Carga el respaldo del inmueble para un espacio propio o de una empresa que el actor puede administrar. Acepta PDF, JPEG o PNG de hasta 10 MiB. */
     post: operations["submitSpaceKYBProperty"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/kyb/spaces/{spaceId}/sii": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Carga el Certificado de Inicio de Actividades SII para una categoría adicional de un espacio de empresa que el actor puede administrar. Acepta PDF, JPEG o PNG de hasta 10 MiB y valida un giro de seis dígitos. Disponible en el entorno local con almacenamiento y keyrings KYB configurados. */
+    post: operations["submitSpaceKYBCategorySII"];
     delete?: never;
     options?: never;
     head?: never;
@@ -11110,6 +11129,7 @@ export interface components {
       mime_type: string;
       size_bytes: number;
       sii_giro_code?: string;
+      category_code?: string;
       /** Format: date-time */
       submitted_at: string;
       rejection_reason?: string;
@@ -11123,6 +11143,18 @@ export interface components {
       verification_status?: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
       /** Format: date-time */
       grace_due_at?: string;
+      property_approved: boolean;
+      /** @enum {string} */
+      property_status?: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      property_rejection_reason?: string;
+      company_verified: boolean;
+      requires_category_sii: boolean;
+      category_sii_approved: boolean;
+      /** @enum {string} */
+      category_sii_status?: "PENDING" | "IN_REVIEW" | "APPROVED" | "REJECTED";
+      category_sii_rejection_reason?: string;
+      category_code?: string;
+      category_name?: string;
     };
     KYBVerification: {
       /** Format: uuid */
@@ -17402,6 +17434,8 @@ export interface operations {
         latitude?: number;
         longitude?: number;
         radius_km?: number;
+        /** @description Si es true, filtra solo publicaciones verificadas comercialmente. */
+        verified_only?: boolean;
       };
       header?: never;
       path?: never;
@@ -17462,6 +17496,8 @@ export interface operations {
         latitude?: number;
         longitude?: number;
         radius_km?: number;
+        /** @description Si es true, filtra solo publicaciones verificadas comercialmente. */
+        verified_only?: boolean;
       };
       header?: never;
       path?: never;
@@ -20149,6 +20185,7 @@ export interface operations {
         "application/json": {
           legal_name: string;
           trade_name?: string;
+          public_summary?: string;
         };
       };
     };
@@ -20470,6 +20507,42 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  submitSpaceKYBCategorySII: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          sii_giro_code: string;
+          /** Format: binary */
+          sii_start_activities: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Operación exitosa. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["KYBComplianceDocument"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
     };
   };
   getSpaceKYBEligibility: {

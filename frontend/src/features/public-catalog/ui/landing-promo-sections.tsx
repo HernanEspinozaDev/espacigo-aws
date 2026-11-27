@@ -74,6 +74,102 @@ const HOST_STEPS = [
   },
 ];
 
+const VERIFIED_SPACE_HIGHLIGHTS = [
+  "Titular e identidad comprobados",
+  "Respaldo del inmueble revisado",
+  "Inicio de actividades SII vigente",
+];
+
+export function VerifiedSpacesBanner() {
+  return (
+    <section
+      aria-labelledby="verified-spaces-banner-title"
+      className="border-t border-border bg-background py-10 sm:py-14"
+    >
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        <div className="relative overflow-hidden rounded-3xl border border-emerald-700/20 bg-[var(--brand-surface-subtle)] p-6 sm:p-10">
+          <div className="grid gap-8 lg:grid-cols-[1.25fr_0.75fr] lg:items-center">
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-700/20 bg-emerald-50 px-3.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800">
+                <ShieldCheck className="size-3.5" aria-hidden="true" />
+                Espacios Verificados · Recomendación EspaciGo
+              </span>
+              <h2
+                id="verified-spaces-banner-title"
+                className="mt-4 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl"
+              >
+                Revisa los espacios verificados recomendados para reservar con
+                confianza
+              </h2>
+              <p className="mt-3 max-w-2xl text-base leading-relaxed text-[var(--brand-muted-on-subtle)]">
+                Cada espacio verificado acreditó identidad, respaldo empresarial
+                o SII y documentación vigente del inmueble. Son nuestras
+                opciones recomendadas para contratar sin contratiempos.
+              </p>
+
+              <ul className="mt-5 grid gap-2.5 sm:grid-cols-3">
+                {VERIFIED_SPACE_HIGHLIGHTS.map((highlight) => (
+                  <li
+                    key={highlight}
+                    className="flex items-center gap-2 rounded-xl border border-border/80 bg-background px-3 py-2.5 text-xs font-medium text-foreground sm:text-sm"
+                  >
+                    <CheckCircle2
+                      className="size-4 shrink-0 text-[var(--brand-success)]"
+                      aria-hidden="true"
+                    />
+                    <span>{highlight}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Link
+                  href="/explorar?verified_only=true"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-[var(--brand-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Explorar espacios verificados
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Link>
+                <Link
+                  href="/mi-cuenta/verificaciones/espacios"
+                  className="inline-flex min-h-11 items-center rounded-full border border-border bg-background px-5 text-sm font-medium text-foreground transition-colors hover:border-[var(--brand-accent)] hover:bg-[var(--brand-primary-soft)]/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Soy anfitrión, quiero verificar
+                </Link>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-700/20 bg-background p-6 shadow-xs">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex size-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-700/15">
+                  <ShieldCheck className="size-6" aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-accent)]">
+                    Insignia Espacio Verificado
+                  </p>
+                  <p className="mt-0.5 text-base font-semibold text-foreground">
+                    Respaldo revisado antes de reservar
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                Filtra directamente en el catálogo para ver solo publicaciones
+                que cuentan con validación documental aprobada por el equipo de
+                EspaciGo.
+              </p>
+              <div className="mt-4 border-t border-border/70 pt-4 text-xs text-muted-foreground">
+                Aplica para espacios comerciales y arriendos con verificación
+                aprobada.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function PlatformFeaturesSection() {
   return (
     <section className="border-t border-border bg-background py-14 sm:py-20">

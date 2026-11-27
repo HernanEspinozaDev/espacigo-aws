@@ -103,12 +103,12 @@ func (r *Repository) Get(ctx context.Context, user, id string) (organizations.Or
 	err := r.pool.QueryRow(ctx, orgSelect+` WHERE o.id=$2`, user, id).Scan(&o.ID, &o.LegalName, &o.TradeName, &o.PublicSummary, &o.CreatedAt, &o.MyRole, &o.ComplianceStatus, &o.GraceDueAt)
 	return o, mapErr(err)
 }
-func (r *Repository) Update(ctx context.Context, user, id, legal, trade string) (organizations.Organization, error) {
+func (r *Repository) Update(ctx context.Context, user, id, legal, trade, publicSummary string) (organizations.Organization, error) {
 	if !r.valid() {
 		return organizations.Organization{}, organizations.ErrInvalid
 	}
 	var o organizations.Organization
-	err := r.pool.QueryRow(ctx, `UPDATE public.organizacion o SET trade_name=$4 FROM public.organizacion_miembro m WHERE o.id=$2 AND m.organizacion_id=o.id AND m.usuario_id=$1 AND m.estado='activo' AND m.rol='representante_legal' AND o.legal_name=$3 RETURNING o.id::text,o.legal_name,COALESCE(o.trade_name,''),COALESCE(o.public_summary,''),o.created_at,m.rol,o.compliance_status,o.grace_due_at`, user, id, legal, trade).Scan(&o.ID, &o.LegalName, &o.TradeName, &o.PublicSummary, &o.CreatedAt, &o.MyRole, &o.ComplianceStatus, &o.GraceDueAt)
+	err := r.pool.QueryRow(ctx, `UPDATE public.organizacion o SET trade_name=$4,public_summary=$5,updated_at=clock_timestamp() FROM public.organizacion_miembro m WHERE o.id=$2 AND m.organizacion_id=o.id AND m.usuario_id=$1 AND m.estado='activo' AND m.rol='representante_legal' AND o.legal_name=$3 RETURNING o.id::text,o.legal_name,COALESCE(o.trade_name,''),COALESCE(o.public_summary,''),o.created_at,m.rol,o.compliance_status,o.grace_due_at`, user, id, legal, trade, publicSummary).Scan(&o.ID, &o.LegalName, &o.TradeName, &o.PublicSummary, &o.CreatedAt, &o.MyRole, &o.ComplianceStatus, &o.GraceDueAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var role string
 		checkErr := r.pool.QueryRow(ctx, `SELECT rol FROM public.organizacion_miembro WHERE organizacion_id=$1 AND usuario_id=$2 AND estado='activo' AND EXISTS(SELECT 1 FROM public.account_profile_identity_status($2,clock_timestamp()) k WHERE k.verified)`, id, user).Scan(&role)

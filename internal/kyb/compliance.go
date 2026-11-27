@@ -23,6 +23,7 @@ type ComplianceDocument struct {
 	SHA256              []byte       `json:"-"`
 	StorageRef          string       `json:"-"`
 	GiroCode            string       `json:"sii_giro_code,omitempty"`
+	CategoryCode        string       `json:"category_code,omitempty"`
 	SubmittedAt         time.Time    `json:"submitted_at"`
 	RejectionReason     string       `json:"rejection_reason,omitempty"`
 	ScopeOrganizationID string       `json:"-"`
@@ -42,12 +43,22 @@ type ComplianceProfile struct {
 }
 
 type SpaceEligibility struct {
-	CanPublish         bool       `json:"can_publish"`
-	CanBook            bool       `json:"can_book"`
-	SpaceVerified      bool       `json:"space_verified"`
-	ComplianceStatus   string     `json:"compliance_status"`
-	VerificationStatus Status     `json:"verification_status,omitempty"`
-	GraceDueAt         *time.Time `json:"grace_due_at,omitempty"`
+	CanPublish                 bool       `json:"can_publish"`
+	CanBook                    bool       `json:"can_book"`
+	SpaceVerified              bool       `json:"space_verified"`
+	ComplianceStatus           string     `json:"compliance_status"`
+	VerificationStatus         Status     `json:"verification_status,omitempty"`
+	GraceDueAt                 *time.Time `json:"grace_due_at,omitempty"`
+	PropertyApproved           bool       `json:"property_approved"`
+	PropertyStatus             Status     `json:"property_status,omitempty"`
+	PropertyRejectionReason    string     `json:"property_rejection_reason,omitempty"`
+	CompanyVerified            bool       `json:"company_verified"`
+	RequiresCategorySII        bool       `json:"requires_category_sii"`
+	CategorySIIApproved        bool       `json:"category_sii_approved"`
+	CategorySIIStatus          Status     `json:"category_sii_status,omitempty"`
+	CategorySIIRejectionReason string     `json:"category_sii_rejection_reason,omitempty"`
+	CategoryCode               string     `json:"category_code,omitempty"`
+	CategoryName               string     `json:"category_name,omitempty"`
 }
 
 // ComplianceRepository is implemented by the PostgreSQL KYB adapter. Keeping
@@ -56,6 +67,7 @@ type ComplianceRepository interface {
 	SubmitPersonalSII(context.Context, ComplianceDocument) (ComplianceDocument, error)
 	PersonalCompliance(context.Context, string) (ComplianceProfile, error)
 	SubmitSpaceProperty(context.Context, ComplianceDocument) (ComplianceDocument, error)
+	SubmitSpaceCategorySII(context.Context, ComplianceDocument) (ComplianceDocument, error)
 	SpaceStorageScope(context.Context, string, string) (ownerID, organizationID string, err error)
 	SpaceEligibility(context.Context, string, string, time.Time) (SpaceEligibility, error)
 	ListCompliance(context.Context, string) ([]ComplianceProfile, error)
@@ -145,6 +157,45 @@ func (s *Service) SubmitSpaceProperty(ctx context.Context, ownerID, spaceID stri
 	created, err := repo.SubmitSpaceProperty(ctx, item)
 	if err != nil {
 		_ = s.documents.Delete(ctx, spaceOwner, storageOrganizationID, id, ref)
+		return ComplianceDocument{}, err
+	}
+	return created, nil
+}
+
+func (s *Service) SubmitSpaceCategorySII(ctx context.Context, ownerID, spaceID, giro string, upload Upload) (ComplianceDocument, error) {
+	repo, ok := s.repository.(ComplianceRepository)
+	if !ok || !canonicalUUID(ownerID) || !canonicalUUID(spaceID) || !giroCodePattern.MatchString(giro) || upload.Kind != DocumentSIIStartActivities || !validUpload(upload) {
+		return ComplianceDocument{}, ErrInvalid
+	}
+	id, err := s.ids.ID()
+	if err != nil || !canonicalUUID(id) {
+		return ComplianceDocument{}, ErrInvalid
+	}
+	ref, err := s.ids.ID()
+	if err != nil || !canonicalUUID(ref) {
+		return ComplianceDocument{}, ErrInvalid
+	}
+	spaceOwner, organizationID, err := repo.SpaceStorageScope(ctx, ownerID, spaceID)
+	if err != nil {
+		return ComplianceDocument{}, err
+	}
+	if organizationID == "" {
+		return ComplianceDocument{}, ErrInvalid
+	}
+	now := s.now().UTC().Truncate(time.Microsecond)
+	digest := sha256.Sum256(upload.Content)
+	item := ComplianceDocument{
+		ID: id, OwnerID: spaceOwner, SubmittedBy: ownerID, OrganizationID: organizationID,
+		SpaceID: spaceID, Kind: upload.Kind, Status: StatusPending, MIME: upload.MIME,
+		Size: int64(len(upload.Content)), SHA256: digest[:], StorageRef: ref,
+		GiroCode: giro, SubmittedAt: now,
+	}
+	if err = s.documents.Put(ctx, spaceOwner, organizationID, id, ref, upload.Content); err != nil {
+		return ComplianceDocument{}, err
+	}
+	created, err := repo.SubmitSpaceCategorySII(ctx, item)
+	if err != nil {
+		_ = s.documents.Delete(ctx, spaceOwner, organizationID, id, ref)
 		return ComplianceDocument{}, err
 	}
 	return created, nil
