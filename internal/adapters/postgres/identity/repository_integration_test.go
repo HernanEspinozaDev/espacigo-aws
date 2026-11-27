@@ -588,6 +588,43 @@ func TestAccountSessionAndTermsRepositoryOperations(t *testing.T) {
 	}
 }
 
+func TestRecordLegalAcceptancePreservesFirstConfirmation(t *testing.T) {
+	ctx, pool := newIdentityTestPool(t)
+	repo := identitypg.NewIdentityRepository(pool)
+	account := testAccount("00000000-0000-4000-8000-000000000101", "consent@ejemplo.invalid")
+	account.State = identity.AccountActive
+	if err := repo.CreateWithTerms(ctx, account, nil); err != nil {
+		t.Fatal(err)
+	}
+	version, err := repo.TermsVersion(ctx, "00000000-0000-4000-8000-000000000105")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptedAt := account.CreatedAt.Add(time.Minute).Truncate(time.Microsecond)
+	item := identity.TermsAcceptance{
+		ID: "00000000-0000-4000-8000-000000000102", AccountID: account.ID,
+		VersionID: version.ID, AcceptedAt: acceptedAt, Channel: "web",
+	}
+	if err := repo.RecordLegalAcceptance(ctx, item); err != nil {
+		t.Fatalf("record confirmation: %v", err)
+	}
+	item.ID = "00000000-0000-4000-8000-000000000103"
+	item.AcceptedAt = acceptedAt.Add(time.Hour)
+	if err := repo.RecordLegalAcceptance(ctx, item); err != nil {
+		t.Fatalf("retry confirmation: %v", err)
+	}
+	got, err := repo.LegalAcceptances(ctx, account.ID)
+	if err != nil || len(got) != 1 || got[0].Code != version.Code || !got[0].AcceptedAt.Equal(acceptedAt) {
+		t.Fatalf("expected first confirmation to survive retry: %v, %v", got, err)
+	}
+	if err := repo.SaveLoginState(ctx, account.ID, identity.AccountBlocked, 4, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RecordLegalAcceptance(ctx, item); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("inactive account confirmation: %v, want ErrNotFound", err)
+	}
+}
+
 func TestTouchSessionDoesNotMoveActivityBackwards(t *testing.T) {
 	ctx, pool := newIdentityTestPool(t)
 	repo := identitypg.NewIdentityRepository(pool)

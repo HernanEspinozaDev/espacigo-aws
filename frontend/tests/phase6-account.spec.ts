@@ -646,6 +646,9 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
 
   // 4. Descargar exportación JSON
   await page
+    .getByRole("tab", { name: "Exportación de datos personales" })
+    .click();
+  await page
     .getByRole("button", { name: "Descargar exportación JSON" })
     .click();
   await expect(
@@ -1994,6 +1997,7 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
   const restrictionRequestId = "550e8400-e29b-41d4-a716-446655440333";
   let portabilityCount = 0;
   let putPrefCount = 0;
+  const confirmedCodes: string[] = [];
   let lastPutPrefBody: Record<string, unknown> | null = null;
   const preferences: Array<{
     purpose: string;
@@ -2004,7 +2008,6 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
     {
       purpose: "comunicaciones_comerciales",
       state: "permitido",
-      updated_at: "2026-11-20T10:00:00Z",
     },
     {
       purpose: "analitica_producto",
@@ -2083,25 +2086,30 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
     if (pathname === "/api/backend/rights-requests" && method === "GET") {
       return { status: 200, body: { items: [] } };
     }
-    if (
-      pathname === "/api/backend/privacy/legal-acceptances" &&
-      method === "GET"
-    ) {
+    if (pathname === "/api/backend/privacy/legal-acceptances") {
+      if (method === "PUT") {
+        const { code } = request.postDataJSON() as { code: string };
+        confirmedCodes.push(code);
+        return { status: 204 };
+      }
       return {
         status: 200,
         body: {
           items: [
             {
               type: "terminos",
-              current_code: "TERMINOS-1.2",
-              latest_accepted_code: "TERMINOS-1.2",
-              latest_accepted_at: "2026-11-27T10:00:00Z",
-              current_accepted: true,
+              current_code: "terminos-hotusoft-v1-2",
+              latest_accepted_code: "terminos-v1",
+              current_accepted: confirmedCodes.includes(
+                "terminos-hotusoft-v1-2",
+              ),
             },
             {
               type: "privacidad",
-              current_code: "PRIVACIDAD-1.2",
-              current_accepted: false,
+              current_code: "privacidad-hotusoft-v1-2",
+              current_accepted: confirmedCodes.includes(
+                "privacidad-hotusoft-v1-2",
+              ),
             },
           ],
         },
@@ -2167,11 +2175,29 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
   await loginAndNavigate(page, "/mi-cuenta/privacidad");
 
   await expect(
-    page.getByText("Versión vigente aceptada", { exact: true }),
-  ).toBeVisible();
+    page.getByRole("tab", { name: "Revisión documental" }),
+  ).toHaveCount(0);
   await expect(
-    page.getByText("Sin aceptación de la versión vigente"),
+    page.getByRole("tab", { name: "Documentos", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("tab", { name: "Tus documentos legales" }).click();
+  await expect(
+    page.getByText("Última versión aceptada v1", { exact: true }),
   ).toBeVisible();
+  await expect(page.getByText("Versión vigente v1.2")).toHaveCount(2);
+  await page.getByRole("button", { name: "Aceptar términos vigentes" }).click();
+  await expect(page.getByText("Versión vigente aceptada")).toBeVisible();
+  await page
+    .getByRole("button", { name: "Confirmar lectura de la política" })
+    .click();
+  await expect(
+    page.getByText("Lectura de la versión vigente confirmada"),
+  ).toBeVisible();
+  expect(confirmedCodes).toEqual([
+    "terminos-hotusoft-v1-2",
+    "privacidad-hotusoft-v1-2",
+  ]);
+  await page.getByRole("tab", { name: "Bloqueos temporales" }).click();
 
   // 1. Visualización del bloqueo temporal "activo" desde /privacy/restrictions
   const restrictionsHeading = page.getByRole("heading", {
@@ -2188,30 +2214,49 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
   ).toBeVisible();
 
   // 2. Cambio de preferencia de finalidad a "opuesto" vía PUT /privacy/preferences
+  await page.getByRole("tab", { name: "Preferencias de finalidad" }).click();
   const commSection = page.getByRole("region", {
     name: "Comunicaciones comerciales",
   });
   await expect(commSection).toBeVisible();
   await expect(
+    commSection.getByText("Sin preferencia registrada"),
+  ).toBeVisible();
+  const reason = commSection.getByLabel(/Motivo o causal/);
+  const saveChoice = commSection.getByRole("button", {
+    name: "Guardar preferencia",
+  });
+  await expect(saveChoice).toBeDisabled();
+  await commSection.getByRole("radio", { name: "Permitir" }).check();
+  await reason.fill("abc");
+  await saveChoice.click();
+  await expect(page.getByRole("tabpanel").getByRole("alert")).toContainText(
+    "entre 5 y 500 caracteres",
+  );
+  expect(putPrefCount).toBe(0);
+  await reason.clear();
+  await saveChoice.click();
+  await expect(
     commSection.getByText("Permitido", { exact: true }),
   ).toBeVisible();
-  await commSection
-    .getByLabel("Motivo o causal (opcional)")
-    .fill("No deseo recibir promociones");
-  await commSection.getByRole("button", { name: "Oponerme" }).click();
-
-  await expect.poll(() => putPrefCount).toBe(1);
+  await commSection.getByRole("radio", { name: "Oponerme" }).check();
+  await reason.fill("No deseo recibir promociones");
+  await saveChoice.click();
+  await expect(commSection.getByText("Opuesto", { exact: true })).toBeVisible();
   expect(lastPutPrefBody).toEqual({
     purpose: "comunicaciones_comerciales",
     state: "opuesto",
     reason: "No deseo recibir promociones",
   });
-  await expect(commSection.getByText("Opuesto", { exact: true })).toBeVisible();
+  await commSection.getByRole("radio", { name: "Retirar" }).check();
+  await saveChoice.click();
   await expect(
-    page.getByText(
-      "Preferencia de Comunicaciones comerciales actualizada a Opuesto.",
-    ),
+    commSection.getByText("Retirado", { exact: true }),
   ).toBeVisible();
+  expect(putPrefCount).toBe(3);
+  await page
+    .getByRole("tab", { name: "Exportación de datos personales" })
+    .click();
 
   // 3. Descarga de portabilidad estructurada (JSON v1) y cleanup de Blob URL
   const downloadPromise = page.waitForEvent("download");

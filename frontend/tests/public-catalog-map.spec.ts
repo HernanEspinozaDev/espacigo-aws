@@ -1,4 +1,11 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function rejectOptionalStorage(page: Page) {
+  await page
+    .getByRole("dialog", { name: "Privacidad y cookies" })
+    .getByRole("button", { name: "Rechazar opcionales" })
+    .click();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/__catalog-map-style.json", (route) =>
@@ -33,6 +40,7 @@ for (const viewport of [
       } else await route.fallback();
     });
     await page.goto("/explorar?q=Sala");
+    await rejectOptionalStorage(page);
     await expect(
       page.getByRole("heading", { name: "Explorar arriendos" }),
     ).toBeVisible();
@@ -120,6 +128,7 @@ test("ubicación aproximada solo tras acción y destino manual disponible", asyn
     accuracy: 20,
   });
   await page.goto("/explorar/mapa");
+  await rejectOptionalStorage(page);
   await expect(page).not.toHaveURL(/latitude=/);
   await page.getByRole("button", { name: /Ubicación y distancia/ }).click();
   await page.getByRole("button", { name: "Usar mi ubicación" }).click();
@@ -140,6 +149,7 @@ test("sin GPS, la comuna y el radio se conservan entre el feed y el mapa", async
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/explorar");
+  await rejectOptionalStorage(page);
   await expect(page.locator("canvas")).toHaveCount(0);
   await page.getByLabel("Categoría de espacios").selectOption("oficina");
   await expect(page).toHaveURL(/category_code=oficina/);
@@ -182,6 +192,7 @@ test("elegir un punto manualmente carga el mapa solo al abrirlo", async ({
   page,
 }) => {
   await page.goto("/explorar");
+  await rejectOptionalStorage(page);
   await page.getByRole("button", { name: /Ubicación y distancia/ }).click();
   await expect(page.locator("canvas")).toHaveCount(0);
   await page.getByRole("button", { name: "Elegir en el mapa" }).click();
@@ -210,6 +221,7 @@ test("ofrece alternativas si el GPS es impreciso", async ({
     accuracy: 8000,
   });
   await page.goto("/explorar");
+  await rejectOptionalStorage(page);
   await page.getByRole("button", { name: /Ubicación y distancia/ }).click();
   await page.getByRole("button", { name: "Usar mi ubicación" }).click();
   await expect(
@@ -224,6 +236,7 @@ test("el mapa agrupa pines cercanos y mantiene la lista accesible", async ({
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/explorar/mapa?q=Grupo");
+  await rejectOptionalStorage(page);
   const map = page.getByLabel("Mapa de espacios", { exact: true });
   await expect(
     map.getByRole("button", {
@@ -239,6 +252,7 @@ test("la ficha del espacio conserva su mapa y dirección confirmada", async ({
   page,
 }) => {
   await page.goto("/espacios/00000000-0000-4000-8000-000000000007");
+  await rejectOptionalStorage(page);
   await expect(
     page.getByRole("heading", { name: "Ubicación", exact: true }),
   ).toBeVisible();
@@ -253,6 +267,7 @@ test("en móvil busca por comuna, horario y capacidad sin GPS y cambia el área"
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/explorar");
+  await rejectOptionalStorage(page);
   await page.getByLabel("Categoría de espacios").selectOption("oficina");
   await expect(page).toHaveURL(/category_code=oficina/);
   await page.getByRole("button", { name: /Ubicación y distancia/ }).click();
@@ -311,6 +326,7 @@ test("el orden por precio preselecciona una tarifa comparable", async ({
   page,
 }) => {
   await page.goto("/explorar");
+  await rejectOptionalStorage(page);
   await page
     .getByRole("combobox", { name: "Ordenar publicaciones" })
     .selectOption("unit_price_asc");
@@ -335,6 +351,13 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/explorar?q=Grupo&min_capacity=4");
+    const initialNotice = page.getByRole("dialog", {
+      name: "Privacidad y cookies",
+    });
+    await expect(initialNotice).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(initialNotice).toBeVisible();
+    await rejectOptionalStorage(page);
     const cards = page.locator("[data-space-id]");
     await expect(cards).toHaveCount(12);
     const card = cards.last();
@@ -354,7 +377,7 @@ for (const viewport of [
 
     await page.goto("/explorar/mapa?q=Sala&min_capacity=4");
     const configure = page.getByRole("button", {
-      name: "Configurar",
+      name: "Preferencias de cookies",
       exact: true,
     });
     await configure.focus();
@@ -373,7 +396,7 @@ for (const viewport of [
       })
       .check();
     await preferences
-      .getByRole("button", { name: "Guardar preferencias" })
+      .getByRole("button", { name: "Aceptar opcionales" })
       .click();
     const map = page.getByLabel("Mapa de espacios", { exact: true });
     const pin = map.getByRole("button", {
@@ -425,8 +448,8 @@ for (const viewport of [
     ).toBeNull();
     await page.reload();
     await expect(
-      page.getByRole("complementary", {
-        name: "Aviso de privacidad y cookies",
+      page.getByRole("dialog", {
+        name: "Privacidad y cookies",
       }),
     ).toHaveCount(0);
   });
