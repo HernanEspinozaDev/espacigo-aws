@@ -226,7 +226,9 @@ test("el mapa agrupa pines cercanos y mantiene la lista accesible", async ({
   await page.goto("/explorar/mapa?q=Grupo");
   const map = page.getByLabel("Mapa de espacios", { exact: true });
   await expect(
-    map.getByRole("button", { name: /12 espacios agrupados/ }),
+    map.getByRole("button", {
+      name: "12 espacios en este punto. Abrir lista.",
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /^Sala del grupo / }),
