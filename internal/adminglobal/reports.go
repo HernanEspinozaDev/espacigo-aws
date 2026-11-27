@@ -242,6 +242,33 @@ func (s *Service) KPIs(ctx context.Context, actor, correlation string, p ReportP
 			out.Queues = append(out.Queues, v)
 		}
 	}
+	for _, pq := range []struct {
+		key, sql, def string
+		withNow       bool
+	}{
+		{"privacy_requests_open", `SELECT count(*) FROM public.solicitud_titular WHERE estado NOT IN ('resuelta','denegada_fundada')`, "Solicitudes de derechos de privacidad abiertas (excluye resuelta y denegada_fundada).", false},
+		{"privacy_requests_overdue", `SELECT count(*) FROM public.solicitud_titular WHERE estado NOT IN ('resuelta','denegada_fundada') AND COALESCE(prorrogada_hasta, vence_en) < $1`, "Solicitudes de derechos de privacidad abiertas con plazo efectivo vencido al generar.", true},
+		{"privacy_outbox_terminal", `SELECT count(*) FROM public.privacidad_notificacion_outbox WHERE estado = 'terminal'`, "Notificaciones de privacidad en estado terminal en outbox.", false},
+		{"privacy_incidents_open", `SELECT count(*) FROM public.privacidad_incidente_datos WHERE estado <> 'cerrado'`, "Incidentes de privacidad abiertos (excluye cerrado).", false},
+		{"privacy_legal_holds_active", `SELECT count(*) FROM public.privacidad_retencion_legal WHERE estado = 'activa'`, "Retenciones legales de privacidad activas.", false},
+	} {
+		var n int64
+		if pq.withNow {
+			err = tx.QueryRow(ctx, pq.sql, out.GeneratedAt).Scan(&n)
+		} else {
+			err = tx.QueryRow(ctx, pq.sql).Scan(&n)
+		}
+		if err != nil {
+			return KPIReport{}, err
+		}
+		out.Queues = append(out.Queues, KPIValue{
+			Key:        pq.key,
+			Source:     "privacidad_canonica",
+			Definition: pq.def,
+			Value:      n,
+			Available:  true,
+		})
+	}
 	rows, err = tx.Query(ctx, `SELECT kind,state,count(*)::bigint,coalesce(sum(amount),0)::text,source,definition FROM (
 	 SELECT 'cobro_arriendo' kind,'confirmado' state,importe_clp amount,'reserva_pago_ensayo' source,'Cobros simulados confirmados por fecha de creación; excluye garantías.' definition FROM reserva_pago_ensayo WHERE resultado='exito_simulado' AND creada_en >= $1 AND creada_en < $2
 	 UNION ALL SELECT 'devolucion','confirmado',importe_clp,'reserva_devolucion_ensayo','Devoluciones simuladas confirmadas por fecha de completitud.' FROM reserva_devolucion_ensayo WHERE estado='completada' AND ultimo_resultado='exito_simulado' AND completada_en >= $1 AND completada_en < $2
@@ -319,6 +346,28 @@ type auditCursor struct {
 	Filter   string    `json:"f"`
 }
 
+// Historical events used motivo_codigo for free-form text on these actions.
+// Keep the projection intentionally scoped to those writers; standardized
+// reason codes on other actions remain useful to operators.
+func restrictedAuditReason(action, reason string) string {
+	switch action {
+	case "admin.global.assisted_view.start",
+		"admin.global.accounts.sensitive_access",
+		"admin.global.accounts.update",
+		"admin.global.accounts.block",
+		"admin.global.accounts.unblock",
+		"admin.global.accounts.sessions.revoke",
+		"admin.global.publications.update",
+		"admin.global.publications.state",
+		"admin.global.support_tickets.create":
+		return "detalle_restringido"
+	}
+	if strings.HasPrefix(action, "admin.global.accounts.legacy-administrator.") || strings.HasPrefix(action, "admin.global.accounts.roles.") {
+		return "detalle_restringido"
+	}
+	return reason
+}
+
 func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditFilter, export bool) (AuditPage, error) {
 	if !canonicalUUID.MatchString(actor) || !canonicalUUID.MatchString(correlation) || f.From.IsZero() || !f.From.Before(f.Until) || f.Until.Sub(f.From) > 31*24*time.Hour || f.PageSize < 1 || f.PageSize > 100 || len(f.Cursor) > 2048 || !optionalUUID(f.ActorID) || !optionalUUID(f.TargetID) || !optionalUUID(f.ResourceID) || !optionalUUID(f.CorrelationID) || len(f.ResourceType) > 40 || len(f.Action) > 60 || len(f.ReasonCode) > 80 || (f.Result != "" && f.Result != "exito" && f.Result != "rechazo") || (f.Format != "" && f.Format != "json" && f.Format != "csv") {
 		return AuditPage{}, ErrInvalid
@@ -368,7 +417,7 @@ func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditF
 		return AuditPage{}, err
 	}
 	// Pages and exports are pinned to registro time, independently from when the file is generated.
-	query := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7::uuid IS NULL OR recurso_id=$7::uuid) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($10='' OR motivo_codigo=$10) AND ($11='' OR correlacion_id::text=$11) AND ($13::timestamptz IS NULL OR (ocurrido_en,id)<($13,$14::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $12`
+	query := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7::uuid IS NULL OR recurso_id=$7::uuid) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($10='' OR CASE WHEN accion IN ('admin.global.assisted_view.start','admin.global.accounts.sensitive_access','admin.global.accounts.update','admin.global.accounts.block','admin.global.accounts.unblock','admin.global.accounts.sessions.revoke','admin.global.publications.update','admin.global.publications.state','admin.global.support_tickets.create') OR accion LIKE 'admin.global.accounts.legacy-administrator.%' OR accion LIKE 'admin.global.accounts.roles.%' THEN 'detalle_restringido' ELSE motivo_codigo END=$10) AND ($11='' OR correlacion_id::text=$11) AND ($13::timestamptz IS NULL OR (ocurrido_en,id)<($13,$14::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $12`
 	limit := f.PageSize + 1
 	if export {
 		limit = 10001
@@ -394,6 +443,7 @@ func (s *Service) Audit(ctx context.Context, actor, correlation string, f AuditF
 		}
 		e.ActorID = actorID
 		e.TargetID = target
+		e.Reason = restrictedAuditReason(e.Action, e.Reason)
 		out.Items = append(out.Items, e)
 	}
 	if err = rows.Err(); err != nil {

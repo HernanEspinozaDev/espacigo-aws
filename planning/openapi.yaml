@@ -3011,7 +3011,7 @@ paths:
       operationId: getGlobalAdminKPIs
       tags: [ Global administration ]
       summary: Obtener indicadores operativos persistidos por período
-      description: Requiere kpi.read. Zona IANA requerida; intervalo de máximo 31 días. Incluye fuente/definición, instantánea generada y montos CLP como texto exacto. Los estados vigentes no reconstruyen historia ni son DAU; finanzas sintéticas excluyen garantías.
+      description: Disponible en los perfiles local y productivo. Requiere kpi.read. Zona IANA requerida; intervalo de máximo 31 días. Incluye fuente/definición, instantánea generada y montos CLP como texto exacto. Los estados vigentes no reconstruyen historia ni son DAU; finanzas sintéticas excluyen garantías.
       parameters:
         - { in: query, name: from, required: true, schema: { type: string, format: date-time } }
         - { in: query, name: until, required: true, description: Exclusivo, schema: { type: string, format: date-time } }
@@ -3026,7 +3026,7 @@ paths:
       operationId: listGlobalAdminAuditEvents
       tags: [ Global administration ]
       summary: Consultar auditoría minimizada con filtros actor/objetivo separados
-      description: Requiere audit.read. Ventana fija de máximo 31 días; cursor keyset fijado al corte temporal y a filtros/tamaño normalizados. Eventos históricos no se reidentifican; los objetivos sin campo explícito permanecen nulos.
+      description: Disponible en los perfiles local y productivo. Requiere audit.read. Ventana fija de máximo 31 días; cursor keyset fijado al corte temporal y a filtros/tamaño normalizados. Eventos históricos no se reidentifican; los objetivos sin campo explícito permanecen nulos.
       parameters:
         - { in: query, name: from, required: true, schema: { type: string, format: date-time } }
         - { in: query, name: until, required: true, schema: { type: string, format: date-time } }
@@ -3051,7 +3051,7 @@ paths:
       operationId: exportGlobalAdminAuditEvents
       tags: [ Global administration ]
       summary: Exportar auditoría global minimizada en JSON o CSV
-      description: Requiere audit.export. Filtros y ventana son idénticos a la consulta; máximo 10.000 filas y 31 días; falla sin archivo parcial. El instante de corte precede la auditoría de exportación. CSV protege fórmulas y respeta quoting estándar.
+      description: Disponible en los perfiles local y productivo. Requiere audit.export. Filtros y ventana son idénticos a la consulta; máximo 10.000 filas y 31 días; falla sin archivo parcial. El instante de corte precede la auditoría de exportación. CSV protege fórmulas y respeta quoting estándar. Los motivos históricos de texto libre identificados se proyectan como detalle_restringido.
       parameters:
         - { in: query, name: from, required: true, schema: { type: string, format: date-time } }
         - { in: query, name: until, required: true, schema: { type: string, format: date-time } }
@@ -3139,7 +3139,7 @@ paths:
       operationId: startGlobalAdminAccountAssistedView
       tags: [ Global administration ]
       summary: Iniciar vista asistida de solo lectura para una cuenta
-      description: Requiere accounts.read y autenticación MFA reciente (HTTP 428 si expiró). Emite un grant acotado en el tiempo y registra el inicio en auditoría.
+      description: Requiere accounts.read y autenticación MFA reciente (HTTP 428 si expiró). Requiere un ticket de soporte abierto o en progreso asociado a la cuenta. Emite una concesión temporal y registra el inicio en auditoría.
       parameters:
         - { in: path, name: accountID, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -3160,7 +3160,7 @@ paths:
       operationId: getGlobalAdminAssistedViewProjection
       tags: [ Global administration ]
       summary: Consultar proyección de solo lectura para una vista asistida activa
-      description: Devuelve la proyección acotada al rol solicitado (espacios, reservas y contratos) en modo estrictamente de solo lectura.
+      description: Verifica la sesión, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
       parameters:
         - { in: path, name: grantID, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -3281,6 +3281,7 @@ paths:
       summary: Listar reservas, contratos, pagos o incidentes vinculados a una cuenta
       operationId: listGlobalAdminAccountResources
       tags: [ Global administration ]
+      description: Disponible en los perfiles local y productivo. Requiere accounts.read.
       parameters:
         - { in: path, name: accountID, required: true, schema: { type: string, format: uuid } }
         - { in: path, name: resourceKind, required: true, schema: { type: string, enum: [ reservations, incidents, commercial_reservations, commercial_contracts, commercial_payments ] } }
@@ -3296,6 +3297,7 @@ paths:
       summary: Consultar un recurso (reserva, contrato, pago o incidente) de la cuenta
       operationId: getGlobalAdminAccountResource
       tags: [ Global administration ]
+      description: Disponible en los perfiles local y productivo. Requiere accounts.read.
       parameters:
         - { in: path, name: accountID, required: true, schema: { type: string, format: uuid } }
         - { in: path, name: resourceKind, required: true, schema: { type: string, enum: [ reservations, incidents, commercial_reservations, commercial_contracts, commercial_payments ] } }
@@ -3310,6 +3312,7 @@ paths:
       operationId: listGlobalAdminPublications
       tags: [ Global administration ]
       summary: Consultar todas las publicaciones con propietario y visibilidad pública efectiva
+      description: Disponible en los perfiles local y productivo. Requiere publications.list.
       parameters:
         - { in: query, name: owner_id, schema: { type: string, format: uuid } }
         - { in: query, name: category, schema: { type: string, maxLength: 80 } }
@@ -3510,10 +3513,14 @@ paths:
       operationId: listGlobalAdminPrivacyRequests
       tags: [ Global administration ]
       summary: Listar solicitudes ARCO+ (Ley 21.719)
-      description: Requiere privacy.requests.manage.
+      description: Requiere privacy.requests.read o privacy.requests.manage. Incluye los folios del titular y el historial administrativo.
       parameters:
         - { in: query, name: status, schema: { type: string, enum: [ pendiente, en_revision, aprobada, rechazada, completada ] } }
+        - { in: query, name: right_type, schema: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] } }
         - { in: query, name: account_id, schema: { type: string, format: uuid } }
+        - { in: query, name: assigned_to_id, schema: { type: string, format: uuid } }
+        - { in: query, name: channel, schema: { type: string, enum: [ web, api, publico, correo ] } }
+        - { in: query, name: overdue, schema: { type: boolean } }
         - { in: query, name: cursor, schema: { type: string, maxLength: 2048 } }
         - { in: query, name: page_size, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
       responses:
@@ -3525,7 +3532,7 @@ paths:
       operationId: createGlobalAdminPrivacyRequest
       tags: [ Global administration ]
       summary: Registrar solicitud ARCO+ (Ley 21.719)
-      description: Requiere privacy.requests.manage.
+      description: Requiere privacy.requests.manage. Registra el folio compartido con la identidad pendiente de comprobación.
       parameters:
         - { in: header, name: Idempotency-Key, schema: { type: string, format: uuid } }
       requestBody:
@@ -3539,6 +3546,299 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/global/privacy-requests/{requestID}:
+    get:
+      operationId: getGlobalAdminPrivacyRequest
+      tags: [ Global administration ]
+      summary: Obtener detalle e historial del expediente ARCO+
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa y
+        privacy.requests.read o privacy.requests.manage. Devuelve el expediente completo con sus eventos de transición
+        y notas internas restringidas al personal autorizado.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Detalle del expediente de privacidad, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestDetailEnvelope" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/global/privacy-requests/{requestID}/workflow:
+    post:
+      operationId: transitionGlobalAdminPrivacyRequest
+      tags: [ Global administration ]
+      summary: Gestionar estado, asignación, notas o prórroga del expediente ARCO+
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.requests.manage, MFA reciente y control de concurrencia optimista mediante
+        expected_version. Permite asignar responsable, verificar identidad, iniciar revisión,
+        solicitar aclaración al titular, registrar notas internas y aplicar una única prórroga
+        operativa de hasta 30 días corridos en zona horaria America/Santiago.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalAdminPrivacyWorkflowInput" }
+      responses:
+        "200": { description: Expediente actualizado, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestDetailEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-requests/{requestID}/resolution:
+    post:
+      operationId: resolveGlobalAdminPrivacyRequest
+      tags: [ Global administration ]
+      summary: Publicar una respuesta al titular de una solicitud de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.requests.manage y MFA reciente. Admite solicitudes ARCO+ en estado recibida
+        o en_revision (tras verificar identidad cuando corresponda). Repetir la misma decisión
+        y respuesta devuelve el resultado vigente; una decisión diferente genera conflicto.
+        Publica la respuesta en el portal autenticado y registra una notificación interna sin
+        incluir su contenido. El envío escrito por otro canal y su comprobante se gestionan por separado.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ decision, response ]
+              properties:
+                decision: { type: string, enum: [ resuelta, denegada_fundada ] }
+                response: { type: string, minLength: 10, maxLength: 4000 }
+      responses:
+        "200": { description: Decisión publicada, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-requests/{requestID}/dispatch-receipt:
+    post:
+      operationId: recordGlobalAdminPrivacyDispatchReceipt
+      tags: [ Global administration ]
+      summary: Registrar la remisión de una respuesta escrita ya enviada
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.requests.manage y MFA reciente. Admite folios con respuesta publicada.
+        Registra la remisión declarada por personal y su referencia de evidencia.
+        La operación no envía documentos ni mensajes. Un reintento idéntico devuelve
+        el mismo resultado; una remisión diferente para el mismo folio genera conflicto.
+        La bandeja y la bitácora general excluyen el destino y la referencia de evidencia.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalAdminPrivacyDispatchReceiptInput" }
+      responses:
+        "200": { description: Remisión registrada, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-requests/{requestID}/notifications/retry:
+    post:
+      operationId: retryGlobalPrivacyNotifications
+      tags: [ Global administration ]
+      summary: Reintentar notificaciones pendientes o fallidas del expediente ARCO+
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.requests.manage y autenticación MFA reciente (HTTP 428 si expiró).
+        Reprograma las notificaciones fallidas o en estado terminal asociadas a la solicitud
+        para su reenvío mediante el outbox durable y devuelve el detalle actualizado del expediente.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Expediente actualizado tras reencolar notificaciones, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestDetailEnvelope" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-requests/{requestID}/executions:
+    post:
+      operationId: executeGlobalPrivacyRight
+      tags: [ Global administration ]
+      summary: Ejecutar derecho ARCO+ sobre un expediente de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.requests.manage, autenticación MFA reciente (HTTP 428 si expiró) y control
+        de concurrencia optimista mediante expected_version. Ejecuta acciones operativas
+        de rectificación de perfil, oposición por finalidad, aplicación o levantamiento de
+        bloqueo de tratamiento y emisión de paquete de portabilidad.
+      parameters:
+        - { in: path, name: requestID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GlobalAdminPrivacyExecutionInput" }
+      responses:
+        "200": { description: Expediente actualizado tras ejecutar el derecho, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestDetailEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-incidents:
+    get:
+      operationId: listGlobalPrivacyIncidents
+      tags: [ Global administration ]
+      summary: Listar incidentes de datos personales
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa y
+        privacy.incidents.read o privacy.incidents.manage.
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [ abierto, contenido, evaluado, notificado, cerrado ] } }
+        - { in: query, name: severity, schema: { type: string, enum: [ baja, media, alta, critica ] } }
+        - { in: query, name: page_size, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: cursor, schema: { type: string, maxLength: 2048 } }
+      responses:
+        "200": { description: Página de incidentes de datos personales, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentPageEnvelope" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    post:
+      operationId: createGlobalPrivacyIncident
+      tags: [ Global administration ]
+      summary: Registrar incidente de datos personales
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGlobalAdminPrivacyIncidentInput" }
+      responses:
+        "201": { description: Incidente de datos personales registrado, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentDetailEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-incidents/{incidentID}:
+    get:
+      operationId: getGlobalPrivacyIncident
+      tags: [ Global administration ]
+      summary: Obtener detalle y línea temporal de un incidente de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa y
+        privacy.incidents.read o privacy.incidents.manage. Devuelve el incidente y su cronología de eventos.
+      parameters:
+        - { in: path, name: incidentID, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Detalle del incidente de datos personales, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentDetailEnvelope" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /admin/global/privacy-incidents/{incidentID}/transitions:
+    post:
+      operationId: transitionGlobalPrivacyIncident
+      tags: [ Global administration ]
+      summary: Ejecutar transición operativa sobre un incidente de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.incidents.manage, autenticación MFA reciente (HTTP 428 si expiró) y control
+        de concurrencia optimista mediante expected_version.
+      parameters:
+        - { in: path, name: incidentID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransitionGlobalAdminPrivacyIncidentInput" }
+      responses:
+        "200": { description: Incidente actualizado tras la transición, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentDetailEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-legal-holds:
+    get:
+      operationId: listGlobalPrivacyLegalHolds
+      tags: [ Global administration ]
+      summary: Listar retenciones legales de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa y
+        privacy.requests.read, privacy.requests.manage, privacy.incidents.read o privacy.incidents.manage.
+      parameters:
+        - { in: query, name: status, schema: { type: string, enum: [ activa, liberada ] } }
+        - { in: query, name: account_id, schema: { type: string, format: uuid } }
+        - { in: query, name: scope, schema: { type: string, enum: [ expediente_privacidad, cuenta_completa, evidencia_kyc, contratos_y_pagos, incidente_seguridad ] } }
+        - { in: query, name: page_size, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+        - { in: query, name: cursor, schema: { type: string, maxLength: 2048 } }
+      responses:
+        "200": { description: Página de retenciones legales de privacidad, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyLegalHoldPageEnvelope" } } } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+    post:
+      operationId: createGlobalPrivacyLegalHold
+      tags: [ Global administration ]
+      summary: Aplicar retención legal sobre registros de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGlobalAdminPrivacyLegalHoldInput" }
+      responses:
+        "201": { description: Retención legal aplicada, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyLegalHoldEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente }
+  /admin/global/privacy-legal-holds/{holdID}/release:
+    post:
+      operationId: releaseGlobalPrivacyLegalHold
+      tags: [ Global administration ]
+      summary: Liberar una retención legal de privacidad
+      description: >-
+        Disponible en los perfiles local y productivo. Requiere sesión administrativa,
+        privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+      parameters:
+        - { in: path, name: holdID, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReleaseGlobalAdminPrivacyLegalHoldInput" }
+      responses:
+        "200": { description: Retención legal liberada, content: { application/json: { schema: { $ref: "#/components/schemas/GlobalAdminPrivacyLegalHoldEnvelope" } } } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "428": { description: Se requiere autenticación MFA reciente }
   /admin/global/support-tickets:
@@ -5046,14 +5346,14 @@ paths:
     get:
       operationId: listOwnRightsRequests
       tags: [ M02 local ]
-      description: Lista solo solicitudes del titular autenticado.
+      description: Lista solicitudes de la cuenta autenticada y las respuestas de acceso publicadas para el titular.
       responses:
         "200": { description: Solicitudes propias., content: { application/json: { schema: { $ref: "#/components/schemas/RightsRequestList" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
     post:
       operationId: requestDataRight
       tags: [ M02 local ]
-      description: Registra acceso o supresión en_revision sin borrar/desidentificar datos.
+      description: Registra acceso, rectificación, supresión, oposición o portabilidad para revisión. El ingreso de una solicitud no ejecuta la acción pedida. Disponible en los perfiles local y productivo.
       requestBody:
         required: true
         content:
@@ -5063,6 +5363,184 @@ paths:
         "202": { description: Solicitud recibida para revisión., content: { application/json: { schema: { $ref: "#/components/schemas/RightsRequest" } } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": *id006
+  /privacy/public-requests:
+    post:
+      operationId: submitPublicPrivacyRequest
+      tags: [ M10 local ]
+      security: []
+      summary: Registrar solicitud pública ARCO+ sin cuenta (Ley 21.719)
+      description: >-
+        Disponible en los perfiles local y productivo sin requerir cuenta ni sesión activa.
+        Registra una solicitud de acceso, rectificación, supresión, oposición, portabilidad o
+        bloqueo presentada por el titular o por un representante, y entrega un acuse neutral
+        con folio público y código de seguimiento para consulta posterior.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublicPrivacyRequestInput" }
+      responses:
+        "201":
+          description: Solicitud pública registrada con acuse neutral y código de seguimiento.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPrivacyRequestReceiptEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /privacy/public-requests/lookup:
+    post:
+      operationId: lookupPublicPrivacyRequest
+      tags: [ M10 local ]
+      security: []
+      summary: Consultar estado de solicitud pública ARCO+ por folio y código de seguimiento
+      description: >-
+        Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio
+        público y el código de seguimiento en tiempo constante y devuelve únicamente el estado,
+        plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo
+        actor_id, correos y notas internas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PublicPrivacyLookupInput" }
+      responses:
+        "200":
+          description: Estado y eventos visibles de la solicitud pública de privacidad.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPrivacyRequestStatusEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /privacy/legal-acceptances:
+    get:
+      operationId: listOwnLegalAcceptances
+      tags: [ M02 local ]
+      summary: Consultar las versiones legales vigentes y las aceptaciones propias
+      description: >-
+        Disponible en los perfiles local y productivo con el servicio de privacidad montado.
+        Requiere sesión de titular. Compara la última aceptación de cada documento con
+        su versión vigente. La lectura no registra una nueva aceptación.
+      responses:
+        "200":
+          description: Versiones y estado de aceptación de la cuenta. Respuesta sin caché.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ type, current_code, latest_accepted_code, latest_accepted_at, current_accepted ]
+                      properties:
+                        type: { type: string, enum: [ terminos, privacidad ] }
+                        current_code: { type: string }
+                        latest_accepted_code: { type: [ string, "null" ] }
+                        latest_accepted_at: { type: [ string, "null" ], format: date-time }
+                        current_accepted: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /privacy/preferences:
+    get:
+      operationId: listOwnPrivacyPreferences
+      tags: [ M02 local ]
+      summary: Listar preferencias de finalidad opcionales de la cuenta autenticada
+      description: >-
+        Disponible en los perfiles local y productivo. Devuelve las preferencias de tratamiento
+        por finalidad opcional para la cuenta autenticada.
+      responses:
+        "200":
+          description: Preferencias de finalidad de la cuenta.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PrivacyPurposePreference" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    put:
+      operationId: updateOwnPrivacyPreference
+      tags: [ M02 local ]
+      summary: Actualizar preferencia de finalidad opcional de la cuenta autenticada
+      description: >-
+        Disponible en los perfiles local y productivo. Registra oposición, retiro o habilitación
+        de una finalidad opcional de tratamiento para la cuenta autenticada.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdatePrivacyPurposePreferenceInput" }
+      responses:
+        "200":
+          description: Preferencia de finalidad actualizada.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ data ]
+                properties:
+                  data: { $ref: "#/components/schemas/PrivacyPurposePreference" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /privacy/restrictions:
+    get:
+      operationId: listOwnPrivacyRestrictions
+      tags: [ M02 local ]
+      summary: Listar bloqueos o restricciones de tratamiento de la cuenta autenticada
+      description: >-
+        Disponible en los perfiles local y productivo. Devuelve las restricciones o bloqueos
+        temporales de tratamiento asociados a la cuenta autenticada.
+      responses:
+        "200":
+          description: Restricciones de tratamiento de la cuenta.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PrivacyTreatmentBlock" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /privacy/portability:
+    get:
+      operationId: exportOwnPrivacyPortability
+      tags: [ M02 local ]
+      summary: Exportar paquete estructurado e interoperable de portabilidad (Ley 21.719)
+      description: >-
+        Disponible en los perfiles local y productivo. Emite el paquete interoperable JSON de
+        portabilidad de la cuenta autenticada junto con su resumen SHA-256 en X-Content-SHA256.
+      responses:
+        "200":
+          description: Paquete estructurado de portabilidad de datos personales.
+          headers:
+            X-Content-SHA256:
+              description: Resumen SHA-256 hexadecimal en minúsculas del JSON emitido.
+              schema: { type: string, pattern: "^[0-9a-f]{64}$" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrivacyPortabilityPackage" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /privacy/export:
     get:
       operationId: exportOwnIdentityData
@@ -10867,7 +11345,7 @@ components:
 
     AdminCapability:
       type: string
-      enum: [ legacy.administration, accounts.list, accounts.read, accounts.email.reveal, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export, payments.read, payments.reconcile, payments.refund.request, payments.refund.approve, reservations.read, contracts.read, kyc.case.read, kyc.review, privacy.requests.manage, privacy.export.approve, support.tickets.read, support.tickets.manage, approvals.read, approvals.request, approvals.decide ]
+      enum: [ legacy.administration, accounts.list, accounts.read, accounts.email.reveal, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export, payments.read, payments.reconcile, payments.refund.request, payments.refund.approve, reservations.read, contracts.read, kyc.case.read, kyc.review, privacy.requests.read, privacy.requests.manage, privacy.incidents.read, privacy.incidents.manage, privacy.export.approve, support.tickets.read, support.tickets.manage, approvals.read, approvals.request, approvals.decide ]
     AdminSessionStartRequest:
       type: object
       additionalProperties: false
@@ -11254,15 +11732,172 @@ components:
       required: [ id, account_id, right_type, status, reason, case_ref, created_at, updated_at ]
       properties:
         id: { type: string, format: uuid }
-        account_id: { type: string, format: uuid }
+        account_id:
+          type: string
+          pattern: "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          description: UUID de la cuenta asociada, o cadena vacía ("") para solicitudes públicas sin cuenta vinculada.
+        folio: { type: string, description: Folio público único de seguimiento (por ejemplo, PRIV-YYYY-XXXXXXXX). }
         right_type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
         status: { type: string, enum: [ pendiente, en_revision, aprobada, rechazada, completada ] }
         reason: { type: string }
         case_ref: { type: string }
         requested_by: { type: string, format: uuid }
+        channel: { type: string, enum: [ web, api, publico, correo ] }
+        requester_type: { type: string, enum: [ titular, representante ] }
+        requester_name: { type: string }
+        requester_email_masked: { type: string }
+        representative_name: { type: string }
+        representative_relation: { type: string, enum: [ mandatario, representante_legal, tutor_nna ] }
+        subject_reference: { type: string }
+        assigned_to_id: { type: string, format: uuid }
+        due_at: { type: string, format: date-time }
+        extended_due_at: { type: string, format: date-time }
+        extension_reason: { type: string, maxLength: 1000 }
+        version: { type: integer, minimum: 1 }
+        is_overdue: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         resolved_at: { type: [ string, "null" ], format: date-time }
+        can_publish_response: { type: boolean, description: Permite publicar respuesta a un folio en estado recibida o en_revision. }
+        detail: { type: string, maxLength: 1000, description: Detalle ingresado por el titular. }
+        can_record_dispatch: { type: boolean, description: Permite registrar la remisión de una respuesta publicada. }
+        dispatch_recorded_at: { type: string, format: date-time, description: Fecha en que el operador registró la remisión. }
+    GlobalAdminPrivacyRequestEvent:
+      type: object
+      additionalProperties: false
+      required: [ id, sequence, event_type, visibility, created_at ]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer, minimum: 1 }
+        event_type: { type: string, enum: [ recepcion, asignacion, identidad_verificada, en_revision, aclaracion_solicitada, nota_interna, prorroga, ejecucion_derecho, resolucion, despacho_registrado ] }
+        visibility: { type: string, enum: [ titular, interna ] }
+        state_from: { type: string }
+        state_to: { type: string }
+        actor_id: { type: string, format: uuid }
+        detail: { type: string, maxLength: 2000 }
+        new_due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    PrivacyNotificationSummary:
+      type: object
+      additionalProperties: false
+      required: [ pending, delivered, terminal ]
+      properties:
+        pending: { type: integer, minimum: 0 }
+        delivered: { type: integer, minimum: 0 }
+        terminal: { type: integer, minimum: 0 }
+        last_error_code: { type: [ string, "null" ] }
+        last_delivered_at: { type: [ string, "null" ], format: date-time }
+    GlobalAdminPrivacyRequestDetail:
+      type: object
+      additionalProperties: false
+      required: [ id, account_id, right_type, status, reason, case_ref, created_at, updated_at, events ]
+      properties:
+        id: { type: string, format: uuid }
+        account_id:
+          type: string
+          pattern: "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          description: UUID de la cuenta asociada, o cadena vacía ("") para solicitudes públicas sin cuenta vinculada.
+        folio: { type: string, description: Folio público único de seguimiento (por ejemplo, PRIV-YYYY-XXXXXXXX). }
+        right_type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
+        status: { type: string, enum: [ pendiente, en_revision, aprobada, rechazada, completada ] }
+        reason: { type: string }
+        case_ref: { type: string }
+        requested_by: { type: string, format: uuid }
+        channel: { type: string, enum: [ web, api, publico, correo ] }
+        requester_type: { type: string, enum: [ titular, representante ] }
+        requester_name: { type: string }
+        requester_email_masked: { type: string }
+        representative_name: { type: string }
+        representative_relation: { type: string, enum: [ mandatario, representante_legal, tutor_nna ] }
+        subject_reference: { type: string }
+        assigned_to_id: { type: string, format: uuid }
+        due_at: { type: string, format: date-time }
+        extended_due_at: { type: string, format: date-time }
+        extension_reason: { type: string, maxLength: 1000 }
+        version: { type: integer, minimum: 1 }
+        is_overdue: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        resolved_at: { type: [ string, "null" ], format: date-time }
+        can_publish_response: { type: boolean }
+        detail: { type: string, maxLength: 1000 }
+        can_record_dispatch: { type: boolean }
+        dispatch_recorded_at: { type: string, format: date-time }
+        response: { type: string, minLength: 10, maxLength: 4000 }
+        notification_summary: { $ref: "#/components/schemas/PrivacyNotificationSummary" }
+        events: { type: array, items: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestEvent" } }
+        executions: { type: array, items: { $ref: "#/components/schemas/PrivacyRightExecution" } }
+        treatment_blocks: { type: array, items: { $ref: "#/components/schemas/PrivacyTreatmentBlock" } }
+        purpose_preferences: { type: array, items: { $ref: "#/components/schemas/PrivacyPurposePreference" } }
+    GlobalAdminPrivacyRequestDetailEnvelope:
+      type: object
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/GlobalAdminPrivacyRequestDetail" }
+    GlobalAdminPrivacyWorkflowInput:
+      type: object
+      additionalProperties: false
+      required: [ action, expected_version ]
+      properties:
+        action: { type: string, enum: [ assign, verify_identity, start_review, request_clarification, add_internal_note, extend_deadline ] }
+        assigned_to_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        note: { type: string, maxLength: 2000 }
+        extra_days: { type: integer, minimum: 1, maximum: 30 }
+        expected_version: { type: integer, minimum: 1 }
+    GlobalAdminPrivacyDispatchReceiptInput:
+      type: object
+      additionalProperties: false
+      required: [ channel, destination, sent_at, evidence_ref ]
+      properties:
+        channel: { type: string, enum: [ email, postal ] }
+        destination: { type: string, maxLength: 320 }
+        sent_at: { type: string, format: date-time }
+        evidence_ref: { type: string, maxLength: 200 }
+    GlobalAdminPrivacyExecutionInput:
+      type: object
+      additionalProperties: false
+      required: [ action, expected_version, summary ]
+      properties:
+        action:
+          type: string
+          enum: [ rectify_profile, apply_opposition, apply_block, lift_block, issue_portability ]
+        expected_version: { type: integer, minimum: 1 }
+        summary: { type: string, minLength: 10, maxLength: 1000 }
+        display_name: { type: string, minLength: 1, maxLength: 120 }
+        phone: { type: string, pattern: "^$|^[0-9]{9}$" }
+        purpose:
+          type: string
+          enum: [ comunicaciones_comerciales, analitica_producto, personalizacion_recomendaciones, comparticion_encargados_opcionales ]
+        purpose_state:
+          type: string
+          enum: [ permitido, opuesto, retirado ]
+        scope:
+          type: string
+          enum: [ comunicaciones_comerciales, analitica_y_perfilado, publicaciones_y_visibilidad, exportaciones_y_terceros, tratamiento_general ]
+        block_id: { type: string, format: uuid }
+        review_at: { type: string, format: date-time }
+        target_reference: { type: string, minLength: 2, maxLength: 200 }
+    PrivacyRightExecution:
+      type: object
+      additionalProperties: false
+      required: [ id, request_id, execution_type, status, scope, summary, executed_by, executed_at ]
+      properties:
+        id: { type: string, format: uuid }
+        request_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        execution_type:
+          type: string
+          enum: [ rectificacion_perfil, oposicion_finalidad, bloqueo_aplicado, bloqueo_levantado, portabilidad_emitida, transferencia_portabilidad, propagacion_encargado ]
+        status:
+          type: string
+          enum: [ ejecutada, parcial, denegada ]
+        scope: { type: string, minLength: 2, maxLength: 120 }
+        summary: { type: string, minLength: 10, maxLength: 1000 }
+        target_reference: { type: string, minLength: 2, maxLength: 200 }
+        artifact_sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        executed_by: { type: string, format: uuid }
+        executed_at: { type: string, format: date-time }
     GlobalAdminPrivacyRequestCreateInput:
       type: object
       additionalProperties: false
@@ -11290,6 +11925,177 @@ components:
             next_cursor: { type: string }
             matching_total: { type: integer }
             generated_at: { type: string, format: date-time }
+    GlobalAdminPrivacyIncident:
+      type: object
+      additionalProperties: false
+      required: [ id, folio, title, severity, status, data_categories, affected_systems, estimated_subjects, summary, requires_agency_notice, requires_subject_notice, leader_id, detected_at, created_by, created_at, updated_at, version ]
+      properties:
+        id: { type: string, format: uuid }
+        folio: { type: string }
+        title: { type: string, minLength: 5, maxLength: 200 }
+        severity: { type: string, enum: [ baja, media, alta, critica ] }
+        status: { type: string, enum: [ abierto, contenido, evaluado, notificado, cerrado ] }
+        data_categories: { type: array, minItems: 1, items: { type: string } }
+        affected_systems: { type: array, minItems: 1, items: { type: string } }
+        estimated_subjects: { type: integer, minimum: 0 }
+        summary: { type: string, minLength: 10, maxLength: 2000 }
+        containment_measures: { type: [ string, "null" ], maxLength: 2000 }
+        requires_agency_notice: { type: boolean }
+        agency_notified_at: { type: [ string, "null" ], format: date-time }
+        agency_reference: { type: [ string, "null" ], maxLength: 160 }
+        requires_subject_notice: { type: boolean }
+        subjects_notified_at: { type: [ string, "null" ], format: date-time }
+        leader_id: { type: string, format: uuid }
+        deputy_id: { type: [ string, "null" ], format: uuid }
+        detected_at: { type: string, format: date-time }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        closed_at: { type: [ string, "null" ], format: date-time }
+        version: { type: integer, minimum: 1 }
+    GlobalAdminPrivacyIncidentEvent:
+      type: object
+      additionalProperties: false
+      required: [ id, sequence, event_type, actor_id, detail, created_at ]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer, minimum: 1 }
+        event_type: { type: string, enum: [ apertura, contencion, evaluacion, notificacion_agencia, notificacion_titulares, nota, cierre ] }
+        actor_id: { type: string, format: uuid }
+        detail: { type: string, minLength: 5, maxLength: 2000 }
+        created_at: { type: string, format: date-time }
+    GlobalAdminPrivacyIncidentDetail:
+      type: object
+      additionalProperties: false
+      required: [ id, folio, title, severity, status, data_categories, affected_systems, estimated_subjects, summary, requires_agency_notice, requires_subject_notice, leader_id, detected_at, created_by, created_at, updated_at, version, events ]
+      properties:
+        id: { type: string, format: uuid }
+        folio: { type: string }
+        title: { type: string, minLength: 5, maxLength: 200 }
+        severity: { type: string, enum: [ baja, media, alta, critica ] }
+        status: { type: string, enum: [ abierto, contenido, evaluado, notificado, cerrado ] }
+        data_categories: { type: array, minItems: 1, items: { type: string } }
+        affected_systems: { type: array, minItems: 1, items: { type: string } }
+        estimated_subjects: { type: integer, minimum: 0 }
+        summary: { type: string, minLength: 10, maxLength: 2000 }
+        containment_measures: { type: [ string, "null" ], maxLength: 2000 }
+        requires_agency_notice: { type: boolean }
+        agency_notified_at: { type: [ string, "null" ], format: date-time }
+        agency_reference: { type: [ string, "null" ], maxLength: 160 }
+        requires_subject_notice: { type: boolean }
+        subjects_notified_at: { type: [ string, "null" ], format: date-time }
+        leader_id: { type: string, format: uuid }
+        deputy_id: { type: [ string, "null" ], format: uuid }
+        detected_at: { type: string, format: date-time }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        closed_at: { type: [ string, "null" ], format: date-time }
+        version: { type: integer, minimum: 1 }
+        events: { type: array, items: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentEvent" } }
+    GlobalAdminPrivacyIncidentDetailEnvelope:
+      type: object
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/GlobalAdminPrivacyIncidentDetail" }
+    GlobalAdminPrivacyIncidentPageEnvelope:
+      type: object
+      required: [ data ]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [ items, matching_total, generated_at ]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/GlobalAdminPrivacyIncident" } }
+            next_cursor: { type: string }
+            matching_total: { type: integer }
+            generated_at: { type: string, format: date-time }
+    CreateGlobalAdminPrivacyIncidentInput:
+      type: object
+      additionalProperties: false
+      required: [ title, severity, data_categories, affected_systems, summary ]
+      properties:
+        title: { type: string, minLength: 5, maxLength: 200 }
+        severity: { type: string, enum: [ baja, media, alta, critica ] }
+        data_categories: { type: array, minItems: 1, items: { type: string, minLength: 1, maxLength: 120 } }
+        affected_systems: { type: array, minItems: 1, items: { type: string, minLength: 1, maxLength: 120 } }
+        estimated_subjects: { type: integer, minimum: 0 }
+        summary: { type: string, minLength: 10, maxLength: 2000 }
+        containment_measures: { type: string, minLength: 10, maxLength: 2000 }
+        requires_agency_notice: { type: boolean }
+        requires_subject_notice: { type: boolean }
+        leader_id: { type: string, format: uuid }
+        deputy_id: { type: string, format: uuid }
+        detected_at: { type: string, format: date-time }
+    TransitionGlobalAdminPrivacyIncidentInput:
+      type: object
+      additionalProperties: false
+      required: [ action, expected_version ]
+      properties:
+        action: { type: string, enum: [ contain, evaluate, notify_agency, notify_subjects, add_note, close ] }
+        expected_version: { type: integer, minimum: 1 }
+        detail: { type: string, minLength: 5, maxLength: 2000 }
+        containment_measures: { type: string, minLength: 10, maxLength: 2000 }
+        requires_agency_notice: { type: boolean }
+        requires_subject_notice: { type: boolean }
+        agency_reference: { type: string, minLength: 2, maxLength: 160 }
+    GlobalAdminPrivacyLegalHold:
+      type: object
+      additionalProperties: false
+      required: [ id, folio, scope, authority, legal_basis, status, applied_by, applied_at ]
+      properties:
+        id: { type: string, format: uuid }
+        folio: { type: string }
+        account_id: { type: [ string, "null" ], format: uuid }
+        request_id: { type: [ string, "null" ], format: uuid }
+        incident_id: { type: [ string, "null" ], format: uuid }
+        scope: { type: string, enum: [ expediente_privacidad, cuenta_completa, evidencia_kyc, contratos_y_pagos, incidente_seguridad ] }
+        authority: { type: string, minLength: 3, maxLength: 200 }
+        legal_basis: { type: string, minLength: 10, maxLength: 1000 }
+        status: { type: string, enum: [ activa, liberada ] }
+        review_at: { type: [ string, "null" ], format: date-time }
+        applied_by: { type: string, format: uuid }
+        applied_at: { type: string, format: date-time }
+        released_by: { type: [ string, "null" ], format: uuid }
+        released_at: { type: [ string, "null" ], format: date-time }
+        release_reason: { type: [ string, "null" ], maxLength: 1000 }
+    GlobalAdminPrivacyLegalHoldEnvelope:
+      type: object
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/GlobalAdminPrivacyLegalHold" }
+    GlobalAdminPrivacyLegalHoldPageEnvelope:
+      type: object
+      required: [ data ]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [ items, matching_total, generated_at ]
+          properties:
+            items: { type: array, items: { $ref: "#/components/schemas/GlobalAdminPrivacyLegalHold" } }
+            next_cursor: { type: string }
+            matching_total: { type: integer }
+            generated_at: { type: string, format: date-time }
+    CreateGlobalAdminPrivacyLegalHoldInput:
+      type: object
+      additionalProperties: false
+      required: [ scope, authority, legal_basis ]
+      properties:
+        account_id: { type: string, format: uuid }
+        request_id: { type: string, format: uuid }
+        incident_id: { type: string, format: uuid }
+        scope: { type: string, enum: [ expediente_privacidad, cuenta_completa, evidencia_kyc, contratos_y_pagos, incidente_seguridad ] }
+        authority: { type: string, minLength: 3, maxLength: 200 }
+        legal_basis: { type: string, minLength: 10, maxLength: 1000 }
+        review_at: { type: string, format: date-time }
+    ReleaseGlobalAdminPrivacyLegalHoldInput:
+      type: object
+      additionalProperties: false
+      required: [ release_reason ]
+      properties:
+        release_reason: { type: string, minLength: 10, maxLength: 1000 }
     GlobalAdminSupportTicket:
       type: object
       additionalProperties: false
@@ -13986,20 +14792,104 @@ components:
       additionalProperties: false
       required: [ type ]
       properties:
-        type: { type: string, enum: [ acceso, supresion ] }
+        type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
+        detail: { type: string, maxLength: 1000, description: Detalle en texto. Rectificación, oposición y bloqueo temporal requieren al menos 10 caracteres significativos. }
+    RightsRequestEvent:
+      type: object
+      additionalProperties: false
+      required: [ id, sequence, event_type, created_at ]
+      properties:
+        id: { type: string, format: uuid }
+        sequence: { type: integer, minimum: 1 }
+        event_type: { type: string, enum: [ recepcion, identidad_verificada, en_revision, aclaracion_solicitada, prorroga, ejecucion_derecho, resolucion, despacho_registrado ] }
+        state_from: { type: string }
+        state_to: { type: string }
+        detail: { type: string, maxLength: 2000 }
+        new_due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
     RightsRequest:
       type: object
       required: [ id, kind, state, created_at ]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [ acceso, supresion ] }
+        kind: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
         state: { type: string, enum: [ recibida, identidad_pendiente, en_revision, resuelta, denegada_fundada ] }
         created_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time }
+        response: { type: string, minLength: 10, maxLength: 4000 }
+        detail: { type: string, maxLength: 1000, description: Detalle ingresado por el titular. }
+        due_at: { type: string, format: date-time }
+        extended_due_at: { type: string, format: date-time }
+        extension_reason: { type: string, maxLength: 1000 }
+        events: { type: array, items: { $ref: "#/components/schemas/RightsRequestEvent" } }
     RightsRequestList:
       type: object
       required: [ items ]
       properties:
         items: { type: array, items: { $ref: "#/components/schemas/RightsRequest" } }
+    PublicPrivacyRequestInput:
+      type: object
+      additionalProperties: false
+      required: [ right_type, requester_type, requester_name, requester_email, detail ]
+      properties:
+        right_type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
+        requester_type: { type: string, enum: [ titular, representante ] }
+        requester_name: { type: string, minLength: 2, maxLength: 160 }
+        requester_email: { type: string, format: email, minLength: 5, maxLength: 254 }
+        representative_name: { type: string, maxLength: 160, description: Requerido (mínimo 2 caracteres) cuando requester_type es representante. }
+        representative_relation: { type: string, enum: [ mandatario, representante_legal, tutor_nna ], description: Requerido cuando requester_type es representante. }
+        subject_reference: { type: string, maxLength: 200, description: Referencia opcional del titular representado o contexto (entre 2 y 200 caracteres si se informa). }
+        detail: { type: string, minLength: 10, maxLength: 1000 }
+    PublicPrivacyRequestReceipt:
+      type: object
+      additionalProperties: false
+      required: [ id, folio, tracking_code, right_type, requester_type, state, channel, due_at, created_at, notice ]
+      properties:
+        id: { type: string, format: uuid }
+        folio: { type: string }
+        tracking_code: { type: string }
+        right_type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
+        requester_type: { type: string, enum: [ titular, representante ] }
+        state: { type: string, enum: [ recibida, identidad_pendiente, en_revision, resuelta, denegada_fundada ] }
+        channel: { type: string, enum: [ web, api, publico, correo ] }
+        due_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        notice: { type: string }
+    PublicPrivacyRequestReceiptEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/PublicPrivacyRequestReceipt" }
+    PublicPrivacyLookupInput:
+      type: object
+      additionalProperties: false
+      required: [ folio, tracking_code ]
+      properties:
+        folio: { type: string, minLength: 6, maxLength: 40, description: Folio público (formato PRIV-YYYY-XXXXXXXX). }
+        tracking_code: { type: string, minLength: 16, maxLength: 128 }
+    PublicPrivacyRequestStatus:
+      type: object
+      additionalProperties: false
+      required: [ folio, right_type, requester_type, state, created_at ]
+      properties:
+        folio: { type: string }
+        right_type: { type: string, enum: [ acceso, rectificacion, supresion, oposicion, portabilidad, bloqueo ] }
+        requester_type: { type: string, enum: [ titular, representante ] }
+        state: { type: string, enum: [ recibida, identidad_pendiente, en_revision, resuelta, denegada_fundada ] }
+        created_at: { type: string, format: date-time }
+        due_at: { type: string, format: date-time }
+        extended_due_at: { type: string, format: date-time }
+        extension_reason: { type: string, maxLength: 1000 }
+        resolved_at: { type: string, format: date-time }
+        response: { type: string, minLength: 10, maxLength: 4000 }
+        events: { type: array, items: { $ref: "#/components/schemas/RightsRequestEvent" } }
+    PublicPrivacyRequestStatusEnvelope:
+      type: object
+      additionalProperties: false
+      required: [ data ]
+      properties:
+        data: { $ref: "#/components/schemas/PublicPrivacyRequestStatus" }
     OwnIdentityExport:
       type: object
       additionalProperties: false
@@ -14033,6 +14923,92 @@ components:
               code: { type: string }
               type: { type: string, enum: [ terminos, privacidad, politica_arrendador ] }
               accepted_at: { type: string, format: date-time }
+        rights_requests: { type: array, items: { $ref: "#/components/schemas/RightsRequest" } }
+        purpose_preferences: { type: array, items: { $ref: "#/components/schemas/PrivacyPurposePreference" } }
+        treatment_restrictions: { type: array, items: { $ref: "#/components/schemas/PrivacyTreatmentBlock" } }
+    PrivacyPurposePreference:
+      type: object
+      additionalProperties: false
+      required: [ purpose, state ]
+      properties:
+        purpose:
+          type: string
+          enum: [ comunicaciones_comerciales, analitica_producto, personalizacion_recomendaciones, comparticion_encargados_opcionales ]
+        state:
+          type: string
+          enum: [ permitido, opuesto, retirado ]
+        reason: { type: string, minLength: 5, maxLength: 500 }
+        request_id: { type: string, format: uuid }
+        updated_at: { type: string, format: date-time }
+    UpdatePrivacyPurposePreferenceInput:
+      type: object
+      additionalProperties: false
+      required: [ purpose, state ]
+      properties:
+        purpose:
+          type: string
+          enum: [ comunicaciones_comerciales, analitica_producto, personalizacion_recomendaciones, comparticion_encargados_opcionales ]
+        state:
+          type: string
+          enum: [ permitido, opuesto, retirado ]
+        reason: { type: string, minLength: 5, maxLength: 500 }
+    PrivacyTreatmentBlock:
+      type: object
+      additionalProperties: false
+      required: [ id, request_id, scope, state, reason, applied_at ]
+      properties:
+        id: { type: string, format: uuid }
+        request_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        scope:
+          type: string
+          enum: [ comunicaciones_comerciales, analitica_y_perfilado, publicaciones_y_visibilidad, exportaciones_y_terceros, tratamiento_general ]
+        state:
+          type: string
+          enum: [ activo, levantado ]
+        reason: { type: string, minLength: 10, maxLength: 1000 }
+        applied_by: { type: string, format: uuid }
+        applied_at: { type: string, format: date-time }
+        review_at: { type: string, format: date-time }
+        lifted_by: { type: string, format: uuid }
+        lifted_at: { type: string, format: date-time }
+        lift_reason: { type: string, minLength: 10, maxLength: 1000 }
+    PrivacyPortabilityPackage:
+      type: object
+      additionalProperties: false
+      required: [ schema_version, generated_at, account, roles, terms_acceptances, purpose_preferences, treatment_restrictions, rights_requests ]
+      properties:
+        schema_version: { type: string, const: portabilidad_ley21719_v1 }
+        generated_at: { type: string, format: date-time }
+        account:
+          type: object
+          additionalProperties: false
+          required: [ email, state, created_at ]
+          properties:
+            email: { type: string, format: email }
+            state: { type: string }
+            use_preference: { type: [ string, "null" ], enum: [ ofrecer, arrendar, null ] }
+            created_at: { type: string, format: date-time }
+        profile:
+          type: object
+          additionalProperties: false
+          required: [ display_name, updated_at ]
+          properties:
+            display_name: { type: string }
+            phone: { type: [ string, "null" ], pattern: "^[0-9]{9}$" }
+            updated_at: { type: string, format: date-time }
+        roles: { type: array, items: { type: string, enum: [ arrendatario, arrendador, administrador, administrador_global ] } }
+        terms_acceptances:
+          type: array
+          items:
+            type: object
+            required: [ code, type, accepted_at ]
+            properties:
+              code: { type: string }
+              type: { type: string, enum: [ terminos, privacidad, politica_arrendador ] }
+              accepted_at: { type: string, format: date-time }
+        purpose_preferences: { type: array, items: { $ref: "#/components/schemas/PrivacyPurposePreference" } }
+        treatment_restrictions: { type: array, items: { $ref: "#/components/schemas/PrivacyTreatmentBlock" } }
         rights_requests: { type: array, items: { $ref: "#/components/schemas/RightsRequest" } }
     VerificationCreate:
       type: object

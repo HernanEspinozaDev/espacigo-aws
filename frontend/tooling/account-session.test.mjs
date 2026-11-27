@@ -80,6 +80,8 @@ test("loadOverview tardío tras clear() no debe sobrescribir snapshot limpio", a
     getProfile: () => profilePromise,
     getProfilePhoto: async () => null,
     getPayoutAccount: () => payoutPromise,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: () => rightsPromise,
   };
 
@@ -164,6 +166,8 @@ test("loadOverview con foto tardía tras clear() no crea Blob URL ni repuebla sn
     getProfile: () => profilePromise,
     getProfilePhoto: async () => ({ id: "photo-1" }),
     getPayoutAccount: async () => null,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: async () => [],
     getProfilePhotoContent: () => photoContentPromise,
   };
@@ -258,6 +262,8 @@ test("A→B purga snapshot existente y ejecuta onPrivatePurge", async () => {
     getProfile: async () => ({ id: "user-a", displayName: "User A" }),
     getProfilePhoto: async () => null,
     getPayoutAccount: async () => null,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: async () => [],
   };
 
@@ -279,6 +285,8 @@ test("roles, capabilities, restrictedMode y expiry distintos purgan la sesión",
     getProfile: async () => ({ id: "user-a", displayName: "User A" }),
     getProfilePhoto: async () => null,
     getPayoutAccount: async () => null,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: async () => [],
   };
   const facade = new AccountFacade(fakePort, authSource);
@@ -346,6 +354,8 @@ test("emisión de mismo contenido de sesión NO purga el snapshot", async () => 
     getProfile: async () => ({ id: "user-a", displayName: "User A" }),
     getProfilePhoto: async () => null,
     getPayoutAccount: async () => null,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: async () => [],
   };
   const facade = new AccountFacade(fakePort, authSource, () => {
@@ -378,6 +388,8 @@ test("checking y anonymous nofetch: no invocan puertos de loadOverview ni export
         fetchCalls++;
         return null;
       },
+      listPrivacyPreferences: async () => [],
+      listPrivacyRestrictions: async () => [],
       listRightsRequests: async () => {
         fetchCalls++;
         return [];
@@ -417,6 +429,8 @@ test("401/403 purga síncrono y revalida con checkSession sin logout, 503 no inv
     },
     getProfilePhoto: async () => null,
     getPayoutAccount: async () => null,
+    listPrivacyPreferences: async () => [],
+    listPrivacyRestrictions: async () => [],
     listRightsRequests: async () => [],
   };
 

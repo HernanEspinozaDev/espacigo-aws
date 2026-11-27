@@ -26,7 +26,10 @@ export type AdminCapability =
   | "contracts.read"
   | "kyc.case.read"
   | "kyc.review"
+  | "privacy.requests.read"
   | "privacy.requests.manage"
+  | "privacy.incidents.read"
+  | "privacy.incidents.manage"
   | "privacy.export.approve"
   | "support.tickets.read"
   | "support.tickets.manage"
@@ -683,25 +686,200 @@ export type GlobalAdminPrivacyRequestType =
 export type GlobalAdminPrivacyRequestStatus =
   "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
 
+export type GlobalAdminPrivacyChannel = "web" | "api" | "publico" | "correo";
+
+export type GlobalAdminPrivacyRequesterType = "titular" | "representante";
+
+export type GlobalAdminPrivacyRepresentativeRelation =
+  "mandatario" | "representante_legal" | "tutor_nna";
+
+export interface AdminPrivacyNotificationSummary {
+  readonly pending: number;
+  readonly delivered: number;
+  readonly terminal: number;
+  readonly last_error_code?: string | null;
+  readonly last_delivered_at?: string | null;
+}
+
 export interface GlobalAdminPrivacyRequest {
   readonly id: string;
   readonly account_id: string;
+  readonly folio?: string;
   readonly right_type: GlobalAdminPrivacyRequestType;
   readonly status: GlobalAdminPrivacyRequestStatus;
   readonly reason: string;
   readonly case_ref: string;
   readonly requested_by?: string;
+  readonly channel?: GlobalAdminPrivacyChannel;
+  readonly requester_type?: GlobalAdminPrivacyRequesterType;
+  readonly requester_name?: string;
+  readonly requester_email_masked?: string;
+  readonly representative_name?: string;
+  readonly representative_relation?: GlobalAdminPrivacyRepresentativeRelation;
+  readonly subject_reference?: string;
+  readonly assigned_to_id?: string;
+  readonly due_at?: string | null;
+  readonly extended_due_at?: string | null;
+  readonly extension_reason?: string | null;
+  readonly version?: number;
+  readonly is_overdue?: boolean;
   readonly created_at: string;
   readonly updated_at: string;
   readonly resolved_at?: string | null;
+  readonly can_publish_response?: boolean;
+  readonly can_record_dispatch?: boolean;
+  readonly dispatch_recorded_at?: string | null;
+  readonly detail?: string;
+}
+
+export interface GlobalAdminPrivacyRequestEvent {
+  readonly id: string;
+  readonly sequence: number;
+  readonly event_type: string;
+  readonly visibility: "titular" | "interna";
+  readonly state_from?: string | null;
+  readonly state_to?: string | null;
+  readonly actor_id?: string | null;
+  readonly detail?: string | null;
+  readonly new_due_at?: string | null;
+  readonly created_at: string;
+}
+
+export type GlobalAdminPrivacyExecutionAction =
+  | "rectify_profile"
+  | "apply_opposition"
+  | "apply_block"
+  | "lift_block"
+  | "issue_portability";
+
+export type AdminPrivacyExecutionType =
+  | "rectificacion_perfil"
+  | "oposicion_finalidad"
+  | "bloqueo_aplicado"
+  | "bloqueo_levantado"
+  | "portabilidad_emitida"
+  | "transferencia_portabilidad"
+  | "propagacion_encargado";
+
+export type AdminPrivacyTreatmentScope =
+  | "comunicaciones_comerciales"
+  | "analitica_y_perfilado"
+  | "publicaciones_y_visibilidad"
+  | "exportaciones_y_terceros"
+  | "tratamiento_general";
+
+export type AdminPrivacyPurpose =
+  | "comunicaciones_comerciales"
+  | "analitica_producto"
+  | "personalizacion_recomendaciones"
+  | "comparticion_encargados_opcionales";
+
+export type AdminPrivacyPurposeState = "permitido" | "opuesto" | "retirado";
+
+export interface AdminPrivacyRightExecution {
+  readonly id: string;
+  readonly request_id: string;
+  readonly account_id?: string;
+  readonly execution_type: AdminPrivacyExecutionType;
+  readonly status: "ejecutada" | "parcial" | "denegada";
+  readonly scope: string;
+  readonly summary: string;
+  readonly target_reference?: string;
+  readonly artifact_sha256?: string;
+  readonly executed_by: string;
+  readonly executed_at: string;
+}
+
+export interface AdminPrivacyTreatmentBlock {
+  readonly id: string;
+  readonly request_id: string;
+  readonly account_id?: string;
+  readonly scope: AdminPrivacyTreatmentScope;
+  readonly state: "activo" | "levantado";
+  readonly reason: string;
+  readonly applied_by?: string;
+  readonly applied_at: string;
+  readonly review_at?: string;
+  readonly lifted_by?: string;
+  readonly lifted_at?: string;
+  readonly lift_reason?: string;
+}
+
+export interface AdminPrivacyPurposePreference {
+  readonly purpose: AdminPrivacyPurpose;
+  readonly state: AdminPrivacyPurposeState;
+  readonly reason?: string;
+  readonly request_id?: string;
+  readonly updated_at?: string;
+}
+
+export interface GlobalAdminPrivacyExecutionInput {
+  readonly action: GlobalAdminPrivacyExecutionAction;
+  readonly expected_version: number;
+  readonly summary: string;
+  readonly display_name?: string;
+  readonly phone?: string;
+  readonly purpose?: AdminPrivacyPurpose;
+  readonly purpose_state?: AdminPrivacyPurposeState;
+  readonly scope?: AdminPrivacyTreatmentScope;
+  readonly block_id?: string;
+  readonly review_at?: string;
+  readonly target_reference?: string;
+}
+
+export interface GlobalAdminPrivacyRequestDetail extends GlobalAdminPrivacyRequest {
+  readonly response?: string | null;
+  readonly notification_summary?: AdminPrivacyNotificationSummary;
+  readonly events: readonly GlobalAdminPrivacyRequestEvent[];
+  readonly executions?: AdminPrivacyRightExecution[];
+  readonly treatment_blocks?: AdminPrivacyTreatmentBlock[];
+  readonly purpose_preferences?: AdminPrivacyPurposePreference[];
+}
+
+export type GlobalAdminPrivacyWorkflowAction =
+  | "assign"
+  | "verify_identity"
+  | "start_review"
+  | "request_clarification"
+  | "add_internal_note"
+  | "extend_deadline";
+
+export interface GlobalAdminPrivacyWorkflowInput {
+  readonly action: GlobalAdminPrivacyWorkflowAction;
+  readonly expected_version: number;
+  readonly assigned_to_id?: string;
+  readonly account_id?: string;
+  readonly note?: string;
+  readonly extra_days?: number;
+}
+
+export interface GlobalAdminPrivacyDispatchReceiptInput {
+  readonly channel: "email" | "postal";
+  readonly destination: string;
+  readonly sent_at: string;
+  readonly evidence_ref: string;
+}
+
+export interface GlobalAdminPrivacyRequestResolutionInput {
+  readonly decision: "resuelta" | "denegada_fundada";
+  readonly response: string;
 }
 
 export interface GlobalAdminPrivacyRequestQuery {
   readonly status?: GlobalAdminPrivacyRequestStatus;
+  readonly right_type?: GlobalAdminPrivacyRequestType;
   readonly account_id?: string;
+  readonly assigned_to_id?: string;
+  readonly channel?: GlobalAdminPrivacyChannel;
+  readonly overdue?: boolean;
   readonly cursor?: string;
   readonly page_size?: number;
 }
+
+export type AdminPrivacyRequestItem = GlobalAdminPrivacyRequest;
+export type AdminPrivacyRequestDetail = GlobalAdminPrivacyRequestDetail;
+export type TransitionAdminPrivacyRequestInput =
+  GlobalAdminPrivacyWorkflowInput;
 
 export interface GlobalAdminPrivacyRequestCreateInput {
   readonly account_id: string;
@@ -801,4 +979,163 @@ export interface GlobalAdminApprovalDecisionInput {
   readonly decision: GlobalAdminApprovalDecision;
   readonly decision_reason: string;
   readonly expected_version: number;
+}
+
+// Phase 7: Privacy Incidents & Legal Holds
+
+export type GlobalAdminPrivacyIncidentSeverity =
+  "baja" | "media" | "alta" | "critica";
+
+export type GlobalAdminPrivacyIncidentStatus =
+  "abierto" | "contenido" | "evaluado" | "notificado" | "cerrado";
+
+export type GlobalAdminPrivacyIncidentAction =
+  | "contain"
+  | "evaluate"
+  | "notify_agency"
+  | "notify_subjects"
+  | "add_note"
+  | "close";
+
+export type GlobalAdminPrivacyIncidentEventType =
+  | "apertura"
+  | "contencion"
+  | "evaluacion"
+  | "notificacion_agencia"
+  | "notificacion_titulares"
+  | "nota"
+  | "cierre";
+
+export interface GlobalAdminPrivacyIncident {
+  readonly id: string;
+  readonly folio: string;
+  readonly title: string;
+  readonly severity: GlobalAdminPrivacyIncidentSeverity;
+  readonly status: GlobalAdminPrivacyIncidentStatus;
+  readonly data_categories: readonly string[];
+  readonly affected_systems: readonly string[];
+  readonly estimated_subjects: number;
+  readonly summary: string;
+  readonly containment_measures?: string | null;
+  readonly requires_agency_notice: boolean;
+  readonly agency_notified_at?: string | null;
+  readonly agency_reference?: string | null;
+  readonly requires_subject_notice: boolean;
+  readonly subjects_notified_at?: string | null;
+  readonly leader_id: string;
+  readonly deputy_id?: string | null;
+  readonly detected_at: string;
+  readonly created_by: string;
+  readonly created_at: string;
+  readonly updated_at: string;
+  readonly closed_at?: string | null;
+  readonly version: number;
+}
+
+export interface GlobalAdminPrivacyIncidentEvent {
+  readonly id: string;
+  readonly sequence: number;
+  readonly event_type: GlobalAdminPrivacyIncidentEventType;
+  readonly actor_id: string;
+  readonly detail: string;
+  readonly created_at: string;
+}
+
+export interface GlobalAdminPrivacyIncidentDetail extends GlobalAdminPrivacyIncident {
+  readonly events: readonly GlobalAdminPrivacyIncidentEvent[];
+}
+
+export interface GlobalAdminPrivacyIncidentPage {
+  readonly items: readonly GlobalAdminPrivacyIncident[];
+  readonly next_cursor?: string;
+  readonly matching_total: number;
+  readonly generated_at: string;
+}
+
+export interface GlobalAdminPrivacyIncidentQuery {
+  readonly status?: GlobalAdminPrivacyIncidentStatus;
+  readonly severity?: GlobalAdminPrivacyIncidentSeverity;
+  readonly page_size?: number;
+  readonly cursor?: string;
+}
+
+export interface CreateGlobalAdminPrivacyIncidentInput {
+  readonly title: string;
+  readonly severity: GlobalAdminPrivacyIncidentSeverity;
+  readonly data_categories: readonly string[];
+  readonly affected_systems: readonly string[];
+  readonly estimated_subjects?: number;
+  readonly summary: string;
+  readonly containment_measures?: string;
+  readonly requires_agency_notice?: boolean;
+  readonly requires_subject_notice?: boolean;
+  readonly leader_id?: string;
+  readonly deputy_id?: string;
+  readonly detected_at?: string;
+}
+
+export interface TransitionGlobalAdminPrivacyIncidentInput {
+  readonly action: GlobalAdminPrivacyIncidentAction;
+  readonly expected_version: number;
+  readonly detail?: string;
+  readonly containment_measures?: string;
+  readonly requires_agency_notice?: boolean;
+  readonly requires_subject_notice?: boolean;
+  readonly agency_reference?: string;
+}
+
+export type GlobalAdminPrivacyLegalHoldScope =
+  | "expediente_privacidad"
+  | "cuenta_completa"
+  | "evidencia_kyc"
+  | "contratos_y_pagos"
+  | "incidente_seguridad";
+
+export type GlobalAdminPrivacyLegalHoldStatus = "activa" | "liberada";
+
+export interface GlobalAdminPrivacyLegalHold {
+  readonly id: string;
+  readonly folio: string;
+  readonly account_id?: string | null;
+  readonly request_id?: string | null;
+  readonly incident_id?: string | null;
+  readonly scope: GlobalAdminPrivacyLegalHoldScope;
+  readonly authority: string;
+  readonly legal_basis: string;
+  readonly status: GlobalAdminPrivacyLegalHoldStatus;
+  readonly review_at?: string | null;
+  readonly applied_by: string;
+  readonly applied_at: string;
+  readonly released_by?: string | null;
+  readonly released_at?: string | null;
+  readonly release_reason?: string | null;
+}
+
+export interface GlobalAdminPrivacyLegalHoldPage {
+  readonly items: readonly GlobalAdminPrivacyLegalHold[];
+  readonly next_cursor?: string;
+  readonly matching_total: number;
+  readonly generated_at: string;
+}
+
+export interface GlobalAdminPrivacyLegalHoldQuery {
+  readonly status?: GlobalAdminPrivacyLegalHoldStatus;
+  readonly account_id?: string;
+  readonly scope?: GlobalAdminPrivacyLegalHoldScope;
+  readonly page_size?: number;
+  readonly cursor?: string;
+}
+
+export interface CreateGlobalAdminPrivacyLegalHoldInput {
+  readonly account_id?: string;
+  readonly request_id?: string;
+  readonly incident_id?: string;
+  readonly scope: GlobalAdminPrivacyLegalHoldScope;
+  readonly authority: string;
+  readonly legal_basis: string;
+  readonly review_at?: string;
+}
+
+export interface ReleaseGlobalAdminPrivacyLegalHoldInput {
+  readonly release_reason: string;
 }

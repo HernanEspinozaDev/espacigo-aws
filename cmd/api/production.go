@@ -141,9 +141,16 @@ func mountProductionCatalog(ctx context.Context, workers *trackedWorkerGroup, mu
 	if err != nil {
 		return nil, err
 	}
-	authService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, mailer, getenv)
+	authService, privacyService, err := mountProductionAuth(mux, pool, cfg, evidence, mediaStore, mailer, getenv)
 	if err != nil {
 		return nil, err
+	}
+	if workers != nil && privacyService != nil {
+		if noticeSender, ok := mailer.(privacy.NoticeSender); ok {
+			workers.Go(func(workerCtx context.Context) {
+				privacyService.RunPrivacyNoticeWorker(workerCtx, 10*time.Second, noticeSender)
+			})
+		}
 	}
 	kybService, err := mountKYBRoutes(mux, pool, authService, cfg, getenv, strings.EqualFold(strings.TrimSpace(getenv("KYB_REQUIRED")), "true"), true)
 	if err != nil {
@@ -512,27 +519,27 @@ func mountProductionAuth(
 	mediaStore media.ObjectStore,
 	mailer identity.AuthenticationMailer,
 	getenv func(string) string,
-) (*identity.AuthenticationService, error) {
+) (*identity.AuthenticationService, *privacy.Service, error) {
 	repo := identitypg.NewIdentityRepository(pool)
 	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, mailer, devauth.NewIPLimiter(20), credentials.Generator{}, time.Now)
 	if err != nil {
-		return nil, errors.New("production authentication initialization failed")
+		return nil, nil, errors.New("production authentication initialization failed")
 	}
 	totpKeyring, err := identity.LoadTOTPKeyring(getenv)
 	if err != nil {
-		return nil, errors.New("production totp keyring initialization failed: " + err.Error())
+		return nil, nil, errors.New("production totp keyring initialization failed: " + err.Error())
 	}
 	service.SetTOTPKeyring(totpKeyring)
 	service.SetTOTPLoginEnabled(getenv("AUTH_TOTP_LOGIN_ENABLED") == "true")
 	archiveRepo := ownerexport.NewWithMediaStore(pool, evidence, mediaStore)
 	privacyService, err := privacy.NewService(repo, archiveRepo)
 	if err != nil {
-		return nil, errors.New("production privacy initialization failed")
+		return nil, nil, errors.New("production privacy initialization failed")
 	}
 	verificationRepo := verificationpg.New(pool)
 	verificationService, err := verification.NewService(verificationRepo, credentials.Generator{}, verification.LocalFixtureProvider{}, time.Now)
 	if err != nil {
-		return nil, errors.New("production verification initialization failed")
+		return nil, nil, errors.New("production verification initialization failed")
 	}
 	baseVerificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins)
 	mux.Handle("/api/v1/verifications", baseVerificationHandler)
@@ -540,19 +547,19 @@ func mountProductionAuth(
 	identityHandler := identityhttp.NewHandler(service, repo, cfg.allowedOrigins, privacyService)
 	phoneSender, phoneKey, err := phoneDelivery(getenv, false)
 	if err != nil {
-		return nil, fmt.Errorf("phone delivery initialization: %w", err)
+		return nil, nil, fmt.Errorf("phone delivery initialization: %w", err)
 	}
 	phoneService := identity.NewPhoneVerificationService(repo, phoneSender, time.Now, phoneKey)
 	identityhttp.AttachPhoneVerificationService(identityHandler, phoneService)
 	mux.Handle("/api/v1/", identityHandler)
 	adminSessionService, err := newAdminSessionService(repo, getenv, true)
 	if err != nil {
-		return nil, errors.New("production admin session initialization failed")
+		return nil, nil, errors.New("production admin session initialization failed")
 	}
 	adminSessionHandler := identityhttp.NewAdminSessionHandler(adminSessionService, cfg.allowedOrigins)
 	mux.Handle("/api/v1/admin/session", adminSessionHandler)
 	mux.Handle("/api/v1/admin/session/", adminSessionHandler)
-	return service, nil
+	return service, privacyService, nil
 }
 
 type quickVerificationAuthorizer interface {

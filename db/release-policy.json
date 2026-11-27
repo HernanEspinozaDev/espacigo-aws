@@ -146,6 +146,49 @@
         "public.contrato_propuesta_comercial",
         "public.version_terminos"
       ]
+    },
+    "V000022__privacy_rights_case_workflow.sql": {
+      "checksum": "f73df5baeb38534182ba9ee6724f43bc20fc5c7facabaa2629faa60c825a1516",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.solicitud_titular"
+      ]
+    },
+    "V000023__privacy_rights_intake.sql": {
+      "checksum": "0d22b4572626dd775ad3c88ea4758b5f4b946f8018be578e910e23fd85551418",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.solicitud_titular"
+      ]
+    },
+    "V000024__privacy_response_dispatch_receipt.sql": {
+      "checksum": "3dad61951952b956ea03fb1813a93799b71a8052553f59ccfddab2fbb97f8244",
+      "strategy": "expand"
+    },
+    "V000025__privacy_case_lifecycle_deadlines_and_events.sql": {
+      "checksum": "e510f03b75195b4a1dc4128fce43d7c0daa7d28cf26f48070e47b45054322d72",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.solicitud_titular"
+      ]
+    },
+    "V000026__privacy_public_intake_and_outbox.sql": {
+      "checksum": "8e1769401b3f376ba187b7cbadcb79840ebd306559c6b3dcc01e6bed07ba9464",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.solicitud_titular"
+      ]
+    },
+    "V000027__privacy_rights_execution_and_restrictions.sql": {
+      "checksum": "571771857a57fe9886fd8441646867dbb15890456acb4dd851e9fbecba8e8142",
+      "strategy": "expand",
+      "requires_schema_owner": [
+        "public.solicitud_titular_evento"
+      ]
+    },
+    "V000028__privacy_incidents_and_legal_holds.sql": {
+      "checksum": "d21142c19be3e0cf0f32169cd5f7b384f18130c4151a65cc216138080569be59",
+      "strategy": "expand"
     }
   },
   "review_required_migrations": {

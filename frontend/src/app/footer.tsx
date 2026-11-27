@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { CookiePreferencesButton } from "@/features/cookie-preferences/cookie-preferences";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -122,6 +123,17 @@ export function Footer() {
                 >
                   Política de privacidad
                 </Link>
+              </li>
+              <li>
+                <Link
+                  href="/privacidad/solicitudes"
+                  className="text-sm text-[var(--brand-muted-on-subtle)] hover:text-primary"
+                >
+                  Solicitudes ARCO+ (sin sesión)
+                </Link>
+              </li>
+              <li>
+                <CookiePreferencesButton />
               </li>
             </ul>
           </div>
