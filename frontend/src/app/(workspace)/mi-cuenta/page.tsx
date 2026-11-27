@@ -228,8 +228,7 @@ export default function MiCuentaPage() {
                 Privacidad
               </h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Privacidad, derechos ARCO, documentos privados y revisión
-                documental.
+                Derechos ARCO, exportaciones, preferencias y documentos legales.
               </p>
             </div>
             <div className="pt-2 text-xs text-muted-foreground border-t border-border/50">

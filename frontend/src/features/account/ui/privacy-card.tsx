@@ -71,7 +71,10 @@ const PURPOSE_STATE_ACTIONS: ReadonlyArray<{
   { state: "retirado", label: "Retirar" },
 ];
 
-export function PrivacyCard() {
+export type PrivacySection =
+  "privacidad" | "exportacion" | "preferencias" | "bloqueos";
+
+export function PrivacyCard({ section }: { section: PrivacySection }) {
   const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
@@ -92,6 +95,9 @@ export function PrivacyCard() {
   const [selectedKind, setSelectedKind] =
     useState<RightsRequestKind>("rectificacion");
   const [detail, setDetail] = useState("");
+  const [preferenceChoices, setPreferenceChoices] = useState<
+    Partial<Record<PrivacyPurpose, PrivacyPurposeState>>
+  >({});
   const [preferenceReasons, setPreferenceReasons] = useState<
     Partial<Record<PrivacyPurpose, string>>
   >({});
@@ -269,8 +275,11 @@ export function PrivacyCard() {
     setPrefError(null);
     setPrefMessage(null);
     const reason = (preferenceReasons[purpose] ?? "").trim();
-    if (reason.length > 500) {
-      setPrefError("El motivo no puede superar los 500 caracteres.");
+    const reasonLength = Array.from(reason).length;
+    if (reason && (reasonLength < 5 || reasonLength > 500)) {
+      setPrefError(
+        "El motivo debe tener entre 5 y 500 caracteres, o quedar vacío.",
+      );
       return;
     }
     setLoadingAction(`pref-${purpose}`);
@@ -281,6 +290,7 @@ export function PrivacyCard() {
         ...(reason ? { reason } : {}),
       });
       setPreferenceReasons((prev) => ({ ...prev, [purpose]: "" }));
+      setPreferenceChoices((prev) => ({ ...prev, [purpose]: undefined }));
       setPrefMessage(
         `Preferencia de ${PRIVACY_PURPOSE_LABELS[purpose]} actualizada a ${PRIVACY_PURPOSE_STATE_LABELS[state]}.`,
       );
@@ -297,12 +307,38 @@ export function PrivacyCard() {
 
   const requests = snapshot.rightsRequests;
   const preferencesByPurpose = new Map(
-    snapshot.privacyPreferences.map((pref) => [pref.purpose, pref]),
+    snapshot.privacyPreferences
+      .filter((pref) => pref.updated_at)
+      .map((pref) => [pref.purpose, pref]),
   );
   const restrictions = snapshot.privacyRestrictions;
 
-  return (
-    <div className="space-y-6">
+  const feedback = (
+    <>
+      {error && (
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-md bg-destructive/15 p-3 text-sm text-destructive border border-destructive/20"
+        >
+          <AlertCircle className="size-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {message && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300"
+        >
+          <CheckCircle2 className="size-4 shrink-0" />
+          <span>{message}</span>
+        </div>
+      )}
+    </>
+  );
+
+  if (section === "privacidad") {
+    return (
       <Card aria-labelledby="privacy-rights-title">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -319,26 +355,7 @@ export function PrivacyCard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {error && (
-            <div
-              role="alert"
-              className="flex items-center gap-2 rounded-md bg-destructive/15 p-3 text-sm text-destructive border border-destructive/20"
-            >
-              <AlertCircle className="size-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          {message && (
-            <div
-              role="status"
-              className="flex items-center gap-2 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-300"
-            >
-              <CheckCircle2 className="size-4 shrink-0" />
-              <span>{message}</span>
-            </div>
-          )}
-
+          {feedback}
           <div className="flex flex-wrap gap-3">
             <Button
               type="button"
@@ -543,7 +560,11 @@ export function PrivacyCard() {
           )}
         </CardContent>
       </Card>
+    );
+  }
 
+  if (section === "exportacion") {
+    return (
       <Card aria-labelledby="privacy-export-title">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -558,6 +579,7 @@ export function PrivacyCard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {feedback}
           <div className="flex flex-wrap gap-3">
             <Button
               type="button"
@@ -626,7 +648,11 @@ export function PrivacyCard() {
           )}
         </CardContent>
       </Card>
+    );
+  }
 
+  if (section === "preferencias") {
+    return (
       <Card aria-labelledby="privacy-preferences-title">
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -667,8 +693,8 @@ export function PrivacyCard() {
           <div className="space-y-3">
             {PRIVACY_PURPOSES.map((purpose) => {
               const current = preferencesByPurpose.get(purpose);
-              const currentState: PrivacyPurposeState =
-                current?.state ?? "permitido";
+              const currentState = current?.state;
+              const selectedState = preferenceChoices[purpose] ?? currentState;
               const reasonInputValue = preferenceReasons[purpose] ?? "";
               const isBusy = loadingAction === `pref-${purpose}`;
               const titleId = `privacy-pref-title-${purpose}`;
@@ -694,7 +720,9 @@ export function PrivacyCard() {
                         currentState === "permitido" ? "secondary" : "outline"
                       }
                     >
-                      {PRIVACY_PURPOSE_STATE_LABELS[currentState]}
+                      {currentState
+                        ? PRIVACY_PURPOSE_STATE_LABELS[currentState]
+                        : "Sin preferencia registrada"}
                     </Badge>
                   </div>
 
@@ -713,7 +741,7 @@ export function PrivacyCard() {
 
                   <div className="space-y-1">
                     <Label htmlFor={reasonId} className="text-xs">
-                      Motivo o causal (opcional)
+                      Motivo o causal (opcional, 5 a 500 caracteres)
                     </Label>
                     <input
                       id={reasonId}
@@ -735,113 +763,134 @@ export function PrivacyCard() {
                     />
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {PURPOSE_STATE_ACTIONS.map((action) => {
-                      const isCurrent = currentState === action.state;
-                      return (
-                        <Button
-                          key={action.state}
-                          type="button"
-                          size="sm"
-                          variant={isCurrent ? "default" : "outline"}
-                          aria-pressed={isCurrent}
-                          disabled={
-                            isCurrent ||
-                            Boolean(loadingAction) ||
-                            authSnapshot.status !== "authenticated"
+                  <fieldset
+                    disabled={
+                      Boolean(loadingAction) ||
+                      authSnapshot.status !== "authenticated"
+                    }
+                    className="flex flex-wrap gap-x-5 gap-y-2"
+                  >
+                    <legend className="mb-2 text-xs font-medium">
+                      Tu elección
+                    </legend>
+                    {PURPOSE_STATE_ACTIONS.map((action) => (
+                      <label
+                        key={action.state}
+                        className="inline-flex cursor-pointer items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="radio"
+                          name={`privacy-choice-${purpose}`}
+                          className="size-4 accent-primary"
+                          checked={selectedState === action.state}
+                          onChange={() =>
+                            setPreferenceChoices((prev) => ({
+                              ...prev,
+                              [purpose]: action.state,
+                            }))
                           }
-                          onClick={() =>
-                            void handleUpdatePreference(purpose, action.state)
-                          }
-                        >
-                          {isBusy && (
-                            <Loader2
-                              className="mr-1.5 size-3.5 animate-spin"
-                              aria-hidden="true"
-                            />
-                          )}
-                          {action.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
+                        />
+                        {action.label}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={
+                      !selectedState ||
+                      Boolean(loadingAction) ||
+                      authSnapshot.status !== "authenticated"
+                    }
+                    onClick={() => {
+                      if (selectedState)
+                        void handleUpdatePreference(purpose, selectedState);
+                    }}
+                  >
+                    {isBusy && (
+                      <Loader2
+                        className="mr-1.5 size-3.5 animate-spin"
+                        aria-hidden="true"
+                      />
+                    )}
+                    Guardar preferencia
+                  </Button>
                 </section>
               );
             })}
           </div>
         </CardContent>
       </Card>
+    );
+  }
 
-      <Card aria-labelledby="privacy-restrictions-title">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Lock className="size-5 text-primary" aria-hidden="true" />
-            <CardTitle id="privacy-restrictions-title">
-              Bloqueos temporales de tratamiento
-            </CardTitle>
-          </div>
-          <CardDescription>
-            Restricciones o bloqueos temporales vigentes e históricos sobre el
-            tratamiento de tus datos personales.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {restrictions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No hay bloqueos temporales de tratamiento registrados en tu
-              cuenta.
-            </p>
-          ) : (
-            <div className="divide-y rounded-md border text-sm">
-              {restrictions.map((block) => (
-                <div key={block.id} className="space-y-2 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">
-                      {PRIVACY_TREATMENT_BLOCK_SCOPE_LABELS[block.scope] ??
-                        block.scope}
-                    </span>
-                    <Badge
-                      variant={
-                        block.state === "activo" ? "default" : "secondary"
-                      }
-                    >
-                      {PRIVACY_TREATMENT_BLOCK_STATE_LABELS[block.state] ??
-                        block.state}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground break-words">
-                    Motivo: {block.reason}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Aplicado el{" "}
-                    {new Date(block.applied_at).toLocaleString("es-CL")}
-                  </p>
-                  {block.review_at && (
-                    <p className="text-xs text-muted-foreground">
-                      Revisión programada:{" "}
-                      {new Date(block.review_at).toLocaleDateString("es-CL")}
-                    </p>
-                  )}
-                  {block.lifted_at && (
-                    <p className="text-xs text-muted-foreground">
-                      Levantado el{" "}
-                      {new Date(block.lifted_at).toLocaleString("es-CL")}
-                    </p>
-                  )}
-                  {block.lift_reason && (
-                    <p className="text-xs text-muted-foreground break-words">
-                      Motivo de levantamiento: {block.lift_reason}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground font-mono break-all">
-                    Solicitud asociada: {block.request_id}
-                  </p>
+  return (
+    <Card aria-labelledby="privacy-restrictions-title">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Lock className="size-5 text-primary" aria-hidden="true" />
+          <CardTitle id="privacy-restrictions-title">
+            Bloqueos temporales de tratamiento
+          </CardTitle>
+        </div>
+        <CardDescription>
+          Restricciones o bloqueos temporales vigentes e históricos sobre el
+          tratamiento de tus datos personales.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {restrictions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No hay bloqueos temporales de tratamiento registrados en tu cuenta.
+          </p>
+        ) : (
+          <div className="divide-y rounded-md border text-sm">
+            {restrictions.map((block) => (
+              <div key={block.id} className="space-y-2 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {PRIVACY_TREATMENT_BLOCK_SCOPE_LABELS[block.scope] ??
+                      block.scope}
+                  </span>
+                  <Badge
+                    variant={block.state === "activo" ? "default" : "secondary"}
+                  >
+                    {PRIVACY_TREATMENT_BLOCK_STATE_LABELS[block.state] ??
+                      block.state}
+                  </Badge>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+                <p className="text-xs text-muted-foreground break-words">
+                  Motivo: {block.reason}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Aplicado el{" "}
+                  {new Date(block.applied_at).toLocaleString("es-CL")}
+                </p>
+                {block.review_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Revisión programada:{" "}
+                    {new Date(block.review_at).toLocaleDateString("es-CL")}
+                  </p>
+                )}
+                {block.lifted_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Levantado el{" "}
+                    {new Date(block.lifted_at).toLocaleString("es-CL")}
+                  </p>
+                )}
+                {block.lift_reason && (
+                  <p className="text-xs text-muted-foreground break-words">
+                    Motivo de levantamiento: {block.lift_reason}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground font-mono break-all">
+                  Solicitud asociada: {block.request_id}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

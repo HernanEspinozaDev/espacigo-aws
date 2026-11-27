@@ -165,7 +165,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == privacyLegalAcceptancesPath || r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyRestrictionsPath || r.URL.Path == privacyPortabilityPath || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
 		expected = http.MethodGet
 	}
-	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) || (r.URL.Path == privacyPreferencesPath && r.Method == http.MethodPut) {
+	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) || ((r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyLegalAcceptancesPath) && r.Method == http.MethodPut) {
 		expected = http.MethodPut
 	}
 	if deviceDeletePath || passkeyDeletePath || trustedContactDeletePath || (r.URL.Path == accountQRPath && r.Method == http.MethodDelete) {
@@ -273,7 +273,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == accountQRPath {
 			allow = "GET, DELETE"
 		}
-		if r.URL.Path == privacyPreferencesPath {
+		if r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyLegalAcceptancesPath {
 			allow = "GET, PUT"
 		}
 		w.Header().Set("Allow", allow)
@@ -606,6 +606,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Path == privacyLegalAcceptancesPath {
+			if r.Method == http.MethodPut {
+				h.recordLegalAcceptance(w, r, principal.AccountID)
+				return
+			}
 			h.writeLegalAcceptanceStatus(w, r, principal.AccountID)
 			return
 		}

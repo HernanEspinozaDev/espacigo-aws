@@ -5447,6 +5447,31 @@ paths:
                         current_accepted: { type: boolean }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    put:
+      operationId: recordOwnLegalAcceptance
+      tags: [ M02 local ]
+      summary: Registrar la aceptación de términos o la lectura del aviso de privacidad vigentes
+      description: >-
+        Disponible en los perfiles local y productivo con el servicio de privacidad montado.
+        Requiere sesión de titular y una acción expresa para el documento indicado. El código
+        debe coincidir con una versión vigente publicada. Un reintento para la misma versión
+        conserva la fecha original. Confirmar el aviso no habilita finalidades opcionales.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ code ]
+              properties:
+                code: { type: string, minLength: 1, maxLength: 160, example: espacigo-terminos-hotusoft-v1-2 }
+      responses:
+        "204": { description: Confirmación registrada. Respuesta sin caché. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
 
   /privacy/preferences:
     get:
@@ -5455,7 +5480,8 @@ paths:
       summary: Listar preferencias de finalidad opcionales de la cuenta autenticada
       description: >-
         Disponible en los perfiles local y productivo. Devuelve las preferencias de tratamiento
-        por finalidad opcional para la cuenta autenticada.
+        por finalidad opcional para la cuenta autenticada. Una entrada sin updated_at es un valor
+        de referencia y no representa una elección registrada.
       responses:
         "200":
           description: Preferencias de finalidad de la cuenta.
