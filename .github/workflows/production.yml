@@ -29,6 +29,7 @@ jobs:
       - name: Verificar rama de origen y resultados de CI
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           SOURCE: ${{ github.head_ref }}
           SOURCE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           REPOSITORY: ${{ github.repository }}
@@ -36,6 +37,10 @@ jobs:
         run: |
           if [[ "$EVENT" == pull_request && ( "$SOURCE" != desarrollo-local || "$SOURCE_REPOSITORY" != "$REPOSITORY" ) ]]; then
             echo "Los cambios a main se promueven desde desarrollo-local de este repositorio."
+            exit 1
+          fi
+          if [[ "$EVENT" == workflow_dispatch && "$REF" != refs/heads/main ]]; then
+            echo "workflow_dispatch de producción sólo se permite sobre main."
             exit 1
           fi
           jq -e 'all(.[]; .result == "success")' <<<"$CHECKS"
