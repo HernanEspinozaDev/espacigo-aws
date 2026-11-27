@@ -10,8 +10,12 @@ import type { ProfilePhotoMetadata } from "../domain/photo";
 import type { SyntheticPayoutAccount } from "../domain/payout-account";
 import type {
   OwnIdentityExport,
+  PrivacyPortabilityBlobResult,
+  PrivacyPurposePreference,
+  PrivacyTreatmentBlock,
   RightsRequest,
   RightsRequestKind,
+  UpdatePrivacyPurposePreferenceInput,
 } from "../domain/privacy";
 
 export interface AuthSourceLike {
@@ -26,6 +30,8 @@ export interface AccountSnapshot {
   readonly photoUrl: string | null;
   readonly payoutAccount: SyntheticPayoutAccount | null;
   readonly rightsRequests: readonly RightsRequest[];
+  readonly privacyPreferences: readonly PrivacyPurposePreference[];
+  readonly privacyRestrictions: readonly PrivacyTreatmentBlock[];
   readonly loading: boolean;
   readonly error: string | null;
 }
@@ -36,6 +42,8 @@ const initialSnapshot: AccountSnapshot = Object.freeze({
   photoUrl: null,
   payoutAccount: null,
   rightsRequests: Object.freeze([]),
+  privacyPreferences: Object.freeze([]),
+  privacyRestrictions: Object.freeze([]),
   loading: false,
   error: null,
 });
@@ -106,6 +114,7 @@ export class AccountFacade {
   #exportAbortController: AbortController | null = null;
   #updateAbortController: AbortController | null = null;
   #archiveAbortController: AbortController | null = null;
+  #portabilityAbortController: AbortController | null = null;
   #photoLoadController: AbortController | null = null;
   #activeControllers = new Set<AbortController>();
   #epoch = 0;
@@ -195,6 +204,10 @@ export class AccountFacade {
       this.#archiveAbortController.abort();
       this.#archiveAbortController = null;
     }
+    if (this.#portabilityAbortController) {
+      this.#portabilityAbortController.abort();
+      this.#portabilityAbortController = null;
+    }
     if (this.#photoLoadController) {
       this.#photoLoadController.abort();
       this.#photoLoadController = null;
@@ -246,14 +259,27 @@ export class AccountFacade {
         return this.#snapshot;
       }
 
-      const [profile, photo, payoutAccount, rightsRequests] = await Promise.all(
-        [
-          this.#port.getProfile(signal),
-          this.#port.getProfilePhoto(signal),
-          this.#port.getPayoutAccount(signal),
-          this.#port.listRightsRequests(signal),
-        ],
-      );
+      const [
+        profile,
+        photo,
+        payoutAccount,
+        rightsRequests,
+        privacyPreferences,
+        privacyRestrictions,
+      ] = await Promise.all([
+        this.#port.getProfile(signal),
+        this.#port.getProfilePhoto(signal),
+        this.#port.getPayoutAccount(signal),
+        this.#port.listRightsRequests(signal),
+        this.#port.listPrivacyPreferences(signal).catch((err) => {
+          if (signal.aborted || isAuthError(err)) throw err;
+          return [] as PrivacyPurposePreference[];
+        }),
+        this.#port.listPrivacyRestrictions(signal).catch((err) => {
+          if (signal.aborted || isAuthError(err)) throw err;
+          return [] as PrivacyTreatmentBlock[];
+        }),
+      ]);
 
       if (
         !this.#isCurrent(epoch, signal) ||
@@ -301,6 +327,8 @@ export class AccountFacade {
         photoUrl,
         payoutAccount,
         rightsRequests: Object.freeze(rightsRequests),
+        privacyPreferences: Object.freeze(privacyPreferences),
+        privacyRestrictions: Object.freeze(privacyRestrictions),
         loading: false,
         error: null,
       });
@@ -777,6 +805,7 @@ export class AccountFacade {
 
   async requestDataRight(
     kind: RightsRequestKind,
+    detail = "",
     signal?: AbortSignal,
   ): Promise<RightsRequest> {
     if (
@@ -801,7 +830,7 @@ export class AccountFacade {
     this.#setSnapshot({ loading: true, error: null });
 
     try {
-      const req = await this.#port.requestDataRight(kind, activeSignal);
+      const req = await this.#port.requestDataRight(kind, detail, activeSignal);
       if (
         !this.#isCurrent(epoch, activeSignal) ||
         !this.#activeControllers.has(controller)
@@ -1003,6 +1032,246 @@ export class AccountFacade {
     } finally {
       if (this.#archiveAbortController === controller) {
         this.#archiveAbortController = null;
+      }
+    }
+  }
+
+  async listPrivacyPreferences(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const epoch = this.#epoch;
+    const controller = new AbortController();
+    this.#activeControllers.add(controller);
+    const activeSignal = signal
+      ? AbortSignal.any([controller.signal, signal])
+      : controller.signal;
+
+    if (activeSignal.aborted) {
+      this.#activeControllers.delete(controller);
+      return [];
+    }
+
+    try {
+      const items = await this.#port.listPrivacyPreferences(activeSignal);
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        return [];
+      }
+      this.#setSnapshot({
+        privacyPreferences: Object.freeze(items),
+      });
+      return items;
+    } catch (err) {
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.clear();
+        try {
+          void this.#authSource?.checkSession?.().catch(() => undefined);
+        } catch {
+          /* best effort */
+        }
+      }
+      throw err;
+    } finally {
+      this.#activeControllers.delete(controller);
+    }
+  }
+
+  async updatePrivacyPreference(
+    input: UpdatePrivacyPurposePreferenceInput,
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new DOMException("The operation was aborted", "AbortError");
+    }
+
+    const controller = new AbortController();
+    this.#activeControllers.add(controller);
+    const activeSignal = signal
+      ? AbortSignal.any([controller.signal, signal])
+      : controller.signal;
+    const epoch = this.#epoch;
+
+    if (activeSignal.aborted) {
+      this.#activeControllers.delete(controller);
+      throw new DOMException("The operation was aborted", "AbortError");
+    }
+
+    this.#setSnapshot({ loading: true, error: null });
+
+    try {
+      const updated = await this.#port.updatePrivacyPreference(
+        input,
+        activeSignal,
+      );
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        throw new DOMException("The operation was aborted", "AbortError");
+      }
+
+      const remaining = this.#snapshot.privacyPreferences.filter(
+        (item) => item.purpose !== updated.purpose,
+      );
+      this.#setSnapshot({
+        privacyPreferences: Object.freeze([...remaining, updated]),
+        loading: false,
+        error: null,
+      });
+      return updated;
+    } catch (err) {
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        throw new DOMException("The operation was aborted", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.clear();
+        try {
+          void this.#authSource?.checkSession?.().catch(() => undefined);
+        } catch {
+          /* best effort */
+        }
+      }
+      const message = getErrorMessage(
+        err,
+        "Error al actualizar preferencia de finalidad",
+      );
+      this.#setSnapshot({ loading: false, error: message });
+      throw err;
+    } finally {
+      this.#activeControllers.delete(controller);
+    }
+  }
+
+  async listPrivacyRestrictions(
+    signal?: AbortSignal,
+  ): Promise<PrivacyTreatmentBlock[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const epoch = this.#epoch;
+    const controller = new AbortController();
+    this.#activeControllers.add(controller);
+    const activeSignal = signal
+      ? AbortSignal.any([controller.signal, signal])
+      : controller.signal;
+
+    if (activeSignal.aborted) {
+      this.#activeControllers.delete(controller);
+      return [];
+    }
+
+    try {
+      const items = await this.#port.listPrivacyRestrictions(activeSignal);
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        return [];
+      }
+      this.#setSnapshot({
+        privacyRestrictions: Object.freeze(items),
+      });
+      return items;
+    } catch (err) {
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        !this.#activeControllers.has(controller)
+      ) {
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.clear();
+        try {
+          void this.#authSource?.checkSession?.().catch(() => undefined);
+        } catch {
+          /* best effort */
+        }
+      }
+      throw err;
+    } finally {
+      this.#activeControllers.delete(controller);
+    }
+  }
+
+  async exportPortabilityBlob(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPortabilityBlobResult | null> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return null;
+    }
+    const epoch = this.#epoch;
+    if (this.#epoch !== epoch) {
+      return null;
+    }
+    const controller = new AbortController();
+    this.#portabilityAbortController = controller;
+    const activeSignal = signal
+      ? AbortSignal.any([controller.signal, signal])
+      : controller.signal;
+
+    if (activeSignal.aborted) {
+      return null;
+    }
+
+    try {
+      const result = await this.#port.exportPortabilityBlob(activeSignal);
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#portabilityAbortController !== controller
+      ) {
+        return null;
+      }
+      return result;
+    } catch (err) {
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#portabilityAbortController !== controller
+      ) {
+        return null;
+      }
+      if (isAuthError(err)) {
+        this.clear();
+        try {
+          void this.#authSource?.checkSession?.().catch(() => undefined);
+        } catch {
+          /* best effort */
+        }
+      }
+      throw err;
+    } finally {
+      if (this.#portabilityAbortController === controller) {
+        this.#portabilityAbortController = null;
       }
     }
   }

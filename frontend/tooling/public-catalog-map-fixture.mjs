@@ -85,14 +85,12 @@ http
     if (url.pathname === "/healthz") data = { status: "ok" };
     else if (url.pathname === "/api/v1/public/spaces/map") {
       const matches = matchingMarkers(url.searchParams);
-      data = url.searchParams.has("cursor")
-        ? { items: matches.slice(1) }
-        : {
-            items: matches.slice(0, 1),
-            ...(matches.length > 1
-              ? { next_cursor: "fixture-map-page-2" }
-              : {}),
-          };
+      const requested = Number(url.searchParams.get("page_size") ?? 250);
+      data = {
+        items: matches.slice(0, requested),
+        has_more: matches.length > requested,
+        total_count: matches.length,
+      };
     } else if (url.pathname === "/api/v1/public/spaces") {
       const matches = matchingMarkers(url.searchParams);
       const items =

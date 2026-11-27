@@ -56,6 +56,17 @@ func TestGlobalAdministrationCapabilitiesAreExplicit(t *testing.T) {
 			t.Errorf("legacy administrator unexpectedly has %s", required)
 		}
 	}
+	for _, required := range []Capability{CapabilityPrivacyRequestsRead, CapabilityPrivacyIncidentsRead, CapabilityPrivacyIncidentsManage} {
+		if !HasCapability([]Role{RoleGlobalAdministrator}, required) {
+			t.Errorf("global administrator lacks %s", required)
+		}
+		if HasCapability([]Role{RoleAdministrator}, required) {
+			t.Errorf("legacy administrator unexpectedly has %s", required)
+		}
+		if HasCapability(RegistrationRoles(), required) {
+			t.Errorf("registration roles unexpectedly have %s", required)
+		}
+	}
 }
 func TestAccountValidationAndErrorIdentity(t *testing.T) {
 	a := Account{ID: "id", Email: "a@example.invalid", NormalizedEmail: "a@example.invalid", PasswordHash: Secret("hash"), State: AccountEmailPending}

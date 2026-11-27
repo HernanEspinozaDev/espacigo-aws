@@ -40,8 +40,13 @@ import type {
   GlobalAdminKycCase,
   GlobalAdminKycCaseQuery,
   GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestDetail,
   GlobalAdminPrivacyRequestQuery,
   GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminPrivacyWorkflowInput,
+  GlobalAdminPrivacyExecutionInput,
+  GlobalAdminPrivacyRequestResolutionInput,
+  GlobalAdminPrivacyDispatchReceiptInput,
   GlobalAdminSupportTicket,
   GlobalAdminSupportTicketQuery,
   GlobalAdminSupportTicketCreateInput,
@@ -49,6 +54,16 @@ import type {
   GlobalAdminApprovalQuery,
   GlobalAdminApprovalCreateInput,
   GlobalAdminApprovalDecisionInput,
+  GlobalAdminPrivacyIncidentDetail,
+  GlobalAdminPrivacyIncidentPage,
+  GlobalAdminPrivacyIncidentQuery,
+  CreateGlobalAdminPrivacyIncidentInput,
+  TransitionGlobalAdminPrivacyIncidentInput,
+  GlobalAdminPrivacyLegalHold,
+  GlobalAdminPrivacyLegalHoldPage,
+  GlobalAdminPrivacyLegalHoldQuery,
+  CreateGlobalAdminPrivacyLegalHoldInput,
+  ReleaseGlobalAdminPrivacyLegalHoldInput,
 } from "../domain/types";
 
 export interface AdminPort {
@@ -376,11 +391,45 @@ export interface AdminPort {
     signal?: AbortSignal,
   ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }>;
 
+  getGlobalPrivacyRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
+
   createGlobalPrivacyRequest(
     idempotencyKey: string,
     input: GlobalAdminPrivacyRequestCreateInput,
     signal?: AbortSignal,
   ): Promise<GlobalAdminPrivacyRequest>;
+
+  transitionGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyWorkflowInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
+
+  executeGlobalPrivacyRight(
+    requestId: string,
+    input: GlobalAdminPrivacyExecutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
+
+  resolveGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyRequestResolutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+
+  recordGlobalPrivacyDispatchReceipt(
+    requestId: string,
+    input: GlobalAdminPrivacyDispatchReceiptInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+
+  retryGlobalPrivacyNotifications(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
 
   listGlobalSupportTickets(
     query?: GlobalAdminSupportTicketQuery,
@@ -410,4 +459,42 @@ export interface AdminPort {
     input: GlobalAdminApprovalDecisionInput,
     signal?: AbortSignal,
   ): Promise<GlobalAdminApproval>;
+
+  // Phase 7: Privacy Incidents & Legal Holds
+  listGlobalPrivacyIncidents(
+    query?: GlobalAdminPrivacyIncidentQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentPage>;
+
+  getGlobalPrivacyIncident(
+    incidentId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+
+  createGlobalPrivacyIncident(
+    input: CreateGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+
+  transitionGlobalPrivacyIncident(
+    incidentId: string,
+    input: TransitionGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+
+  listGlobalPrivacyLegalHolds(
+    query?: GlobalAdminPrivacyLegalHoldQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHoldPage>;
+
+  createGlobalPrivacyLegalHold(
+    input: CreateGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold>;
+
+  releaseGlobalPrivacyLegalHold(
+    holdId: string,
+    input: ReleaseGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold>;
 }

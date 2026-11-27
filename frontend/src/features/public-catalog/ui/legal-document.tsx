@@ -105,6 +105,36 @@ export async function LegalDocument({
           </section>
         ))}
       </div>
+      {type === "privacidad" ? (
+        <aside
+          aria-labelledby="privacy-public-intake-cta"
+          className="mt-12 rounded-2xl border border-border bg-[var(--brand-surface-subtle)] p-6 sm:p-8"
+        >
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent)]">
+            Derechos ARCO+ · Ley 19.628 y Ley 21.719
+          </p>
+          <h2
+            id="privacy-public-intake-cta"
+            className="mt-2 text-2xl font-medium text-foreground"
+          >
+            Canal público de solicitudes de privacidad
+          </h2>
+          <p className="mt-2.5 max-w-2xl text-sm leading-relaxed text-[var(--brand-muted-on-subtle)]">
+            Puedes solicitar acceso, rectificación, supresión, oposición,
+            portabilidad o bloqueo temporal de tus datos personales como titular
+            o representante, sin necesidad de iniciar sesión ni contar con una
+            cuenta activa.
+          </p>
+          <div className="mt-5">
+            <Link
+              href="/privacidad/solicitudes"
+              className="inline-flex min-h-11 items-center rounded-full bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-[var(--brand-primary-hover)]"
+            >
+              Ejercer derechos ARCO+ sin iniciar sesión
+            </Link>
+          </div>
+        </aside>
+      ) : null}
     </article>
   );
 }

@@ -87,8 +87,13 @@ import type {
   GlobalAdminKycCase,
   GlobalAdminKycCaseQuery,
   GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestDetail,
   GlobalAdminPrivacyRequestQuery,
   GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminPrivacyWorkflowInput,
+  GlobalAdminPrivacyExecutionInput,
+  GlobalAdminPrivacyRequestResolutionInput,
+  GlobalAdminPrivacyDispatchReceiptInput,
   GlobalAdminSupportTicket,
   GlobalAdminSupportTicketQuery,
   GlobalAdminSupportTicketCreateInput,
@@ -96,6 +101,16 @@ import type {
   GlobalAdminApprovalQuery,
   GlobalAdminApprovalCreateInput,
   GlobalAdminApprovalDecisionInput,
+  GlobalAdminPrivacyIncidentDetail,
+  GlobalAdminPrivacyIncidentPage,
+  GlobalAdminPrivacyIncidentQuery,
+  CreateGlobalAdminPrivacyIncidentInput,
+  TransitionGlobalAdminPrivacyIncidentInput,
+  GlobalAdminPrivacyLegalHold,
+  GlobalAdminPrivacyLegalHoldPage,
+  GlobalAdminPrivacyLegalHoldQuery,
+  CreateGlobalAdminPrivacyLegalHoldInput,
+  ReleaseGlobalAdminPrivacyLegalHoldInput,
 } from "../domain/types";
 import type { AdminPort } from "./admin.port";
 export interface AdminSnapshot {
@@ -2077,6 +2092,7 @@ export class AdminFacade {
     errorMessage: string,
     fn: (signal: AbortSignal) => Promise<T>,
     signal?: AbortSignal,
+    options?: { suppressForbiddenPurge?: boolean },
   ): Promise<T> {
     const scope = this.#captureSession();
     try {
@@ -2085,7 +2101,10 @@ export class AdminFacade {
         scope,
       );
     } catch (err) {
-      if (this.#isSessionCurrent(scope)) {
+      if (
+        this.#isSessionCurrent(scope) &&
+        !(options?.suppressForbiddenPurge && isForbiddenError(err))
+      ) {
         this.#handleError(err, errorMessage);
       }
       throw err;
@@ -2171,6 +2190,17 @@ export class AdminFacade {
     );
   }
 
+  getGlobalPrivacyRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    return this.#runPhase4Query(
+      "No pudimos cargar el expediente de privacidad.",
+      (s) => this.#port.getGlobalPrivacyRequest(requestId, s),
+      signal,
+    );
+  }
+
   createGlobalPrivacyRequest(
     input: GlobalAdminPrivacyRequestCreateInput,
     signal?: AbortSignal,
@@ -2183,6 +2213,65 @@ export class AdminFacade {
           input,
           s,
         ),
+      signal,
+    );
+  }
+
+  transitionGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyWorkflowInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    return this.#runPhase4Mutation(
+      "No pudimos actualizar el expediente de privacidad.",
+      (s) => this.#port.transitionGlobalPrivacyRequest(requestId, input, s),
+      signal,
+    );
+  }
+
+  executeGlobalPrivacyRight(
+    requestId: string,
+    input: GlobalAdminPrivacyExecutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    return this.#runPhase4Mutation(
+      "No pudimos ejecutar la acción sobre el derecho ARCO+.",
+      (s) => this.#port.executeGlobalPrivacyRight(requestId, input, s),
+      signal,
+    );
+  }
+
+  resolveGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyRequestResolutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    return this.#runPhase4Mutation(
+      "No pudimos registrar la respuesta a la solicitud de privacidad.",
+      (s) => this.#port.resolveGlobalPrivacyRequest(requestId, input, s),
+      signal,
+    );
+  }
+
+  recordGlobalPrivacyDispatchReceipt(
+    requestId: string,
+    input: GlobalAdminPrivacyDispatchReceiptInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    return this.#runPhase4Mutation(
+      "No pudimos registrar el comprobante de despacho.",
+      (s) => this.#port.recordGlobalPrivacyDispatchReceipt(requestId, input, s),
+      signal,
+    );
+  }
+
+  retryGlobalPrivacyNotifications(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    return this.#runPhase4Mutation(
+      "No pudimos reintentar el envío de notificaciones.",
+      (s) => this.#port.retryGlobalPrivacyNotifications(requestId, s),
       signal,
     );
   }
@@ -2251,6 +2340,89 @@ export class AdminFacade {
           input,
           s,
         ),
+      signal,
+    );
+  }
+
+  // Phase 7: Privacy Incidents & Legal Holds
+  listGlobalPrivacyIncidents(
+    query?: GlobalAdminPrivacyIncidentQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentPage> {
+    return this.#runPhase4Query(
+      "No pudimos cargar los incidentes de privacidad.",
+      (s) => this.#port.listGlobalPrivacyIncidents(query, s),
+      signal,
+      { suppressForbiddenPurge: true },
+    );
+  }
+
+  getGlobalPrivacyIncident(
+    incidentId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    return this.#runPhase4Query(
+      "No pudimos cargar el detalle del incidente de privacidad.",
+      (s) => this.#port.getGlobalPrivacyIncident(incidentId, s),
+      signal,
+      { suppressForbiddenPurge: true },
+    );
+  }
+
+  createGlobalPrivacyIncident(
+    input: CreateGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    return this.#runPhase4Mutation(
+      "No pudimos registrar el incidente de datos personales.",
+      (s) => this.#port.createGlobalPrivacyIncident(input, s),
+      signal,
+    );
+  }
+
+  transitionGlobalPrivacyIncident(
+    incidentId: string,
+    input: TransitionGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    return this.#runPhase4Mutation(
+      "No pudimos actualizar el incidente de datos personales.",
+      (s) => this.#port.transitionGlobalPrivacyIncident(incidentId, input, s),
+      signal,
+    );
+  }
+
+  listGlobalPrivacyLegalHolds(
+    query?: GlobalAdminPrivacyLegalHoldQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHoldPage> {
+    return this.#runPhase4Query(
+      "No pudimos cargar las retenciones legales.",
+      (s) => this.#port.listGlobalPrivacyLegalHolds(query, s),
+      signal,
+      { suppressForbiddenPurge: true },
+    );
+  }
+
+  createGlobalPrivacyLegalHold(
+    input: CreateGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold> {
+    return this.#runPhase4Mutation(
+      "No pudimos aplicar la retención legal.",
+      (s) => this.#port.createGlobalPrivacyLegalHold(input, s),
+      signal,
+    );
+  }
+
+  releaseGlobalPrivacyLegalHold(
+    holdId: string,
+    input: ReleaseGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold> {
+    return this.#runPhase4Mutation(
+      "No pudimos liberar la retención legal.",
+      (s) => this.#port.releaseGlobalPrivacyLegalHold(holdId, input, s),
       signal,
     );
   }

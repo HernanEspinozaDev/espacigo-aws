@@ -20,6 +20,7 @@ import {
   updateExploreSession,
 } from "./explore-session";
 import { SpaceNearbyPois } from "./space-nearby-pois";
+import { subscribeToCookiePreferences } from "@/features/cookie-preferences/preferences";
 
 const LocationMap = dynamic(
   () => import("@/components/maps/location-map").then((m) => m.LocationMap),
@@ -118,6 +119,12 @@ export function ExploreMapResults({
       nearbyAbortRef.current?.abort();
     };
   }, [filters]);
+
+  useEffect(
+    () =>
+      subscribeToCookiePreferences(() => setVisitedIds(readVisitedSpaces())),
+    [],
+  );
 
   const selectedId = session?.selectedSpaceId;
   const sheetHeight =

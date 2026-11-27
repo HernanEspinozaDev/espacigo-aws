@@ -101,7 +101,10 @@ const SECTION_CAPABILITIES: Readonly<
     "contracts.read",
   ],
   privacy: [
+    "privacy.requests.read",
     "privacy.requests.manage",
+    "privacy.incidents.read",
+    "privacy.incidents.manage",
     "privacy.export.approve",
     "kyc.case.read",
     "kyc.review",

@@ -42,6 +42,7 @@ import type {
   GlobalAdminAccountResourcePage,
   GlobalAdminPublication,
 } from "../domain/types";
+import { AdminCustomer360PrivacyTab } from "./admin-customer-360-privacy-tab";
 import { AdminSensitiveEmailControl } from "./admin-sensitive-email-control";
 import { useAdmin } from "./use-admin";
 
@@ -85,6 +86,7 @@ type CustomerTab =
   | "commercial_payments"
   | "reservations"
   | "incidents"
+  | "privacy"
   | "audit"
   | "actions";
 
@@ -387,6 +389,7 @@ function CustomerRecord({
     { id: "commercial_payments", label: "Pagos", visible: true },
     { id: "reservations", label: "Reservas (ensayo)", visible: true },
     { id: "incidents", label: "Incidentes (ensayo)", visible: true },
+    { id: "privacy", label: "Privacidad y ARCO+", visible: true },
     { id: "audit", label: "Auditoría", visible: canReadAudit },
     { id: "actions", label: "Acciones operativas", visible: canOperate },
   ];
@@ -506,6 +509,8 @@ function CustomerRecord({
               kind={tab}
               title={tabs.find((t) => t.id === tab)?.label ?? tab}
             />
+          ) : tab === "privacy" ? (
+            <AdminCustomer360PrivacyTab accountId={accountId} />
           ) : tab === "audit" && canReadAudit ? (
             <CustomerAudit accountId={accountId} />
           ) : tab === "actions" && canOperate ? (

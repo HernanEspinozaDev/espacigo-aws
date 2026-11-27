@@ -38,13 +38,30 @@ type Profile struct {
 	UpdatedAt time.Time
 }
 
+type RightsRequestEvent struct {
+	ID        string     `json:"id"`
+	Sequence  int        `json:"sequence"`
+	EventType string     `json:"event_type"`
+	StateFrom *string    `json:"state_from,omitempty"`
+	StateTo   *string    `json:"state_to,omitempty"`
+	Detail    *string    `json:"detail,omitempty"`
+	NewDueAt  *time.Time `json:"new_due_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
+}
+
 type RightsRequest struct {
-	ID           string     `json:"id"`
-	Kind         string     `json:"kind"`
-	State        string     `json:"state"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
-	DecisionCode *string    `json:"decision_code,omitempty"`
+	ID              string               `json:"id"`
+	Kind            string               `json:"kind"`
+	State           string               `json:"state"`
+	CreatedAt       time.Time            `json:"created_at"`
+	ResolvedAt      *time.Time           `json:"resolved_at,omitempty"`
+	DecisionCode    *string              `json:"decision_code,omitempty"`
+	Response        *string              `json:"response,omitempty"`
+	Detail          *string              `json:"detail,omitempty"`
+	DueAt           *time.Time           `json:"due_at,omitempty"`
+	ExtendedDueAt   *time.Time           `json:"extended_due_at,omitempty"`
+	ExtensionReason *string              `json:"extension_reason,omitempty"`
+	Events          []RightsRequestEvent `json:"events,omitempty"`
 }
 
 // SuppressionReview reports only structured obligation codes. It never executes
@@ -188,12 +205,14 @@ type SuppressionReviewRepository interface {
 // It intentionally excludes credential hashes, sessions, action tokens and
 // records belonging to other participants or domain owners.
 type OwnData struct {
-	Account     ExportAccount     `json:"account"`
-	Profile     *ExportProfile    `json:"profile,omitempty"`
-	Roles       []string          `json:"roles"`
-	Acceptances []TermsAcceptance `json:"terms_acceptances"`
-	Requests    []RightsRequest   `json:"rights_requests"`
-	Scope       string            `json:"scope"`
+	Account               ExportAccount          `json:"account"`
+	Profile               *ExportProfile         `json:"profile,omitempty"`
+	Roles                 []string               `json:"roles"`
+	Acceptances           []TermsAcceptance      `json:"terms_acceptances"`
+	Requests              []RightsRequest        `json:"rights_requests"`
+	PurposePreferences    []PurposePreference    `json:"purpose_preferences,omitempty"`
+	TreatmentRestrictions []TreatmentRestriction `json:"treatment_restrictions,omitempty"`
+	Scope                 string                 `json:"scope"`
 }
 
 // CompleteOwnData is the versioned local archive contract. Domain adapters
@@ -258,6 +277,12 @@ type Repository interface {
 	ExportOwnData(context.Context, string) (OwnData, error)
 }
 
+// DetailedRightsRequestRepository is an optional extension so existing
+// repository fakes and integrations keep supporting legacy requests.
+type DetailedRightsRequestRepository interface {
+	CreateRightsRequestWithDetail(context.Context, string, string, string, *string) (RightsRequest, error)
+}
+
 type Service struct {
 	repo     Repository
 	complete CompleteExportRepository
@@ -306,7 +331,29 @@ func (s *Service) UpdateProfile(ctx context.Context, accountID, name, phone stri
 }
 
 func (s *Service) RequestRight(ctx context.Context, accountID, kind, channel string) (RightsRequest, error) {
-	if accountID == "" || (kind != "acceso" && kind != "supresion") || (channel != "web" && channel != "api") {
+	return s.RequestRightWithDetail(ctx, accountID, kind, channel, "")
+}
+
+func (s *Service) RequestRightWithDetail(ctx context.Context, accountID, kind, channel, detail string) (RightsRequest, error) {
+	detail = strings.TrimSpace(detail)
+	runes := []rune(detail)
+	validKind := kind == "acceso" || kind == "supresion" || kind == "rectificacion" || kind == "oposicion" || kind == "portabilidad" || kind == "bloqueo"
+	if accountID == "" || !validKind || (channel != "web" && channel != "api") || len(runes) > 1000 {
+		return RightsRequest{}, ErrInvalid
+	}
+	if (kind == "rectificacion" || kind == "oposicion" || kind == "bloqueo") && len(runes) < 10 {
+		return RightsRequest{}, ErrInvalid
+	}
+	if detail != "" {
+		if repo, ok := s.repo.(DetailedRightsRequestRepository); ok {
+			return repo.CreateRightsRequestWithDetail(ctx, accountID, kind, channel, &detail)
+		}
+		return RightsRequest{}, ErrInvalid
+	}
+	if repo, ok := s.repo.(DetailedRightsRequestRepository); ok {
+		return repo.CreateRightsRequestWithDetail(ctx, accountID, kind, channel, nil)
+	}
+	if kind != "acceso" && kind != "supresion" {
 		return RightsRequest{}, ErrInvalid
 	}
 	return s.repo.CreateRightsRequest(ctx, accountID, kind, channel)

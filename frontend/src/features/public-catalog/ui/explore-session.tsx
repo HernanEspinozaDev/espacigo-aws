@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import {
+  getCookiePreferences,
+  visitedSpacesKey,
+} from "@/features/cookie-preferences/preferences";
 
 const STORAGE_KEY = "espacigo.explore.continuity.v1";
-const VISITED_KEY = "espacigo.explore.visited.v1";
 const VISITED_LIMIT = 50;
 
 export type ExploreCamera = { center: [number, number]; zoom: number };
@@ -56,9 +59,10 @@ export function updateExploreSession(
 }
 
 export function readVisitedSpaces(): string[] {
+  if (getCookiePreferences() !== "visited-spaces") return [];
   try {
     const value: unknown = JSON.parse(
-      sessionStorage.getItem(VISITED_KEY) ?? "[]",
+      sessionStorage.getItem(visitedSpacesKey) ?? "[]",
     );
     return Array.isArray(value)
       ? value
@@ -71,11 +75,12 @@ export function readVisitedSpaces(): string[] {
 }
 
 function rememberVisitedSpace(spaceId: string) {
+  if (getCookiePreferences() !== "visited-spaces") return;
   const visited = readVisitedSpaces().filter((id) => id !== spaceId);
   visited.push(spaceId);
   try {
     sessionStorage.setItem(
-      VISITED_KEY,
+      visitedSpacesKey,
       JSON.stringify(visited.slice(-VISITED_LIMIT)),
     );
   } catch {
