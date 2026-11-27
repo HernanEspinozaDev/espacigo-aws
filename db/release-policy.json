@@ -140,7 +140,7 @@
       ]
     },
     "V000021__security_acl_hardening.sql": {
-      "checksum": "d581ddcf37f36b67c60f120a6ce72c9f73f2a13af52c48f3da6c74bf3dd0675e",
+      "checksum": "658918ce526ed752ddf86c5f0bf4b5f12d376ef3e2f70193ba4134d6422a73b1",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.aviso_local_recuperacion_auditoria",
