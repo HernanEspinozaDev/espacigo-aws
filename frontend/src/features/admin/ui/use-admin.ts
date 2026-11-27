@@ -30,8 +30,13 @@ import type {
   GlobalAdminKycCase,
   GlobalAdminKycCaseQuery,
   GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestDetail,
   GlobalAdminPrivacyRequestQuery,
   GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminPrivacyWorkflowInput,
+  GlobalAdminPrivacyExecutionInput,
+  GlobalAdminPrivacyRequestResolutionInput,
+  GlobalAdminPrivacyDispatchReceiptInput,
   GlobalAdminSupportTicket,
   GlobalAdminSupportTicketQuery,
   GlobalAdminSupportTicketCreateInput,
@@ -39,6 +44,16 @@ import type {
   GlobalAdminApprovalQuery,
   GlobalAdminApprovalCreateInput,
   GlobalAdminApprovalDecisionInput,
+  GlobalAdminPrivacyIncidentDetail,
+  GlobalAdminPrivacyIncidentPage,
+  GlobalAdminPrivacyIncidentQuery,
+  CreateGlobalAdminPrivacyIncidentInput,
+  TransitionGlobalAdminPrivacyIncidentInput,
+  GlobalAdminPrivacyLegalHold,
+  GlobalAdminPrivacyLegalHoldPage,
+  GlobalAdminPrivacyLegalHoldQuery,
+  CreateGlobalAdminPrivacyLegalHoldInput,
+  ReleaseGlobalAdminPrivacyLegalHoldInput,
 } from "../domain/types";
 
 export interface AdminView {
@@ -277,10 +292,38 @@ export interface AdminView {
     query?: GlobalAdminPrivacyRequestQuery,
     signal?: AbortSignal,
   ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }>;
+  getGlobalPrivacyRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
   createGlobalPrivacyRequest(
     input: GlobalAdminPrivacyRequestCreateInput,
     signal?: AbortSignal,
   ): Promise<GlobalAdminPrivacyRequest>;
+  transitionGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyWorkflowInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
+  executeGlobalPrivacyRight(
+    requestId: string,
+    input: GlobalAdminPrivacyExecutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
+  resolveGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyRequestResolutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+  recordGlobalPrivacyDispatchReceipt(
+    requestId: string,
+    input: GlobalAdminPrivacyDispatchReceiptInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest>;
+  retryGlobalPrivacyNotifications(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail>;
   listGlobalSupportTickets(
     query?: GlobalAdminSupportTicketQuery,
     signal?: AbortSignal,
@@ -302,6 +345,36 @@ export interface AdminView {
     input: GlobalAdminApprovalDecisionInput,
     signal?: AbortSignal,
   ): Promise<GlobalAdminApproval>;
+  listGlobalPrivacyIncidents(
+    query?: GlobalAdminPrivacyIncidentQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentPage>;
+  getGlobalPrivacyIncident(
+    incidentId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+  createGlobalPrivacyIncident(
+    input: CreateGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+  transitionGlobalPrivacyIncident(
+    incidentId: string,
+    input: TransitionGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail>;
+  listGlobalPrivacyLegalHolds(
+    query?: GlobalAdminPrivacyLegalHoldQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHoldPage>;
+  createGlobalPrivacyLegalHold(
+    input: CreateGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold>;
+  releaseGlobalPrivacyLegalHold(
+    holdId: string,
+    input: ReleaseGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold>;
 
   // Memory & error gates
   clearError(): void;
@@ -894,10 +967,53 @@ export function useAdmin(): AdminView {
       adminFacade.listGlobalPrivacyRequests(query, signal),
     [],
   );
+  const getGlobalPrivacyRequest = useCallback(
+    (requestId: string, signal?: AbortSignal) =>
+      adminFacade.getGlobalPrivacyRequest(requestId, signal),
+    [],
+  );
 
   const createGlobalPrivacyRequest = useCallback(
     (input: GlobalAdminPrivacyRequestCreateInput, signal?: AbortSignal) =>
       adminFacade.createGlobalPrivacyRequest(input, signal),
+    [],
+  );
+  const transitionGlobalPrivacyRequest = useCallback(
+    (
+      requestId: string,
+      input: GlobalAdminPrivacyWorkflowInput,
+      signal?: AbortSignal,
+    ) => adminFacade.transitionGlobalPrivacyRequest(requestId, input, signal),
+    [],
+  );
+  const executeGlobalPrivacyRight = useCallback(
+    (
+      requestId: string,
+      input: GlobalAdminPrivacyExecutionInput,
+      signal?: AbortSignal,
+    ) => adminFacade.executeGlobalPrivacyRight(requestId, input, signal),
+    [],
+  );
+  const resolveGlobalPrivacyRequest = useCallback(
+    (
+      requestId: string,
+      input: GlobalAdminPrivacyRequestResolutionInput,
+      signal?: AbortSignal,
+    ) => adminFacade.resolveGlobalPrivacyRequest(requestId, input, signal),
+    [],
+  );
+  const recordGlobalPrivacyDispatchReceipt = useCallback(
+    (
+      requestId: string,
+      input: GlobalAdminPrivacyDispatchReceiptInput,
+      signal?: AbortSignal,
+    ) =>
+      adminFacade.recordGlobalPrivacyDispatchReceipt(requestId, input, signal),
+    [],
+  );
+  const retryGlobalPrivacyNotifications = useCallback(
+    (requestId: string, signal?: AbortSignal) =>
+      adminFacade.retryGlobalPrivacyNotifications(requestId, signal),
     [],
   );
 
@@ -931,6 +1047,54 @@ export function useAdmin(): AdminView {
       input: GlobalAdminApprovalDecisionInput,
       signal?: AbortSignal,
     ) => adminFacade.decideGlobalApproval(approvalId, input, signal),
+    [],
+  );
+
+  const listGlobalPrivacyIncidents = useCallback(
+    (query?: GlobalAdminPrivacyIncidentQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalPrivacyIncidents(query, signal),
+    [],
+  );
+
+  const getGlobalPrivacyIncident = useCallback(
+    (incidentId: string, signal?: AbortSignal) =>
+      adminFacade.getGlobalPrivacyIncident(incidentId, signal),
+    [],
+  );
+
+  const createGlobalPrivacyIncident = useCallback(
+    (input: CreateGlobalAdminPrivacyIncidentInput, signal?: AbortSignal) =>
+      adminFacade.createGlobalPrivacyIncident(input, signal),
+    [],
+  );
+
+  const transitionGlobalPrivacyIncident = useCallback(
+    (
+      incidentId: string,
+      input: TransitionGlobalAdminPrivacyIncidentInput,
+      signal?: AbortSignal,
+    ) => adminFacade.transitionGlobalPrivacyIncident(incidentId, input, signal),
+    [],
+  );
+
+  const listGlobalPrivacyLegalHolds = useCallback(
+    (query?: GlobalAdminPrivacyLegalHoldQuery, signal?: AbortSignal) =>
+      adminFacade.listGlobalPrivacyLegalHolds(query, signal),
+    [],
+  );
+
+  const createGlobalPrivacyLegalHold = useCallback(
+    (input: CreateGlobalAdminPrivacyLegalHoldInput, signal?: AbortSignal) =>
+      adminFacade.createGlobalPrivacyLegalHold(input, signal),
+    [],
+  );
+
+  const releaseGlobalPrivacyLegalHold = useCallback(
+    (
+      holdId: string,
+      input: ReleaseGlobalAdminPrivacyLegalHoldInput,
+      signal?: AbortSignal,
+    ) => adminFacade.releaseGlobalPrivacyLegalHold(holdId, input, signal),
     [],
   );
 
@@ -1009,12 +1173,25 @@ export function useAdmin(): AdminView {
     listGlobalContracts,
     listGlobalKycCases,
     listGlobalPrivacyRequests,
+    getGlobalPrivacyRequest,
     createGlobalPrivacyRequest,
+    transitionGlobalPrivacyRequest,
+    executeGlobalPrivacyRight,
+    resolveGlobalPrivacyRequest,
+    recordGlobalPrivacyDispatchReceipt,
+    retryGlobalPrivacyNotifications,
     listGlobalSupportTickets,
     createGlobalSupportTicket,
     listGlobalApprovals,
     createGlobalApproval,
     decideGlobalApproval,
+    listGlobalPrivacyIncidents,
+    getGlobalPrivacyIncident,
+    createGlobalPrivacyIncident,
+    transitionGlobalPrivacyIncident,
+    listGlobalPrivacyLegalHolds,
+    createGlobalPrivacyLegalHold,
+    releaseGlobalPrivacyLegalHold,
 
     clearError,
     clearFeedback: clearError,

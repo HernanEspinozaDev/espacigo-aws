@@ -51,3 +51,37 @@ func TestAuditCSVQuotesAndNeutralizesFormulaCells(t *testing.T) {
 		t.Fatalf("CSV quoting not applied: %s", got)
 	}
 }
+
+func TestRestrictedAuditReasonsHideHistoricalFreeText(t *testing.T) {
+	for _, action := range []string{
+		"admin.global.assisted_view.start",
+		"admin.global.accounts.sensitive_access",
+		"admin.global.accounts.update",
+		"admin.global.accounts.block",
+		"admin.global.accounts.unblock",
+		"admin.global.accounts.sessions.revoke",
+		"admin.global.accounts.legacy-administrator.grant",
+		"admin.global.accounts.roles.grant.arrendador",
+		"admin.global.publications.update",
+		"admin.global.publications.state",
+		"admin.global.support_tickets.create",
+	} {
+		if got := restrictedAuditReason(action, "texto histórico confidencial"); got != "detalle_restringido" {
+			t.Errorf("restrictedAuditReason(%q)=%q", action, got)
+		}
+	}
+	for action, reason := range map[string]string{
+		"admin.global.accounts.read":               "consulta_administrativa",
+		"admin.global.audit.read":                  "consulta_administrativa",
+		"admin.global.approvals.create":            "motivo_operativo",
+		"admin.global.publications.list":           "consulta_administrativa",
+		"admin.global.privacy_incidents.create":    "alta",
+		"admin.global.privacy_incidents.transition": "contain",
+		"admin.global.privacy_legal_holds.create":  "expediente_privacidad",
+		"admin.global.privacy_legal_holds.release": "retencion_liberada",
+	} {
+		if got := restrictedAuditReason(action, reason); got != reason {
+			t.Errorf("standard reason for %q changed: got %q want %q", action, got, reason)
+		}
+	}
+}

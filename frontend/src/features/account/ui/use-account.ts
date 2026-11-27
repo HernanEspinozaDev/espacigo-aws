@@ -3,10 +3,16 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { accountFacade } from "../account-runtime";
 import type { AccountSnapshot } from "../application/account-facade";
-import type { RightsRequestKind } from "../domain/privacy";
+import type {
+  PrivacyPortabilityBlobResult,
+  PrivacyPurposePreference,
+  PrivacyTreatmentBlock,
+  RightsRequest,
+  RightsRequestKind,
+  UpdatePrivacyPurposePreferenceInput,
+} from "../domain/privacy";
 import type { Profile } from "../domain/profile";
 import type { SyntheticPayoutAccount } from "../domain/payout-account";
-import type { RightsRequest } from "../domain/privacy";
 
 export interface AccountView {
   snapshot: AccountSnapshot;
@@ -22,9 +28,18 @@ export interface AccountView {
     idempotencyKey: string,
   ): Promise<SyntheticPayoutAccount>;
   revokePayoutAccount(idempotencyKey: string): Promise<void>;
-  requestDataRight(kind: RightsRequestKind): Promise<RightsRequest>;
+  requestDataRight(
+    kind: RightsRequestKind,
+    detail?: string,
+  ): Promise<RightsRequest>;
   exportIdentityBlob(): Promise<Blob | null>;
   downloadIdentityArchive(): Promise<Blob | null>;
+  listPrivacyPreferences(): Promise<PrivacyPurposePreference[]>;
+  updatePrivacyPreference(
+    input: UpdatePrivacyPurposePreferenceInput,
+  ): Promise<PrivacyPurposePreference>;
+  listPrivacyRestrictions(): Promise<PrivacyTreatmentBlock[]>;
+  exportPortabilityBlob(): Promise<PrivacyPortabilityBlobResult | null>;
   clear(): void;
 }
 
@@ -66,7 +81,8 @@ export function useAccount(): AccountView {
     [],
   );
   const requestDataRight = useCallback(
-    (kind: RightsRequestKind) => accountFacade.requestDataRight(kind),
+    (kind: RightsRequestKind, detail = "") =>
+      accountFacade.requestDataRight(kind, detail),
     [],
   );
   const exportIdentityBlob = useCallback(
@@ -75,6 +91,23 @@ export function useAccount(): AccountView {
   );
   const downloadIdentityArchive = useCallback(
     () => accountFacade.downloadIdentityArchive(),
+    [],
+  );
+  const listPrivacyPreferences = useCallback(
+    () => accountFacade.listPrivacyPreferences(),
+    [],
+  );
+  const updatePrivacyPreference = useCallback(
+    (input: UpdatePrivacyPurposePreferenceInput) =>
+      accountFacade.updatePrivacyPreference(input),
+    [],
+  );
+  const listPrivacyRestrictions = useCallback(
+    () => accountFacade.listPrivacyRestrictions(),
+    [],
+  );
+  const exportPortabilityBlob = useCallback(
+    () => accountFacade.exportPortabilityBlob(),
     [],
   );
   const clear = useCallback(() => accountFacade.clear(), []);
@@ -91,6 +124,10 @@ export function useAccount(): AccountView {
     requestDataRight,
     exportIdentityBlob,
     downloadIdentityArchive,
+    listPrivacyPreferences,
+    updatePrivacyPreference,
+    listPrivacyRestrictions,
+    exportPortabilityBlob,
     clear,
   };
 }

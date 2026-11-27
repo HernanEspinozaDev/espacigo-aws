@@ -12,8 +12,12 @@ import {
 } from "../domain/payout-account";
 import type {
   OwnIdentityExport,
+  PrivacyPortabilityBlobResult,
+  PrivacyPurposePreference,
+  PrivacyTreatmentBlock,
   RightsRequest,
   RightsRequestKind,
+  UpdatePrivacyPurposePreferenceInput,
 } from "../domain/privacy";
 
 export class OpenApiAccountAdapter implements AccountPort {
@@ -230,10 +234,11 @@ export class OpenApiAccountAdapter implements AccountPort {
 
   async requestDataRight(
     kind: RightsRequestKind,
+    detail: string,
     signal?: AbortSignal,
   ): Promise<RightsRequest> {
     const result = await apiClient.POST("/rights-requests", {
-      body: { type: kind },
+      body: { type: kind, ...(detail ? { detail } : {}) } as never,
       bodySerializer: serializeExactJson,
       signal,
     });
@@ -279,5 +284,69 @@ export class OpenApiAccountAdapter implements AccountPort {
       throw normalizeApiError(result.response, result.error);
     }
     return (result.data as Blob) ?? (await result.response.blob());
+  }
+
+  async listPrivacyPreferences(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference[]> {
+    const result = await apiClient.GET("/privacy/preferences", {
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return result.data?.items ?? [];
+  }
+
+  async updatePrivacyPreference(
+    input: UpdatePrivacyPurposePreferenceInput,
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference> {
+    const trimmedReason = input.reason?.trim();
+    const result = await apiClient.PUT("/privacy/preferences", {
+      body: {
+        purpose: input.purpose,
+        state: input.state,
+        ...(trimmedReason ? { reason: trimmedReason } : {}),
+      },
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data;
+  }
+
+  async listPrivacyRestrictions(
+    signal?: AbortSignal,
+  ): Promise<PrivacyTreatmentBlock[]> {
+    const result = await apiClient.GET("/privacy/restrictions", {
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    return result.data?.items ?? [];
+  }
+
+  async exportPortabilityBlob(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPortabilityBlobResult | null> {
+    const result = await apiClient.GET("/privacy/portability", {
+      parseAs: "blob",
+      signal,
+    });
+    if (result.response.status === 404) return null;
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    const blob = (result.data as Blob) ?? (await result.response.blob());
+    const rawSha = result.response.headers.get("X-Content-SHA256");
+    return {
+      blob,
+      sha256: rawSha && rawSha.trim() ? rawSha.trim() : null,
+    };
   }
 }

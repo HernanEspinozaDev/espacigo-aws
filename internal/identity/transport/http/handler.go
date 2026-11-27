@@ -150,16 +150,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountTrustedContactsPath         = "/api/v1/account/security/trusted-contacts"
 		accountTrustedContactsPrefix       = "/api/v1/account/security/trusted-contacts/"
 		accountSecurityMethodsPath         = "/api/v1/account/security/methods"
+		privacyPublicRequestsPath          = "/api/v1/privacy/public-requests"
+		privacyPublicRequestsLookupPath    = "/api/v1/privacy/public-requests/lookup"
+		privacyLegalAcceptancesPath        = "/api/v1/privacy/legal-acceptances"
+		privacyPreferencesPath             = "/api/v1/privacy/preferences"
+		privacyRestrictionsPath            = "/api/v1/privacy/restrictions"
+		privacyPortabilityPath             = "/api/v1/privacy/portability"
 	)
 	deviceDeletePath := strings.HasPrefix(r.URL.Path, accountDevicesPrefix) && r.URL.Path != accountDevicesRevokeOthersPath
 	passkeyDeletePath := strings.HasPrefix(r.URL.Path, accountPasskeysPrefix) && r.URL.Path != accountPasskeysRegisterOptionsPath && r.URL.Path != accountPasskeysRegisterVerifyPath
 	qrTicketStatusPath := strings.HasPrefix(r.URL.Path, accountQRTicketPrefix)
 	trustedContactDeletePath := strings.HasPrefix(r.URL.Path, accountTrustedContactsPrefix)
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == privacyLegalAcceptancesPath || r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyRestrictionsPath || r.URL.Path == privacyPortabilityPath || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
 		expected = http.MethodGet
 	}
-	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) {
+	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) || (r.URL.Path == privacyPreferencesPath && r.Method == http.MethodPut) {
 		expected = http.MethodPut
 	}
 	if deviceDeletePath || passkeyDeletePath || trustedContactDeletePath || (r.URL.Path == accountQRPath && r.Method == http.MethodDelete) {
@@ -210,7 +216,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"/api/v1/rights-requests":                true,
 		"/api/v1/privacy/export":                 true,
 		"/api/v1/privacy/export/archive":         true,
+		privacyLegalAcceptancesPath:              true,
+		privacyPreferencesPath:                   true,
+		privacyRestrictionsPath:                  true,
+		privacyPortabilityPath:                   true,
 		"/api/v1/privacy/retention/purge":        true,
+		privacyPublicRequestsPath:                true,
+		privacyPublicRequestsLookupPath:          true,
 		accountPhonePath:                         true,
 		accountPhoneSendCodePath:                 true,
 		accountPhoneVerifyPath:                   true,
@@ -260,6 +272,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.URL.Path == accountQRPath {
 			allow = "GET, DELETE"
+		}
+		if r.URL.Path == privacyPreferencesPath {
+			allow = "GET, PUT"
 		}
 		w.Header().Set("Allow", allow)
 		h.fail(w, 405, "method_not_allowed", "Método no permitido.")
@@ -547,7 +562,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
-	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export", "/api/v1/privacy/export/archive":
+	case privacyPublicRequestsPath, privacyPublicRequestsLookupPath:
+		if h.privacy == nil {
+			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de privacidad no disponible.")
+			return
+		}
+		if r.URL.Path == privacyPublicRequestsPath {
+			var input privacy.PublicRightsRequestInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			receipt, err := h.privacy.SubmitPublicRightsRequest(r.Context(), input)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			h.write(w, http.StatusCreated, map[string]any{"data": receipt})
+			return
+		}
+		var input privacy.PublicRightsLookupInput
+		if !h.decode(w, r, &input) {
+			return
+		}
+		status, err := h.privacy.LookupPublicRightsRequest(r.Context(), input)
+		if err != nil {
+			h.privacyError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{"data": status})
+	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export", "/api/v1/privacy/export/archive", privacyLegalAcceptancesPath, privacyPreferencesPath, privacyRestrictionsPath, privacyPortabilityPath:
 		if h.privacy == nil {
 			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de perfil no disponible.")
 			return
@@ -560,6 +603,58 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
 		if err != nil {
 			h.serviceError(w, err)
+			return
+		}
+		if r.URL.Path == privacyLegalAcceptancesPath {
+			h.writeLegalAcceptanceStatus(w, r, principal.AccountID)
+			return
+		}
+		if r.URL.Path == privacyPortabilityPath {
+			raw, sha256Hex, err := h.privacy.ExportOwnPortability(r.Context(), principal.AccountID)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="espacigo-portabilidad-v1.json"`)
+			w.Header().Set("X-Content-SHA256", sha256Hex)
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(raw)
+			return
+		}
+		if r.URL.Path == privacyRestrictionsPath {
+			items, err := h.privacy.OwnTreatmentRestrictions(r.Context(), principal.AccountID)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			h.write(w, http.StatusOK, map[string]any{"items": items})
+			return
+		}
+		if r.URL.Path == privacyPreferencesPath {
+			if r.Method == http.MethodGet {
+				items, err := h.privacy.OwnPurposePreferences(r.Context(), principal.AccountID)
+				if err != nil {
+					h.privacyError(w, err)
+					return
+				}
+				w.Header().Set("Cache-Control", "no-store")
+				h.write(w, http.StatusOK, map[string]any{"items": items})
+				return
+			}
+			var input privacy.UpdatePurposePreferenceInput
+			if !h.decode(w, r, &input) {
+				return
+			}
+			pref, err := h.privacy.UpdateOwnPurposePreference(r.Context(), principal.AccountID, input)
+			if err != nil {
+				h.privacyError(w, err)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			h.write(w, http.StatusOK, map[string]any{"data": pref})
 			return
 		}
 		if r.URL.Path == "/api/v1/privacy/export/archive" {
@@ -615,16 +710,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				h.privacyError(w, err)
 				return
 			}
+			w.Header().Set("Cache-Control", "no-store")
 			h.write(w, http.StatusOK, map[string]any{"items": items})
 			return
 		}
 		var input struct {
-			Kind string `json:"type"`
+			Kind   string `json:"type"`
+			Detail string `json:"detail"`
 		}
 		if !h.decode(w, r, &input) {
 			return
 		}
-		item, err := h.privacy.RequestRight(r.Context(), principal.AccountID, input.Kind, "web")
+		item, err := h.privacy.RequestRightWithDetail(r.Context(), principal.AccountID, input.Kind, "web", input.Detail)
 		if err != nil {
 			h.privacyError(w, err)
 			return

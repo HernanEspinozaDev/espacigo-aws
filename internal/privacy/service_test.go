@@ -106,3 +106,46 @@ func TestCompleteArchiveRefusesToReturnIdentityOnlyWhenModuleSourcesAreMissing(t
 		t.Fatalf("incomplete archive error=%v, want ErrExportUnavailable", err)
 	}
 }
+
+type detailedMemoryRepository struct {
+	memoryRepository
+}
+
+func (m *detailedMemoryRepository) CreateRightsRequestWithDetail(_ context.Context, _, kind, _ string, detail *string) (RightsRequest, error) {
+	r := RightsRequest{ID: "synthetic-detailed-id", Kind: kind, State: "recibida", CreatedAt: time.Unix(1, 0), Detail: detail}
+	m.requests = append(m.requests, r)
+	return r, nil
+}
+
+func TestRequestRightWithDetailValidationAndLegacyFallback(t *testing.T) {
+	detailedRepo := &detailedMemoryRepository{}
+	svc, err := NewService(detailedRepo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"acceso", "supresion", "portabilidad"} {
+		req, err := svc.RequestRightWithDetail(context.Background(), "account", kind, "web", "")
+		if err != nil || req.Kind != kind {
+			t.Fatalf("kind %s failed: req=%+v err=%v", kind, req, err)
+		}
+	}
+	for _, kind := range []string{"rectificacion", "oposicion", "bloqueo"} {
+		if _, err := svc.RequestRightWithDetail(context.Background(), "account", kind, "web", "   corto   "); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s accepted short detail: %v", kind, err)
+		}
+		req, err := svc.RequestRightWithDetail(context.Background(), "account", kind, "web", "  Corregir nombre registrado en mi perfil  ")
+		if err != nil || req.Detail == nil || *req.Detail != "Corregir nombre registrado en mi perfil" {
+			t.Fatalf("%s valid detail failed: req=%+v err=%v", kind, req, err)
+		}
+	}
+	if _, err := svc.RequestRightWithDetail(context.Background(), "account", "acceso", "web", strings.Repeat("a", 1001)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized detail was not rejected: %v", err)
+	}
+	legacySvc, err := NewService(&memoryRepository{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacySvc.RequestRightWithDetail(context.Background(), "account", "rectificacion", "web", "Corregir nombre completo"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy repo accepted extended right: %v", err)
+	}
+}

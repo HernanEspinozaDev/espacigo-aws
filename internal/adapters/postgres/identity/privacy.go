@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
@@ -12,6 +14,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 var _ privacy.Repository = (*IdentityRepository)(nil)
@@ -51,27 +54,122 @@ func (r *IdentityRepository) SaveProfile(ctx context.Context, accountID, name st
 }
 
 func (r *IdentityRepository) CreateRightsRequest(ctx context.Context, accountID, kind, channel string) (privacy.RightsRequest, error) {
+	return r.CreateRightsRequestWithDetail(ctx, accountID, kind, channel, nil)
+}
+
+func (r *IdentityRepository) CreateRightsRequestWithDetail(ctx context.Context, accountID, kind, channel string, detail *string) (privacy.RightsRequest, error) {
 	id, err := (credentials.Generator{}).ID()
 	if err != nil {
 		return privacy.RightsRequest{}, err
 	}
-	row, err := r.queries.CreateRightsRequest(ctx, dbgen.CreateRightsRequestParams{ID: id, AccountID: accountID, Kind: kind, Channel: channel})
+	eventID, err := (credentials.Generator{}).ID()
+	if err != nil {
+		return privacy.RightsRequest{}, err
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	dueAt := privacy.ComputeInitialDeadline(now, kind)
+	folio, err := privacy.GeneratePublicFolioAt(now)
+	if err != nil {
+		return privacy.RightsRequest{}, err
+	}
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return privacy.RightsRequest{}, mapError(err)
 	}
-	return privacy.RightsRequest{ID: row.ID, Kind: row.Kind, State: row.State, CreatedAt: row.SolicitadaEn.Time}, nil
+	defer func() { _ = tx.Rollback(context.Background()) }()
+
+	row := tx.QueryRow(ctx, `INSERT INTO public.solicitud_titular (id, usuario_id, folio_publico, tipo, canal, detalle_titular, solicitada_en, vence_en)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id::text, tipo, estado, solicitada_en, vence_en`, id, accountID, folio, kind, channel, detail, now, dueAt)
+	var created privacy.RightsRequest
+	if err := row.Scan(&created.ID, &created.Kind, &created.State, &created.CreatedAt, &created.DueAt); err != nil {
+		return privacy.RightsRequest{}, mapError(err)
+	}
+	created.CreatedAt = created.CreatedAt.UTC()
+	created.Detail = detail
+	if _, err := tx.Exec(ctx, `INSERT INTO public.solicitud_titular_evento (
+		id, solicitud_id, secuencia, tipo_evento, visibilidad, estado_nuevo, actor_id, vence_en_nuevo, creado_en
+	) VALUES ($1, $2, 1, 'recepcion', 'titular', $3, $4, $5, $6)`,
+		eventID, created.ID, created.State, accountID, dueAt, created.CreatedAt); err != nil {
+		return privacy.RightsRequest{}, mapError(err)
+	}
+	var recipientEmail pgtype.Text
+	if err := tx.QueryRow(ctx, `SELECT correo_original FROM public.usuario WHERE id = $1`, accountID).Scan(&recipientEmail); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return privacy.RightsRequest{}, mapError(err)
+	}
+	if recipientEmail.Valid {
+		email := strings.TrimSpace(recipientEmail.String)
+		if n := utf8.RuneCountInString(email); n >= 5 && n <= 254 {
+			subject, body := privacy.FormatAcuseRecepcionNotice(folio, created.Kind, dueAt)
+			if _, err := tx.Exec(ctx, `INSERT INTO public.privacidad_notificacion_outbox (
+				solicitud_id, tipo_aviso, clave_idempotencia, destinatario_correo, asunto, cuerpo_texto, disponible_en, creado_en
+			) VALUES ($1, 'acuse_recepcion', $2, $3, $4, $5, $6, $6)
+			ON CONFLICT (clave_idempotencia) DO NOTHING`,
+				created.ID, "acuse:"+created.ID, email, subject, body, created.CreatedAt); err != nil {
+				return privacy.RightsRequest{}, mapError(err)
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return privacy.RightsRequest{}, mapError(err)
+	}
+	stateCopy := created.State
+	dueCopy := dueAt
+	created.Events = []privacy.RightsRequestEvent{{
+		ID:        eventID,
+		Sequence:  1,
+		EventType: "recepcion",
+		StateTo:   &stateCopy,
+		NewDueAt:  &dueCopy,
+		CreatedAt: created.CreatedAt,
+	}}
+	return created, nil
 }
 
 func (r *IdentityRepository) ListOwnRightsRequests(ctx context.Context, accountID string) ([]privacy.RightsRequest, error) {
-	rows, err := r.queries.ListOwnRightsRequests(ctx, accountID)
+	rows, err := r.pool.Query(ctx, `SELECT id::text, tipo, estado, solicitada_en, resuelta_en, respuesta_titular, detalle_titular, vence_en, prorrogada_hasta, prorroga_motivo
+        FROM public.solicitud_titular WHERE usuario_id=$1 ORDER BY solicitada_en DESC, id DESC`, accountID)
 	if err != nil {
 		return nil, mapError(err)
 	}
-	items := make([]privacy.RightsRequest, 0, len(rows))
-	for _, row := range rows {
-		items = append(items, privacy.RightsRequest{ID: row.ID, Kind: row.Kind, State: row.State, CreatedAt: row.SolicitadaEn.Time})
+	defer rows.Close()
+
+	items := []privacy.RightsRequest{}
+	idxByID := map[string]int{}
+	ids := []string{}
+	for rows.Next() {
+		var item privacy.RightsRequest
+		if err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.CreatedAt, &item.ResolvedAt, &item.Response, &item.Detail, &item.DueAt, &item.ExtendedDueAt, &item.ExtensionReason); err != nil {
+			return nil, mapError(err)
+		}
+		idxByID[item.ID] = len(items)
+		ids = append(ids, item.ID)
+		items = append(items, item)
 	}
-	return items, nil
+	if err := rows.Err(); err != nil {
+		return nil, mapError(err)
+	}
+	if len(ids) == 0 {
+		return items, nil
+	}
+	eventRows, err := r.pool.Query(ctx, `SELECT id::text, solicitud_id::text, secuencia, tipo_evento, estado_anterior, estado_nuevo, detalle, vence_en_nuevo, creado_en
+		FROM public.solicitud_titular_evento
+		WHERE solicitud_id = ANY($1::uuid[]) AND visibilidad = 'titular'
+		ORDER BY solicitud_id, secuencia ASC`, ids)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer eventRows.Close()
+	for eventRows.Next() {
+		var solicitudID string
+		var ev privacy.RightsRequestEvent
+		if err := eventRows.Scan(&ev.ID, &solicitudID, &ev.Sequence, &ev.EventType, &ev.StateFrom, &ev.StateTo, &ev.Detail, &ev.NewDueAt, &ev.CreatedAt); err != nil {
+			return nil, mapError(err)
+		}
+		if idx, ok := idxByID[solicitudID]; ok {
+			items[idx].Events = append(items[idx].Events, ev)
+		}
+	}
+	return items, mapError(eventRows.Err())
 }
 
 // ExportOwnData reads one consistent, owner-scoped identity snapshot. It never
@@ -147,14 +245,14 @@ func (r *IdentityRepository) ExportOwnData(ctx context.Context, accountID string
 	}
 
 	data.Requests = []privacy.RightsRequest{}
-	rows, err = tx.Query(ctx, `SELECT id::text, tipo, estado, solicitada_en, resuelta_en, motivo_resolucion_codigo
+	rows, err = tx.Query(ctx, `SELECT id::text, tipo, estado, solicitada_en, resuelta_en, motivo_resolucion_codigo, detalle_titular
 		FROM public.solicitud_titular WHERE usuario_id=$1 ORDER BY solicitada_en, id`, accountID)
 	if err != nil {
 		return privacy.OwnData{}, mapError(err)
 	}
 	for rows.Next() {
 		var item privacy.RightsRequest
-		if err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.CreatedAt, &item.ResolvedAt, &item.DecisionCode); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.State, &item.CreatedAt, &item.ResolvedAt, &item.DecisionCode, &item.Detail); err != nil {
 			rows.Close()
 			return privacy.OwnData{}, mapError(err)
 		}
@@ -166,6 +264,62 @@ func (r *IdentityRepository) ExportOwnData(ctx context.Context, accountID string
 		return privacy.OwnData{}, mapError(err)
 	}
 	rows.Close()
+
+	rows, err = tx.Query(ctx, `SELECT finalidad, estado, causal, solicitud_id::text, actualizado_en
+		FROM public.privacidad_preferencia_finalidad
+		WHERE cuenta_id=$1
+		ORDER BY finalidad ASC`, accountID)
+	if err != nil {
+		return privacy.OwnData{}, mapError(err)
+	}
+	var prefs []privacy.PurposePreference
+	for rows.Next() {
+		var item privacy.PurposePreference
+		var updatedAt time.Time
+		if err := rows.Scan(&item.Purpose, &item.State, &item.Reason, &item.RequestID, &updatedAt); err != nil {
+			rows.Close()
+			return privacy.OwnData{}, mapError(err)
+		}
+		utcUpdated := updatedAt.UTC()
+		item.UpdatedAt = &utcUpdated
+		prefs = append(prefs, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return privacy.OwnData{}, mapError(err)
+	}
+	rows.Close()
+	if len(prefs) > 0 {
+		data.PurposePreferences = prefs
+	}
+
+	rows, err = tx.Query(ctx, `SELECT id::text, solicitud_id::text, ambito, estado, motivo, aplicado_en, revisar_en, levantado_en, motivo_levantamiento
+		FROM public.privacidad_bloqueo_tratamiento
+		WHERE cuenta_id=$1
+		ORDER BY aplicado_en DESC, id DESC`, accountID)
+	if err != nil {
+		return privacy.OwnData{}, mapError(err)
+	}
+	var restrictions []privacy.TreatmentRestriction
+	for rows.Next() {
+		var item privacy.TreatmentRestriction
+		if err := rows.Scan(&item.ID, &item.RequestID, &item.Scope, &item.State, &item.Reason, &item.AppliedAt, &item.ReviewAt, &item.LiftedAt, &item.LiftReason); err != nil {
+			rows.Close()
+			return privacy.OwnData{}, mapError(err)
+		}
+		item.AppliedAt = item.AppliedAt.UTC()
+		item.ReviewAt = utcTimePtr(item.ReviewAt)
+		item.LiftedAt = utcTimePtr(item.LiftedAt)
+		restrictions = append(restrictions, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return privacy.OwnData{}, mapError(err)
+	}
+	rows.Close()
+	if len(restrictions) > 0 {
+		data.TreatmentRestrictions = restrictions
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return privacy.OwnData{}, mapError(err)
@@ -322,4 +476,24 @@ func (r *IdentityRepository) ListPendingSuppressions(ctx context.Context) ([]pri
 		return nil, mapError(err)
 	}
 	return items, nil
+}
+
+func (r *IdentityRepository) LegalAcceptances(ctx context.Context, accountID string) ([]privacy.TermsAcceptance, error) {
+	rows, err := r.pool.Query(ctx, `SELECT v.codigo, v.tipo, a.aceptada_en
+		FROM public.aceptacion_terminos a JOIN public.version_terminos v ON v.id = a.version_id
+		WHERE a.usuario_id = $1 AND v.tipo IN ('terminos', 'privacidad')
+		ORDER BY v.tipo, a.aceptada_en DESC, v.publicada_en DESC, v.codigo`, accountID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	items := make([]privacy.TermsAcceptance, 0, 2)
+	for rows.Next() {
+		var item privacy.TermsAcceptance
+		if err := rows.Scan(&item.Code, &item.Type, &item.AcceptedAt); err != nil {
+			return nil, mapError(err)
+		}
+		items = append(items, item)
+	}
+	return items, mapError(rows.Err())
 }

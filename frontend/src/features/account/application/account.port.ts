@@ -3,8 +3,12 @@ import type { ProfilePhotoMetadata } from "../domain/photo";
 import type { SyntheticPayoutAccount } from "../domain/payout-account";
 import type {
   OwnIdentityExport,
+  PrivacyPortabilityBlobResult,
+  PrivacyPurposePreference,
+  PrivacyTreatmentBlock,
   RightsRequest,
   RightsRequestKind,
+  UpdatePrivacyPurposePreferenceInput,
 } from "../domain/privacy";
 
 export interface AccountPort {
@@ -45,10 +49,25 @@ export interface AccountPort {
   listRightsRequests(signal?: AbortSignal): Promise<RightsRequest[]>;
   requestDataRight(
     kind: RightsRequestKind,
+    detail: string,
     signal?: AbortSignal,
   ): Promise<RightsRequest>;
 
   exportIdentityData(signal?: AbortSignal): Promise<OwnIdentityExport | null>;
   exportIdentityBlob(signal?: AbortSignal): Promise<Blob | null>;
   downloadIdentityArchive(signal?: AbortSignal): Promise<Blob | null>;
+
+  listPrivacyPreferences(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference[]>;
+  updatePrivacyPreference(
+    input: UpdatePrivacyPurposePreferenceInput,
+    signal?: AbortSignal,
+  ): Promise<PrivacyPurposePreference>;
+  listPrivacyRestrictions(
+    signal?: AbortSignal,
+  ): Promise<PrivacyTreatmentBlock[]>;
+  exportPortabilityBlob(
+    signal?: AbortSignal,
+  ): Promise<PrivacyPortabilityBlobResult | null>;
 }

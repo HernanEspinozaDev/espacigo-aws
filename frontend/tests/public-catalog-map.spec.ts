@@ -226,7 +226,9 @@ test("el mapa agrupa pines cercanos y mantiene la lista accesible", async ({
   await page.goto("/explorar/mapa?q=Grupo");
   const map = page.getByLabel("Mapa de espacios", { exact: true });
   await expect(
-    map.getByRole("button", { name: /12 espacios agrupados/ }),
+    map.getByRole("button", {
+      name: "12 espacios en este punto. Abrir lista.",
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /^Sala del grupo / }),
@@ -341,11 +343,38 @@ for (const viewport of [
     await expect(page).toHaveURL(/\/espacios\//);
     await page.goBack();
     await expect(page).toHaveURL(/min_capacity=4/);
+    expect(
+      await page.evaluate(() =>
+        sessionStorage.getItem("espacigo.explore.visited.v1"),
+      ),
+    ).toBeNull();
     await expect
       .poll(() => page.evaluate(() => window.scrollY))
       .toBeGreaterThan(300);
 
     await page.goto("/explorar/mapa?q=Sala&min_capacity=4");
+    const configure = page.getByRole("button", {
+      name: "Configurar",
+      exact: true,
+    });
+    await configure.focus();
+    await configure.press("Enter");
+    const preferences = page.getByRole("dialog", {
+      name: "Preferencias de cookies",
+    });
+    await expect(preferences).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(preferences).toBeHidden();
+    await expect(configure).toBeFocused();
+    await configure.press("Enter");
+    await preferences
+      .getByRole("checkbox", {
+        name: /Recordar espacios visitados/,
+      })
+      .check();
+    await preferences
+      .getByRole("button", { name: "Guardar preferencias" })
+      .click();
     const map = page.getByLabel("Mapa de espacios", { exact: true });
     const pin = map.getByRole("button", {
       name: "Sala con ubicación confirmada",
@@ -385,5 +414,20 @@ for (const viewport of [
       JSON.parse(sessionStorage.getItem("espacigo.explore.visited.v1") ?? "[]"),
     );
     expect(visited).toContain(restored.selectedSpaceId);
+    await page.getByRole("button", { name: "Preferencias de cookies" }).click();
+    await preferences
+      .getByRole("button", { name: "Rechazar opcionales" })
+      .click();
+    expect(
+      await page.evaluate(() =>
+        sessionStorage.getItem("espacigo.explore.visited.v1"),
+      ),
+    ).toBeNull();
+    await page.reload();
+    await expect(
+      page.getByRole("complementary", {
+        name: "Aviso de privacidad y cookies",
+      }),
+    ).toHaveCount(0);
   });
 }

@@ -2,7 +2,9 @@ package commercialproposalspg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
@@ -328,7 +330,15 @@ func TestCommercialProposalPostgresMultiRepresentativeCompanyAccess(t *testing.T
 		t.Fatal(err)
 	}
 	templateID := uuid.NewString()
-	const clauses = `[{"key":"uso","title":"Uso","body":"Reglas empresa."}]`
+	sections := []contracttemplate.Section{{Key: "reparto_pago_hotusoft", Title: "Regla del anfitrión", Body: "Reglas empresa."}}
+	for index := len(sections); index < 12; index++ {
+		sections = append(sections, contracttemplate.Section{Key: fmt.Sprintf("regla_%d", index), Title: "Regla", Body: "Texto de prueba."})
+	}
+	rawClauses, err := json.Marshal(sections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clauses := string(rawClauses)
 	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_contrato_borrador(espacio_id,revision,secciones,version_publicada) VALUES($1,1,$2::jsonb,1)`, space, clauses); err != nil {
 		t.Fatal(err)
 	}
@@ -394,6 +404,13 @@ func TestCommercialProposalPostgresMultiRepresentativeCompanyAccess(t *testing.T
 	stored, err := r.Create(ctx, rep2, quote, record, func() error { return nil })
 	if err != nil || stored.Version != 1 || !stored.CompanyRepresentativeAuthorized {
 		t.Fatalf("second active legal representative Create failed: %+v err=%v", stored, err)
+	}
+	if len(stored.Terms.Sections) != 13 || stored.Terms.Sections[0] != sections[0] {
+		t.Fatalf("proposal did not preserve all 12 owner sections: %+v", stored.Terms.Sections)
+	}
+	paymentSection := stored.Terms.Sections[12]
+	if paymentSection.Key != "reparto_pago_hotusoft_1" || !strings.Contains(paymentSection.Body, "HOTU SOFTWARE SOLUTIONS SPA") {
+		t.Fatalf("proposal did not persist the platform payment clause: %+v", paymentSection)
 	}
 	gotByRep2, err := r.Get(ctx, rep2, stored.ID)
 	if err != nil || gotByRep2.ID != stored.ID || !gotByRep2.CompanyRepresentativeAuthorized {
