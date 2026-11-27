@@ -3690,7 +3690,11 @@ export interface paths {
      * @description Disponible en los perfiles local y productivo con el servicio de privacidad montado. Requiere sesión de titular. Compara la última aceptación de cada documento con su versión vigente. La lectura no registra una nueva aceptación.
      */
     get: operations["listOwnLegalAcceptances"];
-    put?: never;
+    /**
+     * Registrar la aceptación de términos o la lectura del aviso de privacidad vigentes
+     * @description Disponible en los perfiles local y productivo con el servicio de privacidad montado. Requiere sesión de titular y una acción expresa para el documento indicado. El código debe coincidir con una versión vigente publicada. Un reintento para la misma versión conserva la fecha original. Confirmar el aviso no habilita finalidades opcionales.
+     */
+    put: operations["recordOwnLegalAcceptance"];
     post?: never;
     delete?: never;
     options?: never;
@@ -3707,7 +3711,7 @@ export interface paths {
     };
     /**
      * Listar preferencias de finalidad opcionales de la cuenta autenticada
-     * @description Disponible en los perfiles local y productivo. Devuelve las preferencias de tratamiento por finalidad opcional para la cuenta autenticada.
+     * @description Disponible en los perfiles local y productivo. Devuelve las preferencias de tratamiento por finalidad opcional para la cuenta autenticada. Una entrada sin updated_at es un valor de referencia y no representa una elección registrada.
      */
     get: operations["listOwnPrivacyPreferences"];
     /**
@@ -20939,6 +20943,35 @@ export interface operations {
         };
       };
       401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  recordOwnLegalAcceptance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @example espacigo-terminos-hotusoft-v1-2 */
+          code: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Confirmación registrada. Respuesta sin caché. */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };

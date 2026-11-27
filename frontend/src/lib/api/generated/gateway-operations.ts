@@ -3899,6 +3899,16 @@ export const gatewayOperations = [
     responseMediaTypes: ["application/json"],
   },
   {
+    method: "PUT",
+    path: "/privacy/legal-acceptances",
+    operationId: "recordOwnLegalAcceptance",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: ["application/json"],
+    responseMediaTypes: ["application/json"],
+  },
+  {
     method: "GET",
     path: "/privacy/portability",
     operationId: "exportOwnPrivacyPortability",

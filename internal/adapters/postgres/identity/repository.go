@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	dbgen "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/jackc/pgx/v5"
@@ -227,6 +228,33 @@ func (r *IdentityRepository) AcceptTerms(ctx context.Context, acceptance identit
 		ID: acceptance.ID, AccountID: acceptance.AccountID, VersionID: acceptance.VersionID,
 		AcceptedAt: dbTime(acceptance.AcceptedAt), Channel: acceptance.Channel,
 	}))
+}
+
+// RecordLegalAcceptance preserves the original timestamp on retries.
+func (r *IdentityRepository) RecordLegalAcceptance(ctx context.Context, acceptance identity.TermsAcceptance) error {
+	if !validTermsAcceptance(acceptance) {
+		return identity.ErrInvalid
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return mapError(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	active, err := accountlock.LockActive(ctx, tx, acceptance.AccountID)
+	if err != nil {
+		return mapError(err)
+	}
+	if !active {
+		return identity.ErrNotFound
+	}
+	if _, err := tx.Exec(ctx, `
+        INSERT INTO public.aceptacion_terminos (id, usuario_id, version_id, aceptada_en, canal)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (usuario_id, version_id) DO NOTHING
+    `, acceptance.ID, acceptance.AccountID, acceptance.VersionID, acceptance.AcceptedAt, acceptance.Channel); err != nil {
+		return mapError(err)
+	}
+	return mapError(tx.Commit(ctx))
 }
 
 func (r *IdentityRepository) ReplaceActiveActionToken(ctx context.Context, token identity.ActionToken) error {
