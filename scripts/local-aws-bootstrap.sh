@@ -10,6 +10,7 @@ BUCKETS=(
   "espacigo-media-local"
   "espacigo-kyc-identity-local"
   "espacigo-kyc-space-local"
+  "espacigo-kyb-documents-local"
   "espacigo-privacy-replay-local"
 )
 
@@ -92,7 +93,42 @@ for name in ("identity-rut-hmac-keyring.json", "identity_rut_hmac_keyring.json")
     if parsed.get("active") != "v1" or not re.fullmatch(r"[0-9a-f]{64}", parsed.get("keys", {}).get("v1", "")):
         raise SystemExit(f"invalid identity RUT HMAC keyring in {path}")
 
-# 4. 32-byte hex secrets (64 lowercase hex characters)
+# 4. KYB document encryption keyring (current_version + keys)
+kyb_doc_key = secrets.token_hex(32)
+kyb_doc_keyring_payload = json.dumps(
+    {"current_version": "v1", "keys": {"v1": kyb_doc_key}},
+    indent=2,
+) + "\n"
+path = secrets_dir / "kyb-document-keyring.json"
+write_atomic_0600(path, kyb_doc_keyring_payload)
+parsed = json.loads(path.read_text(encoding="ascii"))
+if parsed.get("current_version") != "v1" or not re.fullmatch(r"[0-9a-f]{64}", parsed.get("keys", {}).get("v1", "")):
+    raise SystemExit(f"invalid KYB document keyring in {path}")
+
+# 5. KYB RUT encryption and lookup keyrings.
+kyb_rut_key = secrets.token_hex(32)
+kyb_rut_keyring_payload = json.dumps(
+    {"current_version": "v1", "keys": {"v1": kyb_rut_key}},
+    indent=2,
+) + "\n"
+path = secrets_dir / "kyb-rut-encryption-keyring.json"
+write_atomic_0600(path, kyb_rut_keyring_payload)
+parsed = json.loads(path.read_text(encoding="ascii"))
+if parsed.get("current_version") != "v1" or not re.fullmatch(r"[0-9a-f]{64}", parsed.get("keys", {}).get("v1", "")):
+    raise SystemExit(f"invalid KYB RUT encryption keyring in {path}")
+
+kyb_hmac_key = secrets.token_hex(32)
+kyb_hmac_payload = json.dumps(
+    {"active": "v1", "keys": {"v1": kyb_hmac_key}},
+    indent=2,
+) + "\n"
+path = secrets_dir / "kyb-rut-hmac-keyring.json"
+write_atomic_0600(path, kyb_hmac_payload)
+parsed = json.loads(path.read_text(encoding="ascii"))
+if parsed.get("active") != "v1" or not re.fullmatch(r"[0-9a-f]{64}", parsed.get("keys", {}).get("v1", "")):
+    raise SystemExit(f"invalid KYB RUT HMAC keyring in {path}")
+
+# 6. 32-byte hex secrets (64 lowercase hex characters)
 hex_groups = [
     ("local_contract_encryption_key", "contract-encryption-key"),
     ("public_catalog_cursor_key", "public-catalog-cursor-key"),
@@ -162,7 +198,7 @@ bootstrap_aws_emulator() {
         --bucket "$bucket" \
         --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' >/dev/null 2>&1 || true
     done
-    echo "PASS: all 5 local S3 buckets configured with versioning, public access block & SSE-S3"
+    echo "PASS: all ${#BUCKETS[@]} local S3 buckets configured with versioning, public access block & SSE-S3"
 
     # --- SSM Parameter Store Setup ---
     echo "--- Configuring SSM Parameter Store ---"
@@ -185,6 +221,7 @@ bootstrap_aws_emulator() {
     put_param "/espacigo/local/s3/media_bucket" "espacigo-media-local"
     put_param "/espacigo/local/s3/kyc_identity_bucket" "espacigo-kyc-identity-local"
     put_param "/espacigo/local/s3/kyc_space_bucket" "espacigo-kyc-space-local"
+    put_param "/espacigo/local/s3/kyb_documents_bucket" "espacigo-kyb-documents-local"
     put_param "/espacigo/local/s3/privacy_replay_bucket" "espacigo-privacy-replay-local"
     echo "PASS: SSM parameters configured under /espacigo/local/"
 
