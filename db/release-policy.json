@@ -66,14 +66,14 @@
       ]
     },
     "V000011__business_kyb_verification.sql": {
-      "checksum": "d765eb4d6bb5539164b8e3c8660acfd14387f5218fde4ec458114a72411ffc62",
+      "checksum": "40d4969b4bb9e6d6728d723c4afd9018dc85a08b8a41ac9e7ef48ecbe9d7b9a2",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.espacio"
       ]
     },
     "V000012__host_profiles_sii_grace_and_space_verification.sql": {
-      "checksum": "0e88190aefda6f6bddec8758a00ddfc25cc1c893aa0f37a56e230c0c67f122c6",
+      "checksum": "0011bdaed55e4d2c68431cf92a6cbee6545085a0d8576f10653b70a6d53bccff",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.contrato_propuesta_comercial",
@@ -82,14 +82,14 @@
       ]
     },
     "V000013__space_compliance_shared_deadline.sql": {
-      "checksum": "9d5144457c98121e96188a96f310240bb7de47308152727cfbbe6a8c681e4789",
+      "checksum": "560a641a0a489d8735a4823bf7241e6e1236cbe17b7b523b7ca5c61fac4853ef",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.espacio"
       ]
     },
     "V000014__publication_document_request_audit.sql": {
-      "checksum": "5961d129ae4b575442b6b594e8b46d5f10c1eeaed77b7a27c0e48385f6ad5253",
+      "checksum": "0106f4d0a00f1f45e1eed0cf6d103d2a23bcc8dac2a44a2f35699e67fa118f57",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.espacio",
@@ -97,21 +97,21 @@
       ]
     },
     "V000015__local_terms_v2_commercial_documentation.sql": {
-      "checksum": "cc91fc2a43406dd557fa7440feb20e0ae07c4efcfe4878e8b9be4b5b2f62621b",
+      "checksum": "a9b97b549dbc6c1fc76f235b330661e3bd32cdf60c29960ab77bfc018a6222f9",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.version_terminos"
       ]
     },
     "V000016__kyb_grace_reminder_outbox.sql": {
-      "checksum": "73b4279cc199fbcec41c579bb670cd0ed325374f304df168f09e87bd6f911118",
+      "checksum": "c824ece2af7e15dbcc3bc55123d831f66b6b9c41c88eae9e35e78f913cc75430",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.notificacion_usuario"
       ]
     },
     "V000017__commercial_company_contract_signatures.sql": {
-      "checksum": "5018d925f1e168a445df78a24736d68bd4435ee52a7a64dac4c03d9ea9e49488",
+      "checksum": "e89576cada97ca09e4037d19bb41c29d59637131030b4fc03082824bd2a92023",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.checkout_preferencia_comercial",
@@ -121,11 +121,11 @@
       ]
     },
     "V000018__kyb_document_level_decisions.sql": {
-      "checksum": "802bc07851813d08d4b9e875c0f4658f1d81e3c6f718943894c0257fc8e426f7",
+      "checksum": "a80efdf486c7554dfca425da0db00fee764ff2eb6335bb8570bf5ad114d66eca",
       "strategy": "expand"
     },
     "V000019__production_terms_v2_commercial_documentation.sql": {
-      "checksum": "6f5c645b370ea96731fab80507cba3b8143da100c9230fb6693fffe17885f3fa",
+      "checksum": "5f270d8cd9752c7e52ed6f88c7ea48b377974dc15b70e43e4fdb99b5d0fc0380",
       "strategy": "expand",
       "requires_schema_owner": [
         "public.version_terminos"
