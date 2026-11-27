@@ -77,6 +77,9 @@ func (*handlerService) PersonalCompliance(context.Context, string) (kyb.Complian
 func (*handlerService) SubmitSpaceProperty(context.Context, string, string, kyb.Upload) (kyb.ComplianceDocument, error) {
 	return kyb.ComplianceDocument{}, nil
 }
+func (*handlerService) SubmitSpaceCategorySII(_ context.Context, _ string, spaceID, giro string, upload kyb.Upload) (kyb.ComplianceDocument, error) {
+	return kyb.ComplianceDocument{ID: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", SpaceID: spaceID, Kind: upload.Kind, GiroCode: giro, Status: kyb.StatusPending}, nil
+}
 func (*handlerService) SpaceEligibility(context.Context, string, string) (kyb.SpaceEligibility, error) {
 	return kyb.SpaceEligibility{}, nil
 }
@@ -184,5 +187,37 @@ func TestAdminDecisionAcceptsPerDocumentPayload(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !service.granular {
 		t.Fatalf("decision status=%d granular=%t body=%s", response.Code, service.granular, response.Body.String())
+	}
+}
+
+func TestSpaceCategorySIISubmitEndpoint(t *testing.T) {
+	service := &handlerService{}
+	handler := NewHandler(handlerAuth{}, service, nil)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("sii_giro_code", "521020"); err != nil {
+		t.Fatal(err)
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="sii_start_activities"; filename="sii.pdf"`)
+	header.Set("Content-Type", "application/pdf")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(part, "%PDF-1.4\nsynthetic"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	spaceID := "11111111-1111-4111-8111-111111111111"
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/kyb/spaces/"+spaceID+"/sii", &body)
+	req.Header.Set("Authorization", "Bearer landlord-token")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated || !strings.Contains(rec.Body.String(), `"sii_giro_code":"521020"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

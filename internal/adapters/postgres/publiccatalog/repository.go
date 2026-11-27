@@ -291,6 +291,10 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		query += condition
 	}
+	if f.VerifiedOnly {
+		args = append(args, true)
+		query += " AND ($" + itoa(len(args)) + "::boolean = false OR space_verified)"
+	}
 	// Geographic predicates run before ORDER BY/LIMIT for both grid and map.
 	if f.MapOnly || f.Bounds != nil || f.Proximity != nil {
 		query += " AND public_location IS NOT NULL"

@@ -3663,6 +3663,7 @@ paths:
         - { in: query, name: latitude, schema: { type: number, minimum: -90, maximum: 90 } }
         - { in: query, name: longitude, schema: { type: number, minimum: -180, maximum: 180 } }
         - { in: query, name: radius_km, schema: { type: number, minimum: 1, maximum: 200 } }
+        - { in: query, name: verified_only, description: "Si es true, filtra solo publicaciones verificadas comercialmente.", schema: { type: boolean } }
       responses:
         "200": { description: Página pública minimizada, content: { application/json: { schema: { $ref: "#/components/schemas/PublicSpacePage" } } } }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
@@ -3694,6 +3695,7 @@ paths:
         - { in: query, name: latitude, schema: { type: number, minimum: -90, maximum: 90 } }
         - { in: query, name: longitude, schema: { type: number, minimum: -180, maximum: 180 } }
         - { in: query, name: radius_km, schema: { type: number, minimum: 1, maximum: 200 } }
+        - { in: query, name: verified_only, description: "Si es true, filtra solo publicaciones verificadas comercialmente.", schema: { type: boolean } }
       responses:
         "200": { description: Página de marcadores con conteo total y bandera has_more., content: { application/json: { schema: { $ref: "#/components/schemas/PublicSpaceMapPage" } } } }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
@@ -5536,12 +5538,12 @@ paths:
       operationId: updateHostOrganization
       tags: [ KYB ]
       description: >-
-        Actualiza el nombre comercial y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+        Actualiza el nombre comercial, el resumen público y la razón social según el estado de la empresa. Requiere representante legal activo. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object, required: [ legal_name ], properties: { legal_name: { type: string, minLength: 2, maxLength: 200 }, trade_name: { type: string, maxLength: 200 } } }
+            schema: { type: object, required: [ legal_name ], properties: { legal_name: { type: string, minLength: 2, maxLength: 200 }, trade_name: { type: string, maxLength: 200 }, public_summary: { type: string, maxLength: 2000 } } }
       responses:
         "200":
           description: Operación exitosa.
@@ -5749,6 +5751,31 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /kyb/spaces/{spaceId}/sii:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: submitSpaceKYBCategorySII
+      tags: [ KYB ]
+      description: >-
+        Carga el Certificado de Inicio de Actividades SII para una categoría adicional de un espacio de empresa que el actor puede administrar. Acepta PDF, JPEG o PNG de hasta 10 MiB y valida un giro de seis dígitos. Disponible en el entorno local con almacenamiento y keyrings KYB configurados.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { type: object, required: [ sii_giro_code, sii_start_activities ], properties: { sii_giro_code: { type: string, pattern: "^[0-9]{6}$" }, sii_start_activities: { type: string, format: binary } } }
+      responses:
+        "201":
+          description: Operación exitosa.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KYBComplianceDocument" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /kyb/spaces/{spaceId}/eligibility:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -14250,8 +14277,8 @@ components:
     KYBOrganizationInvitation: { type: object, required: [ id, organizacion_id, rol_propuesto, estado, expires_at, created_at ], properties: { id: { type: string, format: uuid }, organizacion_id: { type: string, format: uuid }, target_email: { type: string, format: email }, rol_propuesto: { $ref: "#/components/schemas/KYBOrganizationRole" }, estado: { type: string }, expires_at: { type: string, format: date-time }, created_at: { type: string, format: date-time } } }
     KYBComplianceStatus: { type: string, enum: [ grace_active, in_review, compliant, disabled_missing_docs ] }
     KYBComplianceProfile: { type: object, required: [ owner_usuario_id, compliance_status ], properties: { owner_usuario_id: { type: string, format: uuid }, organization_id: { type: string, format: uuid }, legal_name: { type: string }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, sii_giro_code: { type: string }, sii_status: { type: string }, grace_started_at: { type: string, format: date-time }, grace_due_at: { type: string, format: date-time }, disabled_at: { type: string, format: date-time }, disabled_reason: { type: string } } }
-    KYBComplianceDocument: { type: object, required: [ id, owner_usuario_id, document_kind, status, mime_type, size_bytes, submitted_at ], properties: { id: { type: string, format: uuid }, owner_usuario_id: { type: string, format: uuid }, organization_id: { type: string, format: uuid }, submitted_by: { type: string, format: uuid }, space_id: { type: string, format: uuid }, document_kind: { type: string, enum: [ sii_start_activities, property_or_sublease_authorization ] }, status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, mime_type: { type: string }, size_bytes: { type: integer }, sii_giro_code: { type: string }, submitted_at: { type: string, format: date-time }, rejection_reason: { type: string } } }
-    KYBSpaceEligibility: { type: object, required: [ can_publish, can_book, space_verified, compliance_status ], properties: { can_publish: { type: boolean }, can_book: { type: boolean }, space_verified: { type: boolean }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, verification_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, grace_due_at: { type: string, format: date-time } } }
+    KYBComplianceDocument: { type: object, required: [ id, owner_usuario_id, document_kind, status, mime_type, size_bytes, submitted_at ], properties: { id: { type: string, format: uuid }, owner_usuario_id: { type: string, format: uuid }, organization_id: { type: string, format: uuid }, submitted_by: { type: string, format: uuid }, space_id: { type: string, format: uuid }, document_kind: { type: string, enum: [ sii_start_activities, property_or_sublease_authorization ] }, status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, mime_type: { type: string }, size_bytes: { type: integer }, sii_giro_code: { type: string }, category_code: { type: string }, submitted_at: { type: string, format: date-time }, rejection_reason: { type: string } } }
+    KYBSpaceEligibility: { type: object, required: [ can_publish, can_book, space_verified, compliance_status, property_approved, company_verified, requires_category_sii, category_sii_approved ], properties: { can_publish: { type: boolean }, can_book: { type: boolean }, space_verified: { type: boolean }, compliance_status: { $ref: "#/components/schemas/KYBComplianceStatus" }, verification_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, grace_due_at: { type: string, format: date-time }, property_approved: { type: boolean }, property_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, property_rejection_reason: { type: string }, company_verified: { type: boolean }, requires_category_sii: { type: boolean }, category_sii_approved: { type: boolean }, category_sii_status: { type: string, enum: [ PENDING, IN_REVIEW, APPROVED, REJECTED ] }, category_sii_rejection_reason: { type: string }, category_code: { type: string }, category_name: { type: string } } }
     KYBVerification:
       type: object
       additionalProperties: false

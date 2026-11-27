@@ -232,3 +232,94 @@ func TestCompanyDocumentSetAcceptsSIIAndRetainsLegacySubmission(t *testing.T) {
 		t.Fatalf("SII company submission: %v", err)
 	}
 }
+
+type complianceTestRepo struct {
+	*testRepository
+	scopeOwner  string
+	scopeOrg    string
+	submitted   ComplianceDocument
+	submitErr   error
+}
+
+func (*complianceTestRepo) SubmitPersonalSII(context.Context, ComplianceDocument) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (*complianceTestRepo) PersonalCompliance(context.Context, string) (ComplianceProfile, error) {
+	return ComplianceProfile{}, nil
+}
+func (*complianceTestRepo) SubmitSpaceProperty(context.Context, ComplianceDocument) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (r *complianceTestRepo) SubmitSpaceCategorySII(_ context.Context, item ComplianceDocument) (ComplianceDocument, error) {
+	r.submitted = item
+	if r.submitErr != nil {
+		return ComplianceDocument{}, r.submitErr
+	}
+	item.CategoryCode = "bodega"
+	return item, nil
+}
+func (r *complianceTestRepo) SpaceStorageScope(context.Context, string, string) (string, string, error) {
+	return r.scopeOwner, r.scopeOrg, nil
+}
+func (*complianceTestRepo) SpaceEligibility(context.Context, string, string, time.Time) (SpaceEligibility, error) {
+	return SpaceEligibility{}, nil
+}
+func (*complianceTestRepo) ListCompliance(context.Context, string) ([]ComplianceProfile, error) {
+	return nil, nil
+}
+func (*complianceTestRepo) SetComplianceDisabled(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (*complianceTestRepo) SetOrganizationDisabled(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+func (*complianceTestRepo) ListPendingComplianceDocuments(context.Context) ([]ComplianceDocument, error) {
+	return nil, nil
+}
+func (*complianceTestRepo) GetComplianceDocument(context.Context, string) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (*complianceTestRepo) GetComplianceDocumentByStorageRef(context.Context, string) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (*complianceTestRepo) StartComplianceReview(context.Context, string, string, time.Time) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (*complianceTestRepo) DecideComplianceDocument(context.Context, string, string, Status, string, time.Time) (ComplianceDocument, error) {
+	return ComplianceDocument{}, nil
+}
+func (*complianceTestRepo) ExpireNoncompliant(context.Context, time.Time) (int, error) { return 0, nil }
+
+func TestSubmitSpaceCategorySIIValidatesAndStoresUnderOrganization(t *testing.T) {
+	docs := &testDocuments{objects: map[string][]byte{}}
+	repo := &complianceTestRepo{testRepository: &testRepository{}, scopeOwner: testOwnerID, scopeOrg: testOrganizationID}
+	ids := &testIDs{values: []string{testDocumentID1, testStorageRef1, testDocumentID2, testStorageRef2}}
+	svc := &Service{
+		repository: repo,
+		documents:  docs,
+		ids:        ids,
+		now:        func() time.Time { return time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC) },
+	}
+	pdf := []byte("%PDF-1.4\ncategory sii")
+	upload := Upload{Kind: DocumentSIIStartActivities, MIME: "application/pdf", Content: pdf}
+
+	created, err := svc.SubmitSpaceCategorySII(context.Background(), testOwnerID, testVerificationID, "521020", upload)
+	if err != nil {
+		t.Fatalf("SubmitSpaceCategorySII: %v", err)
+	}
+	if created.Kind != DocumentSIIStartActivities || created.GiroCode != "521020" || created.CategoryCode != "bodega" || len(docs.objects) != 1 {
+		t.Fatalf("unexpected created category SII: %+v objects=%d", created, len(docs.objects))
+	}
+
+	if _, err := svc.SubmitSpaceCategorySII(context.Background(), testOwnerID, testVerificationID, "bad", upload); err != ErrInvalid {
+		t.Fatalf("expected ErrInvalid for invalid giro, got %v", err)
+	}
+
+	repo.scopeOrg = ""
+	if _, err := svc.SubmitSpaceCategorySII(context.Background(), testOwnerID, testVerificationID, "521020", upload); err != ErrInvalid {
+		t.Fatalf("expected ErrInvalid for personal space, got %v", err)
+	}
+	if len(docs.objects) != 1 {
+		t.Fatalf("personal space rejection should not write to object store, got %d objects", len(docs.objects))
+	}
+}

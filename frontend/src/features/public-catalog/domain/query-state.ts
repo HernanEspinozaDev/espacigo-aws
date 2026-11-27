@@ -340,6 +340,9 @@ export function parseCatalogQuery(
     const attributes = params.attribute;
     query.attribute = sanitizeAttributes(attributes, filters);
   }
+  if (single(params, "verified_only") === "true") {
+    query.verified_only = true;
+  }
   return query;
 }
 
@@ -405,6 +408,7 @@ export function serializeCatalogQuery(query: CatalogQuery): URLSearchParams {
   }
   for (const attribute of query.attribute)
     params.append("attribute", attribute);
+  if (query.verified_only) params.set("verified_only", "true");
   return params;
 }
 
@@ -438,6 +442,7 @@ export function hasCatalogFilters(query: CatalogQuery): boolean {
     query.end_at ||
     query.min_total_clp ||
     query.max_total_clp ||
+    query.verified_only ||
     query.cursor,
   );
 }

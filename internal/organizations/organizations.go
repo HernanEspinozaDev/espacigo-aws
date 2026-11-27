@@ -71,7 +71,7 @@ type Repository interface {
 	ListMine(context.Context, string) ([]Organization, error)
 	Create(context.Context, string, string, string, string, []string) (Organization, error)
 	Get(context.Context, string, string) (Organization, error)
-	Update(context.Context, string, string, string, string) (Organization, error)
+	Update(context.Context, string, string, string, string, string) (Organization, error)
 	Members(context.Context, string, string) ([]Member, error)
 	Invite(context.Context, string, string, string, Role, string, []byte, time.Time) (Invitation, error)
 	Accept(context.Context, string, string, string, []byte, time.Time) (Member, error)
@@ -139,13 +139,14 @@ func (s *Service) Get(ctx context.Context, user, id string) (Organization, error
 	}
 	return s.repo.Get(ctx, user, id)
 }
-func (s *Service) Update(ctx context.Context, user, id, legal, trade string) (Organization, error) {
+func (s *Service) Update(ctx context.Context, user, id, legal, trade, publicSummary string) (Organization, error) {
 	legal = strings.TrimSpace(legal)
 	trade = strings.TrimSpace(trade)
-	if s == nil || !validID(user) || !validID(id) || len([]rune(legal)) < 2 || len([]rune(legal)) > 200 || len([]rune(trade)) > 200 {
+	publicSummary = strings.TrimSpace(publicSummary)
+	if s == nil || !validID(user) || !validID(id) || len([]rune(legal)) < 2 || len([]rune(legal)) > 200 || len([]rune(trade)) > 200 || len([]rune(publicSummary)) > 2000 {
 		return Organization{}, ErrInvalid
 	}
-	return s.repo.Update(ctx, user, id, legal, trade)
+	return s.repo.Update(ctx, user, id, legal, trade, publicSummary)
 }
 func (s *Service) Members(ctx context.Context, user, id string) ([]Member, error) {
 	if s == nil || !validID(user) || !validID(id) {

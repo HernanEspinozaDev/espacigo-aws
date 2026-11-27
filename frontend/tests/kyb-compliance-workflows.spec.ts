@@ -290,7 +290,9 @@ test("1. /anfitrion/empresas: creación, colisión de RUT con adhesión y gesti�
   });
 
   await page.goto("/anfitrion/empresas");
-  await expect(page.getByRole("heading", { name: "Empresas" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Empresas", exact: true }),
+  ).toBeVisible();
 
   // Gestión de equipo y representantes legales en empresa base
   await page
@@ -329,6 +331,7 @@ test("1. /anfitrion/empresas: creación, colisión de RUT con adhesión y gesti�
   ).toHaveValue(/synthetic-direct-invite-token-32-chars/);
 
   // Colisión de RUT -> anti-duplicación y solicitud privada de adhesión
+  await page.getByRole("button", { name: "Agregar nueva empresa" }).click();
   await page.locator("#new-legal").fill("Empresa Ya Registrada SpA");
   await page.locator("#new-trade").fill("Empresa Duplicada");
   await page.locator("#new-rut").fill("77.123.456-9");
@@ -365,7 +368,7 @@ test("1. /anfitrion/empresas: creación, colisión de RUT con adhesión y gesti�
     page.getByText("Empresa creada. Completa su carpeta en Verificación KYB."),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Cordillera Cowork" }),
+    page.getByRole("button", { name: /Cordillera Cowork/ }),
   ).toBeVisible();
 });
 
@@ -1217,15 +1220,20 @@ test("6. /mi-cuenta/empresas: registro de empresa y sección Verificar empresa (
       .getByRole("link", { name: /^General/ }),
   ).toHaveAttribute("aria-current", "page");
 
+  await page.getByRole("button", { name: "Agregar nueva empresa" }).click();
   await expect(
     page.getByRole("heading", { name: "Registrar empresa" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Cerrar" }).click();
   await expect(
-    page.getByRole("heading", { name: "Verificar empresa" }),
+    page.getByRole("heading", { name: /Verificar empresa/ }),
   ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Ir a Verificaciones de espacio" }),
-  ).toHaveAttribute("href", "/mi-cuenta/verificaciones/espacios");
+  ).toHaveAttribute(
+    "href",
+    `/mi-cuenta/verificaciones/espacios?organizationId=${orgId}`,
+  );
 
   // Razón social prellenada con legal_name en CompanyKYBCard
   const legalNameInputs = page.getByLabel("Razón social");
@@ -1404,7 +1412,9 @@ test("8. /mi-cuenta/verificaciones/espacios con 2 espacios (1 Persona Natural + 
           can_book: true,
           space_verified: false,
           compliance_status: "grace_active",
-          verification_status: personalSpaceSubmitted ? "IN_REVIEW" : "PENDING",
+          property_approved: false,
+          property_status: personalSpaceSubmitted ? "PENDING" : "",
+          verification_status: personalSpaceSubmitted ? "PENDING" : "",
           grace_due_at: futureIso(45),
         },
       };
@@ -1495,4 +1505,402 @@ test("8. /mi-cuenta/verificaciones/espacios con 2 espacios (1 Persona Natural + 
   await expect(companyCard.getByLabel("Razón social")).toHaveValue(
     "Espacios Base SpA",
   );
+});
+
+test("9. /mi-cuenta/empresas: tarjetas clickeables de múltiples empresas, alta y descripción pública", async ({
+  page,
+}) => {
+  const spaceThirdId = "880e8400-e29b-41d4-a716-446655440043";
+  const organizations: Array<Record<string, unknown>> = [
+    {
+      id: orgId,
+      legal_name: "Arriendos Norte SpA",
+      trade_name: "Arriendos Norte",
+      public_summary: "Departamentos y casas amobladas.",
+      my_role: "representante_legal",
+      compliance_status: "compliant",
+    },
+  ];
+  let patchPayload: Record<string, unknown> | null = null;
+
+  await setupHostSession(page, (pathname, method, _url, postData) => {
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return { body: { items: organizations } };
+    }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: spaceAId,
+              title: "Depto Norte 101",
+              state: "activa",
+              organization_id: orgId,
+            },
+            {
+              id: spaceThirdId,
+              title: "Bodega Sur 5",
+              state: "activa",
+              organization_id: newOrgId,
+            },
+          ],
+        },
+      };
+    }
+    if (pathname === "/api/backend/host/organizations" && method === "POST") {
+      const payload = postData as Record<string, string>;
+      const created = {
+        id: newOrgId,
+        legal_name: payload.legal_name,
+        trade_name: payload.trade_name,
+        public_summary: "",
+        my_role: "representante_legal",
+        compliance_status: "grace_active",
+        grace_due_at: futureIso(59),
+      };
+      organizations.push(created);
+      return { status: 201, body: { organization: created } };
+    }
+    const orgMatch = pathname.match(
+      /^\/api\/backend\/host\/organizations\/([^/]+)$/,
+    );
+    if (orgMatch && method === "GET") {
+      const org = organizations.find((item) => item.id === orgMatch[1]);
+      return org ? { body: { organization: org } } : { status: 404, body: {} };
+    }
+    if (orgMatch && method === "PATCH") {
+      patchPayload = postData as Record<string, unknown>;
+      const org = organizations.find((item) => item.id === orgMatch[1]);
+      if (org) {
+        org.trade_name = patchPayload.trade_name;
+        org.public_summary = patchPayload.public_summary;
+      }
+      return { body: { organization: org } };
+    }
+    if (/\/members$/.test(pathname) && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: repMemberId,
+              usuario_id: accountId,
+              rol: "representante_legal",
+              estado: "activo",
+            },
+          ],
+        },
+      };
+    }
+    if (/\/join-requests$/.test(pathname) && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/kyb/verifications" && method === "GET") {
+      return { status: 404, body: {} };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta/empresas");
+  const card1 = page.getByRole("button", { name: /Arriendos Norte/ });
+  await expect(card1).toHaveAttribute("aria-pressed", "true");
+  await expect(card1).toContainText("1 espacio");
+
+  // Agregar segunda empresa y alternar entre tarjetas
+  await page.getByRole("button", { name: "Agregar nueva empresa" }).click();
+  await page.locator("#new-legal").fill("Bodegas Industriales Sur SpA");
+  await page.locator("#new-trade").fill("Bodegas Sur");
+  await page.locator("#new-rut").fill("76.888.999-6");
+  await page.getByRole("button", { name: "Crear empresa" }).click();
+
+  const card2 = page.getByRole("button", { name: /Bodegas Sur/ });
+  await expect(card2).toBeVisible();
+  await expect(card2).toHaveAttribute("aria-pressed", "true");
+  await expect(card2).toContainText("1 espacio");
+
+  // Cambiar descripción pública de Bodegas Sur
+  await expect(
+    page.getByRole("button", { name: "Guardar perfil" }),
+  ).toBeEnabled();
+  await page
+    .getByLabel("Descripción pública")
+    .fill("Bodegas seguras con control de acceso 24/7.");
+  await page.getByRole("button", { name: "Guardar perfil" }).click();
+  await expect(page.getByText("Perfil comercial actualizado.")).toBeVisible();
+  expect(patchPayload).toEqual({
+    legal_name: "Bodegas Industriales Sur SpA",
+    trade_name: "Bodegas Sur",
+    public_summary: "Bodegas seguras con control de acceso 24/7.",
+  });
+
+  // Volver a seleccionar Empresa 1 y confirmar datos cargados
+  await card1.click();
+  await expect(card1).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("Descripción pública")).toHaveValue(
+    "Departamentos y casas amobladas.",
+  );
+  await expect(page.getByText("Depto Norte 101")).toBeVisible();
+});
+
+test("10. /mi-cuenta/verificaciones/espacios: empresa verificada con 3 espacios y SII condicional por categoría", async ({
+  page,
+}) => {
+  const spaceCId = "880e8400-e29b-41d4-a716-446655440044";
+  let spaceBSubmitted = false;
+  let spaceCSiiSubmitted = false;
+
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: spaceAId,
+              title: "Casa Las Condes (Verificada)",
+              state: "activa",
+              organization_id: orgId,
+            },
+            {
+              id: spaceBId,
+              title: "Depto Ñuñoa (Misma categoría)",
+              state: "activa",
+              organization_id: orgId,
+            },
+            {
+              id: spaceCId,
+              title: "Bodega Quilicura (Nueva categoría)",
+              state: "activa",
+              organization_id: orgId,
+            },
+          ],
+        },
+      };
+    }
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: orgId,
+              legal_name: "Espacios Base SpA",
+              trade_name: "Espacios Base",
+              my_role: "representante_legal",
+              compliance_status: "compliant",
+            },
+          ],
+        },
+      };
+    }
+    if (
+      pathname === "/api/backend/kyb/personal/compliance" &&
+      method === "GET"
+    ) {
+      return { status: 404, body: {} };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceAId}/eligibility` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          can_publish: true,
+          can_book: true,
+          space_verified: true,
+          compliance_status: "compliant",
+          verification_status: "APPROVED",
+          property_approved: true,
+          property_status: "APPROVED",
+          company_verified: true,
+          requires_category_sii: false,
+          category_sii_approved: true,
+          category_code: "inmuebles",
+          category_name: "Inmuebles",
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceBId}/eligibility` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          can_publish: true,
+          can_book: true,
+          space_verified: false,
+          compliance_status: spaceBSubmitted ? "in_review" : "grace_active",
+          verification_status: spaceBSubmitted ? "PENDING" : "",
+          property_approved: false,
+          property_status: spaceBSubmitted ? "PENDING" : "",
+          company_verified: true,
+          requires_category_sii: false,
+          category_sii_approved: true,
+          category_code: "inmuebles",
+          category_name: "Inmuebles",
+          grace_due_at: futureIso(55),
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceCId}/eligibility` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          can_publish: true,
+          can_book: true,
+          space_verified: false,
+          compliance_status: spaceCSiiSubmitted ? "in_review" : "grace_active",
+          verification_status: "",
+          property_approved: false,
+          property_status: "",
+          company_verified: true,
+          requires_category_sii: true,
+          category_sii_approved: false,
+          category_sii_status: spaceCSiiSubmitted ? "PENDING" : "",
+          category_code: "bodega",
+          category_name: "Bodegas",
+          grace_due_at: futureIso(58),
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceBId}/verification` &&
+      method === "POST"
+    ) {
+      spaceBSubmitted = true;
+      return { status: 201, body: { id: "prop-b-1", status: "PENDING" } };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceCId}/sii` &&
+      method === "POST"
+    ) {
+      spaceCSiiSubmitted = true;
+      return {
+        status: 201,
+        body: {
+          id: "cat-sii-c-1",
+          status: "PENDING",
+          document_kind: "sii_start_activities",
+          sii_giro_code: "521000",
+          category_code: "bodega",
+        },
+      };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta/verificaciones/espacios");
+
+  const cardA = page.locator(`[data-space-verification-card="${spaceAId}"]`);
+  await expect(
+    cardA.getByText("Espacio verificado", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    cardA.getByText(/Empresa verificada \(KYB aprobado\)/),
+  ).toBeVisible();
+  await expect(cardA.getByText(/Certificado SII por categoría/)).toHaveCount(0);
+
+  // Espacio B (misma categoría Inmuebles): no pide SII, solo respaldo del inmueble
+  const cardB = page.locator(`[data-space-verification-card="${spaceBId}"]`);
+  await expect(
+    cardB.getByText(/Empresa verificada \(KYB aprobado\)/),
+  ).toBeVisible();
+  await expect(
+    cardB.getByText(/Plazo de gracia: quedan .* días/),
+  ).toBeVisible();
+  await expect(cardB.getByText(/Certificado SII por categoría/)).toHaveCount(0);
+  await cardB.locator(`#space-doc-${spaceBId}`).setInputFiles(syntheticPdf);
+  await cardB.getByRole("button", { name: "Enviar respaldo" }).click();
+  expect(spaceBSubmitted).toBe(true);
+  await expect(
+    cardB.getByText("Respaldo del inmueble enviado y en proceso de revisión."),
+  ).toBeVisible();
+
+  // Espacio C (categoría Bodegas distinta): muestra y envía SII por categoría
+  const cardC = page.locator(`[data-space-verification-card="${spaceCId}"]`);
+  await expect(
+    cardC.getByRole("heading", {
+      name: "Certificado SII por categoría (Bodegas)",
+    }),
+  ).toBeVisible();
+  await cardC.locator(`#cat-sii-giro-${spaceCId}`).fill("521000");
+  await cardC.locator(`#cat-sii-file-${spaceCId}`).setInputFiles(syntheticPdf);
+  await cardC.getByRole("button", { name: "Enviar SII por categoría" }).click();
+  expect(spaceCSiiSubmitted).toBe(true);
+  await expect(
+    cardC.getByText(
+      "Certificado SII por categoría enviado y en proceso de revisión.",
+    ),
+  ).toBeVisible();
+});
+
+test("11. Promoción anfitrión y banner de Espacios Verificados en Landing -> /explorar?verified_only=true", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", {
+      name: "Revisa los espacios verificados recomendados para reservar con confianza",
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Explorar espacios verificados" })
+    .click();
+
+  await expect(page).toHaveURL(/\/explorar\?verified_only=true/);
+  await expect(page.getByText("Espacio A Verificado")).toBeVisible();
+  await expect(page.getByText("Espacio B Sin Respaldo")).toHaveCount(0);
+  await expect(
+    page.getByRole("link", {
+      name: /Quitar filtro: Solo espacios verificados/,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(
+    page.getByRole("checkbox", { name: /Solo espacios verificados/ }),
+  ).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // Promoción interna para anfitriones en /mi-cuenta y /anfitrion
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/profile" && method === "GET") {
+      return {
+        body: { display_name: "Anfitrión", updated_at: "2026-11-01T12:00:00Z" },
+      };
+    }
+    if (pathname === "/api/backend/identity/profile" && method === "GET") {
+      return {
+        body: { state: "verified", complete: true, username: "Anfitrión" },
+      };
+    }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (
+      pathname === "/api/backend/kyb/personal/compliance" &&
+      method === "GET"
+    ) {
+      return { status: 404, body: {} };
+    }
+    if (pathname === "/api/backend/host/requirements" && method === "GET") {
+      return { body: { kyc_verified: true, mp_connected: true } };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta");
+  await expect(
+    page.getByRole("heading", {
+      name: "Habilita tu empresa y obtén la insignia Espacio Verificado",
+    }),
+  ).toBeVisible();
+
+  await page.goto("/anfitrion");
+  await expect(
+    page.getByRole("heading", {
+      name: "Habilita tu empresa y obtén la insignia Espacio Verificado",
+    }),
+  ).toBeVisible();
 });

@@ -420,7 +420,7 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 		"comuna_code": true, "min_area_m2": true, "min_capacity": true, "attribute": true, "start_at": true,
 		"end_at": true, "min_total_clp": true, "max_total_clp": true,
 		"bbox": true, "latitude": true, "longitude": true, "radius_km": true,
-		"exclude_bbox": true, "exclude_radius_km": true,
+		"exclude_bbox": true, "exclude_radius_km": true, "verified_only": true,
 	}
 	for key, values := range q {
 		if !allowed[key] || (key != "attribute" && len(values) != 1) || (key == "attribute" && len(values) > 32) {
@@ -437,6 +437,16 @@ func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
 			return f, false
 		}
 		f.MinCapacity = &n
+	}
+	if raw, ok := q["verified_only"]; ok {
+		switch raw[0] {
+		case "", "false":
+			f.VerifiedOnly = false
+		case "true":
+			f.VerifiedOnly = true
+		default:
+			return f, false
+		}
 	}
 	if raw, ok := q["bbox"]; ok {
 		parts := strings.Split(raw[0], ",")

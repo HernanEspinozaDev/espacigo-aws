@@ -13,6 +13,7 @@ import { HowItWorksPreview } from "@/features/public-catalog/ui/how-it-works-pre
 import {
   MercadoPagoSecuritySection,
   PlatformFeaturesSection,
+  VerifiedSpacesBanner,
 } from "@/features/public-catalog/ui/landing-promo-sections";
 
 export const dynamic = "force-dynamic";
@@ -99,6 +100,8 @@ export default async function Home() {
           <CatalogUnavailable title="No pudimos cargar las publicaciones" />
         </section>
       )}
+
+      <VerifiedSpacesBanner />
 
       <PlatformFeaturesSection />
 

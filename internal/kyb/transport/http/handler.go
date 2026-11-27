@@ -36,6 +36,7 @@ type ApplicationService interface {
 	SubmitPersonalSII(context.Context, string, string, kyb.Upload) (kyb.ComplianceDocument, error)
 	PersonalCompliance(context.Context, string) (kyb.ComplianceProfile, error)
 	SubmitSpaceProperty(context.Context, string, string, kyb.Upload) (kyb.ComplianceDocument, error)
+	SubmitSpaceCategorySII(context.Context, string, string, string, kyb.Upload) (kyb.ComplianceDocument, error)
 	SpaceEligibility(context.Context, string, string) (kyb.SpaceEligibility, error)
 	ComplianceProfiles(context.Context, string) ([]kyb.ComplianceProfile, error)
 	SetComplianceDisabled(context.Context, string, string, string, bool) error
@@ -250,6 +251,16 @@ func (h *Handler) serveCompliance(w http.ResponseWriter, r *http.Request, path s
 			return
 		}
 		item, err := h.service.SubmitSpaceProperty(r.Context(), principal.AccountID, parts[0], uploads[0])
+		writeServiceResult(w, item, err, http.StatusCreated)
+		return
+	}
+	if len(parts) == 2 && kyb.ValidUUID(parts[0]) && parts[1] == "sii" && r.Method == http.MethodPost {
+		values, uploads, err := parseSingleUpload(w, r, map[string]bool{"sii_start_activities": true})
+		if err != nil || len(uploads) != 1 {
+			writeError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
+		item, err := h.service.SubmitSpaceCategorySII(r.Context(), principal.AccountID, parts[0], values.Get("sii_giro_code"), uploads[0])
 		writeServiceResult(w, item, err, http.StatusCreated)
 		return
 	}

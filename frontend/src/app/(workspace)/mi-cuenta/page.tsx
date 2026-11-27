@@ -17,6 +17,7 @@ import { useAccount } from "@/features/account/ui/use-account";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useSecurityMethodsSummary } from "@/features/account/ui/use-security-methods-summary";
 import { useIdentityProfile } from "@/features/identity-profile/ui/use-identity-profile";
+import { VerifiedSpaceHostPromo } from "@/features/kyb/ui/verified-space-host-promo";
 
 export default function MiCuentaPage() {
   const { snapshot, loadOverview, loadProfilePhoto } = useAccount();
@@ -343,6 +344,8 @@ export default function MiCuentaPage() {
           </div>
         </div>
       </div>
+
+      <VerifiedSpaceHostPromo />
     </div>
   );
 }

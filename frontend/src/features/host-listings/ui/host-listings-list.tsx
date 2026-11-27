@@ -35,6 +35,7 @@ import {
   HostComplianceNotice,
   useHostCompliance,
 } from "@/features/kyb/ui/host-compliance-notice";
+import { VerifiedSpaceHostPromo } from "@/features/kyb/ui/verified-space-host-promo";
 import {
   isPublishGateReasonCode,
   type PublishGateReasonCode,
@@ -315,6 +316,8 @@ export function HostListingsList() {
       </div>
 
       <HostComplianceNotice profile={hostCompliance} />
+
+      <VerifiedSpaceHostPromo variant="compact" />
 
       <PublishGuideModal
         open={guideOpen}

@@ -316,9 +316,13 @@ function CompanyKYBCardContent({
           className={`rounded-lg border p-3 text-sm ${
             companyDisabled
               ? "border-red-200 bg-red-50 text-red-900"
-              : companyDaysRemaining !== null
-                ? "border-amber-200 bg-amber-50 text-amber-950"
-                : "border-border bg-muted/30"
+              : organization.compliance_status === "compliant"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : organization.compliance_status === "in_review"
+                  ? "border-sky-200 bg-sky-50 text-sky-900"
+                  : companyDaysRemaining !== null
+                    ? "border-amber-200 bg-amber-50 text-amber-950"
+                    : "border-border bg-muted/30"
           }`}
         >
           <p className="font-medium">
@@ -330,8 +334,11 @@ function CompanyKYBCardContent({
               inhabilitadas hasta regularizar la documentación. Puedes continuar
               enviando sus documentos.
             </p>
-          ) : companyDaysRemaining !== null &&
-            organization.compliance_status !== "compliant" ? (
+          ) : organization.compliance_status === "compliant" ? (
+            <p className="mt-1">
+              La empresa cuenta con verificación empresarial KYB aprobada.
+            </p>
+          ) : companyDaysRemaining !== null ? (
             <p className="mt-1">
               Plazo compartido de la empresa: quedan {companyDaysRemaining} días
               para completar los documentos pendientes.
@@ -357,14 +364,27 @@ function CompanyKYBCardContent({
       ) : verification &&
         verification.status !== "REJECTED" &&
         !companyDisabled ? (
-        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+        <div
+          className={`rounded-lg border p-4 text-sm ${
+            verification.status === "APPROVED"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-border bg-muted/30"
+          }`}
+        >
           <p className="font-medium">{kybStatusLabel(verification.status)}</p>
-          <p className="mt-1 text-muted-foreground">
+          <p
+            className={`mt-1 ${
+              verification.status === "APPROVED"
+                ? "text-emerald-800"
+                : "text-muted-foreground"
+            }`}
+          >
             Empresa: {verification.legal_name}. Giro SII:{" "}
             {verification.sii_giro_code}.
           </p>
         </div>
-      ) : organization.my_role !== "representante_legal" ? (
+      ) : organization.compliance_status ===
+        "compliant" ? null : organization.my_role !== "representante_legal" ? (
         <p className="text-sm text-muted-foreground">
           La carpeta de la empresa la presenta un representante legal.
         </p>
