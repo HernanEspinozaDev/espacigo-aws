@@ -7,6 +7,7 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { DocumentReviewView } from "@/features/document-review/ui/document-review-view";
 import { DocumentVerificationView } from "@/features/document-verification/ui/document-verification-view";
 import { cn } from "@/lib/utils";
+import { LegalAcceptancesCard } from "./legal-acceptances-card";
 import { PrivacyCard } from "./privacy-card";
 import { useAccount } from "./use-account";
 
@@ -104,7 +105,15 @@ function PrivacyHubContent({ initialTab }: { initialTab: PrivacyTab }) {
         role="tabpanel"
         aria-labelledby={`privacy-tab-${activeTab}`}
       >
-        {activeTab === "privacidad" ? <PrivacyCard /> : null}
+        {activeTab === "privacidad" ? (
+          <div className="space-y-6">
+            <PrivacyCard />
+            {authSnapshot.status === "authenticated" &&
+              authSnapshot.accountId && (
+                <LegalAcceptancesCard accountId={authSnapshot.accountId} />
+              )}
+          </div>
+        ) : null}
         {activeTab === "documentos" ? <DocumentVerificationView /> : null}
         {activeTab === "revision" ? <DocumentReviewView /> : null}
       </div>

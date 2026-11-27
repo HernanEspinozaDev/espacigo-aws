@@ -2522,7 +2522,7 @@ export interface paths {
     put?: never;
     /**
      * Aplicar retención legal sobre registros de privacidad
-     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
      */
     post: operations["createGlobalPrivacyLegalHold"];
     delete?: never;
@@ -2542,7 +2542,7 @@ export interface paths {
     put?: never;
     /**
      * Liberar una retención legal de privacidad
-     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
      */
     post: operations["releaseGlobalPrivacyLegalHold"];
     delete?: never;
@@ -3672,6 +3672,26 @@ export interface paths {
      * @description Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio público y el código de seguimiento en tiempo constante y devuelve únicamente el estado, plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo actor_id, correos y notas internas.
      */
     post: operations["lookupPublicPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/legal-acceptances": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar las versiones legales vigentes y las aceptaciones propias
+     * @description Disponible en los perfiles local y productivo con el servicio de privacidad montado. Requiere sesión de titular. Compara la última aceptación de cada documento con su versión vigente. La lectura no registra una nueva aceptación.
+     */
+    get: operations["listOwnLegalAcceptances"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -8270,7 +8290,10 @@ export interface components {
       | "contracts.read"
       | "kyc.case.read"
       | "kyc.review"
+      | "privacy.requests.read"
       | "privacy.requests.manage"
+      | "privacy.incidents.read"
+      | "privacy.incidents.manage"
       | "privacy.export.approve"
       | "support.tickets.read"
       | "support.tickets.manage"
@@ -20884,6 +20907,38 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listOwnLegalAcceptances: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Versiones y estado de aceptación de la cuenta. Respuesta sin caché. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: {
+              /** @enum {string} */
+              type: "terminos" | "privacidad";
+              current_code: string;
+              latest_accepted_code: string | null;
+              /** Format: date-time */
+              latest_accepted_at: string | null;
+              current_accepted: boolean;
+            }[];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };

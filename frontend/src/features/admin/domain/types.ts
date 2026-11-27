@@ -26,7 +26,10 @@ export type AdminCapability =
   | "contracts.read"
   | "kyc.case.read"
   | "kyc.review"
+  | "privacy.requests.read"
   | "privacy.requests.manage"
+  | "privacy.incidents.read"
+  | "privacy.incidents.manage"
   | "privacy.export.approve"
   | "support.tickets.read"
   | "support.tickets.manage"
@@ -683,18 +686,12 @@ export type GlobalAdminPrivacyRequestType =
 export type GlobalAdminPrivacyRequestStatus =
   "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
 
-export type GlobalAdminPrivacyChannel =
-  | "web"
-  | "api"
-  | "publico"
-  | "correo";
+export type GlobalAdminPrivacyChannel = "web" | "api" | "publico" | "correo";
 
 export type GlobalAdminPrivacyRequesterType = "titular" | "representante";
 
 export type GlobalAdminPrivacyRepresentativeRelation =
-  | "mandatario"
-  | "representante_legal"
-  | "tutor_nna";
+  "mandatario" | "representante_legal" | "tutor_nna";
 
 export interface AdminPrivacyNotificationSummary {
   readonly pending: number;
@@ -881,7 +878,8 @@ export interface GlobalAdminPrivacyRequestQuery {
 
 export type AdminPrivacyRequestItem = GlobalAdminPrivacyRequest;
 export type AdminPrivacyRequestDetail = GlobalAdminPrivacyRequestDetail;
-export type TransitionAdminPrivacyRequestInput = GlobalAdminPrivacyWorkflowInput;
+export type TransitionAdminPrivacyRequestInput =
+  GlobalAdminPrivacyWorkflowInput;
 
 export interface GlobalAdminPrivacyRequestCreateInput {
   readonly account_id: string;
@@ -986,17 +984,10 @@ export interface GlobalAdminApprovalDecisionInput {
 // Phase 7: Privacy Incidents & Legal Holds
 
 export type GlobalAdminPrivacyIncidentSeverity =
-  | "baja"
-  | "media"
-  | "alta"
-  | "critica";
+  "baja" | "media" | "alta" | "critica";
 
 export type GlobalAdminPrivacyIncidentStatus =
-  | "abierto"
-  | "contenido"
-  | "evaluado"
-  | "notificado"
-  | "cerrado";
+  "abierto" | "contenido" | "evaluado" | "notificado" | "cerrado";
 
 export type GlobalAdminPrivacyIncidentAction =
   | "contain"

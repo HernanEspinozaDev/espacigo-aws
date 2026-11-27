@@ -226,14 +226,35 @@ func (h *Handler) handlePrivacyNotificationsRetry(w http.ResponseWriter, r *http
 }
 
 func (h *Handler) handlePrivacyDispatchReceipt(w http.ResponseWriter, r *http.Request, targetID, requestID string) bool {
-	if r.Method != http.MethodPost { writeError(w,http.StatusMethodNotAllowed,"method_not_allowed",requestID); return true }
-	principal,ok:=h.authorize(w,r,identity.CapabilityPrivacyRequestsManage,requestID); if !ok { return true }
-	if !recentlyAuthenticated(principal.AuthenticatedAt,time.Now().UTC()) { writeError(w,http.StatusPreconditionRequired,"recent_authentication_required",requestID); return true }
-	var body struct { Channel string `json:"channel"`; Destination string `json:"destination"`; SentAt time.Time `json:"sent_at"`; EvidenceRef string `json:"evidence_ref"` }
-	if !decodeManagementBody(w,r,&body) { writeError(w,http.StatusBadRequest,"invalid_request",requestID); return true }
-	value,err:=h.service.RecordPrivacyDispatch(r.Context(),adminglobal.RecordPrivacyDispatchInput{ActorID:principal.AccountID,CorrelationID:requestID,RequestID:targetID,Channel:body.Channel,Destination:body.Destination,SentAt:body.SentAt,EvidenceRef:body.EvidenceRef})
-	if err!=nil { replyError(w,err,requestID); return true }
-	writeJSON(w,http.StatusOK,map[string]any{"data":value}); return true
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", requestID)
+		return true
+	}
+	principal, ok := h.authorize(w, r, identity.CapabilityPrivacyRequestsManage, requestID)
+	if !ok {
+		return true
+	}
+	if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+		writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+		return true
+	}
+	var body struct {
+		Channel     string    `json:"channel"`
+		Destination string    `json:"destination"`
+		SentAt      time.Time `json:"sent_at"`
+		EvidenceRef string    `json:"evidence_ref"`
+	}
+	if !decodeManagementBody(w, r, &body) {
+		writeError(w, http.StatusBadRequest, "invalid_request", requestID)
+		return true
+	}
+	value, err := h.service.RecordPrivacyDispatch(r.Context(), adminglobal.RecordPrivacyDispatchInput{ActorID: principal.AccountID, CorrelationID: requestID, RequestID: targetID, Channel: body.Channel, Destination: body.Destination, SentAt: body.SentAt, EvidenceRef: body.EvidenceRef})
+	if err != nil {
+		replyError(w, err, requestID)
+		return true
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"data": value})
+	return true
 }
 
 func (h *Handler) authorizeAny(w http.ResponseWriter, r *http.Request, requestID string, capabilities ...identity.Capability) (identity.Principal, bool) {

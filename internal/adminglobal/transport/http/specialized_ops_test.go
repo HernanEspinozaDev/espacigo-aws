@@ -15,28 +15,28 @@ import (
 )
 
 type fakeSpecializedOpsStore struct {
-	now               func() time.Time
-	payments          []adminglobal.PaymentItem
-	reservations      []adminglobal.ReservationItem
-	contracts         []adminglobal.ContractItem
-	kycCases          []adminglobal.KYCCaseItem
-	privacyRequests   []adminglobal.PrivacyRequestItem
-	tickets           []adminglobal.SupportTicketItem
-	approvals         map[string]adminglobal.ApprovalItem
-	idemKeys          map[string]string
-	lastPayFilter         adminglobal.PaymentFilter
-	lastPrivacyFilter     adminglobal.PrivacyRequestFilter
-	lastTransitionInput   adminglobal.TransitionPrivacyRequestInput
-	lastExecuteInput      adminglobal.ExecutePrivacyRightInput
-	retryPrivacyRequests  int
-	privacyIncidents      []adminglobal.PrivacyIncidentItem
-	lastIncidentFilter    adminglobal.PrivacyIncidentFilter
-	lastCreateIncident    adminglobal.CreatePrivacyIncidentInput
-	lastIncidentTrans     adminglobal.TransitionPrivacyIncidentInput
-	legalHolds            []adminglobal.PrivacyLegalHoldItem
-	lastLegalHoldFilter   adminglobal.PrivacyLegalHoldFilter
-	lastCreateLegalHold   adminglobal.CreatePrivacyLegalHoldInput
-	lastReleaseLegalHold  adminglobal.ReleasePrivacyLegalHoldInput
+	now                  func() time.Time
+	payments             []adminglobal.PaymentItem
+	reservations         []adminglobal.ReservationItem
+	contracts            []adminglobal.ContractItem
+	kycCases             []adminglobal.KYCCaseItem
+	privacyRequests      []adminglobal.PrivacyRequestItem
+	tickets              []adminglobal.SupportTicketItem
+	approvals            map[string]adminglobal.ApprovalItem
+	idemKeys             map[string]string
+	lastPayFilter        adminglobal.PaymentFilter
+	lastPrivacyFilter    adminglobal.PrivacyRequestFilter
+	lastTransitionInput  adminglobal.TransitionPrivacyRequestInput
+	lastExecuteInput     adminglobal.ExecutePrivacyRightInput
+	retryPrivacyRequests int
+	privacyIncidents     []adminglobal.PrivacyIncidentItem
+	lastIncidentFilter   adminglobal.PrivacyIncidentFilter
+	lastCreateIncident   adminglobal.CreatePrivacyIncidentInput
+	lastIncidentTrans    adminglobal.TransitionPrivacyIncidentInput
+	legalHolds           []adminglobal.PrivacyLegalHoldItem
+	lastLegalHoldFilter  adminglobal.PrivacyLegalHoldFilter
+	lastCreateLegalHold  adminglobal.CreatePrivacyLegalHoldInput
+	lastReleaseLegalHold adminglobal.ReleasePrivacyLegalHoldInput
 }
 
 func newFakeSpecializedOpsStore(now func() time.Time) *fakeSpecializedOpsStore {

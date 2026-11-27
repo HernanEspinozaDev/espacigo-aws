@@ -330,7 +330,7 @@ type ResolvePrivacyRequestInput struct {
 
 type RecordPrivacyDispatchInput struct {
 	ActorID, CorrelationID, RequestID, Channel, Destination, EvidenceRef string
-	SentAt time.Time
+	SentAt                                                               time.Time
 }
 
 type SupportTicketFilter struct {

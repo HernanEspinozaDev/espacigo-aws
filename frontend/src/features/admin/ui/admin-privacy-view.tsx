@@ -186,7 +186,9 @@ function getScopeLabel(scope: string): string {
 }
 
 function getPurposeLabel(purpose: string): string {
-  return PURPOSE_OPTIONS.find((item) => item.value === purpose)?.label ?? purpose;
+  return (
+    PURPOSE_OPTIONS.find((item) => item.value === purpose)?.label ?? purpose
+  );
 }
 
 function formatRepresentativeRelation(
@@ -209,7 +211,7 @@ function NotificationSummaryBox({
   retrying: boolean;
   error: string | null;
   showMfaHint: boolean;
-  onRetry: () => void;
+  onRetry?: () => void;
 }) {
   return (
     <div className="space-y-2 rounded border border-border bg-background p-2.5 text-xs">
@@ -217,7 +219,7 @@ function NotificationSummaryBox({
         <span className="font-medium text-foreground">
           Estado de notificaciones
         </span>
-        {summary.terminal > 0 && (
+        {summary.terminal > 0 && onRetry && (
           <Button
             type="button"
             variant="outline"
@@ -255,7 +257,7 @@ function NotificationSummaryBox({
           {new Date(summary.last_delivered_at).toLocaleString("es-CL")}
         </p>
       )}
-      {summary.terminal > 0 && showMfaHint && (
+      {summary.terminal > 0 && onRetry && showMfaHint && (
         <p className="text-muted-foreground">
           Se solicitará MFA reciente antes de reintentar la notificación.
         </p>
@@ -305,7 +307,10 @@ const INCIDENT_ACTION_OPTIONS: ReadonlyArray<{
   { value: "contain", label: "Contener incidente (contain)" },
   { value: "evaluate", label: "Evaluar impacto (evaluate)" },
   { value: "notify_agency", label: "Notificar a la Agencia (notify_agency)" },
-  { value: "notify_subjects", label: "Notificar a titulares (notify_subjects)" },
+  {
+    value: "notify_subjects",
+    label: "Notificar a titulares (notify_subjects)",
+  },
   { value: "add_note", label: "Agregar nota operativa (add_note)" },
   { value: "close", label: "Cerrar incidente (close)" },
 ];
@@ -353,6 +358,8 @@ interface IncidentTransitionDraft {
 }
 
 interface AdminPrivacyPhase7SectionProps {
+  canReadIncidents: boolean;
+  canManageIncidents: boolean;
   mfaStepUpRequired: boolean;
   recentAuthExpiresAt?: string | null;
   showMfaHint: boolean;
@@ -383,6 +390,8 @@ interface AdminPrivacyPhase7SectionProps {
 }
 
 function AdminPrivacyPhase7Section({
+  canReadIncidents,
+  canManageIncidents,
   mfaStepUpRequired,
   recentAuthExpiresAt,
   showMfaHint,
@@ -481,19 +490,19 @@ function AdminPrivacyPhase7Section({
 
   const loadPhase7Data = useCallback(async () => {
     setLoadingPhase7(true);
-    setIncidentsForbidden(false);
+    setIncidentsForbidden(!canReadIncidents);
     setIncidentsError(null);
     setLegalHoldsForbidden(false);
     setLegalHoldsError(null);
 
     const [incidentsResult, holdsResult] = await Promise.allSettled([
-      listGlobalPrivacyIncidents({ page_size: 25 }),
+      canReadIncidents ? listGlobalPrivacyIncidents({ page_size: 25 }) : null,
       listGlobalPrivacyLegalHolds({ page_size: 25 }),
     ]);
 
     if (incidentsResult.status === "fulfilled") {
-      setIncidents([...incidentsResult.value.items]);
-      setIncidentsNextCursor(incidentsResult.value.next_cursor ?? null);
+      setIncidents(incidentsResult.value?.items.slice() ?? []);
+      setIncidentsNextCursor(incidentsResult.value?.next_cursor ?? null);
     } else if (isForbiddenError(incidentsResult.reason)) {
       setIncidentsForbidden(true);
       setIncidents([]);
@@ -523,7 +532,11 @@ function AdminPrivacyPhase7Section({
 
     setHasLoadedOnce(true);
     setLoadingPhase7(false);
-  }, [listGlobalPrivacyIncidents, listGlobalPrivacyLegalHolds]);
+  }, [
+    canReadIncidents,
+    listGlobalPrivacyIncidents,
+    listGlobalPrivacyLegalHolds,
+  ]);
 
   const handleToggleSection = () => {
     const nextOpen = !isOpen;
@@ -583,7 +596,9 @@ function AdminPrivacyPhase7Section({
     }
   };
 
-  const handleToggleIncidentDetail = async (incident: GlobalAdminPrivacyIncident) => {
+  const handleToggleIncidentDetail = async (
+    incident: GlobalAdminPrivacyIncident,
+  ) => {
     setIncidentDetailError(null);
     if (expandedIncidentId === incident.id) {
       setExpandedIncidentId(null);
@@ -770,7 +785,10 @@ function AdminPrivacyPhase7Section({
       }));
       return;
     }
-    if (trimmedDetail && (trimmedDetail.length < 5 || trimmedDetail.length > 2000)) {
+    if (
+      trimmedDetail &&
+      (trimmedDetail.length < 5 || trimmedDetail.length > 2000)
+    ) {
       setTransitionErrors((prev) => ({
         ...prev,
         [incident.id]: "El detalle debe tener entre 5 y 2000 caracteres.",
@@ -1040,7 +1058,7 @@ function AdminPrivacyPhase7Section({
                   <AlertTriangle className="h-4 w-4" />
                   Incidentes de datos personales
                 </h3>
-                {!incidentsForbidden && (
+                {canManageIncidents && !incidentsForbidden && (
                   <Button
                     type="button"
                     size="sm"
@@ -1054,158 +1072,163 @@ function AdminPrivacyPhase7Section({
                 )}
               </div>
 
-              {createIncidentOpen && !incidentsForbidden && (
-                <form
-                  onSubmit={(e) => void handleCreateIncident(e)}
-                  className="space-y-3 rounded-lg border border-border p-3"
-                >
-                  <p className="text-sm font-medium text-foreground">
-                    Nuevo incidente de privacidad
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-title">Título</Label>
-                      <Input
-                        id="incident-create-title"
-                        value={incTitle}
-                        onChange={(e) => setIncTitle(e.target.value)}
-                        maxLength={200}
-                        placeholder="Ej. Exposición temporal de registros"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-severity">Severidad</Label>
-                      <select
-                        id="incident-create-severity"
-                        value={incSeverity}
-                        onChange={(e) =>
-                          setIncSeverity(
-                            e.target.value as GlobalAdminPrivacyIncidentSeverity,
-                          )
-                        }
-                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                      >
-                        {INCIDENT_SEVERITY_OPTIONS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-categories">
-                        Categorías (separadas por coma)
-                      </Label>
-                      <Input
-                        id="incident-create-categories"
-                        value={incCategories}
-                        onChange={(e) => setIncCategories(e.target.value)}
-                        placeholder="identificacion, contacto"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-systems">
-                        Sistemas afectados (separados por coma)
-                      </Label>
-                      <Input
-                        id="incident-create-systems"
-                        value={incSystems}
-                        onChange={(e) => setIncSystems(e.target.value)}
-                        placeholder="api-core, s3-kyc"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-subjects">
-                        Titulares estimados
-                      </Label>
-                      <Input
-                        id="incident-create-subjects"
-                        type="number"
-                        min={0}
-                        value={incEstimatedSubjects}
-                        onChange={(e) =>
-                          setIncEstimatedSubjects(e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="incident-create-leader">
-                        UUID de líder (opcional)
-                      </Label>
-                      <Input
-                        id="incident-create-leader"
-                        value={incLeaderId}
-                        onChange={(e) => setIncLeaderId(e.target.value)}
-                        placeholder="110e8400-e29b-41d4-a716-446655440000"
-                        autoComplete="off"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="incident-create-summary">
-                      Resumen de hechos
-                    </Label>
-                    <textarea
-                      id="incident-create-summary"
-                      value={incSummary}
-                      onChange={(e) => setIncSummary(e.target.value)}
-                      maxLength={2000}
-                      className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      placeholder="Describe los hechos detectados y alcance preliminar (mín. 10 caracteres)"
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-4 text-xs">
-                    <label
-                      htmlFor="incident-create-agency-notice"
-                      className="flex items-center gap-2"
-                    >
-                      <input
-                        id="incident-create-agency-notice"
-                        type="checkbox"
-                        checked={incRequiresAgency}
-                        onChange={(e) => setIncRequiresAgency(e.target.checked)}
-                      />
-                      Requiere notificación a Agencia
-                    </label>
-                    <label
-                      htmlFor="incident-create-subject-notice"
-                      className="flex items-center gap-2"
-                    >
-                      <input
-                        id="incident-create-subject-notice"
-                        type="checkbox"
-                        checked={incRequiresSubjects}
-                        onChange={(e) =>
-                          setIncRequiresSubjects(e.target.checked)
-                        }
-                      />
-                      Requiere notificación a titulares
-                    </label>
-                  </div>
-                  {createIncidentError && (
-                    <p role="alert" className="text-xs text-destructive">
-                      {createIncidentError}
-                    </p>
-                  )}
-                  {showMfaHint && (
-                    <p className="text-xs text-muted-foreground">
-                      Se solicitará verificación MFA reciente antes de registrar
-                      el incidente.
-                    </p>
-                  )}
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={creatingIncident}
+              {canManageIncidents &&
+                createIncidentOpen &&
+                !incidentsForbidden && (
+                  <form
+                    onSubmit={(e) => void handleCreateIncident(e)}
+                    className="space-y-3 rounded-lg border border-border p-3"
                   >
-                    {creatingIncident
-                      ? "Registrando…"
-                      : "Confirmar registro de incidente"}
-                  </Button>
-                </form>
-              )}
+                    <p className="text-sm font-medium text-foreground">
+                      Nuevo incidente de privacidad
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-title">Título</Label>
+                        <Input
+                          id="incident-create-title"
+                          value={incTitle}
+                          onChange={(e) => setIncTitle(e.target.value)}
+                          maxLength={200}
+                          placeholder="Ej. Exposición temporal de registros"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-severity">
+                          Severidad
+                        </Label>
+                        <select
+                          id="incident-create-severity"
+                          value={incSeverity}
+                          onChange={(e) =>
+                            setIncSeverity(
+                              e.target
+                                .value as GlobalAdminPrivacyIncidentSeverity,
+                            )
+                          }
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          {INCIDENT_SEVERITY_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-categories">
+                          Categorías (separadas por coma)
+                        </Label>
+                        <Input
+                          id="incident-create-categories"
+                          value={incCategories}
+                          onChange={(e) => setIncCategories(e.target.value)}
+                          placeholder="identificacion, contacto"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-systems">
+                          Sistemas afectados (separados por coma)
+                        </Label>
+                        <Input
+                          id="incident-create-systems"
+                          value={incSystems}
+                          onChange={(e) => setIncSystems(e.target.value)}
+                          placeholder="api-core, s3-kyc"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-subjects">
+                          Titulares estimados
+                        </Label>
+                        <Input
+                          id="incident-create-subjects"
+                          type="number"
+                          min={0}
+                          value={incEstimatedSubjects}
+                          onChange={(e) =>
+                            setIncEstimatedSubjects(e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="incident-create-leader">
+                          UUID de líder (opcional)
+                        </Label>
+                        <Input
+                          id="incident-create-leader"
+                          value={incLeaderId}
+                          onChange={(e) => setIncLeaderId(e.target.value)}
+                          placeholder="110e8400-e29b-41d4-a716-446655440000"
+                          autoComplete="off"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="incident-create-summary">
+                        Resumen de hechos
+                      </Label>
+                      <textarea
+                        id="incident-create-summary"
+                        value={incSummary}
+                        onChange={(e) => setIncSummary(e.target.value)}
+                        maxLength={2000}
+                        className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        placeholder="Describe los hechos detectados y alcance preliminar (mín. 10 caracteres)"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-xs">
+                      <label
+                        htmlFor="incident-create-agency-notice"
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          id="incident-create-agency-notice"
+                          type="checkbox"
+                          checked={incRequiresAgency}
+                          onChange={(e) =>
+                            setIncRequiresAgency(e.target.checked)
+                          }
+                        />
+                        Requiere notificación a Agencia
+                      </label>
+                      <label
+                        htmlFor="incident-create-subject-notice"
+                        className="flex items-center gap-2"
+                      >
+                        <input
+                          id="incident-create-subject-notice"
+                          type="checkbox"
+                          checked={incRequiresSubjects}
+                          onChange={(e) =>
+                            setIncRequiresSubjects(e.target.checked)
+                          }
+                        />
+                        Requiere notificación a titulares
+                      </label>
+                    </div>
+                    {createIncidentError && (
+                      <p role="alert" className="text-xs text-destructive">
+                        {createIncidentError}
+                      </p>
+                    )}
+                    {showMfaHint && (
+                      <p className="text-xs text-muted-foreground">
+                        Se solicitará verificación MFA reciente antes de
+                        registrar el incidente.
+                      </p>
+                    )}
+                    <Button type="submit" size="sm" disabled={creatingIncident}>
+                      {creatingIncident
+                        ? "Registrando…"
+                        : "Confirmar registro de incidente"}
+                    </Button>
+                  </form>
+                )}
 
-              {loadingPhase7 && incidents.length === 0 && !incidentsForbidden ? (
+              {loadingPhase7 &&
+              incidents.length === 0 &&
+              !incidentsForbidden ? (
                 <p className="text-sm text-muted-foreground">
                   Cargando incidentes de privacidad…
                 </p>
@@ -1245,7 +1268,9 @@ function AdminPrivacyPhase7Section({
                             <span className="font-mono text-xs font-medium text-muted-foreground">
                               {inc.folio}
                             </span>
-                            <Badge variant={getSeverityBadgeVariant(inc.severity)}>
+                            <Badge
+                              variant={getSeverityBadgeVariant(inc.severity)}
+                            >
                               {inc.severity}
                             </Badge>
                             <Badge variant="outline">{inc.status}</Badge>
@@ -1306,13 +1331,18 @@ function AdminPrivacyPhase7Section({
                                 Cargando línea de tiempo del incidente…
                               </p>
                             ) : incidentDetailError ? (
-                              <p role="alert" className="text-xs text-destructive">
+                              <p
+                                role="alert"
+                                className="text-xs text-destructive"
+                              >
                                 {incidentDetailError}
                               </p>
                             ) : (
                               <>
                                 <div className="space-y-1 text-xs text-muted-foreground">
-                                  <p className="text-foreground">{inc.summary}</p>
+                                  <p className="text-foreground">
+                                    {inc.summary}
+                                  </p>
                                   <p>
                                     Categorías:{" "}
                                     {inc.data_categories.join(", ") || "—"}
@@ -1367,186 +1397,191 @@ function AdminPrivacyPhase7Section({
                                   )}
                                 </div>
 
-                                <form
-                                  onSubmit={(e) =>
-                                    void handleTransitionIncident(e, inc)
-                                  }
-                                  className="space-y-2 rounded-md border border-border p-3"
-                                >
-                                  <p className="text-sm font-medium text-foreground">
-                                    Transicionar incidente
-                                  </p>
-                                  <div className="space-y-1">
-                                    <Label
-                                      htmlFor={`incident-transition-action-${inc.id}`}
-                                    >
-                                      Acción de transición
-                                    </Label>
-                                    <select
-                                      id={`incident-transition-action-${inc.id}`}
-                                      value={transitionDraft.action}
-                                      onChange={(e) =>
-                                        updateTransitionDraft(
-                                          inc,
-                                          "action",
-                                          e.target
-                                            .value as GlobalAdminPrivacyIncidentAction,
-                                        )
-                                      }
-                                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                    >
-                                      {INCIDENT_ACTION_OPTIONS.map((opt) => (
-                                        <option
-                                          key={opt.value}
-                                          value={opt.value}
-                                        >
-                                          {opt.label}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  {transitionDraft.action === "notify_agency" && (
+                                {canManageIncidents && (
+                                  <form
+                                    onSubmit={(e) =>
+                                      void handleTransitionIncident(e, inc)
+                                    }
+                                    className="space-y-2 rounded-md border border-border p-3"
+                                  >
+                                    <p className="text-sm font-medium text-foreground">
+                                      Transicionar incidente
+                                    </p>
                                     <div className="space-y-1">
                                       <Label
-                                        htmlFor={`incident-agency-ref-${inc.id}`}
+                                        htmlFor={`incident-transition-action-${inc.id}`}
                                       >
-                                        Referencia de notificación a Agencia
+                                        Acción de transición
                                       </Label>
-                                      <Input
-                                        id={`incident-agency-ref-${inc.id}`}
-                                        value={transitionDraft.agencyReference}
+                                      <select
+                                        id={`incident-transition-action-${inc.id}`}
+                                        value={transitionDraft.action}
                                         onChange={(e) =>
                                           updateTransitionDraft(
                                             inc,
-                                            "agencyReference",
-                                            e.target.value,
+                                            "action",
+                                            e.target
+                                              .value as GlobalAdminPrivacyIncidentAction,
                                           )
                                         }
-                                        maxLength={160}
-                                        placeholder="Ej. AGPD-2026-0091"
-                                        autoComplete="off"
-                                      />
+                                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                      >
+                                        {INCIDENT_ACTION_OPTIONS.map((opt) => (
+                                          <option
+                                            key={opt.value}
+                                            value={opt.value}
+                                          >
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </select>
                                     </div>
-                                  )}
 
-                                  {transitionDraft.action === "contain" && (
+                                    {transitionDraft.action ===
+                                      "notify_agency" && (
+                                      <div className="space-y-1">
+                                        <Label
+                                          htmlFor={`incident-agency-ref-${inc.id}`}
+                                        >
+                                          Referencia de notificación a Agencia
+                                        </Label>
+                                        <Input
+                                          id={`incident-agency-ref-${inc.id}`}
+                                          value={
+                                            transitionDraft.agencyReference
+                                          }
+                                          onChange={(e) =>
+                                            updateTransitionDraft(
+                                              inc,
+                                              "agencyReference",
+                                              e.target.value,
+                                            )
+                                          }
+                                          maxLength={160}
+                                          placeholder="Ej. AGPD-2026-0091"
+                                          autoComplete="off"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {transitionDraft.action === "contain" && (
+                                      <div className="space-y-1">
+                                        <Label
+                                          htmlFor={`incident-containment-${inc.id}`}
+                                        >
+                                          Medidas de contención (opcional, mín.
+                                          10 caracteres)
+                                        </Label>
+                                        <textarea
+                                          id={`incident-containment-${inc.id}`}
+                                          value={
+                                            transitionDraft.containmentMeasures
+                                          }
+                                          onChange={(e) =>
+                                            updateTransitionDraft(
+                                              inc,
+                                              "containmentMeasures",
+                                              e.target.value,
+                                            )
+                                          }
+                                          maxLength={2000}
+                                          className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {transitionDraft.action === "evaluate" && (
+                                      <div className="flex flex-wrap gap-4 text-xs">
+                                        <label
+                                          htmlFor={`incident-eval-agency-${inc.id}`}
+                                          className="flex items-center gap-2"
+                                        >
+                                          <input
+                                            id={`incident-eval-agency-${inc.id}`}
+                                            type="checkbox"
+                                            checked={
+                                              transitionDraft.requiresAgencyNotice
+                                            }
+                                            onChange={(e) =>
+                                              updateTransitionDraft(
+                                                inc,
+                                                "requiresAgencyNotice",
+                                                e.target.checked,
+                                              )
+                                            }
+                                          />
+                                          Requiere notificación a Agencia
+                                        </label>
+                                        <label
+                                          htmlFor={`incident-eval-subjects-${inc.id}`}
+                                          className="flex items-center gap-2"
+                                        >
+                                          <input
+                                            id={`incident-eval-subjects-${inc.id}`}
+                                            type="checkbox"
+                                            checked={
+                                              transitionDraft.requiresSubjectNotice
+                                            }
+                                            onChange={(e) =>
+                                              updateTransitionDraft(
+                                                inc,
+                                                "requiresSubjectNotice",
+                                                e.target.checked,
+                                              )
+                                            }
+                                          />
+                                          Requiere notificación a titulares
+                                        </label>
+                                      </div>
+                                    )}
+
                                     <div className="space-y-1">
                                       <Label
-                                        htmlFor={`incident-containment-${inc.id}`}
+                                        htmlFor={`incident-transition-detail-${inc.id}`}
                                       >
-                                        Medidas de contención (opcional, mín. 10
-                                        caracteres)
+                                        Detalle o respaldo
                                       </Label>
                                       <textarea
-                                        id={`incident-containment-${inc.id}`}
-                                        value={
-                                          transitionDraft.containmentMeasures
-                                        }
+                                        id={`incident-transition-detail-${inc.id}`}
+                                        value={transitionDraft.detail}
                                         onChange={(e) =>
                                           updateTransitionDraft(
                                             inc,
-                                            "containmentMeasures",
+                                            "detail",
                                             e.target.value,
                                           )
                                         }
                                         maxLength={2000}
                                         className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                        placeholder="Detalle de la acción realizada"
                                       />
                                     </div>
-                                  )}
 
-                                  {transitionDraft.action === "evaluate" && (
-                                    <div className="flex flex-wrap gap-4 text-xs">
-                                      <label
-                                        htmlFor={`incident-eval-agency-${inc.id}`}
-                                        className="flex items-center gap-2"
+                                    {transitionErrors[inc.id] && (
+                                      <p
+                                        role="alert"
+                                        className="text-xs text-destructive"
                                       >
-                                        <input
-                                          id={`incident-eval-agency-${inc.id}`}
-                                          type="checkbox"
-                                          checked={
-                                            transitionDraft.requiresAgencyNotice
-                                          }
-                                          onChange={(e) =>
-                                            updateTransitionDraft(
-                                              inc,
-                                              "requiresAgencyNotice",
-                                              e.target.checked,
-                                            )
-                                          }
-                                        />
-                                        Requiere notificación a Agencia
-                                      </label>
-                                      <label
-                                        htmlFor={`incident-eval-subjects-${inc.id}`}
-                                        className="flex items-center gap-2"
-                                      >
-                                        <input
-                                          id={`incident-eval-subjects-${inc.id}`}
-                                          type="checkbox"
-                                          checked={
-                                            transitionDraft.requiresSubjectNotice
-                                          }
-                                          onChange={(e) =>
-                                            updateTransitionDraft(
-                                              inc,
-                                              "requiresSubjectNotice",
-                                              e.target.checked,
-                                            )
-                                          }
-                                        />
-                                        Requiere notificación a titulares
-                                      </label>
-                                    </div>
-                                  )}
-
-                                  <div className="space-y-1">
-                                    <Label
-                                      htmlFor={`incident-transition-detail-${inc.id}`}
+                                        {transitionErrors[inc.id]}
+                                      </p>
+                                    )}
+                                    {showMfaHint && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Se solicitará MFA reciente antes de
+                                        ejecutar la transición.
+                                      </p>
+                                    )}
+                                    <Button
+                                      type="submit"
+                                      size="sm"
+                                      disabled={transitioningId === inc.id}
                                     >
-                                      Detalle o respaldo
-                                    </Label>
-                                    <textarea
-                                      id={`incident-transition-detail-${inc.id}`}
-                                      value={transitionDraft.detail}
-                                      onChange={(e) =>
-                                        updateTransitionDraft(
-                                          inc,
-                                          "detail",
-                                          e.target.value,
-                                        )
-                                      }
-                                      maxLength={2000}
-                                      className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                      placeholder="Detalle de la acción realizada"
-                                    />
-                                  </div>
-
-                                  {transitionErrors[inc.id] && (
-                                    <p
-                                      role="alert"
-                                      className="text-xs text-destructive"
-                                    >
-                                      {transitionErrors[inc.id]}
-                                    </p>
-                                  )}
-                                  {showMfaHint && (
-                                    <p className="text-xs text-muted-foreground">
-                                      Se solicitará MFA reciente antes de
-                                      ejecutar la transición.
-                                    </p>
-                                  )}
-                                  <Button
-                                    type="submit"
-                                    size="sm"
-                                    disabled={transitioningId === inc.id}
-                                  >
-                                    {transitioningId === inc.id
-                                      ? "Actualizando…"
-                                      : "Ejecutar transición"}
-                                  </Button>
-                                </form>
+                                      {transitioningId === inc.id
+                                        ? "Actualizando…"
+                                        : "Ejecutar transición"}
+                                    </Button>
+                                  </form>
+                                )}
                               </>
                             )}
                           </div>
@@ -1579,7 +1614,7 @@ function AdminPrivacyPhase7Section({
                   <Scale className="h-4 w-4" />
                   Retenciones legales (Legal Hold)
                 </h3>
-                {!legalHoldsForbidden && (
+                {canManageIncidents && !legalHoldsForbidden && (
                   <Button
                     type="button"
                     size="sm"
@@ -1593,7 +1628,7 @@ function AdminPrivacyPhase7Section({
                 )}
               </div>
 
-              {createHoldOpen && !legalHoldsForbidden && (
+              {canManageIncidents && createHoldOpen && !legalHoldsForbidden && (
                 <form
                   onSubmit={(e) => void handleCreateLegalHold(e)}
                   className="space-y-3 rounded-lg border border-border p-3"
@@ -1687,8 +1722,8 @@ function AdminPrivacyPhase7Section({
                   )}
                   {showMfaHint && (
                     <p className="text-xs text-muted-foreground">
-                      Se solicitará verificación MFA reciente antes de aplicar la
-                      retención legal.
+                      Se solicitará verificación MFA reciente antes de aplicar
+                      la retención legal.
                     </p>
                   )}
                   <Button type="submit" size="sm" disabled={creatingHold}>
@@ -1697,7 +1732,9 @@ function AdminPrivacyPhase7Section({
                 </form>
               )}
 
-              {loadingPhase7 && legalHolds.length === 0 && !legalHoldsForbidden ? (
+              {loadingPhase7 &&
+              legalHolds.length === 0 &&
+              !legalHoldsForbidden ? (
                 <p className="text-sm text-muted-foreground">
                   Cargando retenciones legales…
                 </p>
@@ -1755,9 +1792,7 @@ function AdminPrivacyPhase7Section({
                         hold.request_id ||
                         hold.incident_id) && (
                         <div className="space-y-0.5 font-mono text-xs text-muted-foreground">
-                          {hold.account_id && (
-                            <p>Cuenta: {hold.account_id}</p>
-                          )}
+                          {hold.account_id && <p>Cuenta: {hold.account_id}</p>}
                           {hold.request_id && (
                             <p>Solicitud ARCO+: {hold.request_id}</p>
                           )}
@@ -1779,7 +1814,7 @@ function AdminPrivacyPhase7Section({
                         </div>
                       )}
 
-                      {hold.status === "activa" && (
+                      {canManageIncidents && hold.status === "activa" && (
                         <div className="space-y-2 border-t border-border pt-2">
                           <div className="space-y-1">
                             <Label
@@ -1877,6 +1912,11 @@ export function AdminPrivacyView() {
   } = useAdmin();
 
   const canManagePrivacy = hasAdminCapability("privacy.requests.manage");
+  const canReadPrivacy =
+    canManagePrivacy || hasAdminCapability("privacy.requests.read");
+  const canManageIncidents = hasAdminCapability("privacy.incidents.manage");
+  const canReadIncidents =
+    canManageIncidents || hasAdminCapability("privacy.incidents.read");
   const canReadKyc = hasAdminCapability("kyc.case.read");
 
   const [privacyRequests, setPrivacyRequests] = useState<
@@ -1926,9 +1966,9 @@ export function AdminPrivacyView() {
       }
     >
   >({});
-  const [workflowSubmittingId, setWorkflowSubmittingId] = useState<string | null>(
-    null,
-  );
+  const [workflowSubmittingId, setWorkflowSubmittingId] = useState<
+    string | null
+  >(null);
   const [workflowError, setWorkflowError] = useState<string | null>(null);
   const [retryingNotificationId, setRetryingNotificationId] = useState<
     string | null
@@ -1945,7 +1985,15 @@ export function AdminPrivacyView() {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
   const [dispatchDrafts, setDispatchDrafts] = useState<
-    Record<string, { channel: "email" | "postal"; destination: string; sentAt: string; evidenceRef: string }>
+    Record<
+      string,
+      {
+        channel: "email" | "postal";
+        destination: string;
+        sentAt: string;
+        evidenceRef: string;
+      }
+    >
   >({});
   const [dispatchingId, setDispatchingId] = useState<string | null>(null);
   const [dispatchError, setDispatchError] = useState<string | null>(null);
@@ -2081,7 +2129,9 @@ export function AdminPrivacyView() {
       const updated = await transitionGlobalPrivacyRequest(request.id, {
         action: draft.action,
         expected_version: expectedVersion,
-        ...(draft.action === "assign" ? { assigned_to_id: trimmedAssignee } : {}),
+        ...(draft.action === "assign"
+          ? { assigned_to_id: trimmedAssignee }
+          : {}),
         ...(draft.action === "verify_identity" &&
         request.account_id === "" &&
         trimmedAccountId !== ""
@@ -2419,8 +2469,14 @@ export function AdminPrivacyView() {
     event.preventDefault();
     setDispatchError(null);
     const draft = dispatchDrafts[request.id];
-    if (!draft?.destination.trim() || !draft.sentAt || !draft.evidenceRef.trim()) {
-      setDispatchError("Completa el destino, la fecha y la referencia de evidencia.");
+    if (
+      !draft?.destination.trim() ||
+      !draft.sentAt ||
+      !draft.evidenceRef.trim()
+    ) {
+      setDispatchError(
+        "Completa el destino, la fecha y la referencia de evidencia.",
+      );
       return;
     }
     const sentAt = new Date(draft.sentAt);
@@ -2484,7 +2540,7 @@ export function AdminPrivacyView() {
   const fetchPrivacyData = useCallback(
     async (cursor?: string) => {
       const tasks: Promise<void>[] = [];
-      if (canManagePrivacy) {
+      if (canReadPrivacy) {
         tasks.push(
           listGlobalPrivacyRequests({
             status: privacyStatusFilter || undefined,
@@ -2514,7 +2570,7 @@ export function AdminPrivacyView() {
       await Promise.all(tasks);
     },
     [
-      canManagePrivacy,
+      canReadPrivacy,
       canReadKyc,
       kycStatusFilter,
       privacyStatusFilter,
@@ -2699,9 +2755,9 @@ export function AdminPrivacyView() {
               </form>
             )}
 
-            {!canManagePrivacy ? (
+            {!canReadPrivacy ? (
               <p className="text-sm text-muted-foreground">
-                No cuentas con el permiso <code>privacy.requests.manage</code>.
+                No cuentas con permiso para consultar los expedientes.
               </p>
             ) : (
               <>
@@ -2717,8 +2773,7 @@ export function AdminPrivacyView() {
                         setPrivacyNextCursor(null);
                         setPrivacyStatusFilter(
                           e.target.value as
-                            | ""
-                            | GlobalAdminPrivacyRequestStatus,
+                            "" | GlobalAdminPrivacyRequestStatus,
                         );
                       }}
                       className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -2800,1022 +2855,1201 @@ export function AdminPrivacyView() {
                 </div>
                 {privacyRequests.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No hay solicitudes ARCO+ registradas para los filtros seleccionados.
+                    No hay solicitudes ARCO+ registradas para los filtros
+                    seleccionados.
                   </p>
                 ) : (
-              <div className="space-y-2">
-                {privacyRequests.map((req) => (
-                  <div
-                    key={req.id}
-                    className="rounded-lg border border-border p-3 space-y-1"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="default">{req.right_type}</Badge>
-                        <Badge variant="outline">{req.status}</Badge>
-                        {req.folio && (
-                          <Badge variant="outline" className="font-mono">
-                            {req.folio}
-                          </Badge>
-                        )}
-                        {req.channel && (
-                          <Badge variant="secondary">{req.channel}</Badge>
-                        )}
-                        {req.requester_type === "representante" && (
-                          <Badge variant="secondary">
-                            Representante
-                            {req.representative_relation
-                              ? ` · ${formatRepresentativeRelation(req.representative_relation)}`
-                              : ""}
-                          </Badge>
-                        )}
-                        {req.requester_type === "titular" && (
-                          <Badge variant="outline">Titular</Badge>
-                        )}
-                        {req.is_overdue && (
-                          <Badge variant="destructive">Vencida</Badge>
-                        )}
-                        {req.version && (
-                          <span className="text-xs text-muted-foreground font-mono">
-                            v{req.version}
+                  <div className="space-y-2">
+                    {privacyRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="rounded-lg border border-border p-3 space-y-1"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="default">{req.right_type}</Badge>
+                            <Badge variant="outline">{req.status}</Badge>
+                            {req.folio && (
+                              <Badge variant="outline" className="font-mono">
+                                {req.folio}
+                              </Badge>
+                            )}
+                            {req.channel && (
+                              <Badge variant="secondary">{req.channel}</Badge>
+                            )}
+                            {req.requester_type === "representante" && (
+                              <Badge variant="secondary">
+                                Representante
+                                {req.representative_relation
+                                  ? ` · ${formatRepresentativeRelation(req.representative_relation)}`
+                                  : ""}
+                              </Badge>
+                            )}
+                            {req.requester_type === "titular" && (
+                              <Badge variant="outline">Titular</Badge>
+                            )}
+                            {req.is_overdue && (
+                              <Badge variant="destructive">Vencida</Badge>
+                            )}
+                            {req.version && (
+                              <span className="text-xs text-muted-foreground font-mono">
+                                v{req.version}
+                              </span>
+                            )}
+                          </div>
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {req.account_id || "Sin cuenta vinculada"}
                           </span>
-                        )}
-                      </div>
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {req.account_id || "Sin cuenta vinculada"}
-                      </span>
-                    </div>
-                    <p className="text-xs text-foreground">{req.reason}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Folio:{" "}
-                      <span className="font-mono">
-                        {req.folio || req.id}
-                      </span>
-                      {req.folio && (
-                        <span className="ml-2">
-                          · ID: <span className="font-mono">{req.id}</span>
-                        </span>
-                      )}
-                    </p>
-                    {(req.requester_name ||
-                      req.representative_name ||
-                      req.requester_email_masked ||
-                      req.subject_reference) && (
-                      <div className="space-y-0.5 text-xs text-muted-foreground">
-                        {req.requester_name && (
-                          <p>Titular: {req.requester_name}</p>
-                        )}
-                        {req.requester_type === "representante" &&
-                          (req.representative_name ||
-                            req.representative_relation) && (
-                            <p>
-                              Representante:{" "}
-                              {req.representative_name || "No informado"}
-                              {req.representative_relation
-                                ? ` (${formatRepresentativeRelation(req.representative_relation)})`
-                                : ""}
-                            </p>
+                        </div>
+                        <p className="text-xs text-foreground">{req.reason}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Folio:{" "}
+                          <span className="font-mono">
+                            {req.folio || req.id}
+                          </span>
+                          {req.folio && (
+                            <span className="ml-2">
+                              · ID: <span className="font-mono">{req.id}</span>
+                            </span>
                           )}
-                        {req.requester_email_masked && (
-                          <p>
-                            Correo:{" "}
-                            <span className="font-mono">
-                              {req.requester_email_masked}
-                            </span>
-                          </p>
-                        )}
-                        {req.subject_reference && (
-                          <p>
-                            Referencia titular:{" "}
-                            <span className="font-mono">
-                              {req.subject_reference}
-                            </span>
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {(req.extended_due_at || req.due_at) && (
-                      <p className="text-xs text-muted-foreground">
-                        {req.extended_due_at
-                          ? `Plazo prorrogado: ${new Date(req.extended_due_at).toLocaleString("es-CL")}`
-                          : `Plazo objetivo: ${new Date(req.due_at as string).toLocaleString("es-CL")}`}
-                      </p>
-                    )}
-                    {req.assigned_to_id && (
-                      <p className="text-xs text-muted-foreground">
-                        Responsable:{" "}
-                        <span className="font-mono">{req.assigned_to_id}</span>
-                      </p>
-                    )}
-                    {req.resolved_at && (
-                      <p className="text-xs text-muted-foreground">
-                        Actualizada el{" "}
-                        {new Date(req.resolved_at).toLocaleString("es-CL")}
-                      </p>
-                    )}
-                    {req.detail && (
-                      <p className="text-xs text-foreground">{req.detail}</p>
-                    )}
-                    {req.dispatch_recorded_at && (
-                      <p className="text-xs text-muted-foreground">
-                        Despacho registrado el{" "}
-                        {new Date(req.dispatch_recorded_at).toLocaleString("es-CL")}
-                      </p>
-                    )}
-                    {canManagePrivacy && (
-                      <div className="pt-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void toggleCaseDetail(req.id)}
-                          disabled={loadingDetailId === req.id}
-                        >
-                          {loadingDetailId === req.id
-                            ? "Cargando expediente…"
-                            : expandedId === req.id
-                              ? "Cerrar expediente"
-                              : "Gestionar expediente"}
-                        </Button>
-                      </div>
-                    )}
-                    {canManagePrivacy && expandedId === req.id && (
-                      <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
-                        <p className="text-xs font-medium text-foreground">
-                          Historial y gestión del expediente
                         </p>
-                        {caseDetails[req.id]?.notification_summary && (
-                          <NotificationSummaryBox
-                            summary={caseDetails[req.id].notification_summary!}
-                            retrying={retryingNotificationId === req.id}
-                            error={notificationRetryError}
-                            showMfaHint={showMfaHint}
-                            onRetry={() => void handleRetryNotifications(req.id)}
-                          />
-                        )}
-                        {caseDetails[req.id]?.events?.length ? (
-                          <ul className="space-y-1.5 text-xs">
-                            {caseDetails[req.id].events.map((ev) => (
-                              <li
-                                key={ev.id}
-                                className="rounded border border-border/60 bg-background p-2"
-                              >
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <span className="font-medium">
-                                    #{ev.sequence} ·{" "}
-                                    {WORKFLOW_EVENT_LABELS[ev.event_type] ??
-                                      ev.event_type}
-                                  </span>
-                                  <Badge
-                                    variant={
-                                      ev.visibility === "interna"
-                                        ? "secondary"
-                                        : "outline"
-                                    }
-                                  >
-                                    {ev.visibility === "interna"
-                                      ? "Interna"
-                                      : "Titular"}
-                                  </Badge>
-                                </div>
-                                <p className="text-muted-foreground">
-                                  {new Date(ev.created_at).toLocaleString(
-                                    "es-CL",
-                                  )}
-                                  {ev.state_from && ev.state_to
-                                    ? ` · ${ev.state_from} → ${ev.state_to}`
+                        {(req.requester_name ||
+                          req.representative_name ||
+                          req.requester_email_masked ||
+                          req.subject_reference) && (
+                          <div className="space-y-0.5 text-xs text-muted-foreground">
+                            {req.requester_name && (
+                              <p>Titular: {req.requester_name}</p>
+                            )}
+                            {req.requester_type === "representante" &&
+                              (req.representative_name ||
+                                req.representative_relation) && (
+                                <p>
+                                  Representante:{" "}
+                                  {req.representative_name || "No informado"}
+                                  {req.representative_relation
+                                    ? ` (${formatRepresentativeRelation(req.representative_relation)})`
                                     : ""}
                                 </p>
-                                {ev.detail && (
-                                  <p className="mt-1 whitespace-pre-wrap text-foreground">
-                                    {ev.detail}
-                                  </p>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
+                              )}
+                            {req.requester_email_masked && (
+                              <p>
+                                Correo:{" "}
+                                <span className="font-mono">
+                                  {req.requester_email_masked}
+                                </span>
+                              </p>
+                            )}
+                            {req.subject_reference && (
+                              <p>
+                                Referencia titular:{" "}
+                                <span className="font-mono">
+                                  {req.subject_reference}
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {(req.extended_due_at || req.due_at) && (
                           <p className="text-xs text-muted-foreground">
-                            Sin eventos registrados en el expediente.
+                            {req.extended_due_at
+                              ? `Plazo prorrogado: ${new Date(req.extended_due_at).toLocaleString("es-CL")}`
+                              : `Plazo objetivo: ${new Date(req.due_at as string).toLocaleString("es-CL")}`}
                           </p>
                         )}
-                        <form
-                          onSubmit={(event) =>
-                            void handleWorkflowSubmit(event, req)
-                          }
-                          className="space-y-2 border-t border-border pt-2"
-                        >
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <Label htmlFor={`privacy-wf-action-${req.id}`}>
-                                Acción de expediente
-                              </Label>
-                              <select
-                                id={`privacy-wf-action-${req.id}`}
-                                value={
-                                  workflowDrafts[req.id]?.action ??
-                                  "add_internal_note"
+                        {req.assigned_to_id && (
+                          <p className="text-xs text-muted-foreground">
+                            Responsable:{" "}
+                            <span className="font-mono">
+                              {req.assigned_to_id}
+                            </span>
+                          </p>
+                        )}
+                        {req.resolved_at && (
+                          <p className="text-xs text-muted-foreground">
+                            Actualizada el{" "}
+                            {new Date(req.resolved_at).toLocaleString("es-CL")}
+                          </p>
+                        )}
+                        {req.detail && (
+                          <p className="text-xs text-foreground">
+                            {req.detail}
+                          </p>
+                        )}
+                        {req.dispatch_recorded_at && (
+                          <p className="text-xs text-muted-foreground">
+                            Despacho registrado el{" "}
+                            {new Date(req.dispatch_recorded_at).toLocaleString(
+                              "es-CL",
+                            )}
+                          </p>
+                        )}
+                        {canReadPrivacy && (
+                          <div className="pt-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => void toggleCaseDetail(req.id)}
+                              disabled={loadingDetailId === req.id}
+                            >
+                              {loadingDetailId === req.id
+                                ? "Cargando expediente…"
+                                : expandedId === req.id
+                                  ? "Cerrar expediente"
+                                  : canManagePrivacy
+                                    ? "Gestionar expediente"
+                                    : "Ver expediente"}
+                            </Button>
+                          </div>
+                        )}
+                        {canReadPrivacy && expandedId === req.id && (
+                          <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
+                            <p className="text-xs font-medium text-foreground">
+                              Historial y gestión del expediente
+                            </p>
+                            {caseDetails[req.id]?.notification_summary && (
+                              <NotificationSummaryBox
+                                summary={
+                                  caseDetails[req.id].notification_summary!
                                 }
-                                onChange={(e) =>
-                                  updateWorkflowDraft(
-                                    req.id,
-                                    "action",
-                                    e.target.value,
-                                  )
+                                retrying={retryingNotificationId === req.id}
+                                error={notificationRetryError}
+                                showMfaHint={showMfaHint}
+                                onRetry={
+                                  canManagePrivacy
+                                    ? () =>
+                                        void handleRetryNotifications(req.id)
+                                    : undefined
                                 }
-                                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                              >
-                                <option value="add_internal_note">
-                                  Agregar nota interna
-                                </option>
-                                <option value="assign">
-                                  Asignar responsable
-                                </option>
-                                <option value="verify_identity">
-                                  Verificar identidad
-                                </option>
-                                <option value="start_review">
-                                  Pasar a revisión
-                                </option>
-                                <option value="request_clarification">
-                                  Solicitar aclaración al titular
-                                </option>
-                                {!req.extended_due_at && (
-                                  <option value="extend_deadline">
-                                    Prorrogar plazo operativo
-                                  </option>
-                                )}
-                              </select>
-                            </div>
-                            {(workflowDrafts[req.id]?.action ??
-                              "add_internal_note") === "assign" && (
-                              <div className="space-y-1">
-                                <Label
-                                  htmlFor={`privacy-wf-assignee-${req.id}`}
+                              />
+                            )}
+                            {caseDetails[req.id]?.events?.length ? (
+                              <ul className="space-y-1.5 text-xs">
+                                {caseDetails[req.id].events.map((ev) => (
+                                  <li
+                                    key={ev.id}
+                                    className="rounded border border-border/60 bg-background p-2"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="font-medium">
+                                        #{ev.sequence} ·{" "}
+                                        {WORKFLOW_EVENT_LABELS[ev.event_type] ??
+                                          ev.event_type}
+                                      </span>
+                                      <Badge
+                                        variant={
+                                          ev.visibility === "interna"
+                                            ? "secondary"
+                                            : "outline"
+                                        }
+                                      >
+                                        {ev.visibility === "interna"
+                                          ? "Interna"
+                                          : "Titular"}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-muted-foreground">
+                                      {new Date(ev.created_at).toLocaleString(
+                                        "es-CL",
+                                      )}
+                                      {ev.state_from && ev.state_to
+                                        ? ` · ${ev.state_from} → ${ev.state_to}`
+                                        : ""}
+                                    </p>
+                                    {ev.detail && (
+                                      <p className="mt-1 whitespace-pre-wrap text-foreground">
+                                        {ev.detail}
+                                      </p>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Sin eventos registrados en el expediente.
+                              </p>
+                            )}
+                            {canManagePrivacy && (
+                              <>
+                                <form
+                                  onSubmit={(event) =>
+                                    void handleWorkflowSubmit(event, req)
+                                  }
+                                  className="space-y-2 border-t border-border pt-2"
                                 >
-                                  UUID de responsable
-                                </Label>
-                                <Input
-                                  id={`privacy-wf-assignee-${req.id}`}
-                                  value={
-                                    workflowDrafts[req.id]?.assignedToId ?? ""
-                                  }
-                                  onChange={(e) =>
-                                    updateWorkflowDraft(
-                                      req.id,
-                                      "assignedToId",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="UUID de usuario responsable"
-                                />
-                              </div>
-                            )}
-                            {(workflowDrafts[req.id]?.action ??
-                              "add_internal_note") === "verify_identity" &&
-                              req.account_id === "" && (
-                                <div className="space-y-1">
-                                  <Label
-                                    htmlFor={`privacy-wf-account-${req.id}`}
-                                  >
-                                    ID de cuenta a vincular (UUID opcional)
-                                  </Label>
-                                  <Input
-                                    id={`privacy-wf-account-${req.id}`}
-                                    value={
-                                      workflowDrafts[req.id]?.accountId ?? ""
-                                    }
-                                    onChange={(e) =>
-                                      updateWorkflowDraft(
-                                        req.id,
-                                        "accountId",
-                                        e.target.value,
-                                      )
-                                    }
-                                    placeholder="UUID de cuenta titular (opcional)"
-                                  />
-                                </div>
-                              )}
-                            {(workflowDrafts[req.id]?.action ??
-                              "add_internal_note") === "extend_deadline" && (
-                              <div className="space-y-1">
-                                <Label htmlFor={`privacy-wf-days-${req.id}`}>
-                                  Días corridos adicionales (1–30)
-                                </Label>
-                                <Input
-                                  id={`privacy-wf-days-${req.id}`}
-                                  type="number"
-                                  min={1}
-                                  max={30}
-                                  value={
-                                    workflowDrafts[req.id]?.extraDays ?? "15"
-                                  }
-                                  onChange={(e) =>
-                                    updateWorkflowDraft(
-                                      req.id,
-                                      "extraDays",
-                                      e.target.value,
-                                    )
-                                  }
-                                />
-                              </div>
-                            )}
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor={`privacy-wf-note-${req.id}`}>
-                              Detalle, motivo o nota
-                            </Label>
-                            <textarea
-                              id={`privacy-wf-note-${req.id}`}
-                              value={workflowDrafts[req.id]?.note ?? ""}
-                              onChange={(e) =>
-                                updateWorkflowDraft(
-                                  req.id,
-                                  "note",
-                                  e.target.value,
-                                )
-                              }
-                              maxLength={2000}
-                              className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                              placeholder="Nota interna (no visible al titular) o detalle visible según la acción."
-                            />
-                          </div>
-                          {workflowError && (
-                            <p role="alert" className="text-xs text-destructive">
-                              {workflowError}
-                            </p>
-                          )}
-                          {showMfaHint && (
-                            <p className="text-xs text-muted-foreground">
-                              Se solicitará MFA reciente antes de actualizar el
-                              expediente.
-                            </p>
-                          )}
-                          <Button
-                            type="submit"
-                            size="sm"
-                            disabled={workflowSubmittingId === req.id}
-                          >
-                            {workflowSubmittingId === req.id
-                              ? "Aplicando…"
-                              : "Aplicar acción"}
-                          </Button>
-                        </form>
-                        {caseDetails[req.id] &&
-                          (() => {
-                            const detail = caseDetails[req.id];
-                            const availableActions =
-                              getAvailableExecutionActions(req.right_type);
-                            const execDraft =
-                              executionDrafts[req.id] ?? DEFAULT_EXECUTION_DRAFT;
-                            const selectedAction =
-                              execDraft.action &&
-                              availableActions.includes(execDraft.action)
-                                ? execDraft.action
-                                : availableActions[0];
-                            const canExecuteRight =
-                              (detail.account_id || req.account_id) !== "" &&
-                              (detail.can_publish_response ??
-                                req.can_publish_response) === true &&
-                              availableActions.length > 0;
-
-                            return (
-                              <div className="space-y-3 border-t border-border pt-3">
-                                <p className="text-xs font-semibold text-foreground">
-                                  Ejecución efectiva de derechos (Fase 4)
-                                </p>
-
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-medium text-foreground">
-                                    Ejecuciones registradas
-                                  </p>
-                                  {detail.executions?.length ? (
-                                    <ul className="space-y-1.5 text-xs">
-                                      {detail.executions.map((exec) => (
-                                        <li
-                                          key={exec.id}
-                                          className="space-y-1 rounded border border-border/60 bg-background p-2"
-                                        >
-                                          <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                              <Badge variant="secondary">
-                                                {exec.execution_type}
-                                              </Badge>
-                                              <Badge variant="outline">
-                                                {exec.status}
-                                              </Badge>
-                                            </div>
-                                            <span className="text-muted-foreground">
-                                              {new Date(
-                                                exec.executed_at,
-                                              ).toLocaleString("es-CL")}
-                                            </span>
-                                          </div>
-                                          <p className="text-muted-foreground">
-                                            Ámbito:{" "}
-                                            <span className="text-foreground">
-                                              {getScopeLabel(exec.scope)}
-                                            </span>
-                                          </p>
-                                          <p className="text-foreground">
-                                            {exec.summary}
-                                          </p>
-                                          {exec.target_reference && (
-                                            <p className="text-muted-foreground">
-                                              Destino / referencia:{" "}
-                                              <span className="font-mono text-foreground">
-                                                {exec.target_reference}
-                                              </span>
-                                            </p>
-                                          )}
-                                          {exec.artifact_sha256 && (
-                                            <p className="text-muted-foreground">
-                                              SHA-256:{" "}
-                                              <span
-                                                className="font-mono text-foreground"
-                                                title={exec.artifact_sha256}
-                                              >
-                                                {exec.artifact_sha256.slice(
-                                                  0,
-                                                  16,
-                                                )}
-                                                …
-                                              </span>
-                                            </p>
-                                          )}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Sin ejecuciones registradas.
-                                    </p>
-                                  )}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-medium text-foreground">
-                                    Bloqueos temporales de tratamiento
-                                  </p>
-                                  {detail.treatment_blocks?.length ? (
-                                    <ul className="space-y-2 text-xs">
-                                      {detail.treatment_blocks.map((block) => (
-                                        <li
-                                          key={block.id}
-                                          className="space-y-1.5 rounded border border-border/60 bg-background p-2"
-                                        >
-                                          <div className="flex flex-wrap items-center justify-between gap-2">
-                                            <span className="font-medium text-foreground">
-                                              {getScopeLabel(block.scope)}
-                                            </span>
-                                            <Badge
-                                              variant={
-                                                block.state === "activo"
-                                                  ? "destructive"
-                                                  : "outline"
-                                              }
-                                            >
-                                              {block.state}
-                                            </Badge>
-                                          </div>
-                                          <p className="text-muted-foreground">
-                                            Motivo:{" "}
-                                            <span className="text-foreground">
-                                              {block.reason}
-                                            </span>
-                                          </p>
-                                          {block.lift_reason && (
-                                            <p className="text-muted-foreground">
-                                              Motivo de levantamiento:{" "}
-                                              <span className="text-foreground">
-                                                {block.lift_reason}
-                                              </span>
-                                            </p>
-                                          )}
-                                          {block.state === "activo" && (
-                                            <div className="space-y-1.5 border-t border-border/50 pt-2">
-                                              <Label
-                                                htmlFor={`privacy-lift-reason-${block.id}`}
-                                              >
-                                                Motivo de levantamiento
-                                              </Label>
-                                              <div className="flex flex-col gap-2 sm:flex-row">
-                                                <Input
-                                                  id={`privacy-lift-reason-${block.id}`}
-                                                  value={
-                                                    liftReasonDrafts[
-                                                      block.id
-                                                    ] ?? ""
-                                                  }
-                                                  onChange={(e) =>
-                                                    setLiftReasonDrafts(
-                                                      (prev) => ({
-                                                        ...prev,
-                                                        [block.id]:
-                                                          e.target.value,
-                                                      }),
-                                                    )
-                                                  }
-                                                  placeholder="Motivo del levantamiento (mín. 10 caracteres)"
-                                                />
-                                                <Button
-                                                  type="button"
-                                                  variant="outline"
-                                                  size="sm"
-                                                  disabled={
-                                                    liftingBlockId === block.id
-                                                  }
-                                                  onClick={() =>
-                                                    void handleLiftBlock(
-                                                      req,
-                                                      block.id,
-                                                    )
-                                                  }
-                                                >
-                                                  {liftingBlockId === block.id
-                                                    ? "Levantando…"
-                                                    : "Levantar bloqueo"}
-                                                </Button>
-                                              </div>
-                                              {liftBlockErrors[block.id] && (
-                                                <p
-                                                  role="alert"
-                                                  className="text-xs text-destructive"
-                                                >
-                                                  {liftBlockErrors[block.id]}
-                                                </p>
-                                              )}
-                                            </div>
-                                          )}
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Sin bloqueos temporales registrados.
-                                    </p>
-                                  )}
-                                </div>
-
-                                <div className="space-y-1.5">
-                                  <p className="text-xs font-medium text-foreground">
-                                    Preferencias de finalidad de la cuenta
-                                  </p>
-                                  {detail.purpose_preferences?.length ? (
-                                    <ul className="space-y-1 text-xs">
-                                      {detail.purpose_preferences.map((pref) => (
-                                        <li
-                                          key={pref.purpose}
-                                          className="flex flex-wrap items-center justify-between gap-2 rounded border border-border/60 bg-background p-2"
-                                        >
-                                          <span className="text-foreground">
-                                            {getPurposeLabel(pref.purpose)}
-                                          </span>
-                                          <Badge
-                                            variant={
-                                              pref.state === "permitido"
-                                                ? "outline"
-                                                : "secondary"
-                                            }
-                                          >
-                                            {pref.state}
-                                          </Badge>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">
-                                      Sin preferencias de finalidad registradas.
-                                    </p>
-                                  )}
-                                </div>
-
-                                {canExecuteRight && selectedAction && (
-                                  <form
-                                    onSubmit={(event) =>
-                                      void handleExecuteRight(event, req)
-                                    }
-                                    className="space-y-2 rounded border border-border bg-background p-2.5"
-                                  >
-                                    <p className="text-xs font-medium text-foreground">
-                                      Ejecutar acción sobre el derecho
-                                    </p>
+                                  <div className="grid gap-2 sm:grid-cols-2">
                                     <div className="space-y-1">
                                       <Label
-                                        htmlFor={`privacy-exec-action-${req.id}`}
+                                        htmlFor={`privacy-wf-action-${req.id}`}
                                       >
-                                        Acción sobre el derecho
+                                        Acción de expediente
                                       </Label>
                                       <select
-                                        id={`privacy-exec-action-${req.id}`}
-                                        value={selectedAction}
+                                        id={`privacy-wf-action-${req.id}`}
+                                        value={
+                                          workflowDrafts[req.id]?.action ??
+                                          "add_internal_note"
+                                        }
                                         onChange={(e) =>
-                                          updateExecutionDraft(
+                                          updateWorkflowDraft(
                                             req.id,
                                             "action",
-                                            e.target.value as Exclude<
-                                              GlobalAdminPrivacyExecutionAction,
-                                              "lift_block"
-                                            >,
+                                            e.target.value,
                                           )
                                         }
                                         className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                                       >
-                                        {availableActions.map((act) => (
-                                          <option key={act} value={act}>
-                                            {EXECUTION_ACTION_LABELS[act]}
+                                        <option value="add_internal_note">
+                                          Agregar nota interna
+                                        </option>
+                                        <option value="assign">
+                                          Asignar responsable
+                                        </option>
+                                        <option value="verify_identity">
+                                          Verificar identidad
+                                        </option>
+                                        <option value="start_review">
+                                          Pasar a revisión
+                                        </option>
+                                        <option value="request_clarification">
+                                          Solicitar aclaración al titular
+                                        </option>
+                                        {!req.extended_due_at && (
+                                          <option value="extend_deadline">
+                                            Prorrogar plazo operativo
                                           </option>
-                                        ))}
+                                        )}
                                       </select>
                                     </div>
-
-                                    {selectedAction === "rectify_profile" && (
-                                      <div className="space-y-2">
-                                        <div className="grid gap-2 sm:grid-cols-2">
-                                          <div className="space-y-1">
-                                            <Label
-                                              htmlFor={`privacy-exec-display-name-${req.id}`}
-                                            >
-                                              Nombre visible (opcional)
-                                            </Label>
-                                            <Input
-                                              id={`privacy-exec-display-name-${req.id}`}
-                                              value={execDraft.displayName}
-                                              onChange={(e) =>
-                                                updateExecutionDraft(
-                                                  req.id,
-                                                  "displayName",
-                                                  e.target.value,
-                                                )
-                                              }
-                                              placeholder="Nombre visible corregido"
-                                              autoComplete="off"
-                                            />
-                                          </div>
-                                          <div className="space-y-1">
-                                            <Label
-                                              htmlFor={`privacy-exec-phone-${req.id}`}
-                                            >
-                                              Teléfono 9 dígitos (opcional)
-                                            </Label>
-                                            <Input
-                                              id={`privacy-exec-phone-${req.id}`}
-                                              value={execDraft.phone}
-                                              disabled={execDraft.clearPhone}
-                                              onChange={(e) =>
-                                                updateExecutionDraft(
-                                                  req.id,
-                                                  "phone",
-                                                  e.target.value,
-                                                )
-                                              }
-                                              placeholder="912345678"
-                                              autoComplete="off"
-                                            />
-                                          </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                          <input
-                                            id={`privacy-exec-clear-phone-${req.id}`}
-                                            type="checkbox"
-                                            checked={execDraft.clearPhone}
-                                            onChange={(e) =>
-                                              updateExecutionDraft(
-                                                req.id,
-                                                "clearPhone",
-                                                e.target.checked,
-                                              )
-                                            }
-                                            className="h-4 w-4 rounded border border-input"
-                                          />
-                                          <Label
-                                            htmlFor={`privacy-exec-clear-phone-${req.id}`}
-                                          >
-                                            Limpiar teléfono (enviar vacío)
-                                          </Label>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {selectedAction === "apply_opposition" && (
-                                      <div className="grid gap-2 sm:grid-cols-2">
-                                        <div className="space-y-1">
-                                          <Label
-                                            htmlFor={`privacy-exec-purpose-${req.id}`}
-                                          >
-                                            Finalidad
-                                          </Label>
-                                          <select
-                                            id={`privacy-exec-purpose-${req.id}`}
-                                            value={execDraft.purpose}
-                                            onChange={(e) =>
-                                              updateExecutionDraft(
-                                                req.id,
-                                                "purpose",
-                                                e.target
-                                                  .value as AdminPrivacyPurpose,
-                                              )
-                                            }
-                                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                          >
-                                            {PURPOSE_OPTIONS.map((opt) => (
-                                              <option
-                                                key={opt.value}
-                                                value={opt.value}
-                                              >
-                                                {opt.label}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <Label
-                                            htmlFor={`privacy-exec-purpose-state-${req.id}`}
-                                          >
-                                            Estado de finalidad
-                                          </Label>
-                                          <select
-                                            id={`privacy-exec-purpose-state-${req.id}`}
-                                            value={execDraft.purposeState}
-                                            onChange={(e) =>
-                                              updateExecutionDraft(
-                                                req.id,
-                                                "purposeState",
-                                                e.target.value as Extract<
-                                                  AdminPrivacyPurposeState,
-                                                  "opuesto" | "retirado"
-                                                >,
-                                              )
-                                            }
-                                            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                          >
-                                            <option value="opuesto">
-                                              Opuesto
-                                            </option>
-                                            <option value="retirado">
-                                              Retirado
-                                            </option>
-                                          </select>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {selectedAction === "apply_block" && (
+                                    {(workflowDrafts[req.id]?.action ??
+                                      "add_internal_note") === "assign" && (
                                       <div className="space-y-1">
                                         <Label
-                                          htmlFor={`privacy-exec-scope-${req.id}`}
+                                          htmlFor={`privacy-wf-assignee-${req.id}`}
                                         >
-                                          Ámbito del bloqueo
-                                        </Label>
-                                        <select
-                                          id={`privacy-exec-scope-${req.id}`}
-                                          value={execDraft.scope}
-                                          onChange={(e) =>
-                                            updateExecutionDraft(
-                                              req.id,
-                                              "scope",
-                                              e.target
-                                                .value as AdminPrivacyTreatmentScope,
-                                            )
-                                          }
-                                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                                        >
-                                          {TREATMENT_SCOPE_OPTIONS.map(
-                                            (opt) => (
-                                              <option
-                                                key={opt.value}
-                                                value={opt.value}
-                                              >
-                                                {opt.label}
-                                              </option>
-                                            ),
-                                          )}
-                                        </select>
-                                      </div>
-                                    )}
-
-                                    {selectedAction === "issue_portability" && (
-                                      <div className="space-y-1">
-                                        <Label
-                                          htmlFor={`privacy-exec-target-ref-${req.id}`}
-                                        >
-                                          Referencia de destino (opcional)
+                                          UUID de responsable
                                         </Label>
                                         <Input
-                                          id={`privacy-exec-target-ref-${req.id}`}
-                                          value={execDraft.targetReference}
+                                          id={`privacy-wf-assignee-${req.id}`}
+                                          value={
+                                            workflowDrafts[req.id]
+                                              ?.assignedToId ?? ""
+                                          }
                                           onChange={(e) =>
-                                            updateExecutionDraft(
+                                            updateWorkflowDraft(
                                               req.id,
-                                              "targetReference",
+                                              "assignedToId",
                                               e.target.value,
                                             )
                                           }
-                                          placeholder="Ej. entrega_titular_portal o destinatario"
-                                          autoComplete="off"
+                                          placeholder="UUID de usuario responsable"
                                         />
                                       </div>
                                     )}
-
-                                    <div className="space-y-1">
-                                      <Label
-                                        htmlFor={`privacy-exec-summary-${req.id}`}
-                                      >
-                                        Resumen de ejecución
-                                      </Label>
-                                      <textarea
-                                        id={`privacy-exec-summary-${req.id}`}
-                                        value={execDraft.summary}
-                                        onChange={(e) =>
-                                          updateExecutionDraft(
-                                            req.id,
-                                            "summary",
-                                            e.target.value,
-                                          )
-                                        }
-                                        maxLength={MAX_EXECUTION_SUMMARY_LENGTH}
-                                        className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                                        placeholder="Describe la ejecución aplicada (mín. 10 caracteres)"
-                                      />
-                                    </div>
-                                    {executionErrors[req.id] && (
-                                      <p
-                                        role="alert"
-                                        className="text-xs text-destructive"
-                                      >
-                                        {executionErrors[req.id]}
-                                      </p>
+                                    {(workflowDrafts[req.id]?.action ??
+                                      "add_internal_note") ===
+                                      "verify_identity" &&
+                                      req.account_id === "" && (
+                                        <div className="space-y-1">
+                                          <Label
+                                            htmlFor={`privacy-wf-account-${req.id}`}
+                                          >
+                                            ID de cuenta a vincular (UUID
+                                            opcional)
+                                          </Label>
+                                          <Input
+                                            id={`privacy-wf-account-${req.id}`}
+                                            value={
+                                              workflowDrafts[req.id]
+                                                ?.accountId ?? ""
+                                            }
+                                            onChange={(e) =>
+                                              updateWorkflowDraft(
+                                                req.id,
+                                                "accountId",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="UUID de cuenta titular (opcional)"
+                                          />
+                                        </div>
+                                      )}
+                                    {(workflowDrafts[req.id]?.action ??
+                                      "add_internal_note") ===
+                                      "extend_deadline" && (
+                                      <div className="space-y-1">
+                                        <Label
+                                          htmlFor={`privacy-wf-days-${req.id}`}
+                                        >
+                                          Días corridos adicionales (1–30)
+                                        </Label>
+                                        <Input
+                                          id={`privacy-wf-days-${req.id}`}
+                                          type="number"
+                                          min={1}
+                                          max={30}
+                                          value={
+                                            workflowDrafts[req.id]?.extraDays ??
+                                            "15"
+                                          }
+                                          onChange={(e) =>
+                                            updateWorkflowDraft(
+                                              req.id,
+                                              "extraDays",
+                                              e.target.value,
+                                            )
+                                          }
+                                        />
+                                      </div>
                                     )}
-                                    {showMfaHint && (
-                                      <p className="text-xs text-muted-foreground">
-                                        Se solicitará MFA reciente antes de
-                                        ejecutar el derecho.
-                                      </p>
-                                    )}
-                                    <Button
-                                      type="submit"
-                                      size="sm"
-                                      disabled={executingRequestId === req.id}
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label
+                                      htmlFor={`privacy-wf-note-${req.id}`}
                                     >
-                                      {executingRequestId === req.id
-                                        ? "Ejecutando…"
-                                        : "Ejecutar derecho"}
-                                    </Button>
-                                  </form>
-                                )}
-                              </div>
-                            );
-                          })()}
-                      </div>
-                    )}
-                    {canManagePrivacy && req.can_record_dispatch === true && (
-                      <form
-                        onSubmit={(event) => void handleRecordDispatch(event, req)}
-                        className="space-y-2 rounded-md border border-border p-3"
-                      >
-                        <p className="text-sm font-medium">Registrar comprobante de despacho</p>
-                        <p className="text-xs text-muted-foreground">
-                          Registra un envío por email o correo postal que ya realizaste manualmente. Este formulario solo deja constancia; no envía mensajes ni correspondencia.
-                        </p>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <Label htmlFor={`privacy-dispatch-channel-${req.id}`}>Canal</Label>
-                            <select
-                              id={`privacy-dispatch-channel-${req.id}`}
-                              value={dispatchDrafts[req.id]?.channel ?? "email"}
-                              onChange={(event) => updateDispatchDraft(req.id, "channel", event.target.value)}
-                              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                      Detalle, motivo o nota
+                                    </Label>
+                                    <textarea
+                                      id={`privacy-wf-note-${req.id}`}
+                                      value={workflowDrafts[req.id]?.note ?? ""}
+                                      onChange={(e) =>
+                                        updateWorkflowDraft(
+                                          req.id,
+                                          "note",
+                                          e.target.value,
+                                        )
+                                      }
+                                      maxLength={2000}
+                                      className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                      placeholder="Nota interna (no visible al titular) o detalle visible según la acción."
+                                    />
+                                  </div>
+                                  {workflowError && (
+                                    <p
+                                      role="alert"
+                                      className="text-xs text-destructive"
+                                    >
+                                      {workflowError}
+                                    </p>
+                                  )}
+                                  {showMfaHint && (
+                                    <p className="text-xs text-muted-foreground">
+                                      Se solicitará MFA reciente antes de
+                                      actualizar el expediente.
+                                    </p>
+                                  )}
+                                  <Button
+                                    type="submit"
+                                    size="sm"
+                                    disabled={workflowSubmittingId === req.id}
+                                  >
+                                    {workflowSubmittingId === req.id
+                                      ? "Aplicando…"
+                                      : "Aplicar acción"}
+                                  </Button>
+                                </form>
+                                {caseDetails[req.id] &&
+                                  (() => {
+                                    const detail = caseDetails[req.id];
+                                    const availableActions =
+                                      getAvailableExecutionActions(
+                                        req.right_type,
+                                      );
+                                    const execDraft =
+                                      executionDrafts[req.id] ??
+                                      DEFAULT_EXECUTION_DRAFT;
+                                    const selectedAction =
+                                      execDraft.action &&
+                                      availableActions.includes(
+                                        execDraft.action,
+                                      )
+                                        ? execDraft.action
+                                        : availableActions[0];
+                                    const canExecuteRight =
+                                      (detail.account_id || req.account_id) !==
+                                        "" &&
+                                      (detail.can_publish_response ??
+                                        req.can_publish_response) === true &&
+                                      availableActions.length > 0;
+
+                                    return (
+                                      <div className="space-y-3 border-t border-border pt-3">
+                                        <p className="text-xs font-semibold text-foreground">
+                                          Ejecución efectiva de derechos (Fase
+                                          4)
+                                        </p>
+
+                                        <div className="space-y-1.5">
+                                          <p className="text-xs font-medium text-foreground">
+                                            Ejecuciones registradas
+                                          </p>
+                                          {detail.executions?.length ? (
+                                            <ul className="space-y-1.5 text-xs">
+                                              {detail.executions.map((exec) => (
+                                                <li
+                                                  key={exec.id}
+                                                  className="space-y-1 rounded border border-border/60 bg-background p-2"
+                                                >
+                                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div className="flex flex-wrap items-center gap-1.5">
+                                                      <Badge variant="secondary">
+                                                        {exec.execution_type}
+                                                      </Badge>
+                                                      <Badge variant="outline">
+                                                        {exec.status}
+                                                      </Badge>
+                                                    </div>
+                                                    <span className="text-muted-foreground">
+                                                      {new Date(
+                                                        exec.executed_at,
+                                                      ).toLocaleString("es-CL")}
+                                                    </span>
+                                                  </div>
+                                                  <p className="text-muted-foreground">
+                                                    Ámbito:{" "}
+                                                    <span className="text-foreground">
+                                                      {getScopeLabel(
+                                                        exec.scope,
+                                                      )}
+                                                    </span>
+                                                  </p>
+                                                  <p className="text-foreground">
+                                                    {exec.summary}
+                                                  </p>
+                                                  {exec.target_reference && (
+                                                    <p className="text-muted-foreground">
+                                                      Destino / referencia:{" "}
+                                                      <span className="font-mono text-foreground">
+                                                        {exec.target_reference}
+                                                      </span>
+                                                    </p>
+                                                  )}
+                                                  {exec.artifact_sha256 && (
+                                                    <p className="text-muted-foreground">
+                                                      SHA-256:{" "}
+                                                      <span
+                                                        className="font-mono text-foreground"
+                                                        title={
+                                                          exec.artifact_sha256
+                                                        }
+                                                      >
+                                                        {exec.artifact_sha256.slice(
+                                                          0,
+                                                          16,
+                                                        )}
+                                                        …
+                                                      </span>
+                                                    </p>
+                                                  )}
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                              Sin ejecuciones registradas.
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <p className="text-xs font-medium text-foreground">
+                                            Bloqueos temporales de tratamiento
+                                          </p>
+                                          {detail.treatment_blocks?.length ? (
+                                            <ul className="space-y-2 text-xs">
+                                              {detail.treatment_blocks.map(
+                                                (block) => (
+                                                  <li
+                                                    key={block.id}
+                                                    className="space-y-1.5 rounded border border-border/60 bg-background p-2"
+                                                  >
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                      <span className="font-medium text-foreground">
+                                                        {getScopeLabel(
+                                                          block.scope,
+                                                        )}
+                                                      </span>
+                                                      <Badge
+                                                        variant={
+                                                          block.state ===
+                                                          "activo"
+                                                            ? "destructive"
+                                                            : "outline"
+                                                        }
+                                                      >
+                                                        {block.state}
+                                                      </Badge>
+                                                    </div>
+                                                    <p className="text-muted-foreground">
+                                                      Motivo:{" "}
+                                                      <span className="text-foreground">
+                                                        {block.reason}
+                                                      </span>
+                                                    </p>
+                                                    {block.lift_reason && (
+                                                      <p className="text-muted-foreground">
+                                                        Motivo de levantamiento:{" "}
+                                                        <span className="text-foreground">
+                                                          {block.lift_reason}
+                                                        </span>
+                                                      </p>
+                                                    )}
+                                                    {block.state ===
+                                                      "activo" && (
+                                                      <div className="space-y-1.5 border-t border-border/50 pt-2">
+                                                        <Label
+                                                          htmlFor={`privacy-lift-reason-${block.id}`}
+                                                        >
+                                                          Motivo de
+                                                          levantamiento
+                                                        </Label>
+                                                        <div className="flex flex-col gap-2 sm:flex-row">
+                                                          <Input
+                                                            id={`privacy-lift-reason-${block.id}`}
+                                                            value={
+                                                              liftReasonDrafts[
+                                                                block.id
+                                                              ] ?? ""
+                                                            }
+                                                            onChange={(e) =>
+                                                              setLiftReasonDrafts(
+                                                                (prev) => ({
+                                                                  ...prev,
+                                                                  [block.id]:
+                                                                    e.target
+                                                                      .value,
+                                                                }),
+                                                              )
+                                                            }
+                                                            placeholder="Motivo del levantamiento (mín. 10 caracteres)"
+                                                          />
+                                                          <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            size="sm"
+                                                            disabled={
+                                                              liftingBlockId ===
+                                                              block.id
+                                                            }
+                                                            onClick={() =>
+                                                              void handleLiftBlock(
+                                                                req,
+                                                                block.id,
+                                                              )
+                                                            }
+                                                          >
+                                                            {liftingBlockId ===
+                                                            block.id
+                                                              ? "Levantando…"
+                                                              : "Levantar bloqueo"}
+                                                          </Button>
+                                                        </div>
+                                                        {liftBlockErrors[
+                                                          block.id
+                                                        ] && (
+                                                          <p
+                                                            role="alert"
+                                                            className="text-xs text-destructive"
+                                                          >
+                                                            {
+                                                              liftBlockErrors[
+                                                                block.id
+                                                              ]
+                                                            }
+                                                          </p>
+                                                        )}
+                                                      </div>
+                                                    )}
+                                                  </li>
+                                                ),
+                                              )}
+                                            </ul>
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                              Sin bloqueos temporales
+                                              registrados.
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="space-y-1.5">
+                                          <p className="text-xs font-medium text-foreground">
+                                            Preferencias de finalidad de la
+                                            cuenta
+                                          </p>
+                                          {detail.purpose_preferences
+                                            ?.length ? (
+                                            <ul className="space-y-1 text-xs">
+                                              {detail.purpose_preferences.map(
+                                                (pref) => (
+                                                  <li
+                                                    key={pref.purpose}
+                                                    className="flex flex-wrap items-center justify-between gap-2 rounded border border-border/60 bg-background p-2"
+                                                  >
+                                                    <span className="text-foreground">
+                                                      {getPurposeLabel(
+                                                        pref.purpose,
+                                                      )}
+                                                    </span>
+                                                    <Badge
+                                                      variant={
+                                                        pref.state ===
+                                                        "permitido"
+                                                          ? "outline"
+                                                          : "secondary"
+                                                      }
+                                                    >
+                                                      {pref.state}
+                                                    </Badge>
+                                                  </li>
+                                                ),
+                                              )}
+                                            </ul>
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                              Sin preferencias de finalidad
+                                              registradas.
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        {canExecuteRight && selectedAction && (
+                                          <form
+                                            onSubmit={(event) =>
+                                              void handleExecuteRight(
+                                                event,
+                                                req,
+                                              )
+                                            }
+                                            className="space-y-2 rounded border border-border bg-background p-2.5"
+                                          >
+                                            <p className="text-xs font-medium text-foreground">
+                                              Ejecutar acción sobre el derecho
+                                            </p>
+                                            <div className="space-y-1">
+                                              <Label
+                                                htmlFor={`privacy-exec-action-${req.id}`}
+                                              >
+                                                Acción sobre el derecho
+                                              </Label>
+                                              <select
+                                                id={`privacy-exec-action-${req.id}`}
+                                                value={selectedAction}
+                                                onChange={(e) =>
+                                                  updateExecutionDraft(
+                                                    req.id,
+                                                    "action",
+                                                    e.target.value as Exclude<
+                                                      GlobalAdminPrivacyExecutionAction,
+                                                      "lift_block"
+                                                    >,
+                                                  )
+                                                }
+                                                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                              >
+                                                {availableActions.map((act) => (
+                                                  <option key={act} value={act}>
+                                                    {
+                                                      EXECUTION_ACTION_LABELS[
+                                                        act
+                                                      ]
+                                                    }
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </div>
+
+                                            {selectedAction ===
+                                              "rectify_profile" && (
+                                              <div className="space-y-2">
+                                                <div className="grid gap-2 sm:grid-cols-2">
+                                                  <div className="space-y-1">
+                                                    <Label
+                                                      htmlFor={`privacy-exec-display-name-${req.id}`}
+                                                    >
+                                                      Nombre visible (opcional)
+                                                    </Label>
+                                                    <Input
+                                                      id={`privacy-exec-display-name-${req.id}`}
+                                                      value={
+                                                        execDraft.displayName
+                                                      }
+                                                      onChange={(e) =>
+                                                        updateExecutionDraft(
+                                                          req.id,
+                                                          "displayName",
+                                                          e.target.value,
+                                                        )
+                                                      }
+                                                      placeholder="Nombre visible corregido"
+                                                      autoComplete="off"
+                                                    />
+                                                  </div>
+                                                  <div className="space-y-1">
+                                                    <Label
+                                                      htmlFor={`privacy-exec-phone-${req.id}`}
+                                                    >
+                                                      Teléfono 9 dígitos
+                                                      (opcional)
+                                                    </Label>
+                                                    <Input
+                                                      id={`privacy-exec-phone-${req.id}`}
+                                                      value={execDraft.phone}
+                                                      disabled={
+                                                        execDraft.clearPhone
+                                                      }
+                                                      onChange={(e) =>
+                                                        updateExecutionDraft(
+                                                          req.id,
+                                                          "phone",
+                                                          e.target.value,
+                                                        )
+                                                      }
+                                                      placeholder="912345678"
+                                                      autoComplete="off"
+                                                    />
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <input
+                                                    id={`privacy-exec-clear-phone-${req.id}`}
+                                                    type="checkbox"
+                                                    checked={
+                                                      execDraft.clearPhone
+                                                    }
+                                                    onChange={(e) =>
+                                                      updateExecutionDraft(
+                                                        req.id,
+                                                        "clearPhone",
+                                                        e.target.checked,
+                                                      )
+                                                    }
+                                                    className="h-4 w-4 rounded border border-input"
+                                                  />
+                                                  <Label
+                                                    htmlFor={`privacy-exec-clear-phone-${req.id}`}
+                                                  >
+                                                    Limpiar teléfono (enviar
+                                                    vacío)
+                                                  </Label>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {selectedAction ===
+                                              "apply_opposition" && (
+                                              <div className="grid gap-2 sm:grid-cols-2">
+                                                <div className="space-y-1">
+                                                  <Label
+                                                    htmlFor={`privacy-exec-purpose-${req.id}`}
+                                                  >
+                                                    Finalidad
+                                                  </Label>
+                                                  <select
+                                                    id={`privacy-exec-purpose-${req.id}`}
+                                                    value={execDraft.purpose}
+                                                    onChange={(e) =>
+                                                      updateExecutionDraft(
+                                                        req.id,
+                                                        "purpose",
+                                                        e.target
+                                                          .value as AdminPrivacyPurpose,
+                                                      )
+                                                    }
+                                                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                                  >
+                                                    {PURPOSE_OPTIONS.map(
+                                                      (opt) => (
+                                                        <option
+                                                          key={opt.value}
+                                                          value={opt.value}
+                                                        >
+                                                          {opt.label}
+                                                        </option>
+                                                      ),
+                                                    )}
+                                                  </select>
+                                                </div>
+                                                <div className="space-y-1">
+                                                  <Label
+                                                    htmlFor={`privacy-exec-purpose-state-${req.id}`}
+                                                  >
+                                                    Estado de finalidad
+                                                  </Label>
+                                                  <select
+                                                    id={`privacy-exec-purpose-state-${req.id}`}
+                                                    value={
+                                                      execDraft.purposeState
+                                                    }
+                                                    onChange={(e) =>
+                                                      updateExecutionDraft(
+                                                        req.id,
+                                                        "purposeState",
+                                                        e.target
+                                                          .value as Extract<
+                                                          AdminPrivacyPurposeState,
+                                                          "opuesto" | "retirado"
+                                                        >,
+                                                      )
+                                                    }
+                                                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                                  >
+                                                    <option value="opuesto">
+                                                      Opuesto
+                                                    </option>
+                                                    <option value="retirado">
+                                                      Retirado
+                                                    </option>
+                                                  </select>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {selectedAction ===
+                                              "apply_block" && (
+                                              <div className="space-y-1">
+                                                <Label
+                                                  htmlFor={`privacy-exec-scope-${req.id}`}
+                                                >
+                                                  Ámbito del bloqueo
+                                                </Label>
+                                                <select
+                                                  id={`privacy-exec-scope-${req.id}`}
+                                                  value={execDraft.scope}
+                                                  onChange={(e) =>
+                                                    updateExecutionDraft(
+                                                      req.id,
+                                                      "scope",
+                                                      e.target
+                                                        .value as AdminPrivacyTreatmentScope,
+                                                    )
+                                                  }
+                                                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                                >
+                                                  {TREATMENT_SCOPE_OPTIONS.map(
+                                                    (opt) => (
+                                                      <option
+                                                        key={opt.value}
+                                                        value={opt.value}
+                                                      >
+                                                        {opt.label}
+                                                      </option>
+                                                    ),
+                                                  )}
+                                                </select>
+                                              </div>
+                                            )}
+
+                                            {selectedAction ===
+                                              "issue_portability" && (
+                                              <div className="space-y-1">
+                                                <Label
+                                                  htmlFor={`privacy-exec-target-ref-${req.id}`}
+                                                >
+                                                  Referencia de destino
+                                                  (opcional)
+                                                </Label>
+                                                <Input
+                                                  id={`privacy-exec-target-ref-${req.id}`}
+                                                  value={
+                                                    execDraft.targetReference
+                                                  }
+                                                  onChange={(e) =>
+                                                    updateExecutionDraft(
+                                                      req.id,
+                                                      "targetReference",
+                                                      e.target.value,
+                                                    )
+                                                  }
+                                                  placeholder="Ej. entrega_titular_portal o destinatario"
+                                                  autoComplete="off"
+                                                />
+                                              </div>
+                                            )}
+
+                                            <div className="space-y-1">
+                                              <Label
+                                                htmlFor={`privacy-exec-summary-${req.id}`}
+                                              >
+                                                Resumen de ejecución
+                                              </Label>
+                                              <textarea
+                                                id={`privacy-exec-summary-${req.id}`}
+                                                value={execDraft.summary}
+                                                onChange={(e) =>
+                                                  updateExecutionDraft(
+                                                    req.id,
+                                                    "summary",
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                maxLength={
+                                                  MAX_EXECUTION_SUMMARY_LENGTH
+                                                }
+                                                className="min-h-16 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                                placeholder="Describe la ejecución aplicada (mín. 10 caracteres)"
+                                              />
+                                            </div>
+                                            {executionErrors[req.id] && (
+                                              <p
+                                                role="alert"
+                                                className="text-xs text-destructive"
+                                              >
+                                                {executionErrors[req.id]}
+                                              </p>
+                                            )}
+                                            {showMfaHint && (
+                                              <p className="text-xs text-muted-foreground">
+                                                Se solicitará MFA reciente antes
+                                                de ejecutar el derecho.
+                                              </p>
+                                            )}
+                                            <Button
+                                              type="submit"
+                                              size="sm"
+                                              disabled={
+                                                executingRequestId === req.id
+                                              }
+                                            >
+                                              {executingRequestId === req.id
+                                                ? "Ejecutando…"
+                                                : "Ejecutar derecho"}
+                                            </Button>
+                                          </form>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {canManagePrivacy &&
+                          req.can_record_dispatch === true && (
+                            <form
+                              onSubmit={(event) =>
+                                void handleRecordDispatch(event, req)
+                              }
+                              className="space-y-2 rounded-md border border-border p-3"
                             >
-                              <option value="email">Email</option>
-                              <option value="postal">Correo postal</option>
-                            </select>
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor={`privacy-dispatch-destination-${req.id}`}>Destino</Label>
-                            <Input
-                              id={`privacy-dispatch-destination-${req.id}`}
-                              value={dispatchDrafts[req.id]?.destination ?? ""}
-                              onChange={(event) => updateDispatchDraft(req.id, "destination", event.target.value)}
-                              autoComplete="off"
+                              <p className="text-sm font-medium">
+                                Registrar comprobante de despacho
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Registra un envío por email o correo postal que
+                                ya realizaste manualmente. Este formulario solo
+                                deja constancia; no envía mensajes ni
+                                correspondencia.
+                              </p>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="space-y-1">
+                                  <Label
+                                    htmlFor={`privacy-dispatch-channel-${req.id}`}
+                                  >
+                                    Canal
+                                  </Label>
+                                  <select
+                                    id={`privacy-dispatch-channel-${req.id}`}
+                                    value={
+                                      dispatchDrafts[req.id]?.channel ?? "email"
+                                    }
+                                    onChange={(event) =>
+                                      updateDispatchDraft(
+                                        req.id,
+                                        "channel",
+                                        event.target.value,
+                                      )
+                                    }
+                                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                  >
+                                    <option value="email">Email</option>
+                                    <option value="postal">
+                                      Correo postal
+                                    </option>
+                                  </select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label
+                                    htmlFor={`privacy-dispatch-destination-${req.id}`}
+                                  >
+                                    Destino
+                                  </Label>
+                                  <Input
+                                    id={`privacy-dispatch-destination-${req.id}`}
+                                    value={
+                                      dispatchDrafts[req.id]?.destination ?? ""
+                                    }
+                                    onChange={(event) =>
+                                      updateDispatchDraft(
+                                        req.id,
+                                        "destination",
+                                        event.target.value,
+                                      )
+                                    }
+                                    autoComplete="off"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label
+                                    htmlFor={`privacy-dispatch-sent-at-${req.id}`}
+                                  >
+                                    Fecha y hora del envío
+                                  </Label>
+                                  <Input
+                                    id={`privacy-dispatch-sent-at-${req.id}`}
+                                    type="datetime-local"
+                                    value={dispatchDrafts[req.id]?.sentAt ?? ""}
+                                    onChange={(event) =>
+                                      updateDispatchDraft(
+                                        req.id,
+                                        "sentAt",
+                                        event.target.value,
+                                      )
+                                    }
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label
+                                    htmlFor={`privacy-dispatch-evidence-${req.id}`}
+                                  >
+                                    Referencia de evidencia
+                                  </Label>
+                                  <Input
+                                    id={`privacy-dispatch-evidence-${req.id}`}
+                                    value={
+                                      dispatchDrafts[req.id]?.evidenceRef ?? ""
+                                    }
+                                    onChange={(event) =>
+                                      updateDispatchDraft(
+                                        req.id,
+                                        "evidenceRef",
+                                        event.target.value,
+                                      )
+                                    }
+                                    autoComplete="off"
+                                  />
+                                </div>
+                              </div>
+                              {dispatchError && (
+                                <p
+                                  role="alert"
+                                  className="text-xs text-destructive"
+                                >
+                                  {dispatchError}
+                                </p>
+                              )}
+                              {showMfaHint && (
+                                <p className="text-xs text-muted-foreground">
+                                  Se solicitará MFA reciente antes de registrar
+                                  el comprobante.
+                                </p>
+                              )}
+                              <Button
+                                type="submit"
+                                size="sm"
+                                disabled={dispatchingId === req.id}
+                              >
+                                {dispatchingId === req.id
+                                  ? "Registrando…"
+                                  : "Registrar despacho realizado"}
+                              </Button>
+                            </form>
+                          )}
+                        {canManagePrivacy && canResolvePortalAccess(req) && (
+                          <div className="space-y-2 rounded-md border border-border p-3">
+                            <Label htmlFor={`privacy-resolution-${req.id}`}>
+                              Respuesta para el titular
+                            </Label>
+                            <textarea
+                              id={`privacy-resolution-${req.id}`}
+                              value={resolutionDrafts[req.id]?.response ?? ""}
+                              maxLength={MAX_RESPONSE_LENGTH}
+                              onChange={(event) =>
+                                updateResolutionDraft(
+                                  req.id,
+                                  "response",
+                                  event.target.value,
+                                )
+                              }
+                              className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              aria-describedby={`privacy-resolution-help-${req.id}`}
                             />
+                            <p
+                              id={`privacy-resolution-help-${req.id}`}
+                              className="text-xs text-muted-foreground"
+                            >
+                              Registra la respuesta en EspaciGo. Esto no
+                              confirma una ejecución de acciones en servicios
+                              externos.{" "}
+                              {resolutionDrafts[req.id]?.response.length ?? 0}/
+                              {MAX_RESPONSE_LENGTH}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                aria-label="Decisión de privacidad"
+                                value={
+                                  resolutionDrafts[req.id]?.decision ??
+                                  "resuelta"
+                                }
+                                onChange={(event) =>
+                                  updateResolutionDraft(
+                                    req.id,
+                                    "decision",
+                                    event.target.value,
+                                  )
+                                }
+                                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                              >
+                                <option value="resuelta">
+                                  Solicitud resuelta
+                                </option>
+                                <option value="denegada_fundada">
+                                  Denegada con fundamento
+                                </option>
+                              </select>
+                              <Button
+                                size="sm"
+                                disabled={resolvingId === req.id}
+                                onClick={() => void handleResolve(req)}
+                              >
+                                {resolvingId === req.id
+                                  ? "Guardando…"
+                                  : "Registrar respuesta"}
+                              </Button>
+                            </div>
+                            {resolutionError && (
+                              <p
+                                role="alert"
+                                className="text-xs text-destructive"
+                              >
+                                {resolutionError}
+                              </p>
+                            )}
+                            {showMfaHint && (
+                              <p className="text-xs text-muted-foreground">
+                                Se solicitará una verificación MFA reciente
+                                antes de registrar la respuesta.
+                              </p>
+                            )}
                           </div>
-                          <div className="space-y-1">
-                            <Label htmlFor={`privacy-dispatch-sent-at-${req.id}`}>Fecha y hora del envío</Label>
-                            <Input
-                              id={`privacy-dispatch-sent-at-${req.id}`}
-                              type="datetime-local"
-                              value={dispatchDrafts[req.id]?.sentAt ?? ""}
-                              onChange={(event) => updateDispatchDraft(req.id, "sentAt", event.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label htmlFor={`privacy-dispatch-evidence-${req.id}`}>Referencia de evidencia</Label>
-                            <Input
-                              id={`privacy-dispatch-evidence-${req.id}`}
-                              value={dispatchDrafts[req.id]?.evidenceRef ?? ""}
-                              onChange={(event) => updateDispatchDraft(req.id, "evidenceRef", event.target.value)}
-                              autoComplete="off"
-                            />
-                          </div>
-                        </div>
-                        {dispatchError && (
-                          <p role="alert" className="text-xs text-destructive">{dispatchError}</p>
-                        )}
-                        {showMfaHint && (
-                          <p className="text-xs text-muted-foreground">Se solicitará MFA reciente antes de registrar el comprobante.</p>
-                        )}
-                        <Button type="submit" size="sm" disabled={dispatchingId === req.id}>
-                          {dispatchingId === req.id ? "Registrando…" : "Registrar despacho realizado"}
-                        </Button>
-                      </form>
-                    )}
-                    {canManagePrivacy && canResolvePortalAccess(req) && (
-                      <div className="space-y-2 rounded-md border border-border p-3">
-                        <Label htmlFor={`privacy-resolution-${req.id}`}>
-                          Respuesta para el titular
-                        </Label>
-                        <textarea
-                          id={`privacy-resolution-${req.id}`}
-                          value={resolutionDrafts[req.id]?.response ?? ""}
-                          maxLength={MAX_RESPONSE_LENGTH}
-                          onChange={(event) =>
-                            updateResolutionDraft(
-                              req.id,
-                              "response",
-                              event.target.value,
-                            )
-                          }
-                          className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                          aria-describedby={`privacy-resolution-help-${req.id}`}
-                        />
-                        <p
-                          id={`privacy-resolution-help-${req.id}`}
-                          className="text-xs text-muted-foreground"
-                        >
-                          Registra la respuesta en EspaciGo. Esto no confirma
-                          una ejecución de acciones en servicios externos.{" "}
-                          {resolutionDrafts[req.id]?.response.length ?? 0}/
-                          {MAX_RESPONSE_LENGTH}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <select
-                            aria-label="Decisión de privacidad"
-                            value={
-                              resolutionDrafts[req.id]?.decision ?? "resuelta"
-                            }
-                            onChange={(event) =>
-                              updateResolutionDraft(
-                                req.id,
-                                "decision",
-                                event.target.value,
-                              )
-                            }
-                            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          >
-                            <option value="resuelta">Solicitud resuelta</option>
-                            <option value="denegada_fundada">
-                              Denegada con fundamento
-                            </option>
-                          </select>
-                          <Button
-                            size="sm"
-                            disabled={resolvingId === req.id}
-                            onClick={() => void handleResolve(req)}
-                          >
-                            {resolvingId === req.id
-                              ? "Guardando…"
-                              : "Registrar respuesta"}
-                          </Button>
-                        </div>
-                        {resolutionError && (
-                          <p role="alert" className="text-xs text-destructive">
-                            {resolutionError}
-                          </p>
-                        )}
-                        {showMfaHint && (
-                          <p className="text-xs text-muted-foreground">
-                            Se solicitará una verificación MFA reciente antes de
-                            registrar la respuesta.
-                          </p>
                         )}
                       </div>
+                    ))}
+                    {privacyNextCursor && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void loadMorePrivacy()}
+                        disabled={loadingMorePrivacy}
+                      >
+                        {loadingMorePrivacy
+                          ? "Cargando…"
+                          : "Cargar más solicitudes"}
+                      </Button>
                     )}
                   </div>
-                ))}
-                {privacyNextCursor && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void loadMorePrivacy()}
-                    disabled={loadingMorePrivacy}
-                  >
-                    {loadingMorePrivacy
-                      ? "Cargando…"
-                      : "Cargar más solicitudes"}
-                  </Button>
-                )}
-              </div>
                 )}
               </>
             )}
@@ -3893,19 +4127,23 @@ export function AdminPrivacyView() {
         </Card>
       </div>
 
-      <AdminPrivacyPhase7Section
-        mfaStepUpRequired={snapshot.mfaStepUpRequired}
-        recentAuthExpiresAt={snapshot.adminSession?.recent_auth_expires_at}
-        showMfaHint={showMfaHint}
-        openMfaStepUp={openMfaStepUp}
-        listGlobalPrivacyIncidents={listGlobalPrivacyIncidents}
-        getGlobalPrivacyIncident={getGlobalPrivacyIncident}
-        createGlobalPrivacyIncident={createGlobalPrivacyIncident}
-        transitionGlobalPrivacyIncident={transitionGlobalPrivacyIncident}
-        listGlobalPrivacyLegalHolds={listGlobalPrivacyLegalHolds}
-        createGlobalPrivacyLegalHold={createGlobalPrivacyLegalHold}
-        releaseGlobalPrivacyLegalHold={releaseGlobalPrivacyLegalHold}
-      />
+      {(canReadPrivacy || canReadIncidents) && (
+        <AdminPrivacyPhase7Section
+          canReadIncidents={canReadIncidents}
+          canManageIncidents={canManageIncidents}
+          mfaStepUpRequired={snapshot.mfaStepUpRequired}
+          recentAuthExpiresAt={snapshot.adminSession?.recent_auth_expires_at}
+          showMfaHint={showMfaHint}
+          openMfaStepUp={openMfaStepUp}
+          listGlobalPrivacyIncidents={listGlobalPrivacyIncidents}
+          getGlobalPrivacyIncident={getGlobalPrivacyIncident}
+          createGlobalPrivacyIncident={createGlobalPrivacyIncident}
+          transitionGlobalPrivacyIncident={transitionGlobalPrivacyIncident}
+          listGlobalPrivacyLegalHolds={listGlobalPrivacyLegalHolds}
+          createGlobalPrivacyLegalHold={createGlobalPrivacyLegalHold}
+          releaseGlobalPrivacyLegalHold={releaseGlobalPrivacyLegalHold}
+        />
+      )}
     </div>
   );
 }

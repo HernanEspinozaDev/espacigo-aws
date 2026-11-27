@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { CookiePreferencesButton } from "@/features/cookie-preferences/cookie-preferences";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -130,6 +131,9 @@ export function Footer() {
                 >
                   Solicitudes ARCO+ (sin sesión)
                 </Link>
+              </li>
+              <li>
+                <CookiePreferencesButton />
               </li>
             </ul>
           </div>

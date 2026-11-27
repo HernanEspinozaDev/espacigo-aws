@@ -76,8 +76,8 @@ Todas se montan en `registerProductionAdminAccountRoutes` ([`cmd/api/main.go`](.
 | `GET /api/v1/admin/global/privacy-incidents/{incidentID}` | `getGlobalPrivacyIncident` | `privacy.incidents.read` o `privacy.incidents.manage` | No | Devuelve ficha de incidente y cronología append-only `privacidad_incidente_evento`. |
 | `POST /api/v1/admin/global/privacy-incidents/{incidentID}/transitions` | `transitionGlobalPrivacyIncident` | `privacy.incidents.manage` | **Sí (`428`)** | Avanza estado (`contencion`, `evaluacion`, `notificacion_agencia`, `notificacion_titulares`, `nota`, `cierre`) con `expected_version`. |
 | `GET /api/v1/admin/global/privacy-legal-holds` | `listGlobalPrivacyLegalHolds` | `privacy.incidents.read`, `privacy.incidents.manage`, `privacy.requests.read` o `privacy.requests.manage` | No | Lista retenciones legales filtradas por `status`, `scope` y `account_id`. |
-| `POST /api/v1/admin/global/privacy-legal-holds` | `createGlobalPrivacyLegalHold` | `privacy.incidents.manage` *(nota: OpenAPI cita `privacy.requests.manage` o `privacy.incidents.manage`; Go valida `privacy.incidents.manage`)* | **Sí (`428`)** | Aplica retención legal (`HOLD-...`) bloqueando purga/baja sobre el ámbito indicado. |
-| `POST /api/v1/admin/global/privacy-legal-holds/{holdID}/release` | `releaseGlobalPrivacyLegalHold` | `privacy.incidents.manage` *(nota: OpenAPI cita `privacy.requests.manage` o `privacy.incidents.manage`; Go valida `privacy.incidents.manage`)* | **Sí (`428`)** | Libera retención legal exigiendo `release_reason` documentado. |
+| `POST /api/v1/admin/global/privacy-legal-holds` | `createGlobalPrivacyLegalHold` | `privacy.incidents.manage` | **Sí (`428`)** | Aplica retención legal (`HOLD-...`) bloqueando purga/baja sobre el ámbito indicado. |
+| `POST /api/v1/admin/global/privacy-legal-holds/{holdID}/release` | `releaseGlobalPrivacyLegalHold` | `privacy.incidents.manage` | **Sí (`428`)** | Libera retención legal exigiendo `release_reason` documentado. |
 | `POST /api/v1/admin/global/approvals` y `.../decisions` (`action_type: privacy_export`) | `createGlobalAdminApproval` / `decideGlobalAdminApproval` | `approvals.request` / `approvals.decide` (+ capacidad `privacy.export.approve` en catálogo de dominio) | **Sí (`428`)** | Doble control (`solicitante != aprobador`) para aprobaciones de exportación de privacidad (`privacy_export`). |
 
 ---
@@ -173,14 +173,14 @@ De acuerdo con [`AGENTS.md`](../../AGENTS.md), separa la entrega en commits ató
 4. **Exclusiones permanentes de promoción a `main`:**
    - Cualquier ajuste en `scripts/local-dev.sh`, `scripts/local-aws-bootstrap.sh`, `scripts/iniciar-local.sh`, configuración del emulador AWS, Mailpit o fixtures sintéticos permanece únicamente en `desarrollo-local`.
 
-### 5.2 Decisiones humanas y verificaciones cloud pendientes
+### 5.2 Cierre técnico, revisión jurídica y salida a producción
 
-Antes de declarar apta la operación productiva o promover a `main`, deben cerrarse explícitamente los siguientes puntos:
+La integración técnica y la preparación de los documentos cuentan con autorización para `desarrollo-local`. El plan conserva estos hitos para el seguimiento de cada entrega.
 
 1. **Revisión jurídica y de gobierno (Fase 2 / [`privacy-operations.md` §9](./privacy-operations.md)):**
-   - Designación formal del responsable operativo de privacidad y suplencias.
+   - Hotusoft es el operador y responsable del tratamiento. La dirección identificó a Hernán Maximiliano Espinoza Castillo como responsable y a Anita Belen Marchant Pacheco como suplente operativa. El paquete jurídico v1.2 queda disponible para presentación. La firma del acta, la aceptación firmada de la suplencia y la conformidad del abogado de cabecera de Hotusoft quedan para una etapa posterior.
    - Aprobación jurídica de plazos legales, reglas de suspensión/prórroga, método proporcional de verificación de identidad sin cuenta, matriz de rechazo/excepciones, tabla de retención y eliminación por clase de expediente, y protocolo de notificación a la Agencia y titulares (art. 14 sexies de la Ley 21.719 modificada por la Ley 21.855) antes del **15 de octubre de 2027**.
-   - Validación jurídica de divergencias menores entre texto descriptivo de `planning/openapi.yaml` y autoridad en Go (por ejemplo, capacidad exigida para creación/liberación de `privacy-legal-holds`).
+   - El contrato OpenAPI y Go aplican `privacy.incidents.manage` para crear y liberar retenciones. La consulta administrativa admite el permiso de lectura correspondiente.
 2. **Aprobación de promoción de ramas:**
    - Aprobación e integración en `desarrollo-local` tras pasar pruebas Go, PG 18, `pnpm api:check`, `pnpm build` y Playwright.
    - Autorización explícita del usuario para promover los commits compartidos aprobados a `main`, verificación de `release-ready` en GitHub Actions y avance de `publicacion-aws`.

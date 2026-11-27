@@ -522,6 +522,14 @@ func TestAccountSessionAndTermsRepositoryOperations(t *testing.T) {
 	if err := repo.AcceptTerms(ctx, acceptance); !errors.Is(err, identity.ErrConflict) {
 		t.Fatalf("duplicate terms acceptance error = %v, want ErrConflict", err)
 	}
+	acceptances, err := repo.LegalAcceptances(ctx, account.ID)
+	if err != nil || len(acceptances) != 1 || acceptances[0].Code != privacy.Code {
+		t.Fatalf("read own legal acceptances: %v %v", acceptances, err)
+	}
+	acceptances, err = repo.LegalAcceptances(ctx, "00000000-0000-4000-8000-000000000085")
+	if err != nil || len(acceptances) != 0 {
+		t.Fatalf("another account could read legal acceptances: %v %v", acceptances, err)
+	}
 
 	created := account.CreatedAt.Add(time.Hour)
 	session := identity.Session{

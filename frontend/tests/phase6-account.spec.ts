@@ -2083,6 +2083,30 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
     if (pathname === "/api/backend/rights-requests" && method === "GET") {
       return { status: 200, body: { items: [] } };
     }
+    if (
+      pathname === "/api/backend/privacy/legal-acceptances" &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        body: {
+          items: [
+            {
+              type: "terminos",
+              current_code: "TERMINOS-1.2",
+              latest_accepted_code: "TERMINOS-1.2",
+              latest_accepted_at: "2026-11-27T10:00:00Z",
+              current_accepted: true,
+            },
+            {
+              type: "privacidad",
+              current_code: "PRIVACIDAD-1.2",
+              current_accepted: false,
+            },
+          ],
+        },
+      };
+    }
     if (pathname === "/api/backend/privacy/preferences" && method === "GET") {
       return { status: 200, body: { items: preferences } };
     }
@@ -2142,6 +2166,13 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
 
   await loginAndNavigate(page, "/mi-cuenta/privacidad");
 
+  await expect(
+    page.getByText("Versión vigente aceptada", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Sin aceptación de la versión vigente"),
+  ).toBeVisible();
+
   // 1. Visualización del bloqueo temporal "activo" desde /privacy/restrictions
   const restrictionsHeading = page.getByRole("heading", {
     name: "Bloqueos temporales de tratamiento",
@@ -2161,7 +2192,9 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
     name: "Comunicaciones comerciales",
   });
   await expect(commSection).toBeVisible();
-  await expect(commSection.getByText("Permitido", { exact: true })).toBeVisible();
+  await expect(
+    commSection.getByText("Permitido", { exact: true }),
+  ).toBeVisible();
   await commSection
     .getByLabel("Motivo o causal (opcional)")
     .fill("No deseo recibir promociones");
@@ -2191,7 +2224,9 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
   expect(download.suggestedFilename()).toBe("espacigo-portabilidad-v1.json");
   expect(portabilityCount).toBe(1);
   await expect(
-    page.getByText("Portabilidad estructurada (JSON v1) descargada correctamente."),
+    page.getByText(
+      "Portabilidad estructurada (JSON v1) descargada correctamente.",
+    ),
   ).toBeVisible();
   await expect(
     page.getByText(`SHA-256 (portabilidad v1): ${portabilitySha256}`),

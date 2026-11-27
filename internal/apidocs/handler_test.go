@@ -131,7 +131,7 @@ func TestHandlerProjectsMercadoPagoOpenAPI31AndScalarReference(t *testing.T) {
 			omit string
 		}{
 			{"/openapi.json", []string{"/admin/global/me", "/public/spaces", "/host/settlements"}, ""},
-			{"/openapi.json?scope=all", []string{"/host/organizations", "/host/organization-join-requests", "/kyb/policy-consent", "/kyb/verifications", "/kyb/personal/sii", "/kyb/spaces/{spaceId}/verification", "/admin/kyb/compliance", "/account/identity-profile", "/webhooks/profile-identity", "/account/security/pinpass/unlock", "/account/security/pinpass/reveal/{field}", "/account/security/pinpass/email-code", "/account/security/confirmation/email-code", "/account/security/email/change", "/account/security/email/confirm"}, "/webhooks/didit"},
+			{"/openapi.json?scope=all", []string{"/host/organizations", "/host/organization-join-requests", "/kyb/policy-consent", "/kyb/verifications", "/kyb/personal/sii", "/kyb/spaces/{spaceId}/verification", "/admin/kyb/compliance", "/account/identity-profile", "/webhooks/profile-identity", "/account/security/pinpass/unlock", "/account/security/pinpass/reveal/{field}", "/account/security/pinpass/email-code", "/account/security/confirmation/email-code", "/account/security/email/change", "/account/security/email/confirm", "/privacy/legal-acceptances", "/privacy/public-requests", "/admin/global/privacy-incidents"}, "/webhooks/didit"},
 			{"/openapi.json?scope=admin", []string{"/admin/global/me", "/document-verification/reviewer/cases"}, "/public/spaces"},
 		} {
 			rec := httptest.NewRecorder()

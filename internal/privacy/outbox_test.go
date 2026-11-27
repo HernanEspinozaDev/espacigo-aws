@@ -10,13 +10,13 @@ import (
 )
 
 type memoryOutboxRow struct {
-	job          PrivacyNoticeJob
-	state        string
-	attempts     int
-	availableAt  time.Time
-	deliveredAt  *time.Time
-	terminalAt   *time.Time
-	lastErrCode  string
+	job         PrivacyNoticeJob
+	state       string
+	attempts    int
+	availableAt time.Time
+	deliveredAt *time.Time
+	terminalAt  *time.Time
+	lastErrCode string
 }
 
 type memoryOutboxRepo struct {

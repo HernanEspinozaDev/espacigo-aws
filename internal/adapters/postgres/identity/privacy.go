@@ -477,3 +477,23 @@ func (r *IdentityRepository) ListPendingSuppressions(ctx context.Context) ([]pri
 	}
 	return items, nil
 }
+
+func (r *IdentityRepository) LegalAcceptances(ctx context.Context, accountID string) ([]privacy.TermsAcceptance, error) {
+	rows, err := r.pool.Query(ctx, `SELECT v.codigo, v.tipo, a.aceptada_en
+		FROM public.aceptacion_terminos a JOIN public.version_terminos v ON v.id = a.version_id
+		WHERE a.usuario_id = $1 AND v.tipo IN ('terminos', 'privacidad')
+		ORDER BY v.tipo, a.aceptada_en DESC, v.publicada_en DESC, v.codigo`, accountID)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	defer rows.Close()
+	items := make([]privacy.TermsAcceptance, 0, 2)
+	for rows.Next() {
+		var item privacy.TermsAcceptance
+		if err := rows.Scan(&item.Code, &item.Type, &item.AcceptedAt); err != nil {
+			return nil, mapError(err)
+		}
+		items = append(items, item)
+	}
+	return items, mapError(rows.Err())
+}

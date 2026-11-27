@@ -148,6 +148,7 @@ test("@controlled /privacidad/solicitudes: ingresa bloqueo como representante le
   );
 
   await page.goto("/privacidad/solicitudes");
+  await page.getByRole("button", { name: "Rechazar opcionales" }).click();
 
   await expect(
     page.getByRole("heading", {
@@ -287,6 +288,7 @@ test("@controlled /privacidad/solicitudes: consulta con folio o código inválid
   );
 
   await page.goto("/privacidad/solicitudes");
+  await page.getByRole("button", { name: "Rechazar opcionales" }).click();
 
   await page
     .getByRole("tab", { name: "Consultar solicitud por folio y código" })

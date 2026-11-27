@@ -3802,7 +3802,7 @@ paths:
       summary: Aplicar retención legal sobre registros de privacidad
       description: >-
         Disponible en los perfiles local y productivo. Requiere sesión administrativa,
-        privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+        privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
       requestBody:
         required: true
         content:
@@ -3824,7 +3824,7 @@ paths:
       summary: Liberar una retención legal de privacidad
       description: >-
         Disponible en los perfiles local y productivo. Requiere sesión administrativa,
-        privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+        privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
       parameters:
         - { in: path, name: holdID, required: true, schema: { type: string, format: uuid } }
       requestBody:
@@ -5414,6 +5414,40 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /privacy/legal-acceptances:
+    get:
+      operationId: listOwnLegalAcceptances
+      tags: [ M02 local ]
+      summary: Consultar las versiones legales vigentes y las aceptaciones propias
+      description: >-
+        Disponible en los perfiles local y productivo con el servicio de privacidad montado.
+        Requiere sesión de titular. Compara la última aceptación de cada documento con
+        su versión vigente. La lectura no registra una nueva aceptación.
+      responses:
+        "200":
+          description: Versiones y estado de aceptación de la cuenta. Respuesta sin caché.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [ type, current_code, latest_accepted_code, latest_accepted_at, current_accepted ]
+                      properties:
+                        type: { type: string, enum: [ terminos, privacidad ] }
+                        current_code: { type: string }
+                        latest_accepted_code: { type: [ string, "null" ] }
+                        latest_accepted_at: { type: [ string, "null" ], format: date-time }
+                        current_accepted: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
   /privacy/preferences:
     get:
       operationId: listOwnPrivacyPreferences
@@ -11311,7 +11345,7 @@ components:
 
     AdminCapability:
       type: string
-      enum: [ legacy.administration, accounts.list, accounts.read, accounts.email.reveal, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export, payments.read, payments.reconcile, payments.refund.request, payments.refund.approve, reservations.read, contracts.read, kyc.case.read, kyc.review, privacy.requests.manage, privacy.export.approve, support.tickets.read, support.tickets.manage, approvals.read, approvals.request, approvals.decide ]
+      enum: [ legacy.administration, accounts.list, accounts.read, accounts.email.reveal, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export, payments.read, payments.reconcile, payments.refund.request, payments.refund.approve, reservations.read, contracts.read, kyc.case.read, kyc.review, privacy.requests.read, privacy.requests.manage, privacy.incidents.read, privacy.incidents.manage, privacy.export.approve, support.tickets.read, support.tickets.manage, approvals.read, approvals.request, approvals.decide ]
     AdminSessionStartRequest:
       type: object
       additionalProperties: false

@@ -64,7 +64,10 @@ const ADMIN_CAPABILITIES: AdminCapability[] = [
   "contracts.read",
   "kyc.case.read",
   "kyc.review",
+  "privacy.requests.read",
   "privacy.requests.manage",
+  "privacy.incidents.read",
+  "privacy.incidents.manage",
   "privacy.export.approve",
   "support.tickets.read",
   "support.tickets.manage",
@@ -255,7 +258,9 @@ function createPrivacyGovernanceStore(options?: {
         };
         store.privacyDetails[requestId] = updated;
         store.privacyRequests = store.privacyRequests.map((item) =>
-          item.id === requestId ? { ...item, updated_at: updated.updated_at } : item,
+          item.id === requestId
+            ? { ...item, updated_at: updated.updated_at }
+            : item,
         );
         return { status: 200, body: { data: updated } };
       }
@@ -400,9 +405,12 @@ function createPrivacyGovernanceStore(options?: {
         const now = new Date().toISOString();
         const updated: GlobalAdminPrivacyIncidentDetail = {
           ...current,
-          status: payload.action === "notify_agency" ? "notificado" : current.status,
+          status:
+            payload.action === "notify_agency" ? "notificado" : current.status,
           agency_notified_at:
-            payload.action === "notify_agency" ? now : current.agency_notified_at,
+            payload.action === "notify_agency"
+              ? now
+              : current.agency_notified_at,
           agency_reference:
             payload.agency_reference ?? current.agency_reference,
           updated_at: now,
@@ -539,9 +547,7 @@ async function loginAndNavigate(page: Page, destination: string) {
       .getByLabel("Contraseña", { exact: true })
       .fill("SecureAdmin123!");
     await page.getByRole("button", { name: "Iniciar sesión" }).click();
-    await page.waitForURL((url) =>
-      url.pathname.startsWith("/administracion"),
-    );
+    await page.waitForURL((url) => url.pathname.startsWith("/administracion"));
     if (new URL(page.url()).pathname !== pathname) {
       await page.goto(destination);
     }
@@ -661,9 +667,10 @@ test.describe("Gobernanza ARCO+ Fase 4, Fase 6.2 y Fase 7", () => {
           ) &&
         req.method() === "POST"
       ) {
-        capturedExecutionPayload = JSON.parse(
-          req.postData() ?? "{}",
-        ) as Record<string, unknown>;
+        capturedExecutionPayload = JSON.parse(req.postData() ?? "{}") as Record<
+          string,
+          unknown
+        >;
         return true;
       }
       return false;
@@ -691,9 +698,7 @@ test.describe("Gobernanza ARCO+ Fase 4, Fase 6.2 y Fase 7", () => {
 
     await expect(page.getByText("Ejecuciones registradas")).toBeVisible();
     await expect(page.getByText("portabilidad_emitida")).toBeVisible();
-    await expect(
-      page.getByText(`${sampleSha256.slice(0, 16)}…`),
-    ).toBeVisible();
+    await expect(page.getByText(`${sampleSha256.slice(0, 16)}…`)).toBeVisible();
   });
 
   test("Fase 7 Incidentes y Retención Legal en /administracion/privacidad", async ({

@@ -152,6 +152,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		accountSecurityMethodsPath         = "/api/v1/account/security/methods"
 		privacyPublicRequestsPath          = "/api/v1/privacy/public-requests"
 		privacyPublicRequestsLookupPath    = "/api/v1/privacy/public-requests/lookup"
+		privacyLegalAcceptancesPath        = "/api/v1/privacy/legal-acceptances"
 		privacyPreferencesPath             = "/api/v1/privacy/preferences"
 		privacyRestrictionsPath            = "/api/v1/privacy/restrictions"
 		privacyPortabilityPath             = "/api/v1/privacy/portability"
@@ -161,7 +162,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	qrTicketStatusPath := strings.HasPrefix(r.URL.Path, accountQRTicketPrefix)
 	trustedContactDeletePath := strings.HasPrefix(r.URL.Path, accountTrustedContactsPrefix)
 	expected := http.MethodPost
-	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyRestrictionsPath || r.URL.Path == privacyPortabilityPath || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
+	if r.URL.Path == "/api/v1/auth/session" || r.URL.Path == "/api/v1/auth/terms" || r.URL.Path == "/api/v1/profile" || r.URL.Path == "/api/v1/rights-requests" || r.URL.Path == "/api/v1/privacy/export" || r.URL.Path == "/api/v1/privacy/export/archive" || r.URL.Path == privacyLegalAcceptancesPath || r.URL.Path == privacyPreferencesPath || r.URL.Path == privacyRestrictionsPath || r.URL.Path == privacyPortabilityPath || r.URL.Path == accountPhonePath || r.URL.Path == accountDevicesPath || r.URL.Path == accountAlertsPath || r.URL.Path == accountTOTPPath || r.URL.Path == accountPasskeysPath || r.URL.Path == accountQRPath || qrTicketStatusPath || r.URL.Path == accountLocationPath || r.URL.Path == accountTrustedContactsPath || r.URL.Path == accountSecurityMethodsPath {
 		expected = http.MethodGet
 	}
 	if r.URL.Path == accountAlertsChannelsPath || (r.URL.Path == accountLocationPath && r.Method == http.MethodPut) || (r.URL.Path == privacyPreferencesPath && r.Method == http.MethodPut) {
@@ -215,6 +216,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"/api/v1/rights-requests":                true,
 		"/api/v1/privacy/export":                 true,
 		"/api/v1/privacy/export/archive":         true,
+		privacyLegalAcceptancesPath:              true,
 		privacyPreferencesPath:                   true,
 		privacyRestrictionsPath:                  true,
 		privacyPortabilityPath:                   true,
@@ -588,7 +590,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.write(w, http.StatusOK, map[string]any{"data": status})
-	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export", "/api/v1/privacy/export/archive", privacyPreferencesPath, privacyRestrictionsPath, privacyPortabilityPath:
+	case "/api/v1/profile", "/api/v1/rights-requests", "/api/v1/privacy/export", "/api/v1/privacy/export/archive", privacyLegalAcceptancesPath, privacyPreferencesPath, privacyRestrictionsPath, privacyPortabilityPath:
 		if h.privacy == nil {
 			h.fail(w, http.StatusServiceUnavailable, "privacy_unavailable", "Servicio de perfil no disponible.")
 			return
@@ -601,6 +603,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		principal, err := h.service.Authorize(r.Context(), identity.Secret(parts[1]), "", identity.UserOperation)
 		if err != nil {
 			h.serviceError(w, err)
+			return
+		}
+		if r.URL.Path == privacyLegalAcceptancesPath {
+			h.writeLegalAcceptanceStatus(w, r, principal.AccountID)
 			return
 		}
 		if r.URL.Path == privacyPortabilityPath {
