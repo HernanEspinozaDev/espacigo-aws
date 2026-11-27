@@ -28,7 +28,10 @@ export interface AccountView {
     idempotencyKey: string,
   ): Promise<SyntheticPayoutAccount>;
   revokePayoutAccount(idempotencyKey: string): Promise<void>;
-  requestDataRight(kind: RightsRequestKind, detail?: string): Promise<RightsRequest>;
+  requestDataRight(
+    kind: RightsRequestKind,
+    detail?: string,
+  ): Promise<RightsRequest>;
   exportIdentityBlob(): Promise<Blob | null>;
   downloadIdentityArchive(): Promise<Blob | null>;
   listPrivacyPreferences(): Promise<PrivacyPurposePreference[]>;
@@ -78,7 +81,8 @@ export function useAccount(): AccountView {
     [],
   );
   const requestDataRight = useCallback(
-    (kind: RightsRequestKind, detail = "") => accountFacade.requestDataRight(kind, detail),
+    (kind: RightsRequestKind, detail = "") =>
+      accountFacade.requestDataRight(kind, detail),
     [],
   );
   const exportIdentityBlob = useCallback(

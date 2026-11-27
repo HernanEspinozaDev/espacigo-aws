@@ -1007,7 +1007,8 @@ export function useAdmin(): AdminView {
       requestId: string,
       input: GlobalAdminPrivacyDispatchReceiptInput,
       signal?: AbortSignal,
-    ) => adminFacade.recordGlobalPrivacyDispatchReceipt(requestId, input, signal),
+    ) =>
+      adminFacade.recordGlobalPrivacyDispatchReceipt(requestId, input, signal),
     [],
   );
   const retryGlobalPrivacyNotifications = useCallback(

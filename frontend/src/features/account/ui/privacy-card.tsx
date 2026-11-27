@@ -247,7 +247,9 @@ export function PrivacyCard() {
         "export-portability",
       );
       setPortabilitySha256(result.sha256);
-      setMessage("Portabilidad estructurada (JSON v1) descargada correctamente.");
+      setMessage(
+        "Portabilidad estructurada (JSON v1) descargada correctamente.",
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -786,7 +788,8 @@ export function PrivacyCard() {
         <CardContent>
           {restrictions.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No hay bloqueos temporales de tratamiento registrados en tu cuenta.
+              No hay bloqueos temporales de tratamiento registrados en tu
+              cuenta.
             </p>
           ) : (
             <div className="divide-y rounded-md border text-sm">

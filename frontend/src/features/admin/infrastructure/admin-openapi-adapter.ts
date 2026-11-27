@@ -1285,10 +1285,13 @@ export class OpenApiAdminAdapter implements AdminPort {
     requestId: string,
     signal?: AbortSignal,
   ): Promise<GlobalAdminPrivacyRequestDetail> {
-    const result = await apiClient.GET("/admin/global/privacy-requests/{requestID}", {
-      params: { path: { requestID: requestId } },
-      signal,
-    });
+    const result = await apiClient.GET(
+      "/admin/global/privacy-requests/{requestID}",
+      {
+        params: { path: { requestID: requestId } },
+        signal,
+      },
+    );
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }

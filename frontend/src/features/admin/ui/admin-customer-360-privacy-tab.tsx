@@ -68,16 +68,14 @@ const CHANNEL_LABELS: Record<
   correo: "Correo",
 };
 
-const HOLD_SCOPE_LABELS: Record<
-  GlobalAdminPrivacyLegalHold["scope"],
-  string
-> = {
-  expediente_privacidad: "Expediente de privacidad",
-  cuenta_completa: "Cuenta completa",
-  evidencia_kyc: "Evidencia KYC",
-  contratos_y_pagos: "Contratos y pagos",
-  incidente_seguridad: "Incidente de seguridad",
-};
+const HOLD_SCOPE_LABELS: Record<GlobalAdminPrivacyLegalHold["scope"], string> =
+  {
+    expediente_privacidad: "Expediente de privacidad",
+    cuenta_completa: "Cuenta completa",
+    evidencia_kyc: "Evidencia KYC",
+    contratos_y_pagos: "Contratos y pagos",
+    incidente_seguridad: "Incidente de seguridad",
+  };
 
 const HOLD_STATUS_LABELS: Record<
   GlobalAdminPrivacyLegalHold["status"],
