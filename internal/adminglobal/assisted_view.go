@@ -15,6 +15,7 @@ const (
 	assistedViewTTL         = 15 * time.Minute
 	assistedViewStartAction = "admin.global.assisted_view.start"
 	assistedViewCloseAction = "admin.global.assisted_view.close"
+	assistedViewReadAction  = "admin.global.assisted_view.read"
 )
 
 // AssistedViewStore persists and resolves assisted client-view grants (used by tests or custom adapters).
@@ -267,6 +268,9 @@ func (s *Service) StartAssistedView(ctx context.Context, input AssistedViewStart
 	if !exists {
 		return AssistedViewGrant{}, ErrNotFound
 	}
+	if err := requireActiveSupportCase(ctx, tx, caseID, input.TargetID); err != nil {
+		return AssistedViewGrant{}, err
+	}
 
 	_, err = tx.Exec(ctx, `
 		INSERT INTO public.vista_asistida_administrativa (
@@ -278,7 +282,7 @@ func (s *Service) StartAssistedView(ctx context.Context, input AssistedViewStart
 		return AssistedViewGrant{}, err
 	}
 
-	if err := s.auditWithTarget(ctx, tx, input.ActorID, grantID, assistedViewStartAction, "exito", reason, input.CorrelationID, now, input.TargetID); err != nil {
+	if err := s.auditWithTarget(ctx, tx, input.ActorID, grantID, assistedViewStartAction, "exito", "inicio_vista_asistida", input.CorrelationID, now, input.TargetID); err != nil {
 		return AssistedViewGrant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -312,7 +316,7 @@ func (s *Service) GetAssistedViewProjection(ctx context.Context, input AssistedV
 		return AssistedViewProjection{}, ErrInvalid
 	}
 
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return AssistedViewProjection{}, err
 	}
@@ -352,6 +356,9 @@ func (s *Service) GetAssistedViewProjection(ctx context.Context, input AssistedV
 		sessionRevokedAt != nil || !now.Before(sessionExpiresAt) {
 		return AssistedViewProjection{}, ErrForbidden
 	}
+	if err := requireActiveSupportCase(ctx, tx, caseID, targetID); err != nil {
+		return AssistedViewProjection{}, err
+	}
 
 	summary, err := queryAssistedViewAccountSummary(ctx, tx, targetID)
 	if err != nil {
@@ -375,6 +382,9 @@ func (s *Service) GetAssistedViewProjection(ctx context.Context, input AssistedV
 	}
 	payments, err := queryAssistedViewPayments(ctx, tx, targetID, role)
 	if err != nil {
+		return AssistedViewProjection{}, err
+	}
+	if err := s.auditWithTarget(ctx, tx, actorID, input.GrantID, assistedViewReadAction, "exito", "lectura_vista_asistida", input.CorrelationID, now, targetID); err != nil {
 		return AssistedViewProjection{}, err
 	}
 
@@ -402,6 +412,28 @@ func (s *Service) GetAssistedViewProjection(ctx context.Context, input AssistedV
 		Contracts:             contracts,
 		Payments:              payments,
 	}, nil
+}
+
+// requireActiveSupportCase binds an assisted view to a live support ticket owned by
+// the account being viewed. A resolved/closed ticket must not authorize a new read.
+func requireActiveSupportCase(ctx context.Context, tx pgx.Tx, caseID, accountID string) error {
+	var id string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text FROM public.ticket_soporte_administrativo
+		WHERE (id::text = $1 OR caso_ref = $1)
+		  AND cuenta_id = $2
+		  AND estado IN ('abierto', 'en_progreso')
+		ORDER BY id
+		LIMIT 1
+		FOR SHARE
+	`, caseID, accountID).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrForbidden
+		}
+		return err
+	}
+	return nil
 }
 
 // CloseAssistedView revokes an assisted client-view grant and records an audit event.

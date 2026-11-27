@@ -123,6 +123,14 @@ export function Footer() {
                   Política de privacidad
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/privacidad/solicitudes"
+                  className="text-sm text-[var(--brand-muted-on-subtle)] hover:text-primary"
+                >
+                  Solicitudes ARCO+ (sin sesión)
+                </Link>
+              </li>
             </ul>
           </div>
         </div>

@@ -13,8 +13,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const (
@@ -37,7 +40,20 @@ type SpecializedOpsStore interface {
 	ListContracts(context.Context, string, string, ContractFilter) (OpsPage[ContractItem], error)
 	ListKYCCases(context.Context, string, string, KYCCaseFilter) (OpsPage[KYCCaseItem], error)
 	ListPrivacyRequests(context.Context, string, string, PrivacyRequestFilter) (OpsPage[PrivacyRequestItem], error)
+	GetPrivacyRequest(context.Context, string, string, string) (PrivacyRequestDetail, error)
 	CreatePrivacyRequest(context.Context, CreatePrivacyRequestInput) (PrivacyRequestItem, error)
+	TransitionPrivacyRequest(context.Context, TransitionPrivacyRequestInput) (PrivacyRequestDetail, error)
+	ResolvePrivacyRequest(context.Context, ResolvePrivacyRequestInput) (PrivacyRequestItem, error)
+	RecordPrivacyDispatch(context.Context, RecordPrivacyDispatchInput) (PrivacyRequestItem, error)
+	RetryPrivacyNotifications(context.Context, string, string, string) (PrivacyRequestDetail, error)
+	ExecutePrivacyRight(context.Context, ExecutePrivacyRightInput) (PrivacyRequestDetail, error)
+	ListPrivacyIncidents(context.Context, string, string, PrivacyIncidentFilter) (OpsPage[PrivacyIncidentItem], error)
+	GetPrivacyIncident(context.Context, string, string, string) (PrivacyIncidentDetail, error)
+	CreatePrivacyIncident(context.Context, CreatePrivacyIncidentInput) (PrivacyIncidentDetail, error)
+	TransitionPrivacyIncident(context.Context, TransitionPrivacyIncidentInput) (PrivacyIncidentDetail, error)
+	ListPrivacyLegalHolds(context.Context, string, string, PrivacyLegalHoldFilter) (OpsPage[PrivacyLegalHoldItem], error)
+	CreatePrivacyLegalHold(context.Context, CreatePrivacyLegalHoldInput) (PrivacyLegalHoldItem, error)
+	ReleasePrivacyLegalHold(context.Context, ReleasePrivacyLegalHoldInput) (PrivacyLegalHoldItem, error)
 	ListSupportTickets(context.Context, string, string, SupportTicketFilter) (OpsPage[SupportTicketItem], error)
 	CreateSupportTicket(context.Context, CreateSupportTicketInput) (SupportTicketItem, error)
 	ListApprovals(context.Context, string, string, ApprovalFilter) (OpsPage[ApprovalItem], error)
@@ -167,23 +183,136 @@ type KYCCaseItem struct {
 }
 
 type PrivacyRequestFilter struct {
-	Status    string `json:"status"`
-	AccountID string `json:"account_id"`
-	PageSize  int    `json:"-"`
-	Cursor    string `json:"-"`
+	Status       string `json:"status"`
+	RightType    string `json:"right_type"`
+	AccountID    string `json:"account_id"`
+	AssignedToID string `json:"assigned_to_id"`
+	Channel      string `json:"channel"`
+	Overdue      *bool  `json:"overdue"`
+	PageSize     int    `json:"-"`
+	Cursor       string `json:"-"`
 }
 
 type PrivacyRequestItem struct {
-	ID          string     `json:"id"`
-	AccountID   string     `json:"account_id"`
-	RightType   string     `json:"right_type"`
-	Status      string     `json:"status"`
-	Reason      string     `json:"reason"`
-	CaseRef     string     `json:"case_ref"`
-	RequestedBy string     `json:"requested_by,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
+	ID                     string     `json:"id"`
+	Folio                  string     `json:"folio,omitempty"`
+	AccountID              string     `json:"account_id"`
+	RightType              string     `json:"right_type"`
+	Status                 string     `json:"status"`
+	Reason                 string     `json:"reason"`
+	CaseRef                string     `json:"case_ref"`
+	RequestedBy            string     `json:"requested_by,omitempty"`
+	Channel                string     `json:"channel,omitempty"`
+	RequesterType          string     `json:"requester_type,omitempty"`
+	RequesterName          string     `json:"requester_name,omitempty"`
+	RequesterEmailMasked   string     `json:"requester_email_masked,omitempty"`
+	RepresentativeName     string     `json:"representative_name,omitempty"`
+	RepresentativeRelation string     `json:"representative_relation,omitempty"`
+	SubjectReference       string     `json:"subject_reference,omitempty"`
+	AssignedToID           string     `json:"assigned_to_id,omitempty"`
+	DueAt                  *time.Time `json:"due_at,omitempty"`
+	ExtendedDueAt          *time.Time `json:"extended_due_at,omitempty"`
+	ExtensionReason        *string    `json:"extension_reason,omitempty"`
+	Version                int        `json:"version,omitempty"`
+	IsOverdue              bool       `json:"is_overdue,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+	ResolvedAt             *time.Time `json:"resolved_at,omitempty"`
+	CanPublishResponse     bool       `json:"can_publish_response,omitempty"`
+	Detail                 *string    `json:"detail,omitempty"`
+	CanRecordDispatch      bool       `json:"can_record_dispatch,omitempty"`
+	DispatchRecordedAt     *time.Time `json:"dispatch_recorded_at,omitempty"`
+}
+
+type PrivacyRequestEvent struct {
+	ID         string     `json:"id"`
+	Sequence   int        `json:"sequence"`
+	EventType  string     `json:"event_type"`
+	Visibility string     `json:"visibility"`
+	StateFrom  *string    `json:"state_from,omitempty"`
+	StateTo    *string    `json:"state_to,omitempty"`
+	ActorID    *string    `json:"actor_id,omitempty"`
+	Detail     *string    `json:"detail,omitempty"`
+	NewDueAt   *time.Time `json:"new_due_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type PrivacyNotificationSummary struct {
+	Pending         int        `json:"pending"`
+	Delivered       int        `json:"delivered"`
+	Terminal        int        `json:"terminal"`
+	LastErrorCode   *string    `json:"last_error_code,omitempty"`
+	LastDeliveredAt *time.Time `json:"last_delivered_at,omitempty"`
+}
+
+type PrivacyRightExecution struct {
+	ID              string    `json:"id"`
+	RequestID       string    `json:"request_id"`
+	AccountID       string    `json:"account_id,omitempty"`
+	ExecutionType   string    `json:"execution_type"`
+	Status          string    `json:"status"`
+	Scope           string    `json:"scope"`
+	Summary         string    `json:"summary"`
+	TargetReference *string   `json:"target_reference,omitempty"`
+	ArtifactSHA256  *string   `json:"artifact_sha256,omitempty"`
+	ExecutedBy      string    `json:"executed_by"`
+	ExecutedAt      time.Time `json:"executed_at"`
+}
+
+type PrivacyTreatmentBlock struct {
+	ID         string     `json:"id"`
+	RequestID  string     `json:"request_id"`
+	AccountID  string     `json:"account_id"`
+	Scope      string     `json:"scope"`
+	State      string     `json:"state"`
+	Reason     string     `json:"reason"`
+	AppliedBy  string     `json:"applied_by"`
+	AppliedAt  time.Time  `json:"applied_at"`
+	ReviewAt   *time.Time `json:"review_at,omitempty"`
+	LiftedBy   *string    `json:"lifted_by,omitempty"`
+	LiftedAt   *time.Time `json:"lifted_at,omitempty"`
+	LiftReason *string    `json:"lift_reason,omitempty"`
+}
+
+type PrivacyPurposePreference = privacy.PurposePreference
+
+type ExecutePrivacyRightInput struct {
+	ActorID         string
+	CorrelationID   string
+	RequestID       string
+	Action          string
+	ExpectedVersion int
+	Summary         string
+	DisplayName     *string
+	Phone           *string
+	Purpose         string
+	PurposeState    string
+	Scope           string
+	BlockID         string
+	ReviewAt        *time.Time
+	TargetReference string
+}
+
+type PrivacyRequestDetail struct {
+	PrivacyRequestItem
+	Response            *string                     `json:"response,omitempty"`
+	Events              []PrivacyRequestEvent       `json:"events"`
+	NotificationSummary *PrivacyNotificationSummary `json:"notification_summary,omitempty"`
+	Executions          []PrivacyRightExecution     `json:"executions,omitempty"`
+	TreatmentBlocks     []PrivacyTreatmentBlock     `json:"treatment_blocks,omitempty"`
+	PurposePreferences  []privacy.PurposePreference `json:"purpose_preferences,omitempty"`
+}
+
+type TransitionPrivacyRequestInput struct {
+	ActorID         string
+	CorrelationID   string
+	RequestID       string
+	Action          string
+	AssignedToID    string
+	AccountID       string
+	Note            string
+	ExtraDays       int
+	ExpectedVersion int
 }
 
 type CreatePrivacyRequestInput struct {
@@ -193,6 +322,15 @@ type CreatePrivacyRequestInput struct {
 	RightType     string
 	Reason        string
 	CaseRef       string
+}
+
+type ResolvePrivacyRequestInput struct {
+	ActorID, CorrelationID, RequestID, Decision, Response string
+}
+
+type RecordPrivacyDispatchInput struct {
+	ActorID, CorrelationID, RequestID, Channel, Destination, EvidenceRef string
+	SentAt time.Time
 }
 
 type SupportTicketFilter struct {
@@ -546,7 +684,9 @@ func (s *Service) ListKYCCases(ctx context.Context, actor, correlation string, f
 }
 
 func (s *Service) ListPrivacyRequests(ctx context.Context, actor, correlation string, filter PrivacyRequestFilter) (OpsPage[PrivacyRequestItem], error) {
-	if !validateOptionalUUID(filter.AccountID) {
+	if !validateOptionalUUID(filter.AccountID) || !validateOptionalUUID(filter.AssignedToID) ||
+		(filter.RightType != "" && !validPrivacyRightType(filter.RightType)) ||
+		(filter.Channel != "" && !validPrivacyChannel(filter.Channel)) {
 		return OpsPage[PrivacyRequestItem]{}, ErrInvalid
 	}
 	pageSize, filterHash, cursor, err := validateOpsListArgs(actor, correlation, filter.Cursor, filter.PageSize, filter)
@@ -563,16 +703,23 @@ func (s *Service) ListPrivacyRequests(ctx context.Context, actor, correlation st
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
-	where, args := buildSingleAccountStatusWhere("p.estado", "p.cuenta_id", filter.Status, filter.AccountID)
+	now := s.currentTime()
+	where, args := buildPrivacyRequestWhere(filter, now)
 	var total int64
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.solicitud_privacidad_administrativa p`+where, args...).Scan(&total); err != nil {
+	union := `(SELECT p.id, ''::text AS folio_publico, p.cuenta_id, p.tipo_derecho, p.estado, p.motivo, p.caso_ref, p.solicitado_por, p.creado_en, p.actualizado_en, p.resuelto_en, 'api'::text AS canal, ''::text AS solicitante_tipo, ''::text AS solicitante_nombre, ''::text AS solicitante_correo, ''::text AS representante_nombre, ''::text AS representante_relacion, ''::text AS titular_referencia, NULL::uuid AS asignado_a_id, NULL::timestamptz AS vence_en, NULL::timestamptz AS prorrogada_hasta, NULL::text AS prorroga_motivo, 1 AS version, false AS can_publish_response, NULL::text AS detail, false AS can_record_dispatch, NULL::timestamptz AS dispatch_recorded_at FROM public.solicitud_privacidad_administrativa p UNION ALL SELECT s.id, s.folio_publico, s.usuario_id, s.tipo, CASE s.estado WHEN 'recibida' THEN 'pendiente' WHEN 'identidad_pendiente' THEN 'pendiente' WHEN 'denegada_fundada' THEN 'rechazada' WHEN 'resuelta' THEN 'completada' ELSE s.estado END, COALESCE(s.motivo_administrativo,''), COALESCE(s.caso_ref_administrativo,''), s.solicitado_por, s.solicitada_en, COALESCE(s.resuelta_en,s.solicitada_en), s.resuelta_en, s.canal, s.solicitante_tipo, COALESCE(s.solicitante_nombre,''), COALESCE(s.solicitante_correo,''), COALESCE(s.representante_nombre,''), COALESCE(s.representante_relacion,''), COALESCE(s.titular_referencia,''), s.asignado_a_id, s.vence_en, s.prorrogada_hasta, s.prorroga_motivo, s.version, (s.estado IN ('recibida','en_revision')) AS can_publish_response, NULLIF(to_jsonb(s)->>'detalle_titular','') AS detail, (s.estado IN ('resuelta','denegada_fundada') AND s.respuesta_titular IS NOT NULL AND d.request_id IS NULL) AS can_record_dispatch, d.dispatch_recorded_at FROM public.solicitud_titular s LEFT JOIN public.privacy_response_dispatch_receipt d ON d.request_id=s.id)`
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM `+union+` p`+where, args...).Scan(&total); err != nil {
 		return OpsPage[PrivacyRequestItem]{}, err
 	}
 	cursorClause, args := appendCursorClause(where, args, "p.creado_en", "p.id", cursor, pageSize)
 	rows, err := tx.Query(ctx, `
-		SELECT p.id::text, p.cuenta_id::text, p.tipo_derecho, p.estado, p.motivo, p.caso_ref,
-		       COALESCE(p.solicitado_por::text, ''), p.creado_en, p.actualizado_en, p.resuelto_en
-		FROM public.solicitud_privacidad_administrativa p`+cursorClause+`
+		SELECT p.id::text, p.folio_publico, COALESCE(p.cuenta_id::text, ''), p.tipo_derecho, p.estado, p.motivo, p.caso_ref,
+		       COALESCE(p.solicitado_por::text, ''), p.canal,
+		       p.solicitante_tipo, p.solicitante_nombre, p.solicitante_correo,
+		       p.representante_nombre, p.representante_relacion, p.titular_referencia,
+		       COALESCE(p.asignado_a_id::text, ''),
+		       p.vence_en, p.prorrogada_hasta, p.prorroga_motivo, p.version,
+		       p.creado_en, p.actualizado_en, p.resuelto_en, p.can_publish_response, p.detail, p.can_record_dispatch, p.dispatch_recorded_at
+		FROM `+union+` p`+cursorClause+`
 		ORDER BY p.creado_en DESC, p.id DESC
 		LIMIT $`+strconv.Itoa(len(args)), args...)
 	if err != nil {
@@ -582,18 +729,26 @@ func (s *Service) ListPrivacyRequests(ctx context.Context, actor, correlation st
 	items := make([]PrivacyRequestItem, 0, pageSize+1)
 	for rows.Next() {
 		var item PrivacyRequestItem
+		var rawEmail string
 		if err := rows.Scan(
-			&item.ID, &item.AccountID, &item.RightType, &item.Status, &item.Reason, &item.CaseRef,
-			&item.RequestedBy, &item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt,
+			&item.ID, &item.Folio, &item.AccountID, &item.RightType, &item.Status, &item.Reason, &item.CaseRef,
+			&item.RequestedBy, &item.Channel,
+			&item.RequesterType, &item.RequesterName, &rawEmail,
+			&item.RepresentativeName, &item.RepresentativeRelation, &item.SubjectReference,
+			&item.AssignedToID,
+			&item.DueAt, &item.ExtendedDueAt, &item.ExtensionReason, &item.Version,
+			&item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt, &item.CanPublishResponse, &item.Detail, &item.CanRecordDispatch, &item.DispatchRecordedAt,
 		); err != nil {
 			return OpsPage[PrivacyRequestItem]{}, err
 		}
+		item.RequesterEmailMasked = maskEmail(rawEmail)
+		item.IsOverdue = computePrivacyOverdue(item, now)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return OpsPage[PrivacyRequestItem]{}, err
 	}
-	return finalizeOpsPage(items, pageSize, total, filterHash, s.now().UTC(), func(it PrivacyRequestItem) (time.Time, string) { return it.CreatedAt, it.ID })
+	return finalizeOpsPage(items, pageSize, total, filterHash, now, func(it PrivacyRequestItem) (time.Time, string) { return it.CreatedAt, it.ID })
 }
 
 func (s *Service) CreatePrivacyRequest(ctx context.Context, input CreatePrivacyRequestInput) (PrivacyRequestItem, error) {
@@ -617,30 +772,51 @@ func (s *Service) CreatePrivacyRequest(ctx context.Context, input CreatePrivacyR
 	if err := requireGlobalActor(ctx, tx, input.ActorID); err != nil {
 		return PrivacyRequestItem{}, err
 	}
-	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario WHERE id=$1)`, input.AccountID).Scan(&exists); err != nil {
-		return PrivacyRequestItem{}, err
-	}
-	if !exists {
+	var ownerEmail pgtype.Text
+	err = tx.QueryRow(ctx, `SELECT correo_original FROM public.usuario WHERE id=$1`, input.AccountID).Scan(&ownerEmail)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return PrivacyRequestItem{}, ErrNotFound
+	}
+	if err != nil {
+		return PrivacyRequestItem{}, err
 	}
 	id, err := s.ids.ID()
 	if err != nil {
 		return PrivacyRequestItem{}, err
 	}
-	now := s.now().UTC()
+	now := s.currentTime()
+	folio, err := privacy.GeneratePublicFolioAt(now)
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	dueAt := privacy.ComputeInitialDeadline(now, input.RightType)
 	var item PrivacyRequestItem
+	var rawEmail string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO public.solicitud_privacidad_administrativa (
-			id, cuenta_id, tipo_derecho, estado, motivo, caso_ref, solicitado_por, creado_en, actualizado_en
-		) VALUES ($1, $2, $3, 'pendiente', $4, $5, $6, $7, $7)
-		RETURNING id::text, cuenta_id::text, tipo_derecho, estado, motivo, caso_ref, COALESCE(solicitado_por::text, ''), creado_en, actualizado_en, resuelto_en
-	`, id, input.AccountID, input.RightType, reason, caseRef, input.ActorID, now).Scan(
-		&item.ID, &item.AccountID, &item.RightType, &item.Status, &item.Reason, &item.CaseRef,
-		&item.RequestedBy, &item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt,
+		INSERT INTO public.solicitud_titular (
+			id, usuario_id, folio_publico, tipo, canal, estado, solicitado_por, motivo_administrativo, caso_ref_administrativo, solicitada_en, vence_en, version
+		) VALUES ($1, $2, $3, $4, 'api', 'identidad_pendiente', $5, $6, $7, $8, $9, 1)
+		RETURNING id::text, folio_publico, COALESCE(usuario_id::text, ''), tipo, 'pendiente', COALESCE(motivo_administrativo,''), COALESCE(caso_ref_administrativo,''), COALESCE(solicitado_por::text, ''), canal, solicitante_tipo, COALESCE(solicitante_nombre,''), COALESCE(solicitante_correo,''), COALESCE(representante_nombre,''), COALESCE(representante_relacion,''), COALESCE(titular_referencia,''), COALESCE(asignado_a_id::text, ''), vence_en, prorrogada_hasta, prorroga_motivo, version, solicitada_en, solicitada_en, resuelta_en
+	`, id, input.AccountID, folio, input.RightType, input.ActorID, reason, caseRef, now, dueAt).Scan(
+		&item.ID, &item.Folio, &item.AccountID, &item.RightType, &item.Status, &item.Reason, &item.CaseRef,
+		&item.RequestedBy, &item.Channel, &item.RequesterType, &item.RequesterName, &rawEmail,
+		&item.RepresentativeName, &item.RepresentativeRelation, &item.SubjectReference,
+		&item.AssignedToID, &item.DueAt, &item.ExtendedDueAt, &item.ExtensionReason, &item.Version,
+		&item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt,
 	)
 	if err != nil {
 		return PrivacyRequestItem{}, err
+	}
+	item.RequesterEmailMasked = maskEmail(rawEmail)
+	initialState := "identidad_pendiente"
+	if err := s.appendPrivacyEventTx(ctx, tx, item.ID, "recepcion", "titular", nil, &initialState, &input.ActorID, &reason, &dueAt, now); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if ownerEmail.Valid && validOutboxEmail(ownerEmail.String) {
+		subject, body := privacy.FormatAcuseRecepcionNotice(item.Folio, item.RightType, dueAt)
+		if err := enqueuePrivacyNoticeTx(ctx, tx, item.ID, "acuse_recepcion", "acuse:"+item.ID, ownerEmail.String, subject, body, now); err != nil {
+			return PrivacyRequestItem{}, err
+		}
 	}
 	if err := s.auditWithTarget(ctx, tx, input.ActorID, item.ID, privacyCreateAuditAction, "exito", input.RightType, input.CorrelationID, now, input.AccountID); err != nil {
 		return PrivacyRequestItem{}, err
@@ -649,6 +825,304 @@ func (s *Service) CreatePrivacyRequest(ctx context.Context, input CreatePrivacyR
 		return PrivacyRequestItem{}, err
 	}
 	return item, nil
+}
+
+func (s *Service) ResolvePrivacyRequest(ctx context.Context, input ResolvePrivacyRequestInput) (PrivacyRequestItem, error) {
+	input.Response = strings.TrimSpace(input.Response)
+	if !canonicalUUID.MatchString(input.ActorID) || !canonicalUUID.MatchString(input.CorrelationID) || !canonicalUUID.MatchString(input.RequestID) ||
+		(input.Decision != "resuelta" && input.Decision != "denegada_fundada") || utf8.RuneCountInString(input.Response) < 10 || utf8.RuneCountInString(input.Response) > 4000 || strings.ContainsRune(input.Response, 0) {
+		return PrivacyRequestItem{}, ErrInvalid
+	}
+	if s.specializedOpsStore != nil {
+		return s.specializedOpsStore.ResolvePrivacyRequest(ctx, input)
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err := requireGlobalActor(ctx, tx, input.ActorID); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	var item PrivacyRequestItem
+	var current, response, rawEmail, recipientEmail string
+	err = tx.QueryRow(ctx, `
+		SELECT s.id::text, s.folio_publico, COALESCE(s.usuario_id::text, ''), s.tipo, s.estado,
+		       COALESCE(s.motivo_administrativo,''), COALESCE(s.caso_ref_administrativo,''),
+		       COALESCE(s.solicitado_por::text,''), s.canal,
+		       s.solicitante_tipo, COALESCE(s.solicitante_nombre,''), COALESCE(s.solicitante_correo,''),
+		       COALESCE(s.representante_nombre,''), COALESCE(s.representante_relacion,''), COALESCE(s.titular_referencia,''),
+		       COALESCE(s.asignado_a_id::text,''), s.vence_en, s.prorrogada_hasta, s.prorroga_motivo, s.version,
+		       s.solicitada_en, COALESCE(s.resuelta_en,s.solicitada_en), s.resuelta_en,
+		       COALESCE(s.respuesta_titular,''), NULLIF(to_jsonb(s)->>'detalle_titular',''),
+		       COALESCE(NULLIF(BTRIM(s.solicitante_correo), ''), u.correo_original, '')
+		FROM public.solicitud_titular s
+		LEFT JOIN public.usuario u ON u.id = s.usuario_id
+		WHERE s.id=$1 FOR UPDATE OF s
+	`, input.RequestID).Scan(
+		&item.ID, &item.Folio, &item.AccountID, &item.RightType, &current, &item.Reason, &item.CaseRef,
+		&item.RequestedBy, &item.Channel,
+		&item.RequesterType, &item.RequesterName, &rawEmail,
+		&item.RepresentativeName, &item.RepresentativeRelation, &item.SubjectReference,
+		&item.AssignedToID, &item.DueAt, &item.ExtendedDueAt, &item.ExtensionReason, &item.Version,
+		&item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt, &response, &item.Detail, &recipientEmail,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PrivacyRequestItem{}, ErrNotFound
+	}
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	item.RequesterEmailMasked = maskEmail(rawEmail)
+	if current == input.Decision && response == input.Response {
+		item.Status = mapPrivacyAdminStatus(current)
+		var recorded time.Time
+		err = tx.QueryRow(ctx, `SELECT dispatch_recorded_at FROM public.privacy_response_dispatch_receipt WHERE request_id=$1`, input.RequestID).Scan(&recorded)
+		if err == nil {
+			item.DispatchRecordedAt = &recorded
+			item.CanRecordDispatch = false
+		} else if errors.Is(err, pgx.ErrNoRows) {
+			item.CanRecordDispatch = true
+		} else {
+			return PrivacyRequestItem{}, err
+		}
+		return item, tx.Commit(ctx)
+	}
+	if current == "resuelta" || current == "denegada_fundada" || current == "identidad_pendiente" {
+		return PrivacyRequestItem{}, ErrConflict
+	}
+	if current != "recibida" && current != "en_revision" {
+		return PrivacyRequestItem{}, ErrConflict
+	}
+	reasonCode := "respuesta_derecho_publicada"
+	if item.RightType == "acceso" {
+		reasonCode = "respuesta_acceso_publicada"
+	} else if input.Decision == "denegada_fundada" {
+		reasonCode = "denegacion_fundada"
+	}
+	now := s.currentTime()
+	err = tx.QueryRow(ctx, `
+		UPDATE public.solicitud_titular
+		SET estado=$2, respuesta_titular=$3, resuelta_en=$4::timestamptz, retirar_en=$4::timestamptz + interval '5 years', motivo_resolucion_codigo=$5, version=version+1
+		WHERE id=$1
+		RETURNING version
+	`, input.RequestID, input.Decision, input.Response, now, reasonCode).Scan(&item.Version)
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	prevState, nextState := current, input.Decision
+	if err := s.appendPrivacyEventTx(ctx, tx, item.ID, "resolucion", "titular", &prevState, &nextState, &input.ActorID, nil, nil, now); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if item.AccountID != "" {
+		notificationID, err := s.ids.ID()
+		if err != nil {
+			return PrivacyRequestItem{}, err
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en) VALUES($1,$2,'privacidad_respuesta','Actualización de tu solicitud de privacidad','Hay una actualización sobre tu solicitud de privacidad.','/mi-cuenta/privacidad',$3,$4) ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING`, notificationID, item.AccountID, input.RequestID, now); err != nil {
+			return PrivacyRequestItem{}, err
+		}
+	}
+	if validOutboxEmail(recipientEmail) {
+		subject, body := formatResolutionNotice(item.Folio)
+		if err := enqueuePrivacyNoticeTx(ctx, tx, item.ID, "resolucion_publicada", "res:"+item.ID+":v"+strconv.Itoa(item.Version), recipientEmail, subject, body, now); err != nil {
+			return PrivacyRequestItem{}, err
+		}
+	}
+	if err := s.auditWithTarget(ctx, tx, input.ActorID, item.ID, "admin.global.privacy_requests.resolve", "exito", input.Decision, input.CorrelationID, now, item.AccountID); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	item.Status = mapPrivacyAdminStatus(input.Decision)
+	item.UpdatedAt = now
+	item.ResolvedAt = &now
+	item.CanPublishResponse = false
+	item.CanRecordDispatch = true
+	return item, nil
+}
+
+// RecordPrivacyDispatch records an operator attestation for a response already sent.
+// The destination and evidence reference are stored only in the restricted receipt table.
+func (s *Service) RecordPrivacyDispatch(ctx context.Context, input RecordPrivacyDispatchInput) (PrivacyRequestItem, error) {
+	now := s.currentTime()
+	destination := strings.TrimSpace(input.Destination)
+	ref := strings.TrimSpace(input.EvidenceRef)
+	validDestination := (input.Channel == "postal" && utf8.RuneCountInString(destination) >= 5 && utf8.RuneCountInString(destination) <= 320) ||
+		(input.Channel == "email" && validDispatchEmail(destination))
+	if !canonicalUUID.MatchString(input.ActorID) || !canonicalUUID.MatchString(input.CorrelationID) || !canonicalUUID.MatchString(input.RequestID) ||
+		!validDestination || strings.ContainsRune(destination, 0) ||
+		utf8.RuneCountInString(ref) < 1 || utf8.RuneCountInString(ref) > 200 || strings.ContainsRune(ref, 0) ||
+		input.SentAt.IsZero() || input.SentAt.After(now) {
+		return PrivacyRequestItem{}, ErrInvalid
+	}
+	input.Destination = destination
+	input.EvidenceRef = ref
+	if s.specializedOpsStore != nil {
+		return s.specializedOpsStore.RecordPrivacyDispatch(ctx, input)
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if err = requireGlobalActor(ctx, tx, input.ActorID); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	var item PrivacyRequestItem
+	var current, response, reason, rawEmail string
+	err = tx.QueryRow(ctx, `
+		SELECT id::text, folio_publico, COALESCE(usuario_id::text, ''), tipo, estado,
+		       COALESCE(motivo_administrativo,''), COALESCE(caso_ref_administrativo,''),
+		       COALESCE(solicitado_por::text,''), canal,
+		       solicitante_tipo, COALESCE(solicitante_nombre,''), COALESCE(solicitante_correo,''),
+		       COALESCE(representante_nombre,''), COALESCE(representante_relacion,''), COALESCE(titular_referencia,''),
+		       COALESCE(asignado_a_id::text,''), vence_en, prorrogada_hasta, prorroga_motivo, version,
+		       solicitada_en, COALESCE(resuelta_en,solicitada_en), resuelta_en, COALESCE(respuesta_titular,''), COALESCE(motivo_resolucion_codigo,''), NULLIF(to_jsonb(solicitud_titular)->>'detalle_titular','')
+		FROM public.solicitud_titular WHERE id=$1 FOR UPDATE
+	`, input.RequestID).Scan(
+		&item.ID, &item.Folio, &item.AccountID, &item.RightType, &current, &item.Reason, &item.CaseRef,
+		&item.RequestedBy, &item.Channel,
+		&item.RequesterType, &item.RequesterName, &rawEmail,
+		&item.RepresentativeName, &item.RepresentativeRelation, &item.SubjectReference,
+		&item.AssignedToID, &item.DueAt, &item.ExtendedDueAt, &item.ExtensionReason, &item.Version,
+		&item.CreatedAt, &item.UpdatedAt, &item.ResolvedAt, &response, &reason, &item.Detail,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PrivacyRequestItem{}, ErrNotFound
+	}
+	if err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	item.RequesterEmailMasked = maskEmail(rawEmail)
+	if input.SentAt.Before(item.CreatedAt) {
+		return PrivacyRequestItem{}, ErrInvalid
+	}
+	if (current != "resuelta" && current != "denegada_fundada") || response == "" {
+		return PrivacyRequestItem{}, ErrConflict
+	}
+	var oldActor, oldChannel, oldDestination, oldEvidence string
+	var oldSent, recorded time.Time
+	err = tx.QueryRow(ctx, `SELECT actor_id::text,channel,destination,sent_at,evidence_ref,dispatch_recorded_at FROM public.privacy_response_dispatch_receipt WHERE request_id=$1`, input.RequestID).Scan(&oldActor, &oldChannel, &oldDestination, &oldSent, &oldEvidence, &recorded)
+	if err == nil {
+		if oldChannel != input.Channel || oldDestination != input.Destination || !oldSent.Equal(input.SentAt) || oldEvidence != input.EvidenceRef {
+			return PrivacyRequestItem{}, ErrConflict
+		}
+		item.Status = mapPrivacyAdminStatus(current)
+		item.CanRecordDispatch = false
+		item.DispatchRecordedAt = &recorded
+		if err = tx.Commit(ctx); err != nil {
+			return PrivacyRequestItem{}, err
+		}
+		return item, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return PrivacyRequestItem{}, err
+	}
+	if err = tx.QueryRow(ctx, `INSERT INTO public.privacy_response_dispatch_receipt(request_id,actor_id,channel,destination,sent_at,evidence_ref,dispatch_recorded_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING dispatch_recorded_at`, input.RequestID, input.ActorID, input.Channel, input.Destination, input.SentAt.UTC(), input.EvidenceRef, now).Scan(&recorded); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if err = tx.QueryRow(ctx, `UPDATE public.solicitud_titular SET version=version+1 WHERE id=$1 RETURNING version`, input.RequestID).Scan(&item.Version); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	eventDetail := "Remisión registrada por canal " + input.Channel
+	if err = s.appendPrivacyEventTx(ctx, tx, item.ID, "despacho_registrado", "titular", nil, nil, &input.ActorID, &eventDetail, nil, now); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if err = s.auditWithTarget(ctx, tx, input.ActorID, item.ID, "admin.global.privacy_requests.dispatch_receipt", "exito", "respuesta_despachada", input.CorrelationID, now, item.AccountID); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return PrivacyRequestItem{}, err
+	}
+	item.Status = mapPrivacyAdminStatus(current)
+	item.CanRecordDispatch = false
+	item.DispatchRecordedAt = &recorded
+	return item, nil
+}
+
+func validPrivacyChannel(v string) bool {
+	switch v {
+	case "web", "api", "publico", "correo":
+		return true
+	}
+	return false
+}
+
+func maskEmail(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	return identity.MaskEmail(trimmed)
+}
+
+func validOutboxEmail(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	n := utf8.RuneCountInString(trimmed)
+	return n >= 5 && n <= 254 && validDispatchEmail(trimmed)
+}
+
+func enqueuePrivacyNoticeTx(ctx context.Context, tx pgx.Tx, requestID, noticeType, idempotencyKey, recipientEmail, subject, body string, at time.Time) error {
+	if !validOutboxEmail(recipientEmail) {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO public.privacidad_notificacion_outbox (
+			solicitud_id, tipo_aviso, clave_idempotencia, destinatario_correo, asunto, cuerpo_texto, disponible_en, creado_en
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+		ON CONFLICT (clave_idempotencia) DO NOTHING
+	`, requestID, noticeType, idempotencyKey, strings.TrimSpace(recipientEmail), subject, body, at.UTC().Truncate(time.Microsecond))
+	return err
+}
+
+func formatClarificationNotice(folio string) (string, string) {
+	subject := "Aclaración solicitada en tu solicitud de privacidad (" + folio + ")"
+	body := "Se registró una solicitud de aclaración respecto de tu requerimiento de privacidad con folio " + folio + ".\n" +
+		"Puedes revisar el detalle en /privacidad/solicitudes o /mi-cuenta/privacidad."
+	return subject, body
+}
+
+func formatExtensionNotice(folio string, newDueAt time.Time) (string, string) {
+	dueLocal := newDueAt.In(privacy.SantiagoLocation()).Format("02/01/2006 15:04")
+	subject := "Actualización de plazo en tu solicitud de privacidad (" + folio + ")"
+	body := "Se registró una prórroga operativa en tu solicitud de privacidad con folio " + folio + ".\n" +
+		"Nuevo plazo estimado de respuesta: " + dueLocal + " (America/Santiago).\n" +
+		"Puedes consultar el estado en /privacidad/solicitudes o /mi-cuenta/privacidad."
+	return subject, body
+}
+
+func formatResolutionNotice(folio string) (string, string) {
+	subject := "Resolución publicada para tu solicitud de privacidad (" + folio + ")"
+	body := "Ya se encuentra publicada la resolución de tu solicitud de privacidad con folio " + folio + ".\n" +
+		"Puedes consultarla en /privacidad/solicitudes o /mi-cuenta/privacidad."
+	return subject, body
+}
+
+func validDispatchEmail(destination string) bool {
+	if len(destination) < 3 || len(destination) > 320 || strings.ContainsAny(destination, " \t\r\n\x00") {
+		return false
+	}
+	local, domain, ok := strings.Cut(destination, "@")
+	if !ok || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return false
+	}
+	dotIdx := strings.IndexByte(domain, '.')
+	return dotIdx > 0 && dotIdx < len(domain)-1 && !strings.HasSuffix(domain, ".")
+}
+
+func mapPrivacyAdminStatus(status string) string {
+	switch status {
+	case "recibida", "identidad_pendiente":
+		return "pendiente"
+	case "denegada_fundada":
+		return "rechazada"
+	case "resuelta":
+		return "completada"
+	default:
+		return status
+	}
 }
 
 func (s *Service) ListSupportTickets(ctx context.Context, actor, correlation string, filter SupportTicketFilter) (OpsPage[SupportTicketItem], error) {

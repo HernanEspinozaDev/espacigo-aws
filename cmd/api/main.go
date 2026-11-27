@@ -991,6 +991,14 @@ func run() error {
 				go localPrivacyService.RunLocalRetentionWorker(ctx, time.Hour, 100, privacyEvidenceCleaner)
 			}},
 		)
+		if os.Getenv("APP_PROFILE") != "cloud-test" {
+			noticeSender := devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
+			workers = append(workers, namedWorker{"privacy-notice-outbox", func() {
+				trackedWorkers.Go(func(workerCtx context.Context) {
+					localPrivacyService.RunPrivacyNoticeWorker(workerCtx, 2*time.Second, noticeSender)
+				})
+			}})
+		}
 		if localM02Service != nil {
 			workers = append(workers, namedWorker{"retired-photo-cleanup", func() {
 				go func() {
@@ -1382,8 +1390,13 @@ func newAdminSessionService(repo identity.AdminSessionRepository, getenv func(st
 func registerProductionAdminAccountRoutes(mux *http.ServeMux, handler http.Handler) {
 	mux.Handle("GET /api/v1/admin/global/me", handler)
 	mux.Handle("GET /api/v1/admin/global/overview", handler)
+	mux.Handle("GET /api/v1/admin/global/kpis", handler)
+	mux.Handle("GET /api/v1/admin/global/audit-events", handler)
+	mux.Handle("GET /api/v1/admin/global/audit-events/export", handler)
 	mux.Handle("GET /api/v1/admin/global/accounts", handler)
 	mux.Handle("GET /api/v1/admin/global/accounts/{accountID}", handler)
+	mux.Handle("GET /api/v1/admin/global/accounts/{accountID}/resources/{kind}", handler)
+	mux.Handle("GET /api/v1/admin/global/accounts/{accountID}/resources/{kind}/{resourceID}", handler)
 	mux.Handle("POST /api/v1/admin/global/accounts/{accountID}/sensitive-access", handler)
 	mux.Handle("POST /api/v1/admin/global/accounts/{accountID}/assisted-view", handler)
 	mux.Handle("GET /api/v1/admin/global/assisted-view/{grantID}/projection", handler)
@@ -1391,9 +1404,23 @@ func registerProductionAdminAccountRoutes(mux *http.ServeMux, handler http.Handl
 	mux.Handle("GET /api/v1/admin/global/payments", handler)
 	mux.Handle("GET /api/v1/admin/global/reservations", handler)
 	mux.Handle("GET /api/v1/admin/global/contracts", handler)
+	mux.Handle("GET /api/v1/admin/global/publications", handler)
 	mux.Handle("GET /api/v1/admin/global/kyc-cases", handler)
 	mux.Handle("GET /api/v1/admin/global/privacy-requests", handler)
 	mux.Handle("POST /api/v1/admin/global/privacy-requests", handler)
+	mux.Handle("GET /api/v1/admin/global/privacy-requests/{requestID}", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests/{requestID}/workflow", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests/{requestID}/resolution", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests/{requestID}/dispatch-receipt", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests/{requestID}/notifications/retry", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-requests/{requestID}/executions", handler)
+	mux.Handle("GET /api/v1/admin/global/privacy-incidents", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-incidents", handler)
+	mux.Handle("GET /api/v1/admin/global/privacy-incidents/{incidentID}", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-incidents/{incidentID}/transitions", handler)
+	mux.Handle("GET /api/v1/admin/global/privacy-legal-holds", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-legal-holds", handler)
+	mux.Handle("POST /api/v1/admin/global/privacy-legal-holds/{holdID}/release", handler)
 	mux.Handle("GET /api/v1/admin/global/support-tickets", handler)
 	mux.Handle("POST /api/v1/admin/global/support-tickets", handler)
 	mux.Handle("GET /api/v1/admin/global/approvals", handler)

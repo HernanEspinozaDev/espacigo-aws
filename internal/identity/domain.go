@@ -65,14 +65,17 @@ const (
 	CapabilityPaymentsRead         Capability = "payments.read"
 	CapabilityPaymentsReconcile    Capability = "payments.reconcile"
 	CapabilityPaymentsRefundRequest Capability = "payments.refund.request"
-	CapabilityPaymentsRefundApprove Capability = "payments.refund.approve"
-	CapabilityPrivacyRequestsManage Capability = "privacy.requests.manage"
-	CapabilityPrivacyExportApprove  Capability = "privacy.export.approve"
-	CapabilityStaffRolesManage     Capability = "staff.roles.manage"
-	CapabilityStaffSessionsRevoke  Capability = "staff.sessions.revoke"
-	CapabilitySupportTicketsManage Capability = "support.tickets.manage"
-	CapabilityApprovalsRequest     Capability = "approvals.request"
-	CapabilityApprovalsDecide      Capability = "approvals.decide"
+	CapabilityPaymentsRefundApprove  Capability = "payments.refund.approve"
+	CapabilityPrivacyRequestsRead    Capability = "privacy.requests.read"
+	CapabilityPrivacyRequestsManage  Capability = "privacy.requests.manage"
+	CapabilityPrivacyExportApprove   Capability = "privacy.export.approve"
+	CapabilityPrivacyIncidentsRead   Capability = "privacy.incidents.read"
+	CapabilityPrivacyIncidentsManage Capability = "privacy.incidents.manage"
+	CapabilityStaffRolesManage       Capability = "staff.roles.manage"
+	CapabilityStaffSessionsRevoke    Capability = "staff.sessions.revoke"
+	CapabilitySupportTicketsManage   Capability = "support.tickets.manage"
+	CapabilityApprovalsRequest       Capability = "approvals.request"
+	CapabilityApprovalsDecide        Capability = "approvals.decide"
 )
 
 // SpecializedAdminCapabilities returns the granular operational capabilities for global administrators.
@@ -85,8 +88,11 @@ func SpecializedAdminCapabilities() []Capability {
 		CapabilityPaymentsReconcile,
 		CapabilityPaymentsRefundRequest,
 		CapabilityPaymentsRefundApprove,
+		CapabilityPrivacyRequestsRead,
 		CapabilityPrivacyRequestsManage,
 		CapabilityPrivacyExportApprove,
+		CapabilityPrivacyIncidentsRead,
+		CapabilityPrivacyIncidentsManage,
 		CapabilityStaffRolesManage,
 		CapabilityStaffSessionsRevoke,
 		CapabilitySupportTicketsManage,

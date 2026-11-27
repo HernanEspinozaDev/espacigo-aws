@@ -1986,3 +1986,230 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated acr
   expect(caseListReads.get(accountB)).toBe(1);
   expect(providerRouteRequests).toBe(0);
 });
+
+test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/PUT /privacy/preferences), bloqueos temporales activos (GET /privacy/restrictions) y portabilidad estructurada (GET /privacy/portability) con cleanup de Blob", async ({
+  page,
+}) => {
+  const portabilitySha256 = "a".repeat(64);
+  const restrictionRequestId = "550e8400-e29b-41d4-a716-446655440333";
+  let portabilityCount = 0;
+  let putPrefCount = 0;
+  let lastPutPrefBody: Record<string, unknown> | null = null;
+  const preferences: Array<{
+    purpose: string;
+    state: string;
+    reason?: string;
+    updated_at?: string;
+  }> = [
+    {
+      purpose: "comunicaciones_comerciales",
+      state: "permitido",
+      updated_at: "2026-11-20T10:00:00Z",
+    },
+    {
+      purpose: "analitica_producto",
+      state: "permitido",
+      updated_at: "2026-11-20T10:00:00Z",
+    },
+  ];
+  const restrictions = [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440444",
+      request_id: restrictionRequestId,
+      scope: "analitica_y_perfilado",
+      state: "activo",
+      reason: "Revisión de oposición en curso",
+      applied_at: "2026-11-25T15:30:00Z",
+      review_at: "2026-12-05T15:30:00Z",
+    },
+  ];
+
+  await page.addInitScript(() => {
+    const created: string[] = [];
+    const revoked: string[] = [];
+    const origCreate = URL.createObjectURL.bind(URL);
+    const origRevoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (obj: Blob | MediaSource) => {
+      const url = origCreate(obj);
+      created.push(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url: string) => {
+      revoked.push(url);
+      origRevoke(url);
+    };
+    (
+      window as unknown as {
+        __blobTracking: { created: string[]; revoked: string[] };
+      }
+    ).__blobTracking = { created, revoked };
+  });
+
+  await mockGateway(page, async (pathname, method, request) => {
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario"],
+          capabilities: [],
+          restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        },
+      };
+    }
+    if (pathname === "/api/backend/profile" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          display_name: "Ana Lucía",
+          phone: "912345678",
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+    if (pathname === "/api/backend/rights-requests" && method === "GET") {
+      return { status: 200, body: { items: [] } };
+    }
+    if (pathname === "/api/backend/privacy/preferences" && method === "GET") {
+      return { status: 200, body: { items: preferences } };
+    }
+    if (pathname === "/api/backend/privacy/preferences" && method === "PUT") {
+      putPrefCount += 1;
+      expect(request.headers()["authorization"]).toBeUndefined();
+      const body = JSON.parse(request.postData() ?? "{}") as {
+        purpose: string;
+        state: string;
+        reason?: string;
+      };
+      lastPutPrefBody = body;
+      const updated = {
+        purpose: body.purpose,
+        state: body.state,
+        ...(body.reason ? { reason: body.reason } : {}),
+        updated_at: new Date().toISOString(),
+      };
+      const idx = preferences.findIndex((p) => p.purpose === body.purpose);
+      if (idx >= 0) {
+        preferences[idx] = updated;
+      } else {
+        preferences.push(updated);
+      }
+      return { status: 200, body: { data: updated } };
+    }
+    if (pathname === "/api/backend/privacy/restrictions" && method === "GET") {
+      return { status: 200, body: { items: restrictions } };
+    }
+    if (pathname === "/api/backend/privacy/portability" && method === "GET") {
+      portabilityCount += 1;
+      expect(request.headers()["authorization"]).toBeUndefined();
+      return {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "x-content-sha256": portabilitySha256,
+        },
+        body: JSON.stringify({
+          schema_version: "portabilidad_ley21719_v1",
+          generated_at: new Date().toISOString(),
+          account: {
+            email: "phase6-tester@example.invalid",
+            state: "activa",
+            created_at: "2026-11-01T10:00:00Z",
+          },
+          roles: ["arrendatario"],
+          terms_acceptances: [],
+          purpose_preferences: preferences,
+          treatment_restrictions: restrictions,
+          rights_requests: [],
+        }),
+      };
+    }
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/mi-cuenta/privacidad");
+
+  // 1. Visualización del bloqueo temporal "activo" desde /privacy/restrictions
+  const restrictionsHeading = page.getByRole("heading", {
+    name: "Bloqueos temporales de tratamiento",
+  });
+  await expect(restrictionsHeading).toBeVisible();
+  await expect(page.getByText("Analítica y perfilado")).toBeVisible();
+  await expect(page.getByText("Activo", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Motivo: Revisión de oposición en curso"),
+  ).toBeVisible();
+  await expect(
+    page.getByText(`Solicitud asociada: ${restrictionRequestId}`),
+  ).toBeVisible();
+
+  // 2. Cambio de preferencia de finalidad a "opuesto" vía PUT /privacy/preferences
+  const commSection = page.getByRole("region", {
+    name: "Comunicaciones comerciales",
+  });
+  await expect(commSection).toBeVisible();
+  await expect(commSection.getByText("Permitido", { exact: true })).toBeVisible();
+  await commSection
+    .getByLabel("Motivo o causal (opcional)")
+    .fill("No deseo recibir promociones");
+  await commSection.getByRole("button", { name: "Oponerme" }).click();
+
+  await expect.poll(() => putPrefCount).toBe(1);
+  expect(lastPutPrefBody).toEqual({
+    purpose: "comunicaciones_comerciales",
+    state: "opuesto",
+    reason: "No deseo recibir promociones",
+  });
+  await expect(commSection.getByText("Opuesto", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Preferencia de Comunicaciones comerciales actualizada a Opuesto.",
+    ),
+  ).toBeVisible();
+
+  // 3. Descarga de portabilidad estructurada (JSON v1) y cleanup de Blob URL
+  const downloadPromise = page.waitForEvent("download");
+  await page
+    .getByRole("button", {
+      name: "Descargar portabilidad estructurada (JSON v1)",
+    })
+    .click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("espacigo-portabilidad-v1.json");
+  expect(portabilityCount).toBe(1);
+  await expect(
+    page.getByText("Portabilidad estructurada (JSON v1) descargada correctamente."),
+  ).toBeVisible();
+  await expect(
+    page.getByText(`SHA-256 (portabilidad v1): ${portabilitySha256}`),
+  ).toBeVisible();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const tracking = (
+          window as unknown as {
+            __blobTracking: { created: string[]; revoked: string[] };
+          }
+        ).__blobTracking;
+        return (
+          tracking.created.length >= 1 &&
+          tracking.created.every((url) => tracking.revoked.includes(url))
+        );
+      }),
+    )
+    .toBe(true);
+});

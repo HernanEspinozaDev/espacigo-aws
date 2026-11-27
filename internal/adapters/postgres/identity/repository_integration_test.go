@@ -274,6 +274,47 @@ func TestActionTokenRepositoryReissueAttemptsConsumptionAndEmissionCount(t *test
 	}
 }
 
+func TestPublishedAccessResponseIsVisibleOnlyToItsOwner(t *testing.T) {
+	ctx, pool := newIdentityTestPool(t)
+	repo := identitypg.NewIdentityRepository(pool)
+	owner := testAccount("00000000-0000-4000-8000-000000000093", "privacy-owner@ejemplo.invalid")
+	other := testAccount("00000000-0000-4000-8000-000000000094", "privacy-other@ejemplo.invalid")
+	for _, account := range []identity.Account{owner, other} {
+		if err := repo.CreateWithTerms(ctx, account, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request, err := repo.CreateRightsRequest(ctx, owner.ID, "acceso", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const response = "Esta es una respuesta de prueba para el titular."
+	resolvedAt := time.Date(2026, time.November, 27, 15, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+		UPDATE public.solicitud_titular
+		SET estado = 'resuelta',
+		    respuesta_titular = $2,
+		    resuelta_en = $3::timestamptz,
+		    retirar_en = $3::timestamptz + interval '5 years',
+		    motivo_resolucion_codigo = 'respuesta_acceso_publicada'
+		WHERE id = $1
+	`, request.ID, response, resolvedAt); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := repo.ListOwnRightsRequests(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].ID != request.ID || requests[0].Response == nil ||
+		*requests[0].Response != response || requests[0].ResolvedAt == nil || !requests[0].ResolvedAt.Equal(resolvedAt) {
+		t.Fatalf("owner response mismatch: %+v", requests)
+	}
+	requests, err = repo.ListOwnRightsRequests(ctx, other.ID)
+	if err != nil || len(requests) != 0 {
+		t.Fatalf("other account received %d requests, err = %v", len(requests), err)
+	}
+}
+
 func TestM02ProfileAndRightsQueriesRemainOwnerScoped(t *testing.T) {
 	ctx, pool := newIdentityTestPool(t)
 	repo := identitypg.NewIdentityRepository(pool)

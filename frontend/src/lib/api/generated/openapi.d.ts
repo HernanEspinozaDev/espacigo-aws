@@ -1748,7 +1748,7 @@ export interface paths {
     };
     /**
      * Obtener indicadores operativos persistidos por período
-     * @description Requiere kpi.read. Zona IANA requerida; intervalo de máximo 31 días. Incluye fuente/definición, instantánea generada y montos CLP como texto exacto. Los estados vigentes no reconstruyen historia ni son DAU; finanzas sintéticas excluyen garantías.
+     * @description Disponible en los perfiles local y productivo. Requiere kpi.read. Zona IANA requerida; intervalo de máximo 31 días. Incluye fuente/definición, instantánea generada y montos CLP como texto exacto. Los estados vigentes no reconstruyen historia ni son DAU; finanzas sintéticas excluyen garantías.
      */
     get: operations["getGlobalAdminKPIs"];
     put?: never;
@@ -1768,7 +1768,7 @@ export interface paths {
     };
     /**
      * Consultar auditoría minimizada con filtros actor/objetivo separados
-     * @description Requiere audit.read. Ventana fija de máximo 31 días; cursor keyset fijado al corte temporal y a filtros/tamaño normalizados. Eventos históricos no se reidentifican; los objetivos sin campo explícito permanecen nulos.
+     * @description Disponible en los perfiles local y productivo. Requiere audit.read. Ventana fija de máximo 31 días; cursor keyset fijado al corte temporal y a filtros/tamaño normalizados. Eventos históricos no se reidentifican; los objetivos sin campo explícito permanecen nulos.
      */
     get: operations["listGlobalAdminAuditEvents"];
     put?: never;
@@ -1788,7 +1788,7 @@ export interface paths {
     };
     /**
      * Exportar auditoría global minimizada en JSON o CSV
-     * @description Requiere audit.export. Filtros y ventana son idénticos a la consulta; máximo 10.000 filas y 31 días; falla sin archivo parcial. El instante de corte precede la auditoría de exportación. CSV protege fórmulas y respeta quoting estándar.
+     * @description Disponible en los perfiles local y productivo. Requiere audit.export. Filtros y ventana son idénticos a la consulta; máximo 10.000 filas y 31 días; falla sin archivo parcial. El instante de corte precede la auditoría de exportación. CSV protege fórmulas y respeta quoting estándar. Los motivos históricos de texto libre identificados se proyectan como detalle_restringido.
      */
     get: operations["exportGlobalAdminAuditEvents"];
     put?: never;
@@ -1867,7 +1867,7 @@ export interface paths {
     put?: never;
     /**
      * Iniciar vista asistida de solo lectura para una cuenta
-     * @description Requiere accounts.read y autenticación MFA reciente (HTTP 428 si expiró). Emite un grant acotado en el tiempo y registra el inicio en auditoría.
+     * @description Requiere accounts.read y autenticación MFA reciente (HTTP 428 si expiró). Requiere un ticket de soporte abierto o en progreso asociado a la cuenta. Emite una concesión temporal y registra el inicio en auditoría.
      */
     post: operations["startGlobalAdminAccountAssistedView"];
     delete?: never;
@@ -1885,7 +1885,7 @@ export interface paths {
     };
     /**
      * Consultar proyección de solo lectura para una vista asistida activa
-     * @description Devuelve la proyección acotada al rol solicitado (espacios, reservas y contratos) en modo estrictamente de solo lectura.
+     * @description Verifica la sesión, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
      */
     get: operations["getGlobalAdminAssistedViewProjection"];
     put?: never;
@@ -2017,7 +2017,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Listar reservas, contratos, pagos o incidentes vinculados a una cuenta */
+    /**
+     * Listar reservas, contratos, pagos o incidentes vinculados a una cuenta
+     * @description Disponible en los perfiles local y productivo. Requiere accounts.read.
+     */
     get: operations["listGlobalAdminAccountResources"];
     put?: never;
     post?: never;
@@ -2034,7 +2037,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Consultar un recurso (reserva, contrato, pago o incidente) de la cuenta */
+    /**
+     * Consultar un recurso (reserva, contrato, pago o incidente) de la cuenta
+     * @description Disponible en los perfiles local y productivo. Requiere accounts.read.
+     */
     get: operations["getGlobalAdminAccountResource"];
     put?: never;
     post?: never;
@@ -2051,7 +2057,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Consultar todas las publicaciones con propietario y visibilidad pública efectiva */
+    /**
+     * Consultar todas las publicaciones con propietario y visibilidad pública efectiva
+     * @description Disponible en los perfiles local y productivo. Requiere publications.list.
+     */
     get: operations["listGlobalAdminPublications"];
     put?: never;
     post?: never;
@@ -2299,15 +2308,243 @@ export interface paths {
     };
     /**
      * Listar solicitudes ARCO+ (Ley 21.719)
-     * @description Requiere privacy.requests.manage.
+     * @description Requiere privacy.requests.read o privacy.requests.manage. Incluye los folios del titular y el historial administrativo.
      */
     get: operations["listGlobalAdminPrivacyRequests"];
     put?: never;
     /**
      * Registrar solicitud ARCO+ (Ley 21.719)
-     * @description Requiere privacy.requests.manage.
+     * @description Requiere privacy.requests.manage. Registra el folio compartido con la identidad pendiente de comprobación.
      */
     post: operations["createGlobalAdminPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Obtener detalle e historial del expediente ARCO+
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa y privacy.requests.read o privacy.requests.manage. Devuelve el expediente completo con sus eventos de transición y notas internas restringidas al personal autorizado.
+     */
+    get: operations["getGlobalAdminPrivacyRequest"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}/workflow": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Gestionar estado, asignación, notas o prórroga del expediente ARCO+
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage, MFA reciente y control de concurrencia optimista mediante expected_version. Permite asignar responsable, verificar identidad, iniciar revisión, solicitar aclaración al titular, registrar notas internas y aplicar una única prórroga operativa de hasta 30 días corridos en zona horaria America/Santiago.
+     */
+    post: operations["transitionGlobalAdminPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}/resolution": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Publicar una respuesta al titular de una solicitud de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage y MFA reciente. Admite solicitudes ARCO+ en estado recibida o en_revision (tras verificar identidad cuando corresponda). Repetir la misma decisión y respuesta devuelve el resultado vigente; una decisión diferente genera conflicto. Publica la respuesta en el portal autenticado y registra una notificación interna sin incluir su contenido. El envío escrito por otro canal y su comprobante se gestionan por separado.
+     */
+    post: operations["resolveGlobalAdminPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}/dispatch-receipt": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Registrar la remisión de una respuesta escrita ya enviada
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage y MFA reciente. Admite folios con respuesta publicada. Registra la remisión declarada por personal y su referencia de evidencia. La operación no envía documentos ni mensajes. Un reintento idéntico devuelve el mismo resultado; una remisión diferente para el mismo folio genera conflicto. La bandeja y la bitácora general excluyen el destino y la referencia de evidencia.
+     */
+    post: operations["recordGlobalAdminPrivacyDispatchReceipt"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}/notifications/retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reintentar notificaciones pendientes o fallidas del expediente ARCO+
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage y autenticación MFA reciente (HTTP 428 si expiró). Reprograma las notificaciones fallidas o en estado terminal asociadas a la solicitud para su reenvío mediante el outbox durable y devuelve el detalle actualizado del expediente.
+     */
+    post: operations["retryGlobalPrivacyNotifications"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-requests/{requestID}/executions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ejecutar derecho ARCO+ sobre un expediente de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage, autenticación MFA reciente (HTTP 428 si expiró) y control de concurrencia optimista mediante expected_version. Ejecuta acciones operativas de rectificación de perfil, oposición por finalidad, aplicación o levantamiento de bloqueo de tratamiento y emisión de paquete de portabilidad.
+     */
+    post: operations["executeGlobalPrivacyRight"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-incidents": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar incidentes de datos personales
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa y privacy.incidents.read o privacy.incidents.manage.
+     */
+    get: operations["listGlobalPrivacyIncidents"];
+    put?: never;
+    /**
+     * Registrar incidente de datos personales
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+     */
+    post: operations["createGlobalPrivacyIncident"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-incidents/{incidentID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Obtener detalle y línea temporal de un incidente de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa y privacy.incidents.read o privacy.incidents.manage. Devuelve el incidente y su cronología de eventos.
+     */
+    get: operations["getGlobalPrivacyIncident"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-incidents/{incidentID}/transitions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ejecutar transición operativa sobre un incidente de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.incidents.manage, autenticación MFA reciente (HTTP 428 si expiró) y control de concurrencia optimista mediante expected_version.
+     */
+    post: operations["transitionGlobalPrivacyIncident"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-legal-holds": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar retenciones legales de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa y privacy.requests.read, privacy.requests.manage, privacy.incidents.read o privacy.incidents.manage.
+     */
+    get: operations["listGlobalPrivacyLegalHolds"];
+    put?: never;
+    /**
+     * Aplicar retención legal sobre registros de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+     */
+    post: operations["createGlobalPrivacyLegalHold"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/admin/global/privacy-legal-holds/{holdID}/release": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Liberar una retención legal de privacidad
+     * @description Disponible en los perfiles local y productivo. Requiere sesión administrativa, privacy.requests.manage o privacy.incidents.manage y autenticación MFA reciente (HTTP 428 si expiró).
+     */
+    post: operations["releaseGlobalPrivacyLegalHold"];
     delete?: never;
     options?: never;
     head?: never;
@@ -3390,11 +3627,115 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Lista solo solicitudes del titular autenticado. */
+    /** @description Lista solicitudes de la cuenta autenticada y las respuestas de acceso publicadas para el titular. */
     get: operations["listOwnRightsRequests"];
     put?: never;
-    /** @description Registra acceso o supresión en_revision sin borrar/desidentificar datos. */
+    /** @description Registra acceso, rectificación, supresión, oposición o portabilidad para revisión. El ingreso de una solicitud no ejecuta la acción pedida. Disponible en los perfiles local y productivo. */
     post: operations["requestDataRight"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/public-requests": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Registrar solicitud pública ARCO+ sin cuenta (Ley 21.719)
+     * @description Disponible en los perfiles local y productivo sin requerir cuenta ni sesión activa. Registra una solicitud de acceso, rectificación, supresión, oposición, portabilidad o bloqueo presentada por el titular o por un representante, y entrega un acuse neutral con folio público y código de seguimiento para consulta posterior.
+     */
+    post: operations["submitPublicPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/public-requests/lookup": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Consultar estado de solicitud pública ARCO+ por folio y código de seguimiento
+     * @description Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio público y el código de seguimiento en tiempo constante y devuelve únicamente el estado, plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo actor_id, correos y notas internas.
+     */
+    post: operations["lookupPublicPrivacyRequest"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/preferences": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar preferencias de finalidad opcionales de la cuenta autenticada
+     * @description Disponible en los perfiles local y productivo. Devuelve las preferencias de tratamiento por finalidad opcional para la cuenta autenticada.
+     */
+    get: operations["listOwnPrivacyPreferences"];
+    /**
+     * Actualizar preferencia de finalidad opcional de la cuenta autenticada
+     * @description Disponible en los perfiles local y productivo. Registra oposición, retiro o habilitación de una finalidad opcional de tratamiento para la cuenta autenticada.
+     */
+    put: operations["updateOwnPrivacyPreference"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/restrictions": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Listar bloqueos o restricciones de tratamiento de la cuenta autenticada
+     * @description Disponible en los perfiles local y productivo. Devuelve las restricciones o bloqueos temporales de tratamiento asociados a la cuenta autenticada.
+     */
+    get: operations["listOwnPrivacyRestrictions"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/privacy/portability": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Exportar paquete estructurado e interoperable de portabilidad (Ley 21.719)
+     * @description Disponible en los perfiles local y productivo. Emite el paquete interoperable JSON de portabilidad de la cuenta autenticada junto con su resumen SHA-256 en X-Content-SHA256.
+     */
+    get: operations["exportOwnPrivacyPortability"];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -8311,8 +8652,10 @@ export interface components {
     GlobalAdminPrivacyRequest: {
       /** Format: uuid */
       id: string;
-      /** Format: uuid */
+      /** @description UUID de la cuenta asociada, o cadena vacía ("") para solicitudes públicas sin cuenta vinculada. */
       account_id: string;
+      /** @description Folio público único de seguimiento (por ejemplo */
+      folio?: string;
       /** @enum {string} */
       right_type:
         | "acceso"
@@ -8328,12 +8671,227 @@ export interface components {
       case_ref: string;
       /** Format: uuid */
       requested_by?: string;
+      /** @enum {string} */
+      channel?: "web" | "api" | "publico" | "correo";
+      /** @enum {string} */
+      requester_type?: "titular" | "representante";
+      requester_name?: string;
+      requester_email_masked?: string;
+      representative_name?: string;
+      /** @enum {string} */
+      representative_relation?:
+        "mandatario" | "representante_legal" | "tutor_nna";
+      subject_reference?: string;
+      /** Format: uuid */
+      assigned_to_id?: string;
+      /** Format: date-time */
+      due_at?: string;
+      /** Format: date-time */
+      extended_due_at?: string;
+      extension_reason?: string;
+      version?: number;
+      is_overdue?: boolean;
       /** Format: date-time */
       created_at: string;
       /** Format: date-time */
       updated_at: string;
       /** Format: date-time */
       resolved_at?: string | null;
+      /** @description Permite publicar respuesta a un folio en estado recibida o en_revision. */
+      can_publish_response?: boolean;
+      /** @description Detalle ingresado por el titular. */
+      detail?: string;
+      /** @description Permite registrar la remisión de una respuesta publicada. */
+      can_record_dispatch?: boolean;
+      /**
+       * Format: date-time
+       * @description Fecha en que el operador registró la remisión.
+       */
+      dispatch_recorded_at?: string;
+    };
+    GlobalAdminPrivacyRequestEvent: {
+      /** Format: uuid */
+      id: string;
+      sequence: number;
+      /** @enum {string} */
+      event_type:
+        | "recepcion"
+        | "asignacion"
+        | "identidad_verificada"
+        | "en_revision"
+        | "aclaracion_solicitada"
+        | "nota_interna"
+        | "prorroga"
+        | "ejecucion_derecho"
+        | "resolucion"
+        | "despacho_registrado";
+      /** @enum {string} */
+      visibility: "titular" | "interna";
+      state_from?: string;
+      state_to?: string;
+      /** Format: uuid */
+      actor_id?: string;
+      detail?: string;
+      /** Format: date-time */
+      new_due_at?: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    PrivacyNotificationSummary: {
+      pending: number;
+      delivered: number;
+      terminal: number;
+      last_error_code?: string | null;
+      /** Format: date-time */
+      last_delivered_at?: string | null;
+    };
+    GlobalAdminPrivacyRequestDetail: {
+      /** Format: uuid */
+      id: string;
+      /** @description UUID de la cuenta asociada, o cadena vacía ("") para solicitudes públicas sin cuenta vinculada. */
+      account_id: string;
+      /** @description Folio público único de seguimiento (por ejemplo */
+      folio?: string;
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @enum {string} */
+      status:
+        "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
+      reason: string;
+      case_ref: string;
+      /** Format: uuid */
+      requested_by?: string;
+      /** @enum {string} */
+      channel?: "web" | "api" | "publico" | "correo";
+      /** @enum {string} */
+      requester_type?: "titular" | "representante";
+      requester_name?: string;
+      requester_email_masked?: string;
+      representative_name?: string;
+      /** @enum {string} */
+      representative_relation?:
+        "mandatario" | "representante_legal" | "tutor_nna";
+      subject_reference?: string;
+      /** Format: uuid */
+      assigned_to_id?: string;
+      /** Format: date-time */
+      due_at?: string;
+      /** Format: date-time */
+      extended_due_at?: string;
+      extension_reason?: string;
+      version?: number;
+      is_overdue?: boolean;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      /** Format: date-time */
+      resolved_at?: string | null;
+      can_publish_response?: boolean;
+      detail?: string;
+      can_record_dispatch?: boolean;
+      /** Format: date-time */
+      dispatch_recorded_at?: string;
+      response?: string;
+      notification_summary?: components["schemas"]["PrivacyNotificationSummary"];
+      events: components["schemas"]["GlobalAdminPrivacyRequestEvent"][];
+      executions?: components["schemas"]["PrivacyRightExecution"][];
+      treatment_blocks?: components["schemas"]["PrivacyTreatmentBlock"][];
+      purpose_preferences?: components["schemas"]["PrivacyPurposePreference"][];
+    };
+    GlobalAdminPrivacyRequestDetailEnvelope: {
+      data: components["schemas"]["GlobalAdminPrivacyRequestDetail"];
+    };
+    GlobalAdminPrivacyWorkflowInput: {
+      /** @enum {string} */
+      action:
+        | "assign"
+        | "verify_identity"
+        | "start_review"
+        | "request_clarification"
+        | "add_internal_note"
+        | "extend_deadline";
+      /** Format: uuid */
+      assigned_to_id?: string;
+      /** Format: uuid */
+      account_id?: string;
+      note?: string;
+      extra_days?: number;
+      expected_version: number;
+    };
+    GlobalAdminPrivacyDispatchReceiptInput: {
+      /** @enum {string} */
+      channel: "email" | "postal";
+      destination: string;
+      /** Format: date-time */
+      sent_at: string;
+      evidence_ref: string;
+    };
+    GlobalAdminPrivacyExecutionInput: {
+      /** @enum {string} */
+      action:
+        | "rectify_profile"
+        | "apply_opposition"
+        | "apply_block"
+        | "lift_block"
+        | "issue_portability";
+      expected_version: number;
+      summary: string;
+      display_name?: string;
+      phone?: string;
+      /** @enum {string} */
+      purpose?:
+        | "comunicaciones_comerciales"
+        | "analitica_producto"
+        | "personalizacion_recomendaciones"
+        | "comparticion_encargados_opcionales";
+      /** @enum {string} */
+      purpose_state?: "permitido" | "opuesto" | "retirado";
+      /** @enum {string} */
+      scope?:
+        | "comunicaciones_comerciales"
+        | "analitica_y_perfilado"
+        | "publicaciones_y_visibilidad"
+        | "exportaciones_y_terceros"
+        | "tratamiento_general";
+      /** Format: uuid */
+      block_id?: string;
+      /** Format: date-time */
+      review_at?: string;
+      target_reference?: string;
+    };
+    PrivacyRightExecution: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      request_id: string;
+      /** Format: uuid */
+      account_id?: string;
+      /** @enum {string} */
+      execution_type:
+        | "rectificacion_perfil"
+        | "oposicion_finalidad"
+        | "bloqueo_aplicado"
+        | "bloqueo_levantado"
+        | "portabilidad_emitida"
+        | "transferencia_portabilidad"
+        | "propagacion_encargado";
+      /** @enum {string} */
+      status: "ejecutada" | "parcial" | "denegada";
+      scope: string;
+      summary: string;
+      target_reference?: string;
+      artifact_sha256?: string;
+      /** Format: uuid */
+      executed_by: string;
+      /** Format: date-time */
+      executed_at: string;
     };
     GlobalAdminPrivacyRequestCreateInput: {
       /** Format: uuid */
@@ -8360,6 +8918,213 @@ export interface components {
         /** Format: date-time */
         generated_at: string;
       };
+    };
+    GlobalAdminPrivacyIncident: {
+      /** Format: uuid */
+      id: string;
+      folio: string;
+      title: string;
+      /** @enum {string} */
+      severity: "baja" | "media" | "alta" | "critica";
+      /** @enum {string} */
+      status: "abierto" | "contenido" | "evaluado" | "notificado" | "cerrado";
+      data_categories: string[];
+      affected_systems: string[];
+      estimated_subjects: number;
+      summary: string;
+      containment_measures?: string | null;
+      requires_agency_notice: boolean;
+      /** Format: date-time */
+      agency_notified_at?: string | null;
+      agency_reference?: string | null;
+      requires_subject_notice: boolean;
+      /** Format: date-time */
+      subjects_notified_at?: string | null;
+      /** Format: uuid */
+      leader_id: string;
+      /** Format: uuid */
+      deputy_id?: string | null;
+      /** Format: date-time */
+      detected_at: string;
+      /** Format: uuid */
+      created_by: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      /** Format: date-time */
+      closed_at?: string | null;
+      version: number;
+    };
+    GlobalAdminPrivacyIncidentEvent: {
+      /** Format: uuid */
+      id: string;
+      sequence: number;
+      /** @enum {string} */
+      event_type:
+        | "apertura"
+        | "contencion"
+        | "evaluacion"
+        | "notificacion_agencia"
+        | "notificacion_titulares"
+        | "nota"
+        | "cierre";
+      /** Format: uuid */
+      actor_id: string;
+      detail: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    GlobalAdminPrivacyIncidentDetail: {
+      /** Format: uuid */
+      id: string;
+      folio: string;
+      title: string;
+      /** @enum {string} */
+      severity: "baja" | "media" | "alta" | "critica";
+      /** @enum {string} */
+      status: "abierto" | "contenido" | "evaluado" | "notificado" | "cerrado";
+      data_categories: string[];
+      affected_systems: string[];
+      estimated_subjects: number;
+      summary: string;
+      containment_measures?: string | null;
+      requires_agency_notice: boolean;
+      /** Format: date-time */
+      agency_notified_at?: string | null;
+      agency_reference?: string | null;
+      requires_subject_notice: boolean;
+      /** Format: date-time */
+      subjects_notified_at?: string | null;
+      /** Format: uuid */
+      leader_id: string;
+      /** Format: uuid */
+      deputy_id?: string | null;
+      /** Format: date-time */
+      detected_at: string;
+      /** Format: uuid */
+      created_by: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      /** Format: date-time */
+      closed_at?: string | null;
+      version: number;
+      events: components["schemas"]["GlobalAdminPrivacyIncidentEvent"][];
+    };
+    GlobalAdminPrivacyIncidentDetailEnvelope: {
+      data: components["schemas"]["GlobalAdminPrivacyIncidentDetail"];
+    };
+    GlobalAdminPrivacyIncidentPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminPrivacyIncident"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    CreateGlobalAdminPrivacyIncidentInput: {
+      title: string;
+      /** @enum {string} */
+      severity: "baja" | "media" | "alta" | "critica";
+      data_categories: string[];
+      affected_systems: string[];
+      estimated_subjects?: number;
+      summary: string;
+      containment_measures?: string;
+      requires_agency_notice?: boolean;
+      requires_subject_notice?: boolean;
+      /** Format: uuid */
+      leader_id?: string;
+      /** Format: uuid */
+      deputy_id?: string;
+      /** Format: date-time */
+      detected_at?: string;
+    };
+    TransitionGlobalAdminPrivacyIncidentInput: {
+      /** @enum {string} */
+      action:
+        | "contain"
+        | "evaluate"
+        | "notify_agency"
+        | "notify_subjects"
+        | "add_note"
+        | "close";
+      expected_version: number;
+      detail?: string;
+      containment_measures?: string;
+      requires_agency_notice?: boolean;
+      requires_subject_notice?: boolean;
+      agency_reference?: string;
+    };
+    GlobalAdminPrivacyLegalHold: {
+      /** Format: uuid */
+      id: string;
+      folio: string;
+      /** Format: uuid */
+      account_id?: string | null;
+      /** Format: uuid */
+      request_id?: string | null;
+      /** Format: uuid */
+      incident_id?: string | null;
+      /** @enum {string} */
+      scope:
+        | "expediente_privacidad"
+        | "cuenta_completa"
+        | "evidencia_kyc"
+        | "contratos_y_pagos"
+        | "incidente_seguridad";
+      authority: string;
+      legal_basis: string;
+      /** @enum {string} */
+      status: "activa" | "liberada";
+      /** Format: date-time */
+      review_at?: string | null;
+      /** Format: uuid */
+      applied_by: string;
+      /** Format: date-time */
+      applied_at: string;
+      /** Format: uuid */
+      released_by?: string | null;
+      /** Format: date-time */
+      released_at?: string | null;
+      release_reason?: string | null;
+    };
+    GlobalAdminPrivacyLegalHoldEnvelope: {
+      data: components["schemas"]["GlobalAdminPrivacyLegalHold"];
+    };
+    GlobalAdminPrivacyLegalHoldPageEnvelope: {
+      data: {
+        items: components["schemas"]["GlobalAdminPrivacyLegalHold"][];
+        next_cursor?: string;
+        matching_total: number;
+        /** Format: date-time */
+        generated_at: string;
+      };
+    };
+    CreateGlobalAdminPrivacyLegalHoldInput: {
+      /** Format: uuid */
+      account_id?: string;
+      /** Format: uuid */
+      request_id?: string;
+      /** Format: uuid */
+      incident_id?: string;
+      /** @enum {string} */
+      scope:
+        | "expediente_privacidad"
+        | "cuenta_completa"
+        | "evidencia_kyc"
+        | "contratos_y_pagos"
+        | "incidente_seguridad";
+      authority: string;
+      legal_basis: string;
+      /** Format: date-time */
+      review_at?: string;
+    };
+    ReleaseGlobalAdminPrivacyLegalHoldInput: {
+      release_reason: string;
     };
     GlobalAdminSupportTicket: {
       /** Format: uuid */
@@ -10819,13 +11584,49 @@ export interface components {
     };
     RightsRequestCreate: {
       /** @enum {string} */
-      type: "acceso" | "supresion";
+      type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @description Detalle en texto. Rectificación */
+      detail?: string;
+    };
+    RightsRequestEvent: {
+      /** Format: uuid */
+      id: string;
+      sequence: number;
+      /** @enum {string} */
+      event_type:
+        | "recepcion"
+        | "identidad_verificada"
+        | "en_revision"
+        | "aclaracion_solicitada"
+        | "prorroga"
+        | "ejecucion_derecho"
+        | "resolucion"
+        | "despacho_registrado";
+      state_from?: string;
+      state_to?: string;
+      detail?: string;
+      /** Format: date-time */
+      new_due_at?: string;
+      /** Format: date-time */
+      created_at: string;
     };
     RightsRequest: {
       /** Format: uuid */
       id: string;
       /** @enum {string} */
-      kind: "acceso" | "supresion";
+      kind:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
       /** @enum {string} */
       state:
         | "recibida"
@@ -10835,9 +11636,118 @@ export interface components {
         | "denegada_fundada";
       /** Format: date-time */
       created_at: string;
+      /** Format: date-time */
+      resolved_at?: string;
+      response?: string;
+      /** @description Detalle ingresado por el titular. */
+      detail?: string;
+      /** Format: date-time */
+      due_at?: string;
+      /** Format: date-time */
+      extended_due_at?: string;
+      extension_reason?: string;
+      events?: components["schemas"]["RightsRequestEvent"][];
     };
     RightsRequestList: {
       items: components["schemas"]["RightsRequest"][];
+    };
+    PublicPrivacyRequestInput: {
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @enum {string} */
+      requester_type: "titular" | "representante";
+      requester_name: string;
+      /** Format: email */
+      requester_email: string;
+      /** @description Requerido (mínimo 2 caracteres) cuando requester_type es representante. */
+      representative_name?: string;
+      /**
+       * @description Requerido cuando requester_type es representante.
+       * @enum {string}
+       */
+      representative_relation?:
+        "mandatario" | "representante_legal" | "tutor_nna";
+      /** @description Referencia opcional del titular representado o contexto (entre 2 y 200 caracteres si se informa). */
+      subject_reference?: string;
+      detail: string;
+    };
+    PublicPrivacyRequestReceipt: {
+      /** Format: uuid */
+      id: string;
+      folio: string;
+      tracking_code: string;
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @enum {string} */
+      requester_type: "titular" | "representante";
+      /** @enum {string} */
+      state:
+        | "recibida"
+        | "identidad_pendiente"
+        | "en_revision"
+        | "resuelta"
+        | "denegada_fundada";
+      /** @enum {string} */
+      channel: "web" | "api" | "publico" | "correo";
+      /** Format: date-time */
+      due_at: string;
+      /** Format: date-time */
+      created_at: string;
+      notice: string;
+    };
+    PublicPrivacyRequestReceiptEnvelope: {
+      data: components["schemas"]["PublicPrivacyRequestReceipt"];
+    };
+    PublicPrivacyLookupInput: {
+      /** @description Folio público (formato PRIV-YYYY-XXXXXXXX). */
+      folio: string;
+      tracking_code: string;
+    };
+    PublicPrivacyRequestStatus: {
+      folio: string;
+      /** @enum {string} */
+      right_type:
+        | "acceso"
+        | "rectificacion"
+        | "supresion"
+        | "oposicion"
+        | "portabilidad"
+        | "bloqueo";
+      /** @enum {string} */
+      requester_type: "titular" | "representante";
+      /** @enum {string} */
+      state:
+        | "recibida"
+        | "identidad_pendiente"
+        | "en_revision"
+        | "resuelta"
+        | "denegada_fundada";
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      due_at?: string;
+      /** Format: date-time */
+      extended_due_at?: string;
+      extension_reason?: string;
+      /** Format: date-time */
+      resolved_at?: string;
+      response?: string;
+      events?: components["schemas"]["RightsRequestEvent"][];
+    };
+    PublicPrivacyRequestStatusEnvelope: {
+      data: components["schemas"]["PublicPrivacyRequestStatus"];
     };
     OwnIdentityExport: {
       /** @constant */
@@ -10867,6 +11777,97 @@ export interface components {
         /** Format: date-time */
         accepted_at: string;
       }[];
+      rights_requests: components["schemas"]["RightsRequest"][];
+      purpose_preferences?: components["schemas"]["PrivacyPurposePreference"][];
+      treatment_restrictions?: components["schemas"]["PrivacyTreatmentBlock"][];
+    };
+    PrivacyPurposePreference: {
+      /** @enum {string} */
+      purpose:
+        | "comunicaciones_comerciales"
+        | "analitica_producto"
+        | "personalizacion_recomendaciones"
+        | "comparticion_encargados_opcionales";
+      /** @enum {string} */
+      state: "permitido" | "opuesto" | "retirado";
+      reason?: string;
+      /** Format: uuid */
+      request_id?: string;
+      /** Format: date-time */
+      updated_at?: string;
+    };
+    UpdatePrivacyPurposePreferenceInput: {
+      /** @enum {string} */
+      purpose:
+        | "comunicaciones_comerciales"
+        | "analitica_producto"
+        | "personalizacion_recomendaciones"
+        | "comparticion_encargados_opcionales";
+      /** @enum {string} */
+      state: "permitido" | "opuesto" | "retirado";
+      reason?: string;
+    };
+    PrivacyTreatmentBlock: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      request_id: string;
+      /** Format: uuid */
+      account_id?: string;
+      /** @enum {string} */
+      scope:
+        | "comunicaciones_comerciales"
+        | "analitica_y_perfilado"
+        | "publicaciones_y_visibilidad"
+        | "exportaciones_y_terceros"
+        | "tratamiento_general";
+      /** @enum {string} */
+      state: "activo" | "levantado";
+      reason: string;
+      /** Format: uuid */
+      applied_by?: string;
+      /** Format: date-time */
+      applied_at: string;
+      /** Format: date-time */
+      review_at?: string;
+      /** Format: uuid */
+      lifted_by?: string;
+      /** Format: date-time */
+      lifted_at?: string;
+      lift_reason?: string;
+    };
+    PrivacyPortabilityPackage: {
+      /** @constant */
+      schema_version: "portabilidad_ley21719_v1";
+      /** Format: date-time */
+      generated_at: string;
+      account: {
+        /** Format: email */
+        email: string;
+        state: string;
+        /** @enum {string|null} */
+        use_preference?: "ofrecer" | "arrendar" | null;
+        /** Format: date-time */
+        created_at: string;
+      };
+      profile?: {
+        display_name: string;
+        phone?: string | null;
+        /** Format: date-time */
+        updated_at: string;
+      };
+      roles: (
+        "arrendatario" | "arrendador" | "administrador" | "administrador_global"
+      )[];
+      terms_acceptances: {
+        code: string;
+        /** @enum {string} */
+        type: "terminos" | "privacidad" | "politica_arrendador";
+        /** Format: date-time */
+        accepted_at: string;
+      }[];
+      purpose_preferences: components["schemas"]["PrivacyPurposePreference"][];
+      treatment_restrictions: components["schemas"]["PrivacyTreatmentBlock"][];
       rights_requests: components["schemas"]["RightsRequest"][];
     };
     VerificationCreate: {
@@ -17165,7 +18166,17 @@ export interface operations {
       query?: {
         status?:
           "pendiente" | "en_revision" | "aprobada" | "rechazada" | "completada";
+        right_type?:
+          | "acceso"
+          | "rectificacion"
+          | "supresion"
+          | "oposicion"
+          | "portabilidad"
+          | "bloqueo";
         account_id?: string;
+        assigned_to_id?: string;
+        channel?: "web" | "api" | "publico" | "correo";
+        overdue?: boolean;
         cursor?: string;
         page_size?: number;
       };
@@ -17217,6 +18228,457 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getGlobalAdminPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle del expediente de privacidad */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestDetailEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  transitionGlobalAdminPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminPrivacyWorkflowInput"];
+      };
+    };
+    responses: {
+      /** @description Expediente actualizado */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestDetailEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  resolveGlobalAdminPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          decision: "resuelta" | "denegada_fundada";
+          response: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Decisión publicada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  recordGlobalAdminPrivacyDispatchReceipt: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminPrivacyDispatchReceiptInput"];
+      };
+    };
+    responses: {
+      /** @description Remisión registrada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  retryGlobalPrivacyNotifications: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente actualizado tras reencolar notificaciones */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestDetailEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  executeGlobalPrivacyRight: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        requestID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GlobalAdminPrivacyExecutionInput"];
+      };
+    };
+    responses: {
+      /** @description Expediente actualizado tras ejecutar el derecho */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyRequestDetailEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  listGlobalPrivacyIncidents: {
+    parameters: {
+      query?: {
+        status?:
+          "abierto" | "contenido" | "evaluado" | "notificado" | "cerrado";
+        severity?: "baja" | "media" | "alta" | "critica";
+        page_size?: number;
+        cursor?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de incidentes de datos personales */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyIncidentPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createGlobalPrivacyIncident: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateGlobalAdminPrivacyIncidentInput"];
+      };
+    };
+    responses: {
+      /** @description Incidente de datos personales registrado */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyIncidentDetailEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getGlobalPrivacyIncident: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        incidentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Detalle del incidente de datos personales */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyIncidentDetailEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  transitionGlobalPrivacyIncident: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        incidentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TransitionGlobalAdminPrivacyIncidentInput"];
+      };
+    };
+    responses: {
+      /** @description Incidente actualizado tras la transición */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyIncidentDetailEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  listGlobalPrivacyLegalHolds: {
+    parameters: {
+      query?: {
+        status?: "activa" | "liberada";
+        account_id?: string;
+        scope?:
+          | "expediente_privacidad"
+          | "cuenta_completa"
+          | "evidencia_kyc"
+          | "contratos_y_pagos"
+          | "incidente_seguridad";
+        page_size?: number;
+        cursor?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Página de retenciones legales de privacidad */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyLegalHoldPageEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  createGlobalPrivacyLegalHold: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateGlobalAdminPrivacyLegalHoldInput"];
+      };
+    };
+    responses: {
+      /** @description Retención legal aplicada */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyLegalHoldEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  releaseGlobalPrivacyLegalHold: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        holdID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ReleaseGlobalAdminPrivacyLegalHoldInput"];
+      };
+    };
+    responses: {
+      /** @description Retención legal liberada */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlobalAdminPrivacyLegalHoldEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
       /** @description Se requiere autenticación MFA reciente */
       428: {
@@ -19368,6 +20830,163 @@ export interface operations {
       };
       401: components["responses"]["Unauthorized"];
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  submitPublicPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PublicPrivacyRequestInput"];
+      };
+    };
+    responses: {
+      /** @description Solicitud pública registrada con acuse neutral y código de seguimiento. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicPrivacyRequestReceiptEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  lookupPublicPrivacyRequest: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["PublicPrivacyLookupInput"];
+      };
+    };
+    responses: {
+      /** @description Estado y eventos visibles de la solicitud pública de privacidad. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PublicPrivacyRequestStatusEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listOwnPrivacyPreferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Preferencias de finalidad de la cuenta. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["PrivacyPurposePreference"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  updateOwnPrivacyPreference: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["UpdatePrivacyPurposePreferenceInput"];
+      };
+    };
+    responses: {
+      /** @description Preferencia de finalidad actualizada. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["PrivacyPurposePreference"];
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  listOwnPrivacyRestrictions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Restricciones de tratamiento de la cuenta. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["PrivacyTreatmentBlock"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  exportOwnPrivacyPortability: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paquete estructurado de portabilidad de datos personales. */
+      200: {
+        headers: {
+          /** @description Resumen SHA-256 hexadecimal en minúsculas del JSON emitido. */
+          "X-Content-SHA256"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["PrivacyPortabilityPackage"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   exportOwnIdentityData: {

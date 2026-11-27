@@ -50,8 +50,13 @@ import type {
   GlobalAdminKycCase,
   GlobalAdminKycCaseQuery,
   GlobalAdminPrivacyRequest,
+  GlobalAdminPrivacyRequestDetail,
   GlobalAdminPrivacyRequestQuery,
   GlobalAdminPrivacyRequestCreateInput,
+  GlobalAdminPrivacyWorkflowInput,
+  GlobalAdminPrivacyExecutionInput,
+  GlobalAdminPrivacyRequestResolutionInput,
+  GlobalAdminPrivacyDispatchReceiptInput,
   GlobalAdminSupportTicket,
   GlobalAdminSupportTicketQuery,
   GlobalAdminSupportTicketCreateInput,
@@ -59,6 +64,17 @@ import type {
   GlobalAdminApprovalQuery,
   GlobalAdminApprovalCreateInput,
   GlobalAdminApprovalDecisionInput,
+  GlobalAdminPrivacyIncident,
+  GlobalAdminPrivacyIncidentDetail,
+  GlobalAdminPrivacyIncidentPage,
+  GlobalAdminPrivacyIncidentQuery,
+  CreateGlobalAdminPrivacyIncidentInput,
+  TransitionGlobalAdminPrivacyIncidentInput,
+  GlobalAdminPrivacyLegalHold,
+  GlobalAdminPrivacyLegalHoldPage,
+  GlobalAdminPrivacyLegalHoldQuery,
+  CreateGlobalAdminPrivacyLegalHoldInput,
+  ReleaseGlobalAdminPrivacyLegalHoldInput,
 } from "../domain/types";
 
 export class OpenApiAdminAdapter implements AdminPort {
@@ -1245,13 +1261,39 @@ export class OpenApiAdminAdapter implements AdminPort {
     signal?: AbortSignal,
   ): Promise<{ items: GlobalAdminPrivacyRequest[]; next_cursor?: string }> {
     const result = await apiClient.GET("/admin/global/privacy-requests", {
-      params: { query: query as never },
+      params: {
+        query: {
+          status: query?.status,
+          right_type: query?.right_type,
+          account_id: query?.account_id,
+          assigned_to_id: query?.assigned_to_id,
+          channel: query?.channel,
+          overdue: query?.overdue,
+          cursor: query?.cursor,
+          page_size: query?.page_size,
+        },
+      },
       signal,
     });
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
     return this.unwrapPage<GlobalAdminPrivacyRequest>(result.data);
+  }
+
+  async getGlobalPrivacyRequest(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    const result = await apiClient.GET("/admin/global/privacy-requests/{requestID}", {
+      params: { path: { requestID: requestId } },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequestDetail;
   }
 
   async createGlobalPrivacyRequest(
@@ -1270,6 +1312,108 @@ export class OpenApiAdminAdapter implements AdminPort {
     }
     if (!result.data?.data) throw new ApiProtocolError();
     return result.data.data as unknown as GlobalAdminPrivacyRequest;
+  }
+
+  async transitionGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyWorkflowInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-requests/{requestID}/workflow",
+      {
+        params: { path: { requestID: requestId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequestDetail;
+  }
+
+  async executeGlobalPrivacyRight(
+    requestId: string,
+    input: GlobalAdminPrivacyExecutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-requests/{requestID}/executions",
+      {
+        params: { path: { requestID: requestId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequestDetail;
+  }
+
+  async resolveGlobalPrivacyRequest(
+    requestId: string,
+    input: GlobalAdminPrivacyRequestResolutionInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-requests/{requestID}/resolution",
+      {
+        params: { path: { requestID: requestId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequest;
+  }
+
+  async recordGlobalPrivacyDispatchReceipt(
+    requestId: string,
+    input: GlobalAdminPrivacyDispatchReceiptInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequest> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-requests/{requestID}/dispatch-receipt",
+      {
+        params: { path: { requestID: requestId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequest;
+  }
+
+  async retryGlobalPrivacyNotifications(
+    requestId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyRequestDetail> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-requests/{requestID}/notifications/retry",
+      {
+        params: { path: { requestID: requestId } },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyRequestDetail;
   }
 
   async listGlobalSupportTickets(
@@ -1363,5 +1507,153 @@ export class OpenApiAdminAdapter implements AdminPort {
     }
     if (!result.data?.data) throw new ApiProtocolError();
     return result.data.data as unknown as GlobalAdminApproval;
+  }
+
+  // Phase 7: Privacy Incidents & Legal Holds
+  async listGlobalPrivacyIncidents(
+    query?: GlobalAdminPrivacyIncidentQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentPage> {
+    const result = await apiClient.GET("/admin/global/privacy-incidents", {
+      params: {
+        query: {
+          status: query?.status,
+          severity: query?.severity,
+          page_size: query?.page_size,
+          cursor: query?.cursor,
+        },
+      },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    const page = this.unwrapPage<GlobalAdminPrivacyIncident>(result.data);
+    return {
+      items: page.items,
+      next_cursor: page.next_cursor,
+      matching_total: page.matching_total ?? page.items.length,
+      generated_at: page.generated_at ?? "",
+    };
+  }
+
+  async getGlobalPrivacyIncident(
+    incidentId: string,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    const result = await apiClient.GET(
+      "/admin/global/privacy-incidents/{incidentID}",
+      {
+        params: { path: { incidentID: incidentId } },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyIncidentDetail;
+  }
+
+  async createGlobalPrivacyIncident(
+    input: CreateGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    const result = await apiClient.POST("/admin/global/privacy-incidents", {
+      body: input as never,
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyIncidentDetail;
+  }
+
+  async transitionGlobalPrivacyIncident(
+    incidentId: string,
+    input: TransitionGlobalAdminPrivacyIncidentInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyIncidentDetail> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-incidents/{incidentID}/transitions",
+      {
+        params: { path: { incidentID: incidentId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyIncidentDetail;
+  }
+
+  async listGlobalPrivacyLegalHolds(
+    query?: GlobalAdminPrivacyLegalHoldQuery,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHoldPage> {
+    const result = await apiClient.GET("/admin/global/privacy-legal-holds", {
+      params: {
+        query: {
+          status: query?.status,
+          account_id: query?.account_id,
+          scope: query?.scope,
+          page_size: query?.page_size,
+          cursor: query?.cursor,
+        },
+      },
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    const page = this.unwrapPage<GlobalAdminPrivacyLegalHold>(result.data);
+    return {
+      items: page.items,
+      next_cursor: page.next_cursor,
+      matching_total: page.matching_total ?? page.items.length,
+      generated_at: page.generated_at ?? "",
+    };
+  }
+
+  async createGlobalPrivacyLegalHold(
+    input: CreateGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold> {
+    const result = await apiClient.POST("/admin/global/privacy-legal-holds", {
+      body: input as never,
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyLegalHold;
+  }
+
+  async releaseGlobalPrivacyLegalHold(
+    holdId: string,
+    input: ReleaseGlobalAdminPrivacyLegalHoldInput,
+    signal?: AbortSignal,
+  ): Promise<GlobalAdminPrivacyLegalHold> {
+    const result = await apiClient.POST(
+      "/admin/global/privacy-legal-holds/{holdID}/release",
+      {
+        params: { path: { holdID: holdId } },
+        body: input as never,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.data) throw new ApiProtocolError();
+    return result.data.data as unknown as GlobalAdminPrivacyLegalHold;
   }
 }
