@@ -2174,6 +2174,29 @@ test("@phase6 @controlled /mi-cuenta/privacidad: preferencias de finalidad (GET/
 
   await loginAndNavigate(page, "/mi-cuenta/privacidad");
 
+  const tabs = page.getByRole("tablist", { name: "Secciones de privacidad" });
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(tabs).toHaveAttribute("aria-orientation", "horizontal");
+    await expect(tabs.getByRole("tab")).toHaveCount(5);
+    const listBounds = (await tabs.boundingBox())!;
+    const panelBounds = (await page.getByRole("tabpanel").boundingBox())!;
+    expect(listBounds.y + listBounds.height).toBeLessThanOrEqual(panelBounds.y);
+    const fitsViewport = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    expect(fitsViewport).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const requestsTab = tabs.getByRole("tab", {
+    name: "Solicitudes de privacidad",
+  });
+  await requestsTab.focus();
+  await requestsTab.press("ArrowRight");
+  await expect(
+    tabs.getByRole("tab", { name: "Exportación de datos personales" }),
+  ).toHaveAttribute("aria-selected", "true");
+
   await expect(
     page.getByRole("tab", { name: "Revisión documental" }),
   ).toHaveCount(0);

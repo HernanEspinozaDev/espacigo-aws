@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Tabs } from "radix-ui";
@@ -18,22 +18,10 @@ const sections: ReadonlyArray<{ id: PrivacySection | "legal"; label: string }> =
     { id: "legal", label: "Tus documentos legales" },
   ];
 
-const desktop = "(min-width: 48rem)";
-function subscribeToViewport(onChange: () => void) {
-  const media = window.matchMedia(desktop);
-  media.addEventListener("change", onChange);
-  return () => media.removeEventListener("change", onChange);
-}
-
 export function PrivacyHubView({ initialTab }: { initialTab?: string }) {
   const firstTab = sections.some((section) => section.id === initialTab)
     ? initialTab
     : "privacidad";
-  const vertical = useSyncExternalStore(
-    subscribeToViewport,
-    () => window.matchMedia(desktop).matches,
-    () => false,
-  );
   const { snapshot: authSnapshot } = useAuth();
   const { loadOverview } = useAccount();
 
@@ -65,18 +53,18 @@ export function PrivacyHubView({ initialTab }: { initialTab?: string }) {
 
       <Tabs.Root
         defaultValue={firstTab}
-        orientation={vertical ? "vertical" : "horizontal"}
-        className="grid min-w-0 gap-4 md:grid-cols-[12rem_minmax(0,1fr)] lg:grid-cols-[14rem_minmax(0,1fr)]"
+        orientation="horizontal"
+        className="min-w-0 space-y-4"
       >
         <Tabs.List
           aria-label="Secciones de privacidad"
-          className="flex min-w-0 gap-1 overflow-x-auto rounded-xl border p-1 md:flex-col md:self-start"
+          className="flex min-w-0 gap-1 overflow-x-auto border-b border-border"
         >
           {sections.map((section) => (
             <Tabs.Trigger
               key={section.id}
               value={section.id}
-              className="min-h-10 shrink-0 rounded-lg px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+              className="min-h-11 shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-[state=active]:border-primary data-[state=active]:bg-muted/60 data-[state=active]:text-primary"
             >
               {section.label}
             </Tabs.Trigger>
