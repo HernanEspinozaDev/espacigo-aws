@@ -39,10 +39,19 @@ Parameters:
       - 'false'
     Description: Habilita los VPC Interface Endpoints de ECR y CloudWatch Logs (redundantes si existe NAT).
 
+  EnableKYBInfrastructure:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Crea el bucket privado exclusivo de documentos KYB. Activar solo tras aprobar el despliegue de infraestructura.
+
 Conditions:
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
   EnableSecretsManagerEndpoint: !Equals [!Ref EnablePersistentSecretsManagerEndpoint, 'true']
   EnableInterfaceEndpoints: !Equals [!Ref EnablePrivateInterfaceEndpoints, 'true']
+  EnableKYB: !Equals [!Ref EnableKYBInfrastructure, 'true']
 
 Resources:
   # ============================================================================
@@ -567,6 +576,33 @@ Resources:
         - Key: Purpose
           Value: privacy_replay
 
+  KYBDocumentsBucket:
+    Type: AWS::S3::Bucket
+    Condition: EnableKYB
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub espacigo-kyb-documents-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: false
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: espacigo
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: kyb_documents
+
 Outputs:
   VpcId:
     Value: !Ref MainVPC
@@ -649,3 +685,13 @@ Outputs:
     Value: !GetAtt PrivacyReplayBucket.Arn
     Export:
       Name: !Sub ${AWS::StackName}-PrivacyReplayBucketArn
+  KYBDocumentsBucketName:
+    Condition: EnableKYB
+    Value: !Ref KYBDocumentsBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-KYBDocumentsBucketName
+  KYBDocumentsBucketArn:
+    Condition: EnableKYB
+    Value: !GetAtt KYBDocumentsBucket.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-KYBDocumentsBucketArn
