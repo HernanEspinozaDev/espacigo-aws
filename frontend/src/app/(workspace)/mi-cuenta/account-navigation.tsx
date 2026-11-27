@@ -3,16 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
-import {
-  BriefcaseBusiness,
-  Building2,
-  CalendarDays,
-  FileCheck,
-  FileText,
-  Lock,
-  Shield,
-  User,
-} from "lucide-react";
+import { Building2, CalendarDays, FileText, Lock, User } from "lucide-react";
 import { EarlyRentalNotice } from "@/features/bookings/ui/early-rental-notice";
 import { cn } from "@/lib/utils";
 
@@ -22,12 +13,6 @@ const items = [
     href: "/mi-cuenta",
     icon: User,
     description: "Información personal y contacto",
-  },
-  {
-    title: "Verificación KYB",
-    href: "/anfitrion/kyb",
-    icon: BriefcaseBusiness,
-    description: "Datos y documentos empresariales",
   },
   {
     title: "Mis espacios",
@@ -53,25 +38,21 @@ const items = [
     icon: Lock,
     description: "Contraseña y sesiones",
   },
-  {
-    title: "Privacidad",
-    href: "/mi-cuenta/privacidad",
-    icon: Shield,
-    description: "Exportación y derechos",
-  },
-  {
-    title: "Documentos",
-    href: "/mi-cuenta/documentos",
-    icon: FileText,
-    description: "Expedientes privados por finalidad",
-  },
-  {
-    title: "Revisión documental",
-    href: "/mi-cuenta/revision-documental",
-    icon: FileCheck,
-    description: "Asignaciones confirmadas por el servidor",
-  },
 ];
+
+function isGeneralSubpath(activePath: string | null): boolean {
+  if (!activePath) return false;
+  return (
+    activePath === "/mi-cuenta/perfil" ||
+    activePath === "/mi-cuenta/empresas" ||
+    activePath === "/mi-cuenta/privacidad" ||
+    activePath === "/mi-cuenta/documentos" ||
+    activePath === "/mi-cuenta/revision-documental" ||
+    activePath === "/mi-cuenta/cobros" ||
+    Boolean(activePath.match(/^\/mi-cuenta\/verificaciones(?:\/|$)/)) ||
+    Boolean(activePath.match(/^\/mi-cuenta\/revisiones(?:\/|$)/))
+  );
+}
 
 const subscribeToHydration = () => () => {};
 const getClientHydrationSnapshot = () => true;
@@ -103,9 +84,7 @@ export function AccountNavigation({
           const isActive =
             activePath === item.href ||
             (item.href === "/mi-cuenta"
-              ? activePath === "/mi-cuenta/perfil" ||
-                activePath === "/mi-cuenta/verificaciones" ||
-                Boolean(activePath?.match(/^\/mi-cuenta\/revisiones(?:\/|$)/))
+              ? isGeneralSubpath(activePath)
               : Boolean(activePath?.startsWith(item.href)));
           const Icon = item.icon;
 

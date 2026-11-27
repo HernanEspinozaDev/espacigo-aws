@@ -196,15 +196,13 @@ test("owner validates identity evidence and submits only three clean roles", asy
     .fill("Synthetic-only-123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(/\/mi-cuenta$/);
-  await page
-    .getByRole("link", { name: /^Documentos/ })
-    .first()
-    .click();
-  await expect(page).toHaveURL(/\/mi-cuenta\/documentos$/);
+  await page.getByRole("link", { name: "Gestionar privacidad" }).click();
+  await expect(page).toHaveURL(/\/mi-cuenta\/privacidad$/);
+  await page.getByRole("tab", { name: "Documentos" }).click();
   await expect(
     page
       .getByRole("navigation", { name: "Secciones de mi cuenta" })
-      .getByRole("link", { name: /^Documentos/ }),
+      .getByRole("link", { name: /^General/ }),
   ).toHaveAttribute("aria-current", "page");
   expect(requestsOutsideLoopback).toEqual([]);
   await page.getByLabel(/Confirmo que usaré solo datos sintéticos/).check();

@@ -978,3 +978,521 @@ test("4. Tarjeta/ficha pública muestra Espacio verificado solo en Espacio A y T
     }),
   ).toBeVisible();
 });
+
+test("5. /mi-cuenta: menú lateral limpio, tarjetas actualizadas y pestañas de Privacidad", async ({
+  page,
+}) => {
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/profile" && method === "GET") {
+      return {
+        body: {
+          display_name: "Anfitrión Sintético",
+          phone: "912345678",
+          updated_at: "2026-11-01T12:00:00Z",
+        },
+      };
+    }
+    if (pathname === "/api/backend/identity/profile" && method === "GET") {
+      return {
+        body: {
+          state: "verified",
+          complete: true,
+          username: "Anfitrión Sintético",
+          masked_email: "a***@example.invalid",
+          masked_phone: "+56 9 **** 5678",
+        },
+      };
+    }
+    if (pathname === "/api/backend/rights-requests" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "GET"
+    ) {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/document-review/cases" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta");
+
+  const nav = page.getByRole("navigation", { name: "Secciones de mi cuenta" });
+  for (const visibleTitle of [
+    /^General/,
+    /^Mis espacios/,
+    /^Mis reservas/,
+    /^Mis contratos/,
+    /^Seguridad/,
+  ]) {
+    await expect(nav.getByRole("link", { name: visibleTitle })).toBeVisible();
+  }
+  for (const removedTitle of [
+    /^Verificación KYB/,
+    /^Privacidad/,
+    /^Documentos/,
+    /^Revisión documental/,
+  ]) {
+    await expect(nav.getByRole("link", { name: removedTitle })).toHaveCount(0);
+  }
+
+  // Tarjetas actualizadas en General
+  await expect(
+    page.getByText(
+      "Privacidad, derechos ARCO, documentos privados y revisión documental.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Verificación de identidad y verificaciones de espacio (KYB).",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Perfil empresas" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Registra tus empresas (razón social, nombre comercial y RUT), gestiona representantes y verifica tu empresa.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Gestionar perfil empresas" }),
+  ).toHaveAttribute("href", "/mi-cuenta/empresas");
+  await expect(page.getByRole("link", { name: "Ver documentos" })).toHaveCount(
+    0,
+  );
+
+  // Navegación a Privacidad con pestañas accesibles
+  await page.getByRole("link", { name: "Gestionar privacidad" }).click();
+  await expect(page).toHaveURL(/\/mi-cuenta\/privacidad$/);
+  await expect(nav.getByRole("link", { name: /^General/ })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+
+  const tablist = page.getByRole("tablist", {
+    name: "Secciones de privacidad",
+  });
+  const privacyTab = tablist.getByRole("tab", { name: "Privacidad" });
+  const docsTab = tablist.getByRole("tab", { name: "Documentos" });
+  const reviewTab = tablist.getByRole("tab", { name: "Revisión documental" });
+
+  await expect(privacyTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByText("Derechos ARCO y Privacidad de Datos"),
+  ).toBeVisible();
+
+  await docsTab.click();
+  await expect(docsTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("heading", { name: "Documentos de verificación" }),
+  ).toBeVisible();
+
+  await reviewTab.click();
+  await expect(reviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("heading", { name: "Revisión documental" }),
+  ).toBeVisible();
+
+  // Query param ?tab=documentos y ?tab=revision
+  await page.goto("/mi-cuenta/privacidad?tab=documentos");
+  await expect(page.getByRole("tab", { name: "Documentos" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.goto("/mi-cuenta/privacidad?tab=revision");
+  await expect(
+    page.getByRole("tab", { name: "Revisión documental" }),
+  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("6. /mi-cuenta/empresas: registro de empresa y sección Verificar empresa (KYB)", async ({
+  page,
+}) => {
+  let kybRecord: Record<string, unknown> | null = null;
+  let submittedCompanyName: string | null = null;
+
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: orgId,
+              legal_name: "Espacios Base SpA",
+              trade_name: "Espacios Base",
+              my_role: "representante_legal",
+              compliance_status: "grace_active",
+              grace_due_at: futureIso(40),
+            },
+          ],
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/host/organizations/${orgId}` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          organization: {
+            id: orgId,
+            legal_name: "Espacios Base SpA",
+            trade_name: "Espacios Base",
+            my_role: "representante_legal",
+          },
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/host/organizations/${orgId}/members` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          items: [
+            {
+              id: repMemberId,
+              usuario_id: accountId,
+              rol: "representante_legal",
+              estado: "activo",
+            },
+          ],
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/host/organizations/${orgId}/join-requests` &&
+      method === "GET"
+    ) {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/kyb/verifications" && method === "GET") {
+      return kybRecord ? { body: kybRecord } : { status: 404, body: {} };
+    }
+    if (pathname === "/api/backend/kyb/verifications" && method === "POST") {
+      submittedCompanyName = "Espacios Base SpA";
+      kybRecord = {
+        id: verificationId,
+        organization_id: orgId,
+        legal_name: "Espacios Base SpA",
+        company_rut: "76123456-0",
+        representative_name: "Representante Legal Sintético",
+        representative_rut: "12345678-5",
+        sii_giro_code: "620100",
+        status: "PENDING",
+        submitted_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        documents: [],
+      };
+      return { status: 201, body: kybRecord };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta/empresas");
+  const breadcrumb = page.getByRole("navigation", {
+    name: "Ruta de navegación",
+  });
+  await expect(
+    breadcrumb.getByRole("link", { name: "General" }),
+  ).toHaveAttribute("href", "/mi-cuenta");
+  await expect(breadcrumb.getByText("Perfil empresas")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Perfil empresas", level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Secciones de mi cuenta" })
+      .getByRole("link", { name: /^General/ }),
+  ).toHaveAttribute("aria-current", "page");
+
+  await expect(
+    page.getByRole("heading", { name: "Registrar empresa" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Verificar empresa" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Ir a Verificaciones de espacio" }),
+  ).toHaveAttribute("href", "/mi-cuenta/verificaciones/espacios");
+
+  // Razón social prellenada con legal_name en CompanyKYBCard
+  const legalNameInputs = page.getByLabel("Razón social");
+  await expect(legalNameInputs.last()).toHaveValue("Espacios Base SpA");
+
+  await page.getByLabel("RUT empresa").fill("76.123.456-0");
+  await page
+    .getByLabel("Representante legal")
+    .fill("Representante Legal Sintético");
+  await page.getByLabel("RUT representante").fill("12.345.678-5");
+  await page.getByLabel("Giro SII (6 dígitos)").fill("620100");
+  await page.getByLabel("e-RUT").setInputFiles(syntheticPdf);
+  await page
+    .getByLabel("Certificado de Inicio de Actividades del SII")
+    .setInputFiles(syntheticPdf);
+  await page.getByLabel("Vigencia de Poderes").setInputFiles(syntheticPdf);
+  await page.getByRole("button", { name: "Enviar verificación KYB" }).click();
+
+  expect(submittedCompanyName).toBe("Espacios Base SpA");
+  await expect(
+    page.getByText("Solicitud de verificación empresarial KYB enviada."),
+  ).toBeVisible();
+});
+
+test("7. /mi-cuenta/verificaciones -> Verificaciones de espacio con 0 espacios", async ({
+  page,
+}) => {
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/identity/profile" && method === "GET") {
+      return {
+        body: {
+          state: "verified",
+          complete: true,
+          username: "Anfitrión Sintético",
+        },
+      };
+    }
+    if (pathname === "/api/backend/reviewer/cases" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return { body: { items: [] } };
+    }
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: orgId,
+              legal_name: "Espacios Base SpA",
+              trade_name: "Espacios Base",
+              my_role: "representante_legal",
+              compliance_status: "grace_active",
+            },
+          ],
+        },
+      };
+    }
+    if (
+      pathname === "/api/backend/kyb/personal/compliance" &&
+      method === "GET"
+    ) {
+      return { status: 404, body: {} };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta/verificaciones");
+  await expect(
+    page.getByRole("heading", { name: "Verificaciones de espacio" }),
+  ).toBeVisible();
+  await expect(page.getByText("Verificaciones KYB")).toBeVisible();
+
+  await page
+    .getByRole("link", { name: "Ver verificaciones de espacio" })
+    .click();
+  await expect(page).toHaveURL(/\/mi-cuenta\/verificaciones\/espacios$/);
+
+  const breadcrumb = page.getByRole("navigation", {
+    name: "Ruta de navegación",
+  });
+  await expect(
+    breadcrumb.getByRole("link", { name: "General" }),
+  ).toHaveAttribute("href", "/mi-cuenta");
+  await expect(
+    breadcrumb.getByRole("link", { name: "Verificaciones" }),
+  ).toHaveAttribute("href", "/mi-cuenta/verificaciones");
+  await expect(breadcrumb.getByText("Verificaciones KYB")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Verificaciones de espacio", level: 1 }),
+  ).toBeVisible();
+
+  // Estado vacío sin formularios de empresa ni de espacio ni SII
+  await expect(
+    page.getByText("Aún no tienes espacios publicados"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Publicar un espacio" }),
+  ).toHaveAttribute("href", "/anfitrion/espacios/nuevo");
+  await expect(
+    page.getByRole("link", { name: "Ir a Perfil empresas" }),
+  ).toHaveAttribute("href", "/mi-cuenta/empresas");
+  await expect(page.getByText("Verificación empresarial (KYB)")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Enviar respaldo" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Enviar SII" })).toHaveCount(0);
+});
+
+test("8. /mi-cuenta/verificaciones/espacios con 2 espacios (1 Persona Natural + 1 Empresa)", async ({
+  page,
+}) => {
+  let personalSiiSubmitted = false;
+  let personalSpaceSubmitted = false;
+
+  await setupHostSession(page, (pathname, method) => {
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: spaceAId,
+              title: "Oficina Providencia Personal",
+              state: "activa",
+            },
+            {
+              id: spaceBId,
+              title: "Bodega Corporativa",
+              state: "borrador",
+              organization_id: orgId,
+            },
+          ],
+        },
+      };
+    }
+    if (pathname === "/api/backend/host/organizations" && method === "GET") {
+      return {
+        body: {
+          items: [
+            {
+              id: orgId,
+              legal_name: "Espacios Base SpA",
+              trade_name: "Espacios Base",
+              my_role: "representante_legal",
+              compliance_status: "grace_active",
+              grace_due_at: futureIso(42),
+            },
+          ],
+        },
+      };
+    }
+    if (
+      pathname === "/api/backend/kyb/personal/compliance" &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          owner_usuario_id: accountId,
+          compliance_status: "grace_active",
+          sii_status: personalSiiSubmitted ? "IN_REVIEW" : "PENDING",
+          ...(personalSiiSubmitted ? { sii_giro_code: "620100" } : {}),
+          grace_due_at: futureIso(45),
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceAId}/eligibility` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          can_publish: true,
+          can_book: true,
+          space_verified: false,
+          compliance_status: "grace_active",
+          verification_status: personalSpaceSubmitted ? "IN_REVIEW" : "PENDING",
+          grace_due_at: futureIso(45),
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceBId}/eligibility` &&
+      method === "GET"
+    ) {
+      return {
+        body: {
+          can_publish: true,
+          can_book: true,
+          space_verified: true,
+          compliance_status: "compliant",
+          verification_status: "APPROVED",
+        },
+      };
+    }
+    if (pathname === "/api/backend/kyb/verifications" && method === "GET") {
+      return { status: 404, body: {} };
+    }
+    if (pathname === "/api/backend/kyb/personal/sii" && method === "POST") {
+      personalSiiSubmitted = true;
+      return { status: 201, body: { id: "sii-1", status: "PENDING" } };
+    }
+    if (
+      pathname === `/api/backend/kyb/spaces/${spaceAId}/verification` &&
+      method === "POST"
+    ) {
+      personalSpaceSubmitted = true;
+      return { status: 201, body: { id: "doc-a-1", status: "PENDING" } };
+    }
+    return null;
+  });
+
+  await page.goto("/mi-cuenta/verificaciones/espacios");
+
+  const spaceCards = page.locator("[data-space-verification-card]");
+  await expect(spaceCards).toHaveCount(2);
+
+  // Tarjeta 1: Persona Natural
+  const personalCard = page.locator(
+    `[data-space-verification-card="${spaceAId}"]`,
+  );
+  await expect(personalCard).toContainText("Oficina Providencia Personal");
+  await expect(personalCard).toContainText("Publicada");
+  await expect(personalCard).toContainText("Persona Natural");
+  await expect(
+    personalCard.getByRole("heading", {
+      name: "Certificado de Inicio de Actividades del SII",
+    }),
+  ).toBeVisible();
+
+  await personalCard
+    .locator(`#space-doc-${spaceAId}`)
+    .setInputFiles(syntheticPdf);
+  await personalCard.getByRole("button", { name: "Enviar respaldo" }).click();
+  expect(personalSpaceSubmitted).toBe(true);
+  await expect(
+    page.getByText("Respaldo del espacio enviado para revisión."),
+  ).toBeVisible();
+
+  await personalCard.locator(`#sii-giro-${spaceAId}`).fill("620100");
+  await personalCard
+    .locator(`#sii-file-${spaceAId}`)
+    .setInputFiles(syntheticPdf);
+  await personalCard.getByRole("button", { name: "Enviar SII" }).click();
+  expect(personalSiiSubmitted).toBe(true);
+  await expect(
+    page.getByText("Certificado SII enviado para revisión."),
+  ).toBeVisible();
+
+  // Tarjeta 2: Empresa
+  const companyCard = page.locator(
+    `[data-space-verification-card="${spaceBId}"]`,
+  );
+  await expect(companyCard).toContainText("Bodega Corporativa");
+  await expect(companyCard).toContainText("Borrador");
+  await expect(companyCard).toContainText("Empresa: Espacios Base");
+  await expect(
+    companyCard.getByText("Espacio verificado", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    companyCard.getByRole("heading", {
+      name: "Verificación empresarial (KYB)",
+    }),
+  ).toBeVisible();
+  await expect(companyCard.getByLabel("Razón social")).toHaveValue(
+    "Espacios Base SpA",
+  );
+});
