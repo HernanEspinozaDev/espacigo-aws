@@ -160,3 +160,41 @@ func TestReleasePolicyMatchesDiscoveredMigrations(t *testing.T) {
 		t.Fatalf("registered expansion migrations should pass once the baseline is applied: %v", err)
 	}
 }
+
+func TestHotusoftReleasePreflightOnlyRequiresExistingObjects(t *testing.T) {
+	root := filepath.Join("..", "..", "db")
+	raw, err := os.ReadFile(filepath.Join(root, "release-policy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var policy releasePolicy
+	if err := json.Unmarshal(raw, &policy); err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := DiscoverMigrations(filepath.Join(root, "migrations"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pending []MigrationSummary
+	for _, migration := range migrations {
+		if migration.Version >= 21 && migration.Version <= 28 {
+			pending = append(pending, MigrationSummary{
+				Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum,
+			})
+		}
+	}
+	if len(pending) != 8 {
+		t.Fatalf("expected all eight release migrations, got %d", len(pending))
+	}
+	targets := pendingOwnerTargets(policy, pending)
+	// V25 creates solicitud_titular_evento as the schema owner. V27 alters it
+	// after V25 runs, so it is absent during the advance check from V20.
+	if _, premature := targets["public.solicitud_titular_evento"]; premature {
+		t.Fatal("the batch preflight requires a table created inside the pending batch")
+	}
+	for _, name := range []string{"public.contrato_propuesta_comercial", "public.version_terminos", "public.solicitud_titular"} {
+		if len(targets[name]) == 0 {
+			t.Errorf("lost the ownership check for %s", name)
+		}
+	}
+}

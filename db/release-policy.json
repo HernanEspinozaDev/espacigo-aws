@@ -181,10 +181,7 @@
     },
     "V000027__privacy_rights_execution_and_restrictions.sql": {
       "checksum": "571771857a57fe9886fd8441646867dbb15890456acb4dd851e9fbecba8e8142",
-      "strategy": "expand",
-      "requires_schema_owner": [
-        "public.solicitud_titular_evento"
-      ]
+      "strategy": "expand"
     },
     "V000028__privacy_incidents_and_legal_holds.sql": {
       "checksum": "d21142c19be3e0cf0f32169cd5f7b384f18130c4151a65cc216138080569be59",
