@@ -353,10 +353,20 @@ for (const viewport of [
       .toBeGreaterThan(300);
 
     await page.goto("/explorar/mapa?q=Sala&min_capacity=4");
-    await page.getByRole("button", { name: "Configurar", exact: true }).click();
+    const configure = page.getByRole("button", {
+      name: "Configurar",
+      exact: true,
+    });
+    await configure.focus();
+    await configure.press("Enter");
     const preferences = page.getByRole("dialog", {
       name: "Preferencias de cookies",
     });
+    await expect(preferences).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(preferences).toBeHidden();
+    await expect(configure).toBeFocused();
+    await configure.press("Enter");
     await preferences
       .getByRole("checkbox", {
         name: /Recordar espacios visitados/,
