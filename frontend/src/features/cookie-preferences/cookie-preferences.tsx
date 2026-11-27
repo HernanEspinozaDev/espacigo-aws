@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   createContext,
   useContext,
@@ -39,79 +40,39 @@ export function CookiePreferencesProvider({
     getCookiePreferences,
     getServerPreference,
   );
-  const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const viewingPolicy =
+    pathname === "/politica-de-privacidad" ||
+    pathname === "/terminos-y-condiciones";
+  const awaitingChoice = choice === null && !viewingPolicy;
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [visitedSpaces, setVisitedSpaces] = useState(false);
-
   const opener = useRef<HTMLButtonElement | null>(null);
 
   function openPreferences(trigger: HTMLButtonElement) {
     opener.current = trigger;
     setVisitedSpaces(choice === "visited-spaces");
-    setOpen(true);
+    setSettingsOpen(true);
   }
 
   function save(allowVisitedSpaces: boolean) {
     saveCookiePreferences(allowVisitedSpaces);
-    setOpen(false);
+    setSettingsOpen(false);
   }
 
   return (
     <OpenPreferences.Provider value={openPreferences}>
-      {choice === null && (
-        <aside
-          aria-label="Aviso de privacidad y cookies"
-          className="border-b border-border bg-[var(--brand-surface-subtle)] text-foreground"
-        >
-          <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-            <h2 className="text-base font-semibold">Privacidad y cookies</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              El sitio usa almacenamiento necesario para funcionar. Si lo
-              permites, recordaremos en esta pestaña los espacios que visitas.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <Link
-                className="underline underline-offset-2"
-                href="/politica-de-privacidad"
-              >
-                Política de privacidad
-              </Link>
-              <Link
-                className="underline underline-offset-2"
-                href="/terminos-y-condiciones"
-              >
-                Términos y condiciones
-              </Link>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => save(true)}
-              >
-                Aceptar opcionales
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => save(false)}
-              >
-                Rechazar opcionales
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={(event) => openPreferences(event.currentTarget)}
-              >
-                Configurar
-              </Button>
-            </div>
-          </div>
-        </aside>
-      )}
       {children}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={awaitingChoice || settingsOpen}
+        onOpenChange={(open) => {
+          if (!awaitingChoice) setSettingsOpen(open);
+        }}
+        disablePointerDismissal={awaitingChoice}
+      >
         <DialogContent
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+          showCloseButton={!awaitingChoice}
+          className="top-auto right-4 bottom-4 left-auto max-h-[calc(100dvh-2rem)] translate-x-0 translate-y-0 overflow-y-auto"
           finalFocus={() =>
             opener.current?.isConnected
               ? opener.current
@@ -119,20 +80,33 @@ export function CookiePreferencesProvider({
           }
         >
           <DialogHeader>
-            <DialogTitle>Preferencias de cookies</DialogTitle>
+            <DialogTitle>
+              {awaitingChoice
+                ? "Privacidad y cookies"
+                : "Preferencias de cookies"}
+            </DialogTitle>
             <DialogDescription>
-              Esta elección se aplica en este navegador. Puedes cambiarla cuando
-              quieras.
+              El sitio usa almacenamiento necesario para funcionar. Tú decides
+              si esta pestaña puede recordar los espacios que visitas.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div>
-              <p className="font-medium">Necesarias · siempre activas</p>
-              <p className="text-muted-foreground">
-                Mantienen la sesión, la seguridad y la continuidad de una
-                gestión.
-              </p>
-            </div>
+            {awaitingChoice && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                <Link
+                  className="underline underline-offset-2"
+                  href="/politica-de-privacidad"
+                >
+                  Política de privacidad
+                </Link>
+                <Link
+                  className="underline underline-offset-2"
+                  href="/terminos-y-condiciones"
+                >
+                  Términos y condiciones
+                </Link>
+              </div>
+            )}
             <label className="flex items-start gap-3">
               <input
                 className="mt-1 size-4 accent-primary"
@@ -145,8 +119,7 @@ export function CookiePreferencesProvider({
                   Recordar espacios visitados
                 </span>
                 <span className="text-muted-foreground">
-                  EspaciGo guarda esta lista en la pestaña mientras está
-                  abierta. Puedes borrarla desactivando la opción.
+                  Puedes cambiar esta elección desde el pie de página.
                 </span>
               </span>
             </label>
@@ -156,7 +129,7 @@ export function CookiePreferencesProvider({
               Rechazar opcionales
             </Button>
             <Button type="button" onClick={() => save(visitedSpaces)}>
-              Guardar preferencias
+              {visitedSpaces ? "Aceptar opcionales" : "Guardar preferencias"}
             </Button>
           </DialogFooter>
         </DialogContent>

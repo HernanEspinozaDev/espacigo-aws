@@ -166,6 +166,7 @@ func TestPrivacyExecutionEndpointsAuthAndMethods(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/v1/privacy/preferences"},
 		{http.MethodGet, "/api/v1/privacy/legal-acceptances"},
+		{http.MethodPut, "/api/v1/privacy/legal-acceptances"},
 		{http.MethodPut, "/api/v1/privacy/preferences"},
 		{http.MethodGet, "/api/v1/privacy/restrictions"},
 		{http.MethodGet, "/api/v1/privacy/portability"},
@@ -191,7 +192,7 @@ func TestPrivacyExecutionEndpointsAuthAndMethods(t *testing.T) {
 		wantAllow string
 	}{
 		{"/api/v1/privacy/preferences", "GET, PUT"},
-		{"/api/v1/privacy/legal-acceptances", "GET"},
+		{"/api/v1/privacy/legal-acceptances", "GET, PUT"},
 		{"/api/v1/privacy/restrictions", "GET"},
 		{"/api/v1/privacy/portability", "GET"},
 	} {

@@ -4,7 +4,7 @@ import { PrivacyHubView } from "@/features/account/ui/privacy-hub-view";
 export const metadata: Metadata = {
   title: "Privacidad de Datos | Mi Cuenta | EspaciGo",
   description:
-    "Gestión de derechos ARCO, exportación de datos, documentos privados y revisión documental.",
+    "Solicitudes de privacidad, exportación de datos, preferencias y documentos legales.",
   robots: {
     index: false,
     follow: false,

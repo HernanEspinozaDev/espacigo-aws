@@ -1,39 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
+import { Tabs } from "radix-ui";
 import { useAuth } from "@/features/auth/ui/use-auth";
-import { DocumentReviewView } from "@/features/document-review/ui/document-review-view";
-import { DocumentVerificationView } from "@/features/document-verification/ui/document-verification-view";
-import { cn } from "@/lib/utils";
 import { LegalAcceptancesCard } from "./legal-acceptances-card";
-import { PrivacyCard } from "./privacy-card";
+import { PrivacyCard, type PrivacySection } from "./privacy-card";
 import { useAccount } from "./use-account";
 
-export type PrivacyTab = "privacidad" | "documentos" | "revision";
-
-const TABS: ReadonlyArray<{ id: PrivacyTab; label: string }> = [
-  { id: "privacidad", label: "Privacidad" },
-  { id: "documentos", label: "Documentos" },
-  { id: "revision", label: "Revisión documental" },
-];
-
-export function resolvePrivacyTab(raw?: string | null): PrivacyTab {
-  if (raw === "documentos") return "documentos";
-  if (raw === "revision") return "revision";
-  return "privacidad";
-}
+const sections: ReadonlyArray<{ id: PrivacySection | "legal"; label: string }> =
+  [
+    { id: "privacidad", label: "Solicitudes de privacidad" },
+    { id: "exportacion", label: "Exportación de datos personales" },
+    { id: "preferencias", label: "Preferencias de finalidad" },
+    { id: "bloqueos", label: "Bloqueos temporales" },
+    { id: "legal", label: "Tus documentos legales" },
+  ];
 
 export function PrivacyHubView({ initialTab }: { initialTab?: string }) {
-  const resolvedInitial = resolvePrivacyTab(initialTab);
-  return (
-    <PrivacyHubContent key={resolvedInitial} initialTab={resolvedInitial} />
-  );
-}
-
-function PrivacyHubContent({ initialTab }: { initialTab: PrivacyTab }) {
-  const [activeTab, setActiveTab] = useState<PrivacyTab>(initialTab);
+  const firstTab = sections.some((section) => section.id === initialTab)
+    ? initialTab
+    : "privacidad";
   const { snapshot: authSnapshot } = useAuth();
   const { loadOverview } = useAccount();
 
@@ -61,62 +49,40 @@ function PrivacyHubContent({ initialTab }: { initialTab: PrivacyTab }) {
         </span>
       </nav>
 
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Privacidad
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Gestiona tus derechos ARCO, expedientes documentales privados y
-          revisiones asignadas.
-        </p>
-      </div>
+      <h2 className="text-2xl font-bold tracking-tight">Privacidad</h2>
 
-      <div
-        role="tablist"
-        aria-label="Secciones de privacidad"
-        className="flex flex-wrap gap-2 border-b border-border pb-3"
+      <Tabs.Root
+        defaultValue={firstTab}
+        orientation="horizontal"
+        className="min-w-0 space-y-4"
       >
-        {TABS.map((tab) => {
-          const selected = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={`privacy-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              aria-controls={`privacy-panel-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "inline-flex min-h-10 items-center rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                selected
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted/60 text-foreground/80 hover:bg-muted hover:text-foreground",
-              )}
+        <Tabs.List
+          aria-label="Secciones de privacidad"
+          className="flex min-w-0 gap-1 overflow-x-auto border-b border-border"
+        >
+          {sections.map((section) => (
+            <Tabs.Trigger
+              key={section.id}
+              value={section.id}
+              className="min-h-11 shrink-0 whitespace-nowrap border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-[state=active]:border-primary data-[state=active]:bg-muted/60 data-[state=active]:text-primary"
             >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        id={`privacy-panel-${activeTab}`}
-        role="tabpanel"
-        aria-labelledby={`privacy-tab-${activeTab}`}
-      >
-        {activeTab === "privacidad" ? (
-          <div className="space-y-6">
-            <PrivacyCard />
-            {authSnapshot.status === "authenticated" &&
+              {section.label}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+        {sections.map((section) => (
+          <Tabs.Content key={section.id} value={section.id} className="min-w-0">
+            {section.id === "legal" ? (
+              authSnapshot.status === "authenticated" &&
               authSnapshot.accountId && (
                 <LegalAcceptancesCard accountId={authSnapshot.accountId} />
-              )}
-          </div>
-        ) : null}
-        {activeTab === "documentos" ? <DocumentVerificationView /> : null}
-        {activeTab === "revision" ? <DocumentReviewView /> : null}
-      </div>
+              )
+            ) : (
+              <PrivacyCard section={section.id} />
+            )}
+          </Tabs.Content>
+        ))}
+      </Tabs.Root>
     </div>
   );
 }
