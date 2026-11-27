@@ -108,6 +108,67 @@ ALTER TABLE public.media_variant_intent DROP CONSTRAINT IF EXISTS media_variant_
 ALTER TABLE public.media_variant_intent ADD CONSTRAINT media_variant_intent_provider_check CHECK (provider IN ('s3', 'gcs', 'filesystem'));
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo_runtime;
+
+-- Broad bootstrap grants above are retained for unrelated local services.
+-- Restore the narrower, migration-defined KYB/compliance privileges afterward.
+DO $restore_kyb_acl$
+BEGIN
+    IF pg_catalog.to_regclass('public.kyb_verifications') IS NOT NULL THEN
+        REVOKE ALL ON TABLE public.organizacion, public.kyb_verifications,
+            public.kyb_verification_document, public.kyb_rut_claim,
+            public.kyb_verification_event FROM espacigo_runtime;
+        GRANT SELECT, INSERT, UPDATE (created_at) ON public.organizacion TO espacigo_runtime;
+        GRANT SELECT ON public.kyb_verifications, public.kyb_verification_document TO espacigo_runtime;
+        GRANT INSERT (id, organization_id, submitted_by, idempotency_key, legal_name,
+            company_rut_fingerprint, company_rut_key_version, company_rut_ciphertext,
+            representative_name, representative_rut_fingerprint, representative_rut_key_version,
+            representative_rut_ciphertext, sii_giro_code, status, submitted_at, created_at, updated_at)
+            ON public.kyb_verifications TO espacigo_runtime;
+        GRANT UPDATE (status, rejection_reason, reviewer_id, reviewed_at, updated_at)
+            ON public.kyb_verifications TO espacigo_runtime;
+        GRANT INSERT (id, verification_id, document_kind, storage_ref, mime_type, size_bytes, content_sha256)
+            ON public.kyb_verification_document TO espacigo_runtime;
+        GRANT INSERT (rut_kind, fingerprint, verification_id, organization_id),
+            SELECT (verification_id), UPDATE (active) ON public.kyb_rut_claim TO espacigo_runtime;
+        GRANT SELECT, INSERT ON public.kyb_verification_event TO espacigo_runtime;
+        REVOKE ALL ON SEQUENCE public.kyb_verification_event_id_seq FROM espacigo_runtime;
+        GRANT USAGE ON SEQUENCE public.kyb_verification_event_id_seq TO espacigo_runtime;
+        REVOKE EXECUTE ON FUNCTION public.kyb_verification_event_immutable() FROM espacigo_runtime;
+    END IF;
+
+    IF pg_catalog.to_regclass('public.organizacion_miembro') IS NOT NULL THEN
+        GRANT UPDATE (updated_at, trade_name, public_summary, logo_media_id, commune_code,
+            region_code, sii_giro_code, grace_started_at, grace_due_at, compliance_status,
+            disabled_at, disabled_reason, disabled_by, last_reminder_stage)
+            ON public.organizacion TO espacigo_runtime;
+        REVOKE ALL ON TABLE public.organizacion_rut_fingerprint, public.organizacion_miembro,
+            public.organizacion_invitacion, public.anfitrion_cumplimiento_personal,
+            public.anfitrion_cumplimiento_documento, public.space_kyb_verification,
+            public.host_compliance_event FROM espacigo_runtime;
+        GRANT SELECT, INSERT ON public.organizacion_rut_fingerprint TO espacigo_runtime;
+        GRANT SELECT, INSERT, UPDATE ON public.organizacion_miembro, public.organizacion_invitacion TO espacigo_runtime;
+        GRANT SELECT, INSERT, UPDATE ON public.anfitrion_cumplimiento_personal,
+            public.anfitrion_cumplimiento_documento, public.space_kyb_verification TO espacigo_runtime;
+        GRANT SELECT, INSERT ON public.host_compliance_event TO espacigo_runtime;
+        REVOKE ALL ON SEQUENCE public.host_compliance_event_id_seq FROM espacigo_runtime;
+        GRANT USAGE ON SEQUENCE public.host_compliance_event_id_seq TO espacigo_runtime;
+        REVOKE EXECUTE ON FUNCTION public.organizacion_miembro_requires_legal_rep(),
+            public.kyb_bind_company_rut(), public.kyb_submission_requires_active_member(),
+            public.kyb_start_space_grace(), public.space_kyb_owner_guard(),
+            public.host_compliance_event_immutable() FROM espacigo_runtime;
+        GRANT EXECUTE ON FUNCTION public.kyb_space_eligibility(uuid,timestamptz),
+            public.kyb_expire_noncompliant_profiles(timestamptz) TO espacigo_runtime;
+    END IF;
+    IF pg_catalog.to_regclass('public.espacio_solicitud_documental') IS NOT NULL THEN
+        REVOKE ALL ON TABLE public.espacio_solicitud_documental FROM espacigo_runtime;
+        GRANT SELECT ON TABLE public.espacio_solicitud_documental TO espacigo_runtime;
+    END IF;
+    IF pg_catalog.to_regclass('public.kyb_compliance_notice_outbox') IS NOT NULL THEN
+        REVOKE ALL ON TABLE public.kyb_compliance_notice_outbox FROM espacigo_runtime;
+        GRANT SELECT, INSERT, UPDATE ON TABLE public.kyb_compliance_notice_outbox TO espacigo_runtime;
+    END IF;
+END
+$restore_kyb_acl$;
 EOF
   fi
 
@@ -325,6 +386,7 @@ cmd_api() {
   export FRONTEND_PUBLIC_ORIGIN="${FRONTEND_PUBLIC_ORIGIN:-http://127.0.0.1:3000}"
   export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}"
   export LOCAL_AUTH_PROTOTYPE="1"
+  export KYB_LOCAL_TERMS_V2="1"
   case "${COMMERCIAL_RENTAL_FLOW_ENABLED:-0}" in
     1)
       export COMMERCIAL_RENTAL_FLOW_ENABLED="1"
@@ -349,6 +411,7 @@ cmd_api() {
   export DOCUMENT_VERIFICATION_STORAGE_BACKEND="s3"
   export DOCUMENT_VERIFICATION_IDENTITY_S3_BUCKET="espacigo-kyc-identity-local"
   export DOCUMENT_VERIFICATION_SPACE_S3_BUCKET="espacigo-kyc-space-local"
+  export KYB_DOCUMENTS_S3_BUCKET="espacigo-kyb-documents-local"
   export LOCAL_PRIVACY_REPLAY_BACKEND="s3"
   export LOCAL_PRIVACY_REPLAY_BUCKET="espacigo-privacy-replay-local"
 
@@ -359,6 +422,9 @@ cmd_api() {
   export LOCAL_PAYMENT_WEBHOOK_SECRET_FILE="${REPO_ROOT}/.local/secrets/local_payment_webhook_secret"
   export IDENTITY_DECLARATION_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json"
   export IDENTITY_RUT_HMAC_KEYRING_FILE="${REPO_ROOT}/.local/secrets/identity-rut-hmac-keyring.json"
+  export KYB_DOCUMENT_KEYRING_FILE="${REPO_ROOT}/.local/secrets/kyb-document-keyring.json"
+  export KYB_RUT_ENCRYPTION_KEYRING_FILE="${REPO_ROOT}/.local/secrets/kyb-rut-encryption-keyring.json"
+  export KYB_RUT_HMAC_KEYRING_FILE="${REPO_ROOT}/.local/secrets/kyb-rut-hmac-keyring.json"
   export CONTRACT_PROPOSAL_KEYRING_FILE="${CONTRACT_PROPOSAL_KEYRING_FILE:-${REPO_ROOT}/.local/secrets/identity-declaration-keyring.json}"
 
   (
