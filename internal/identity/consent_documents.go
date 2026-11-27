@@ -31,7 +31,7 @@ type ConsentDocument struct {
 func PublicConsentDocuments() ([]ConsentDocument, error) {
 	names := []string{"terms", "privacy"}
 	if os.Getenv("APP_PROFILE") == "production" {
-		names = []string{"production_terms", "production_privacy"}
+		names = []string{"production_terms_v3", "production_privacy_v2"}
 	} else if os.Getenv("KYB_LOCAL_TERMS_V2") == "1" {
 		names[0] = "evaluation_terms_v2"
 	}

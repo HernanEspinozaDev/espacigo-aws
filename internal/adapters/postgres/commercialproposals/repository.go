@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	"github.com/HernanEspinozaDev/espaciGo/internal/commercialproposal"
@@ -73,6 +75,7 @@ AND rate.version=q.tarifa_version AND rate.modalidad=q.modalidad AND rate.precio
 	if _, _, err = contracttemplate.CanonicalSections(terms.Sections); err != nil {
 		return terms, commercialproposal.ErrTemplateRequired
 	}
+	terms.Sections = append(terms.Sections, marketplacePaymentSection(terms.Sections))
 	terms.StartAt = terms.StartAt.UTC()
 	terms.EndAt = terms.EndAt.UTC()
 	if (policyVersion == nil) != (policyText == nil) {
@@ -85,6 +88,22 @@ AND rate.version=q.tarifa_version AND rate.modalidad=q.modalidad AND rate.precio
 	}
 	return terms, nil
 }
+
+func marketplacePaymentSection(ownerSections []contracttemplate.Section) contracttemplate.Section {
+	const baseKey = "reparto_pago_hotusoft"
+	key := baseKey
+	for suffix := 1; slices.ContainsFunc(ownerSections, func(section contracttemplate.Section) bool {
+		return section.Key == key
+	}); suffix++ {
+		key = baseKey + "_" + strconv.Itoa(suffix)
+	}
+	return contracttemplate.Section{
+		Key:   key,
+		Title: "Reparto del pago y devoluciones",
+		Body:  "Mercado Pago procesa y distribuye el pago de este arriendo. El arrendador recibe en su cuenta vinculada el importe neto que le corresponde y administra su saldo. HOTU SOFTWARE SOLUTIONS SPA recibe la comisión de intermediación en la cuenta del marketplace. Hotusoft gestiona los comprobantes de la operación y tramita las solicitudes de devolución en contacto@hotusoft.com.",
+	}
+}
+
 func (r *Repository) CurrentTerms(ctx context.Context, actor string, quote rentalflow.Quote, policy commercialproposal.CancellationPolicy) (commercialproposal.Terms, error) {
 	return currentTerms(ctx, r.pool, actor, quote, policy)
 }

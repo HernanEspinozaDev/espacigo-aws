@@ -43,22 +43,20 @@ func TestConsentDocumentsMatchAdditivePublishedVersions(t *testing.T) {
 	if err != nil || len(prodDocs) != 2 {
 		t.Fatal("read production consent documents")
 	}
-	prodTermsVersion, err := os.ReadFile("../../db/migrations/V000019__production_terms_v2_commercial_documentation.sql")
+	prodTermsVersion, err := os.ReadFile("../../db/migrations/V000021__hotusoft_legal_documents.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
 	termsDoc, privacyDoc := prodDocs[0], prodDocs[1]
-	if termsDoc.ID != "00000000-0000-4000-8000-000000000104" ||
-		termsDoc.Code != "espacigo-terminos-20261126-v2" ||
-		termsDoc.Type != "terminos" ||
-		len(termsDoc.Sections) < 5 ||
-		termsDoc.Status == "" ||
-		!strings.Contains(string(prodTermsVersion), termsDoc.ID) ||
-		!strings.Contains(string(prodTermsVersion), termsDoc.Code) ||
-		!strings.Contains(string(prodTermsVersion), termsDoc.SHA256) {
-		t.Fatal("production terms v2 publication/content integrity mismatch")
+	if termsDoc.Type != "terminos" || privacyDoc.Type != "privacidad" {
+		t.Fatal("production consent document types in the wrong order")
 	}
-	if !strings.Contains(string(migration), privacyDoc.ID) || !strings.Contains(string(migration), privacyDoc.SHA256) || len(privacyDoc.Sections) < 5 || privacyDoc.Status == "" {
-		t.Fatal("production privacy document publication/content integrity mismatch")
+	for _, document := range prodDocs {
+		if len(document.Sections) < 5 || document.Status == "" ||
+			!strings.Contains(string(prodTermsVersion), document.ID) ||
+			!strings.Contains(string(prodTermsVersion), document.Code) ||
+			!strings.Contains(string(prodTermsVersion), document.SHA256) {
+			t.Fatalf("production publication/content integrity mismatch for %s", document.Code)
+		}
 	}
 }
