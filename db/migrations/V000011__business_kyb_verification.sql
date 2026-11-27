@@ -1,10 +1,15 @@
 -- KYB-01: owner-scoped business identity, encrypted RUTs and private document refs.
 DO $guard$
 BEGIN
-    IF session_user <> 'espacigo_migrator_login'
-       OR current_user <> 'espacigo_schema_owner'
-       OR current_schema() <> 'public'
-       OR NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE') THEN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+        WHERE rolname = session_user AND rolsuper
+    ) AND (
+        session_user <> 'espacigo_migrator_login'
+        OR current_user <> 'espacigo_schema_owner'
+        OR current_schema() <> 'public'
+        OR NOT pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')
+    ) THEN
         RAISE EXCEPTION 'V000011 requires the pinned migrator/schema-owner identity and public CREATE';
     END IF;
 END
