@@ -286,7 +286,13 @@ Resources:
       GroupDescription: NAT instance for private ECS outbound SMTP/HTTPS
       VpcId: !Ref MainVPC
       SecurityGroupIngress:
-        - IpProtocol: '-1'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 587
+          ToPort: 587
           SourceSecurityGroupId: !Ref EcsTaskSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: '-1'
