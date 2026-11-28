@@ -2,6 +2,24 @@ import type { NextConfig } from "next";
 
 const stablePreviewDistDir = process.env.ESPACIGO_NEXT_DIST_DIR;
 
+// Observe violations in browser developer tools while validating production flows.
+// Next.js uses inline scripts for hydration and inline styles for UI components.
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline' https://sdk.mercadopago.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.amazonaws.com https://*.mercadopago.com",
+  "worker-src 'self' blob:",
+  "frame-src 'self' blob: https://*.mercadopago.com",
+  "media-src 'self' blob:",
+].join("; ");
+
 if (
   stablePreviewDistDir !== undefined &&
   !/^\.next-preview-[A-Za-z0-9-]+$/.test(stablePreviewDistDir)
@@ -43,6 +61,14 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(self), microphone=(), geolocation=(self)",
           },
+          ...(process.env.NODE_ENV === "production"
+            ? [
+                {
+                  key: "Content-Security-Policy-Report-Only",
+                  value: contentSecurityPolicy,
+                },
+              ]
+            : []),
         ],
       },
     ];
