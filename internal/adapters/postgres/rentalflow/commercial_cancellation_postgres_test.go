@@ -94,8 +94,8 @@ func setupCancellationTestDB(t *testing.T) (*pgxpool.Pool, *Repository) {
 		t.Fatal(err)
 	}
 	for _, migrationPath := range []string{
-		"../../../../db/migrations/V000002__reservas_comerciales_postventa.sql",
-		"../../../../db/migrations/V000006__conciliacion_financiera_mercado_pago.sql",
+		"../../../../db/legacy-migrations/v29/V000002__reservas_comerciales_postventa.sql",
+		"../../../../db/legacy-migrations/v29/V000006__conciliacion_financiera_mercado_pago.sql",
 	} {
 		sqlBytes, err := os.ReadFile(migrationPath)
 		if err != nil {

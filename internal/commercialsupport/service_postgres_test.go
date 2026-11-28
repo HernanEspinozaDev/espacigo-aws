@@ -117,7 +117,7 @@ CREATE TABLE public.notificacion_usuario(
 		t.Fatal(err)
 	}
 	_, source, _, _ := runtime.Caller(0)
-	migration := filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "db", "migrations", "V000005__disputas_reclamos_comerciales.sql"))
+	migration := filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "db", "legacy-migrations", "v29", "V000005__disputas_reclamos_comerciales.sql"))
 	sql, err := os.ReadFile(migration)
 	if err != nil {
 		t.Fatal(err)

@@ -1,3 +1,4 @@
+-- Esquema consolidado de las migraciones V1 a V29 y sus catálogos de referencia.
 --
 -- PostgreSQL database dump
 --
@@ -9,6 +10,7 @@
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -27,6 +29,28 @@ SET row_security = off;
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: -
 --
 
+
+
+--
+-- Name: account_profile_identity_status(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.account_profile_identity_status(subject uuid, as_of timestamp with time zone) RETURNS TABLE(complete boolean, verified boolean)
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog'
+    AS $$
+    SELECT p.account_id IS NOT NULL,
+           COALESCE(v.state = 'verified' AND v.verified_at <= as_of AND v.verified_until > as_of, false)
+    FROM public.usuario AS u
+    LEFT JOIN public.account_identity_profile AS p ON p.account_id = u.id
+    LEFT JOIN LATERAL (
+        SELECT a.state,a.verified_at,a.verified_until
+        FROM public.account_identity_verification AS a
+        WHERE a.account_id = u.id AND a.profile_revision = p.current_revision
+        ORDER BY a.started_at DESC,a.id DESC LIMIT 1
+    ) AS v ON true
+    WHERE u.id = subject AND u.estado = 'activo';
+$$;
 
 
 --
@@ -473,11 +497,11 @@ CREATE TABLE public.identity_provider_attempt (
     CONSTRAINT identity_provider_attempt_check CHECK ((((encrypted_decision IS NULL) AND (decision_key_version IS NULL) AND (decision_algorithm IS NULL)) OR ((encrypted_decision IS NOT NULL) AND (decision_key_version IS NOT NULL) AND (decision_algorithm IS NOT NULL) AND ((decision_algorithm)::text = 'AES-256-GCM/v1'::text) AND ((decision_key_version)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'::text) AND ((octet_length(encrypted_decision) >= 29) AND (octet_length(encrypted_decision) <= 65564))))),
     CONSTRAINT identity_provider_attempt_check1 CHECK ((retention_at > created_at)),
     CONSTRAINT identity_provider_attempt_check2 CHECK ((updated_at >= created_at)),
-    CONSTRAINT identity_provider_attempt_detached_approved_ck CHECK (((declaration_id IS NOT NULL) OR (((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'REJECTED'::character varying, 'EXPIRED'::character varying])::text[])) AND (decision_key_version IS NULL) AND (decision_algorithm IS NULL) AND (encrypted_decision IS NULL)))),
-    CONSTRAINT identity_provider_attempt_environment_check CHECK (((environment)::text = ANY ((ARRAY['SANDBOX'::character varying, 'LIVE'::character varying])::text[]))),
+    CONSTRAINT identity_provider_attempt_detached_approved_ck CHECK (((declaration_id IS NOT NULL) OR (((status)::text = ANY (ARRAY[('APPROVED'::character varying)::text, ('REJECTED'::character varying)::text, ('EXPIRED'::character varying)::text])) AND (decision_key_version IS NULL) AND (decision_algorithm IS NULL) AND (encrypted_decision IS NULL)))),
+    CONSTRAINT identity_provider_attempt_environment_check CHECK (((environment)::text = ANY (ARRAY[('SANDBOX'::character varying)::text, ('LIVE'::character varying)::text]))),
     CONSTRAINT identity_provider_attempt_provider_check CHECK (((provider)::text = 'didit'::text)),
     CONSTRAINT identity_provider_attempt_provider_session_id_check CHECK (((provider_session_id IS NULL) OR (length(btrim((provider_session_id)::text)) > 0))),
-    CONSTRAINT identity_provider_attempt_status_check CHECK (((status)::text = ANY ((ARRAY['CREATED'::character varying, 'PENDING_USER_INPUT'::character varying, 'PROCESSING'::character varying, 'APPROVED'::character varying, 'IN_REVIEW'::character varying, 'REJECTED'::character varying, 'EXPIRED'::character varying, 'FAILED'::character varying])::text[]))),
+    CONSTRAINT identity_provider_attempt_status_check CHECK (((status)::text = ANY (ARRAY[('CREATED'::character varying)::text, ('PENDING_USER_INPUT'::character varying)::text, ('PROCESSING'::character varying)::text, ('APPROVED'::character varying)::text, ('IN_REVIEW'::character varying)::text, ('REJECTED'::character varying)::text, ('EXPIRED'::character varying)::text, ('FAILED'::character varying)::text]))),
     CONSTRAINT identity_provider_attempt_workflow_id_check CHECK (((length((workflow_id)::text) >= 1) AND (length((workflow_id)::text) <= 128))),
     CONSTRAINT identity_provider_attempt_workflow_version_check CHECK (((length((workflow_version)::text) >= 1) AND (length((workflow_version)::text) <= 64)))
 );
@@ -1459,35 +1483,57 @@ CREATE FUNCTION public.guard_checkout_commercial_contract_binding() RETURNS trig
     LANGUAGE plpgsql
     SET search_path TO 'pg_catalog', 'public'
     AS $$
-DECLARE a public.contrato_solicitud_comercial%ROWTYPE; n integer;
+DECLARE a public.contrato_solicitud_comercial%ROWTYPE; p public.contrato_propuesta_comercial%ROWTYPE; n integer;
 BEGIN
- IF TG_OP='UPDATE' THEN
-  IF ROW(NEW.solicitud_comercial_id,NEW.contrato_version,NEW.contrato_sha256)
-   IS DISTINCT FROM ROW(OLD.solicitud_comercial_id,OLD.contrato_version,OLD.contrato_sha256)
-   OR (OLD.solicitud_comercial_id IS NOT NULL AND ROW(NEW.id,NEW.cotizacion_id,NEW.espacio_id,NEW.host_id,NEW.arrendatario_id,NEW.base_clp,NEW.vence_en,NEW.checkout_method,NEW.test_mode,NEW.fingerprint,NEW.idempotency_key,NEW.creada_en) IS DISTINCT FROM ROW(OLD.id,OLD.cotizacion_id,OLD.espacio_id,OLD.host_id,OLD.arrendatario_id,OLD.base_clp,OLD.vence_en,OLD.checkout_method,OLD.test_mode,OLD.fingerprint,OLD.idempotency_key,OLD.creada_en)) THEN
-   RAISE EXCEPTION 'checkout commercial evidence is immutable' USING ERRCODE='23514';
-  END IF;
-  RETURN NEW;
- END IF;
- IF NEW.solicitud_comercial_id IS NULL THEN RETURN NEW; END IF;
- SELECT * INTO a FROM public.contrato_solicitud_comercial WHERE id=NEW.solicitud_comercial_id;
- IF NOT FOUND OR a.estado<>'ready_for_payment' OR a.cotizacion_id<>NEW.cotizacion_id
-  OR a.espacio_id<>NEW.espacio_id OR a.propietario_id<>NEW.host_id OR a.arrendatario_id<>NEW.arrendatario_id
-  OR a.propuesta_version<>NEW.contrato_version OR a.documento_sha256<>NEW.contrato_sha256
-  OR a.pago_vence_en<>NEW.vence_en OR a.pago_vence_en<=NEW.creada_en THEN
-  RAISE EXCEPTION 'checkout agreement binding mismatch' USING ERRCODE='23514';
- END IF;
- SELECT count(*) INTO n FROM public.contrato_firma_comercial f WHERE f.solicitud_id=a.id
-  AND f.documento_sha256=a.documento_sha256 AND f.propuesta_version=a.propuesta_version
-  AND f.consentimiento_version='commercial-agreement-v1' AND f.firmada_en<=NEW.creada_en
-  AND ((f.rol='arrendador' AND f.actor_id=a.propietario_id) OR (f.rol='arrendatario' AND f.actor_id=a.arrendatario_id));
- IF n<>2 OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.id=a.ocupacion_id
-  AND o.solicitud_comercial_id=a.id AND o.espacio_id=a.espacio_id AND o.activo
-  AND o.tipo='retencion_contrato_comercial' AND o.expira_en=a.pago_vence_en AND o.expira_en>NEW.creada_en) THEN
-  RAISE EXCEPTION 'checkout requires bilateral signature and live hold' USING ERRCODE='23514';
- END IF;
- RETURN NEW;
-END $$;
+    IF TG_OP='UPDATE' THEN
+        IF ROW(NEW.solicitud_comercial_id,NEW.contrato_version,NEW.contrato_sha256)
+           IS DISTINCT FROM ROW(OLD.solicitud_comercial_id,OLD.contrato_version,OLD.contrato_sha256)
+           OR (OLD.solicitud_comercial_id IS NOT NULL AND ROW(NEW.id,NEW.cotizacion_id,NEW.espacio_id,NEW.host_id,
+               NEW.arrendatario_id,NEW.base_clp,NEW.vence_en,NEW.checkout_method,NEW.test_mode,NEW.fingerprint,
+               NEW.idempotency_key,NEW.creada_en)
+              IS DISTINCT FROM ROW(OLD.id,OLD.cotizacion_id,OLD.espacio_id,OLD.host_id,OLD.arrendatario_id,
+               OLD.base_clp,OLD.vence_en,OLD.checkout_method,OLD.test_mode,OLD.fingerprint,OLD.idempotency_key,OLD.creada_en)) THEN
+            RAISE EXCEPTION 'checkout commercial evidence is immutable' USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF NEW.solicitud_comercial_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+    SELECT * INTO a FROM public.contrato_solicitud_comercial WHERE id=NEW.solicitud_comercial_id;
+    IF NOT FOUND OR a.estado <> 'ready_for_payment' OR a.cotizacion_id <> NEW.cotizacion_id
+       OR a.espacio_id <> NEW.espacio_id OR a.propietario_id <> NEW.host_id OR a.arrendatario_id <> NEW.arrendatario_id
+       OR a.propuesta_version <> NEW.contrato_version OR a.documento_sha256 <> NEW.contrato_sha256
+       OR a.pago_vence_en <> NEW.vence_en OR a.pago_vence_en <= NEW.creada_en THEN
+        RAISE EXCEPTION 'checkout agreement binding mismatch' USING ERRCODE='23514';
+    END IF;
+    SELECT * INTO p FROM public.contrato_propuesta_comercial WHERE id=a.propuesta_id;
+    IF NOT FOUND OR ROW(p.es_b2b,p.organizacion_id,p.empresa_razon_social_snapshot,p.empresa_rut_masked_snapshot,
+                        p.empresa_rut_verificada,p.representante_legal_id,p.representante_nombre_snapshot,
+                        p.representante_rut_masked_snapshot,p.representante_rut_verificada)
+       IS DISTINCT FROM ROW(a.es_b2b,a.organizacion_id,a.empresa_razon_social_snapshot,a.empresa_rut_masked_snapshot,
+                            a.empresa_rut_verificada,a.representante_legal_id,a.representante_nombre_snapshot,
+                            a.representante_rut_masked_snapshot,a.representante_rut_verificada) THEN
+        RAISE EXCEPTION 'checkout company contract snapshot mismatch' USING ERRCODE='23514';
+    END IF;
+    SELECT count(*) INTO n FROM public.contrato_firma_comercial f WHERE f.solicitud_id=a.id
+      AND f.documento_sha256=a.documento_sha256 AND f.propuesta_version=a.propuesta_version
+      AND f.consentimiento_version='commercial-agreement-v1' AND f.firmada_en <= NEW.creada_en
+      AND (
+          (f.rol='arrendador' AND (
+              (a.es_b2b AND f.actor_id=a.representante_legal_id)
+              OR (NOT a.es_b2b AND f.actor_id=a.propietario_id)
+          ))
+          OR (f.rol='arrendatario' AND f.actor_id=a.arrendatario_id)
+      );
+    IF n<>2 OR NOT EXISTS(SELECT 1 FROM public.ocupacion o WHERE o.id=a.ocupacion_id
+        AND o.solicitud_comercial_id=a.id AND o.espacio_id=a.espacio_id AND o.activo
+        AND o.tipo='retencion_contrato_comercial' AND o.expira_en=a.pago_vence_en AND o.expira_en>NEW.creada_en) THEN
+        RAISE EXCEPTION 'checkout requires bilateral signature and live hold' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
 
 
 --
@@ -1500,28 +1546,45 @@ CREATE FUNCTION public.guard_commercial_agreement() RETURNS trigger
     AS $$
 DECLARE p public.contrato_propuesta_comercial%ROWTYPE;
 BEGIN
- IF TG_OP='INSERT' THEN
-  SELECT * INTO p FROM public.contrato_propuesta_comercial WHERE id=NEW.propuesta_id;
-  IF NOT FOUND OR ROW(NEW.cotizacion_id,NEW.espacio_id,NEW.propietario_id,NEW.arrendatario_id,NEW.propuesta_version,NEW.documento_sha256)
-    IS DISTINCT FROM ROW(p.cotizacion_id,p.espacio_id,p.propietario_id,p.arrendatario_id,p.version,p.documento_sha256) THEN
-    RAISE EXCEPTION 'agreement proposal binding mismatch' USING ERRCODE='23514';
-  END IF;
-  IF NEW.estado<>'pending_landlord' OR NEW.revision<>1 OR NEW.vence_en>p.inicio THEN
-   RAISE EXCEPTION 'invalid initial agreement state' USING ERRCODE='23514';
-  END IF;
- ELSE
-  IF ROW(NEW.id,NEW.propuesta_id,NEW.cotizacion_id,NEW.espacio_id,NEW.propietario_id,NEW.arrendatario_id,NEW.propuesta_version,NEW.documento_sha256,NEW.idempotency_key,NEW.fingerprint,NEW.vence_en,NEW.creada_en)
-   IS DISTINCT FROM ROW(OLD.id,OLD.propuesta_id,OLD.cotizacion_id,OLD.espacio_id,OLD.propietario_id,OLD.arrendatario_id,OLD.propuesta_version,OLD.documento_sha256,OLD.idempotency_key,OLD.fingerprint,OLD.vence_en,OLD.creada_en) THEN
-   RAISE EXCEPTION 'signed agreement source is immutable' USING ERRCODE='23514';
-  END IF;
-  IF NEW.revision<>OLD.revision+1 OR NEW.actualizada_en<OLD.actualizada_en OR NOT (
-   (OLD.estado='pending_landlord' AND NEW.estado IN ('ready_for_payment','rejected','withdrawn','expired')) OR
-   (OLD.estado='ready_for_payment' AND NEW.estado IN ('withdrawn','expired'))) THEN
-   RAISE EXCEPTION 'invalid agreement transition' USING ERRCODE='23514';
-  END IF;
- END IF;
- RETURN NEW;
-END $$;
+    IF TG_OP = 'INSERT' THEN
+        SELECT * INTO p FROM public.contrato_propuesta_comercial WHERE id=NEW.propuesta_id;
+        IF NOT FOUND
+           OR ROW(NEW.cotizacion_id,NEW.espacio_id,NEW.propietario_id,NEW.arrendatario_id,NEW.propuesta_version,NEW.documento_sha256)
+              IS DISTINCT FROM ROW(p.cotizacion_id,p.espacio_id,p.propietario_id,p.arrendatario_id,p.version,p.documento_sha256)
+           OR ROW(NEW.es_b2b,NEW.organizacion_id,NEW.empresa_razon_social_snapshot,NEW.empresa_rut_masked_snapshot,
+                  NEW.empresa_rut_verificada,NEW.representante_legal_id,NEW.representante_nombre_snapshot,
+                  NEW.representante_rut_masked_snapshot,NEW.representante_rut_verificada)
+              IS DISTINCT FROM ROW(p.es_b2b,p.organizacion_id,p.empresa_razon_social_snapshot,p.empresa_rut_masked_snapshot,
+                                   p.empresa_rut_verificada,p.representante_legal_id,p.representante_nombre_snapshot,
+                                   p.representante_rut_masked_snapshot,p.representante_rut_verificada) THEN
+            RAISE EXCEPTION 'agreement proposal binding mismatch' USING ERRCODE='23514';
+        END IF;
+        IF NEW.estado <> 'pending_landlord' OR NEW.revision <> 1 OR NEW.vence_en > p.inicio THEN
+            RAISE EXCEPTION 'invalid initial agreement state' USING ERRCODE='23514';
+        END IF;
+    ELSE
+        IF ROW(NEW.id,NEW.propuesta_id,NEW.cotizacion_id,NEW.espacio_id,NEW.propietario_id,NEW.arrendatario_id,
+               NEW.propuesta_version,NEW.documento_sha256,NEW.idempotency_key,NEW.fingerprint,NEW.vence_en,NEW.creada_en,
+               NEW.es_b2b,NEW.organizacion_id,NEW.empresa_razon_social_snapshot,NEW.empresa_rut_masked_snapshot,
+               NEW.empresa_rut_verificada,NEW.representante_legal_id,NEW.representante_nombre_snapshot,
+               NEW.representante_rut_masked_snapshot,NEW.representante_rut_verificada)
+           IS DISTINCT FROM ROW(OLD.id,OLD.propuesta_id,OLD.cotizacion_id,OLD.espacio_id,OLD.propietario_id,OLD.arrendatario_id,
+               OLD.propuesta_version,OLD.documento_sha256,OLD.idempotency_key,OLD.fingerprint,OLD.vence_en,OLD.creada_en,
+               OLD.es_b2b,OLD.organizacion_id,OLD.empresa_razon_social_snapshot,OLD.empresa_rut_masked_snapshot,
+               OLD.empresa_rut_verificada,OLD.representante_legal_id,OLD.representante_nombre_snapshot,
+               OLD.representante_rut_masked_snapshot,OLD.representante_rut_verificada) THEN
+            RAISE EXCEPTION 'signed agreement source is immutable' USING ERRCODE='23514';
+        END IF;
+        IF NEW.revision <> OLD.revision+1 OR NEW.actualizada_en < OLD.actualizada_en OR NOT (
+            (OLD.estado='pending_landlord' AND NEW.estado IN ('ready_for_payment','rejected','withdrawn','expired')) OR
+            (OLD.estado='ready_for_payment' AND NEW.estado IN ('withdrawn','expired'))
+        ) THEN
+            RAISE EXCEPTION 'invalid agreement transition' USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
 
 
 --
@@ -1605,14 +1668,31 @@ CREATE FUNCTION public.guard_commercial_signature() RETURNS trigger
     AS $$
 DECLARE a public.contrato_solicitud_comercial%ROWTYPE;
 BEGIN
- IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'commercial evidence is immutable' USING ERRCODE='23514'; END IF;
- SELECT * INTO a FROM public.contrato_solicitud_comercial WHERE id=NEW.solicitud_id;
- IF NOT FOUND OR NEW.documento_sha256<>a.documento_sha256 OR NEW.propuesta_version<>a.propuesta_version OR
-  (NEW.rol='arrendatario' AND NEW.actor_id<>a.arrendatario_id) OR (NEW.rol='arrendador' AND NEW.actor_id<>a.propietario_id) THEN
-  RAISE EXCEPTION 'commercial signature binding mismatch' USING ERRCODE='23514';
- END IF;
- RETURN NEW;
-END $$;
+    IF TG_OP <> 'INSERT' THEN
+        RAISE EXCEPTION 'commercial evidence is immutable' USING ERRCODE='23514';
+    END IF;
+    SELECT * INTO a FROM public.contrato_solicitud_comercial WHERE id=NEW.solicitud_id;
+    IF NOT FOUND OR NEW.documento_sha256 <> a.documento_sha256 OR NEW.propuesta_version <> a.propuesta_version
+       OR (NEW.rol='arrendatario' AND NEW.actor_id <> a.arrendatario_id)
+       OR (NEW.rol='arrendador' AND NOT (
+            (NOT a.es_b2b AND NEW.actor_id=a.propietario_id)
+            OR (a.es_b2b AND NEW.actor_id=a.representante_legal_id
+                AND EXISTS (
+                    SELECT 1
+                    FROM public.organizacion_miembro m
+                    JOIN public.usuario u ON u.id=m.usuario_id AND u.estado='activo'
+                    JOIN public.espacio e ON e.id=a.espacio_id AND e.es_b2b AND e.organizacion_id=a.organizacion_id AND e.propietario_id=a.propietario_id
+                    CROSS JOIN LATERAL public.account_profile_identity_status(m.usuario_id,NEW.firmada_en) identity_status
+                    WHERE m.organizacion_id=a.organizacion_id AND m.usuario_id=NEW.actor_id
+                      AND m.rol='representante_legal' AND m.estado='activo' AND identity_status.verified
+                      AND NOT EXISTS (SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=m.usuario_id)
+                )
+       ))) THEN
+        RAISE EXCEPTION 'commercial signature binding mismatch' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
 
 
 --
@@ -1705,6 +1785,18 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
+$$;
+
+
+--
+-- Name: host_compliance_event_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.host_compliance_event_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+BEGIN RAISE EXCEPTION 'host compliance events are append-only' USING ERRCODE = '23514'; END;
 $$;
 
 
@@ -1921,6 +2013,618 @@ $$;
 
 
 --
+-- Name: kyb_bind_company_rut(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_bind_company_rut() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+DECLARE claim_count bigint; owned_by uuid;
+BEGIN
+    PERFORM 1 FROM public.organizacion WHERE id = NEW.organization_id FOR UPDATE;
+    SELECT organizacion_id INTO owned_by FROM public.organizacion_rut_fingerprint
+      WHERE fingerprint=NEW.company_rut_fingerprint;
+    IF owned_by IS NOT NULL AND owned_by <> NEW.organization_id THEN
+        RAISE EXCEPTION 'company RUT fingerprint is reserved by another organization' USING ERRCODE = '23505';
+    END IF;
+    SELECT count(*) INTO claim_count FROM public.organizacion_rut_fingerprint
+      WHERE organizacion_id=NEW.organization_id;
+    IF owned_by IS NULL THEN
+        IF claim_count > 0 THEN
+            RAISE EXCEPTION 'company RUT fingerprint is not one of this organization keyring candidates' USING ERRCODE = '23505';
+        END IF;
+        INSERT INTO public.organizacion_rut_fingerprint(organizacion_id, fingerprint)
+          VALUES(NEW.organization_id, NEW.company_rut_fingerprint);
+    END IF;
+    UPDATE public.organizacion SET company_rut_fingerprint = COALESCE(company_rut_fingerprint, NEW.company_rut_fingerprint),
+      legal_name = COALESCE(legal_name, NEW.legal_name), updated_at = clock_timestamp()
+      WHERE id = NEW.organization_id;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_enqueue_due_reminders(timestamp with time zone, integer); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_enqueue_due_reminders(p_at timestamp with time zone DEFAULT clock_timestamp(), p_limit integer DEFAULT 100) RETURNS integer
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    profile record;
+    recipient record;
+    message text;
+    rows_enqueued integer := 0;
+BEGIN
+    IF p_at IS NULL OR p_limit < 1 OR p_limit > 500 THEN
+        RAISE EXCEPTION 'invalid KYB reminder batch arguments' USING ERRCODE = '22023';
+    END IF;
+
+    FOR profile IN
+        SELECT p.usuario_id AS profile_id,p.grace_started_at,p.grace_due_at,p.compliance_status,n.reminder_stage,n.available_at
+        FROM public.anfitrion_cumplimiento_personal p
+        CROSS JOIN LATERAL public.kyb_next_reminder(p.grace_started_at,p.grace_due_at,p.last_reminder_stage,p_at) n
+        WHERE (p.compliance_status IN ('grace_active','in_review')
+               OR (p.compliance_status='disabled_missing_docs' AND p.disabled_reason='Plazo de gracia vencido sin documentación aprobada' AND p.last_reminder_stage IS DISTINCT FROM 'due'))
+          AND EXISTS (SELECT 1 FROM public.usuario u WHERE u.id=p.usuario_id AND u.estado='activo')
+          AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(p.usuario_id,p_at) k WHERE k.verified)
+          AND NOT EXISTS (SELECT 1 FROM public.anfitrion_cumplimiento_documento d
+              WHERE d.usuario_id=p.usuario_id AND d.status IN ('PENDING','IN_REVIEW') AND d.submitted_at<=p.grace_due_at)
+        ORDER BY n.available_at,p.usuario_id
+        LIMIT p_limit FOR UPDATE OF p SKIP LOCKED
+    LOOP
+        message := CASE profile.reminder_stage
+            WHEN 'day0' THEN 'Comenzó tu plazo documental de dos meses. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '. Adjunta tu certificado de Inicio de Actividades SII en EspaciGo.'
+            WHEN 'month1' THEN 'Tu plazo documental continúa vigente. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '. Revisa tu expediente SII en EspaciGo.'
+            WHEN 'day15' THEN 'Quedan 15 días para completar la documentación SII. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '.'
+            WHEN 'day7' THEN 'Quedan 7 días para completar la documentación SII. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '.'
+            WHEN 'day1' THEN 'Tu plazo documental vence mañana. Completa la documentación SII para evitar la inhabilitación para publicar y administrar espacios.'
+            WHEN 'reactivated' THEN 'Tu perfil comercial volvió a estar habilitado. Ya puedes administrar y publicar tus espacios en EspaciGo.'
+            ELSE CASE WHEN profile.compliance_status='disabled_missing_docs' THEN 'El plazo documental venció y tu perfil quedó inhabilitado para publicar y administrar espacios. Regulariza el certificado SII en EspaciGo.' ELSE 'Hoy vence tu plazo documental de dos meses. Regulariza el certificado SII en EspaciGo para mantener habilitado tu perfil comercial.' END
+        END;
+        INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+        VALUES(gen_random_uuid(),profile.profile_id,'kyb_grace_'||profile.reminder_stage,'Documentación comercial pendiente',message,'/anfitrion/kyb',profile.profile_id,p_at)
+        ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING;
+        INSERT INTO public.kyb_compliance_notice_outbox(profile_type,profile_id,recipient_id,reminder_stage,available_at,created_at)
+        VALUES('personal',profile.profile_id,profile.profile_id,profile.reminder_stage,p_at,p_at)
+        ON CONFLICT(profile_type,profile_id,recipient_id,reminder_stage) WHERE reminder_stage<>'reactivated' DO NOTHING;
+        INSERT INTO public.host_compliance_event(usuario_id,event_type,reminder_stage,occurred_at)
+        VALUES(profile.profile_id,'reminder_sent',profile.reminder_stage,p_at);
+        UPDATE public.anfitrion_cumplimiento_personal SET last_reminder_stage=profile.reminder_stage,updated_at=p_at
+        WHERE usuario_id=profile.profile_id;
+        rows_enqueued := rows_enqueued + 1;
+    END LOOP;
+
+    FOR profile IN
+        SELECT o.id AS profile_id,o.grace_started_at,o.grace_due_at,o.compliance_status,n.reminder_stage,n.available_at
+        FROM public.organizacion o
+        CROSS JOIN LATERAL public.kyb_next_reminder(o.grace_started_at,o.grace_due_at,o.last_reminder_stage,p_at) n
+        WHERE (o.compliance_status IN ('grace_active','in_review')
+               OR (o.compliance_status='disabled_missing_docs' AND o.disabled_reason='Plazo de gracia vencido sin documentación aprobada' AND o.last_reminder_stage IS DISTINCT FROM 'due'))
+          AND EXISTS (SELECT 1 FROM public.organizacion_miembro m JOIN public.usuario u ON u.id=m.usuario_id
+              WHERE m.organizacion_id=o.id AND m.estado='activo' AND m.rol IN ('representante_legal','administrador') AND u.estado='activo'
+                AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(m.usuario_id,p_at) k WHERE k.verified))
+          AND NOT EXISTS (SELECT 1 FROM public.kyb_verifications v
+              WHERE v.organization_id=o.id AND v.status IN ('PENDING','IN_REVIEW') AND v.submitted_at<=o.grace_due_at
+                AND (SELECT count(DISTINCT d.document_kind) FROM public.kyb_verification_document d
+                     WHERE d.verification_id=v.id AND d.document_kind IN ('erut','sii_start_activities','power_certificate'))=3)
+        ORDER BY n.available_at,o.id
+        LIMIT p_limit FOR UPDATE OF o SKIP LOCKED
+    LOOP
+        message := CASE profile.reminder_stage
+            WHEN 'day0' THEN 'Comenzó el plazo documental de dos meses de tu empresa. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '. Completa SII y KYB en EspaciGo.'
+            WHEN 'month1' THEN 'El plazo documental de tu empresa continúa vigente. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '. Revisa el expediente SII y KYB en EspaciGo.'
+            WHEN 'day15' THEN 'Quedan 15 días para completar el expediente SII y KYB de tu empresa. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '.'
+            WHEN 'day7' THEN 'Quedan 7 días para completar el expediente SII y KYB de tu empresa. Fecha límite: ' || to_char(profile.grace_due_at AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '.'
+            WHEN 'day1' THEN 'El plazo documental de tu empresa vence mañana. Completa e-RUT, SII y poderes para evitar la inhabilitación comercial.'
+            WHEN 'reactivated' THEN 'El perfil comercial de tu empresa volvió a estar habilitado para administrar y publicar espacios en EspaciGo.'
+            ELSE CASE WHEN profile.compliance_status='disabled_missing_docs' THEN 'El plazo documental venció y el perfil comercial de tu empresa quedó inhabilitado. Regulariza SII y KYB en EspaciGo.' ELSE 'Hoy vence el plazo documental de dos meses de tu empresa. Regulariza SII y KYB en EspaciGo para mantener habilitado el perfil comercial.' END
+        END;
+        FOR recipient IN
+            SELECT m.usuario_id FROM public.organizacion_miembro m JOIN public.usuario u ON u.id=m.usuario_id
+            WHERE m.organizacion_id=profile.profile_id AND m.estado='activo' AND u.estado='activo' AND m.rol IN ('representante_legal','administrador')
+              AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(m.usuario_id,p_at) k WHERE k.verified)
+            ORDER BY m.usuario_id
+        LOOP
+            INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+            VALUES(gen_random_uuid(),recipient.usuario_id,'kyb_grace_'||profile.reminder_stage,'Documentación comercial pendiente',message,'/anfitrion/kyb',profile.profile_id,p_at)
+            ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING;
+            INSERT INTO public.kyb_compliance_notice_outbox(profile_type,profile_id,recipient_id,reminder_stage,available_at,created_at)
+            VALUES('organization',profile.profile_id,recipient.usuario_id,profile.reminder_stage,p_at,p_at)
+            ON CONFLICT(profile_type,profile_id,recipient_id,reminder_stage) WHERE reminder_stage<>'reactivated' DO NOTHING;
+        END LOOP;
+        INSERT INTO public.host_compliance_event(organizacion_id,event_type,reminder_stage,occurred_at)
+        VALUES(profile.profile_id,'reminder_sent',profile.reminder_stage,p_at);
+        UPDATE public.organizacion SET last_reminder_stage=profile.reminder_stage,updated_at=p_at
+        WHERE id=profile.profile_id;
+        rows_enqueued := rows_enqueued + 1;
+    END LOOP;
+    RETURN rows_enqueued;
+END;
+$$;
+
+
+--
+-- Name: kyb_expire_noncompliant_profiles(timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_expire_noncompliant_profiles(p_at timestamp with time zone DEFAULT clock_timestamp()) RETURNS TABLE(usuario_id uuid, organizacion_id uuid)
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+BEGIN
+    RETURN QUERY
+      WITH expired_org AS (
+        UPDATE public.organizacion o SET compliance_status='disabled_missing_docs', disabled_at=p_at,
+          disabled_reason='Plazo de gracia vencido sin documentación aprobada', updated_at=p_at
+        WHERE o.compliance_status IN ('grace_active','in_review') AND o.grace_due_at <= p_at
+          AND NOT EXISTS (SELECT 1 FROM public.kyb_verifications v WHERE v.organization_id=o.id AND v.status IN ('PENDING','IN_REVIEW')
+              AND v.submitted_at <= o.grace_due_at
+              AND (SELECT count(*) FROM public.kyb_verification_document d WHERE d.verification_id=v.id
+                   AND d.document_kind IN ('erut','sii_start_activities','power_certificate'))=3)
+        RETURNING o.id
+      ), org_events AS (
+        INSERT INTO public.host_compliance_event AS event(organizacion_id,event_type,reason,occurred_at)
+        SELECT id,'disabled_auto','Plazo de gracia vencido sin documentación aprobada',p_at FROM expired_org
+        RETURNING event.organizacion_id
+      ), expired_person AS (
+        UPDATE public.anfitrion_cumplimiento_personal p SET compliance_status='disabled_missing_docs', disabled_at=p_at,
+          disabled_reason='Plazo de gracia vencido sin documentación aprobada', updated_at=p_at
+        WHERE p.compliance_status IN ('grace_active','in_review') AND p.grace_due_at <= p_at
+          AND NOT EXISTS (SELECT 1 FROM public.anfitrion_cumplimiento_documento d WHERE d.usuario_id=p.usuario_id AND d.status IN ('PENDING','IN_REVIEW')
+                AND d.submitted_at <= p.grace_due_at)
+        RETURNING p.usuario_id
+      ), person_events AS (
+        INSERT INTO public.host_compliance_event AS event(usuario_id,event_type,reason,occurred_at)
+        SELECT person.usuario_id,'disabled_auto','Plazo de gracia vencido sin documentación aprobada',p_at FROM expired_person person
+        RETURNING event.usuario_id
+      ) SELECT NULL::uuid, id FROM expired_org UNION ALL SELECT person.usuario_id, NULL::uuid FROM expired_person person;
+END;
+$$;
+
+
+--
+-- Name: kyb_next_reminder(timestamp with time zone, timestamp with time zone, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_next_reminder(p_started_at timestamp with time zone, p_due_at timestamp with time zone, p_last_stage text, p_at timestamp with time zone) RETURNS TABLE(reminder_stage text, available_at timestamp with time zone)
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+    SELECT candidate.stage,candidate.when_at
+    FROM (
+        VALUES
+            ('day0'::text,0,p_started_at),
+            ('month1'::text,1,(((p_started_at AT TIME ZONE 'America/Santiago') + interval '1 month') AT TIME ZONE 'America/Santiago')),
+            ('day15'::text,2,(((p_due_at AT TIME ZONE 'America/Santiago') - interval '15 days') AT TIME ZONE 'America/Santiago')),
+            ('day7'::text,3,(((p_due_at AT TIME ZONE 'America/Santiago') - interval '7 days') AT TIME ZONE 'America/Santiago')),
+            ('day1'::text,4,(((p_due_at AT TIME ZONE 'America/Santiago') - interval '1 day') AT TIME ZONE 'America/Santiago')),
+            ('due'::text,5,p_due_at)
+    ) AS candidate(stage,ordinal,when_at)
+    WHERE candidate.ordinal > CASE
+        WHEN p_last_stage IS NULL THEN -1
+        WHEN p_last_stage='day0' THEN 0
+        WHEN p_last_stage='month1' THEN 1
+        WHEN p_last_stage='day15' THEN 2
+        WHEN p_last_stage='day7' THEN 3
+        WHEN p_last_stage='day1' THEN 4
+        WHEN p_last_stage='due' THEN 5
+        ELSE 5 END
+      AND candidate.when_at<=p_at AND p_started_at IS NOT NULL AND p_due_at IS NOT NULL
+    ORDER BY candidate.ordinal DESC LIMIT 1
+$$;
+
+
+--
+-- Name: kyb_organization_reactivation_notice(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_organization_reactivation_notice() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    member record;
+    transition_id uuid := gen_random_uuid();
+    at_time timestamptz := clock_timestamp();
+BEGIN
+    FOR member IN
+        SELECT m.usuario_id FROM public.organizacion_miembro m JOIN public.usuario u ON u.id=m.usuario_id
+        WHERE m.organizacion_id=NEW.id AND m.estado='activo' AND u.estado='activo'
+          AND m.rol IN ('representante_legal','administrador')
+          AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(m.usuario_id,at_time) k WHERE k.verified)
+        ORDER BY m.usuario_id
+    LOOP
+        INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+        VALUES(gen_random_uuid(),member.usuario_id,'kyb_reactivated_'||transition_id::text,'Perfil comercial habilitado',
+            'El perfil comercial de tu empresa volvió a estar habilitado para administrar y publicar espacios en EspaciGo.',
+            '/anfitrion/kyb',NEW.id,at_time)
+        ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING;
+        INSERT INTO public.kyb_compliance_notice_outbox(profile_type,profile_id,recipient_id,reminder_stage,source_transition_id,available_at,created_at)
+        VALUES('organization',NEW.id,member.usuario_id,'reactivated',transition_id,at_time,at_time)
+        ON CONFLICT(profile_type,profile_id,recipient_id,source_transition_id) WHERE reminder_stage='reactivated' DO NOTHING;
+    END LOOP;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_personal_reactivation_notice(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_personal_reactivation_notice() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    transition_id uuid := gen_random_uuid();
+    at_time timestamptz := clock_timestamp();
+BEGIN
+    INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+    VALUES(gen_random_uuid(),NEW.usuario_id,'kyb_reactivated_'||transition_id::text,'Perfil comercial habilitado',
+        'Tu perfil comercial volvió a estar habilitado. Ya puedes administrar y publicar tus espacios en EspaciGo.',
+        '/anfitrion/kyb',NEW.usuario_id,at_time)
+    ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING;
+    INSERT INTO public.kyb_compliance_notice_outbox(profile_type,profile_id,recipient_id,reminder_stage,source_transition_id,available_at,created_at)
+    VALUES('personal',NEW.usuario_id,NEW.usuario_id,'reactivated',transition_id,at_time,at_time)
+    ON CONFLICT(profile_type,profile_id,recipient_id,source_transition_id) WHERE reminder_stage='reactivated' DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_record_publication_document_request(uuid, uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_record_publication_document_request(p_space uuid, p_actor uuid) RETURNS void
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+    INSERT INTO public.espacio_solicitud_documental(
+        espacio_id, actor_usuario_id, titular_usuario_id, organizacion_id,
+        solicitado_en, vence_en, version_politica, documentos_titular, documento_espacio
+    )
+    SELECT e.id, h.actor_id,
+           CASE WHEN e.organizacion_id IS NULL THEN e.propietario_id END,
+           e.organizacion_id, h.ocurrida_en,
+           COALESCE(o.grace_due_at, p.grace_due_at), 'documentacion-comercial-v1',
+           CASE WHEN e.organizacion_id IS NULL THEN ARRAY['sii_start_activities']
+                ELSE ARRAY['erut','sii_start_activities','power_certificate'] END,
+           'property_or_sublease_authorization'
+    FROM public.espacio e
+    JOIN LATERAL (
+        SELECT actor_id, ocurrida_en
+        FROM public.espacio_publicacion_historial_local
+        WHERE espacio_id=e.id AND estado_nuevo='activa' AND actor_id=p_actor
+        ORDER BY ocurrida_en DESC, id DESC LIMIT 1
+    ) h ON true
+    LEFT JOIN public.organizacion o ON o.id=e.organizacion_id
+    LEFT JOIN public.anfitrion_cumplimiento_personal p ON p.usuario_id=e.propietario_id
+    WHERE e.id=p_space AND e.estado='activa'
+    ON CONFLICT (espacio_id) DO NOTHING
+$$;
+
+
+--
+-- Name: kyb_space_compliance_detail(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_space_compliance_detail(p_espacio_id uuid, p_at timestamp with time zone DEFAULT clock_timestamp()) RETURNS TABLE(space_state text, host_status text, grace_due_at timestamp with time zone, property_approved boolean, property_submitted_in_time boolean, titular_approved boolean, holder_submitted_in_time boolean, category_sii_required boolean, category_sii_approved boolean, category_sii_submitted_in_time boolean, categoria_codigo text)
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+    WITH holder AS (
+        SELECT e.id, e.estado, e.propietario_id, e.organizacion_id, e.modo_anfitrion, e.categoria_codigo,
+               e.kyb_grace_due_at, p.sii_status,
+               CASE WHEN e.modo_anfitrion='empresa' THEN o.grace_due_at ELSE p.grace_due_at END AS holder_due_at,
+               CASE WHEN e.modo_anfitrion='empresa' THEN COALESCE(o.compliance_status,'disabled_missing_docs')
+                    ELSE COALESCE(p.compliance_status,'grace_active') END AS recorded_status
+        FROM public.espacio e
+        LEFT JOIN public.organizacion o ON o.id=e.organizacion_id
+        LEFT JOIN public.anfitrion_cumplimiento_personal p ON e.organizacion_id IS NULL AND p.usuario_id=e.propietario_id
+        WHERE e.id=p_espacio_id
+    ), holder_state AS (
+        SELECT h.*,
+               CASE WHEN h.modo_anfitrion='empresa' THEN EXISTS (
+                   SELECT 1 FROM public.kyb_verifications v
+                   WHERE v.organization_id=h.organizacion_id AND v.status IN ('PENDING','IN_REVIEW')
+                     AND v.submitted_at<=LEAST(h.holder_due_at, p_at)
+                     AND (SELECT count(*) FROM public.kyb_verification_document d
+                          WHERE d.verification_id=v.id
+                            AND d.document_kind IN ('erut','sii_start_activities','power_certificate'))=3
+               ) ELSE EXISTS (
+                   SELECT 1 FROM public.anfitrion_cumplimiento_documento d
+                   WHERE d.usuario_id=h.propietario_id AND d.status IN ('PENDING','IN_REVIEW')
+                     AND d.submitted_at<=LEAST(h.holder_due_at, p_at)
+               ) END AS holder_submitted_in_time
+        FROM holder h
+    ), evaluated AS (
+        SELECT hs.*,
+               CASE
+                   WHEN hs.recorded_status IN ('grace_active','in_review') AND hs.holder_due_at<=p_at
+                        AND NOT hs.holder_submitted_in_time THEN 'disabled_missing_docs'
+                   ELSE hs.recorded_status
+               END AS effective_host_status,
+               EXISTS (
+                   SELECT 1 FROM public.space_kyb_verification sv
+                   WHERE sv.espacio_id=hs.id AND sv.document_kind='property_or_sublease_authorization'
+                     AND sv.status='APPROVED' AND sv.reviewed_at<=p_at
+               ) AS property_approved,
+               (
+                   hs.modo_anfitrion='empresa' AND hs.organizacion_id IS NOT NULL
+                   AND EXISTS (
+                       SELECT 1 FROM public.space_kyb_verification sv
+                       JOIN public.espacio other_e ON other_e.id=sv.espacio_id
+                       WHERE sv.organizacion_id=hs.organizacion_id
+                         AND sv.document_kind='property_or_sublease_authorization'
+                         AND sv.status='APPROVED' AND sv.reviewed_at<=p_at
+                         AND other_e.categoria_codigo <> hs.categoria_codigo
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM public.space_kyb_verification sv
+                       JOIN public.espacio same_e ON same_e.id=sv.espacio_id
+                       WHERE sv.organizacion_id=hs.organizacion_id
+                         AND sv.document_kind='property_or_sublease_authorization'
+                         AND sv.status='APPROVED' AND sv.reviewed_at<=p_at
+                         AND same_e.categoria_codigo = hs.categoria_codigo
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM public.space_kyb_verification sv
+                       WHERE sv.organizacion_id=hs.organizacion_id
+                         AND sv.document_kind='sii_start_activities'
+                         AND sv.categoria_codigo=hs.categoria_codigo
+                         AND sv.status='APPROVED' AND sv.reviewed_at<=p_at
+                   )
+               ) AS category_sii_required,
+               EXISTS (
+                   SELECT 1 FROM public.space_kyb_verification sv
+                   WHERE sv.organizacion_id=hs.organizacion_id
+                     AND sv.document_kind='sii_start_activities'
+                     AND sv.categoria_codigo=hs.categoria_codigo
+                     AND sv.status='APPROVED' AND sv.reviewed_at<=p_at
+               ) AS category_sii_doc_approved
+        FROM holder_state hs
+    ), deadlines AS (
+        SELECT ev.*,
+               CASE
+                   WHEN ev.effective_host_status='compliant' THEN
+                       CASE
+                           WHEN ev.estado='borrador' THEN ev.kyb_grace_due_at
+                           ELSE COALESCE(ev.kyb_grace_due_at, ev.holder_due_at)
+                       END
+                   ELSE ev.holder_due_at
+               END AS effective_due_at
+        FROM evaluated ev
+    )
+    SELECT d.estado,
+           d.effective_host_status,
+           d.effective_due_at,
+           d.property_approved,
+           EXISTS (
+               SELECT 1 FROM public.space_kyb_verification sv
+               WHERE sv.espacio_id=d.id AND sv.document_kind='property_or_sublease_authorization'
+                 AND sv.status IN ('PENDING','IN_REVIEW') AND sv.submitted_at<=LEAST(d.effective_due_at, p_at)
+           ),
+           CASE WHEN d.modo_anfitrion='empresa' THEN EXISTS (
+               SELECT 1
+               FROM (
+                   SELECT v.submitted_by
+                   FROM public.kyb_verifications v
+                   WHERE v.organization_id=d.organizacion_id AND v.status='APPROVED' AND v.reviewed_at<=p_at
+                     AND (SELECT count(*) FROM public.kyb_verification_document d2
+                          WHERE d2.verification_id=v.id
+                            AND d2.document_kind IN ('erut','sii_start_activities','power_certificate'))=3
+                   ORDER BY v.reviewed_at DESC,v.id DESC LIMIT 1
+               ) verified_company
+               JOIN public.organizacion_miembro m ON m.organizacion_id=d.organizacion_id
+                 AND m.usuario_id=verified_company.submitted_by AND m.estado='activo' AND m.rol='representante_legal'
+               CROSS JOIN LATERAL public.account_profile_identity_status(m.usuario_id,p_at) k
+               WHERE k.verified
+           ) ELSE COALESCE(d.sii_status='APPROVED', false)
+               AND EXISTS (SELECT 1 FROM public.account_profile_identity_status(d.propietario_id,p_at) k WHERE k.verified)
+           END,
+           d.holder_submitted_in_time,
+           d.category_sii_required,
+           (NOT d.category_sii_required OR d.category_sii_doc_approved),
+           EXISTS (
+               SELECT 1 FROM public.space_kyb_verification sv
+               WHERE sv.organizacion_id=d.organizacion_id
+                 AND sv.categoria_codigo=d.categoria_codigo
+                 AND sv.document_kind='sii_start_activities'
+                 AND sv.status IN ('PENDING','IN_REVIEW')
+                 AND sv.submitted_at<=LEAST(d.effective_due_at, p_at)
+           ),
+           d.categoria_codigo
+    FROM deadlines d
+$$;
+
+
+--
+-- Name: kyb_space_document_request_notice(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_space_document_request_notice() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog'
+    AS $$
+BEGIN
+    IF EXISTS (
+        SELECT FROM public.kyb_space_eligibility(NEW.espacio_id, NEW.solicitado_en) e
+        WHERE NOT e.space_verified
+    ) THEN
+        INSERT INTO public.notificacion_usuario(id,usuario_id,tipo,titulo,mensaje,href,referencia_id,creada_en)
+        VALUES(gen_random_uuid(), NEW.actor_usuario_id, 'kyb_space_document_request', 'Documentación de la publicación',
+            'Revisa el respaldo de este espacio y la documentación de su titular. Fecha límite compartida: '
+            || to_char(NEW.vence_en AT TIME ZONE 'America/Santiago','DD/MM/YYYY') || '.',
+            '/anfitrion/kyb', NEW.espacio_id, NEW.solicitado_en)
+        ON CONFLICT(referencia_id,usuario_id,tipo) WHERE referencia_id IS NOT NULL DO NOTHING;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_space_document_state(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_space_document_state(p_espacio_id uuid, p_at timestamp with time zone) RETURNS TABLE(space_state text, host_status text, grace_due_at timestamp with time zone, property_approved boolean, property_submitted_in_time boolean, titular_approved boolean, holder_submitted_in_time boolean)
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+    SELECT space_state, host_status, grace_due_at, property_approved,
+           property_submitted_in_time, titular_approved, holder_submitted_in_time
+    FROM public.kyb_space_compliance_detail(p_espacio_id, p_at)
+$$;
+
+
+--
+-- Name: kyb_space_eligibility(uuid, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_space_eligibility(p_espacio_id uuid, p_at timestamp with time zone DEFAULT clock_timestamp()) RETURNS TABLE(can_publish boolean, can_book boolean, space_verified boolean, compliance_status text)
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+    WITH documents AS (
+        SELECT *,
+               (host_status='compliant' AND property_approved AND category_sii_approved) AS commercially_complete,
+               (grace_due_at IS NULL OR p_at<grace_due_at) AS within_grace
+        FROM public.kyb_space_compliance_detail(p_espacio_id, p_at)
+    ), eligibility AS (
+        SELECT *,
+               (host_status<>'disabled_missing_docs' AND space_state<>'eliminada'
+                   AND (commercially_complete OR within_grace OR
+                        (space_state='activa'
+                         AND (host_status='compliant' OR holder_submitted_in_time)
+                         AND (property_approved OR property_submitted_in_time)
+                         AND (category_sii_approved OR category_sii_submitted_in_time)))) AS allowed
+        FROM documents
+    )
+    SELECT allowed, allowed AND space_state='activa', allowed AND commercially_complete AND titular_approved,
+           CASE WHEN NOT allowed THEN 'disabled_missing_docs'
+                WHEN commercially_complete THEN 'compliant'
+                WHEN host_status='in_review' OR property_submitted_in_time OR category_sii_submitted_in_time THEN 'in_review'
+                ELSE 'grace_active' END
+    FROM eligibility
+$$;
+
+
+--
+-- Name: kyb_start_space_grace(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_start_space_grace() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE
+    started timestamptz := clock_timestamp();
+    due timestamptz;
+    existing_started timestamptz;
+    existing_due timestamptz;
+    holder_status text;
+    space_started timestamptz;
+    space_due timestamptz;
+    started_user uuid;
+    published_by uuid;
+BEGIN
+    SELECT h.actor_id INTO published_by
+    FROM public.espacio_publicacion_historial_local h
+    WHERE h.espacio_id=NEW.id AND h.estado_nuevo='activa'
+      AND h.ocurrida_en=transaction_timestamp()
+    ORDER BY h.id DESC LIMIT 1;
+    published_by := COALESCE(published_by, NEW.propietario_id);
+    due := ((started AT TIME ZONE 'America/Santiago' + interval '2 months') AT TIME ZONE 'America/Santiago');
+    IF NEW.modo_anfitrion = 'empresa' THEN
+        SELECT grace_started_at, grace_due_at, compliance_status
+          INTO existing_started, existing_due, holder_status
+          FROM public.organizacion WHERE id=NEW.organizacion_id FOR UPDATE;
+        IF existing_started IS NULL THEN
+            UPDATE public.organizacion SET grace_started_at=started, grace_due_at=due, updated_at=clock_timestamp() WHERE id=NEW.organizacion_id;
+            INSERT INTO public.host_compliance_event(organizacion_id, actor_usuario_id, event_type, occurred_at)
+              VALUES(NEW.organizacion_id, published_by, 'grace_started', started);
+            space_started := started;
+            space_due := due;
+        ELSIF holder_status = 'compliant' THEN
+            space_started := started;
+            space_due := due;
+        ELSE
+            space_started := existing_started;
+            space_due := existing_due;
+        END IF;
+    ELSE
+        INSERT INTO public.anfitrion_cumplimiento_personal(usuario_id, grace_started_at, grace_due_at)
+          VALUES(NEW.propietario_id, started, due) ON CONFLICT(usuario_id) DO UPDATE
+          SET grace_started_at=EXCLUDED.grace_started_at, grace_due_at=EXCLUDED.grace_due_at, updated_at=clock_timestamp()
+          WHERE anfitrion_cumplimiento_personal.grace_started_at IS NULL
+          RETURNING usuario_id INTO started_user;
+        IF started_user IS NOT NULL THEN
+            INSERT INTO public.host_compliance_event(usuario_id, actor_usuario_id, event_type, occurred_at)
+              VALUES(NEW.propietario_id, published_by, 'grace_started', started);
+            space_started := started;
+            space_due := due;
+        ELSE
+            SELECT grace_started_at, grace_due_at, compliance_status
+              INTO existing_started, existing_due, holder_status
+              FROM public.anfitrion_cumplimiento_personal WHERE usuario_id=NEW.propietario_id;
+            IF holder_status = 'compliant' OR existing_started IS NULL THEN
+                space_started := started;
+                space_due := due;
+            ELSE
+                space_started := existing_started;
+                space_due := existing_due;
+            END IF;
+        END IF;
+    END IF;
+    IF NEW.kyb_grace_started_at IS NULL THEN
+        UPDATE public.espacio
+        SET kyb_grace_started_at = space_started, kyb_grace_due_at = space_due
+        WHERE id = NEW.id AND kyb_grace_started_at IS NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_submission_requires_active_member(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_submission_requires_active_member() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM public.organizacion_miembro m WHERE m.organizacion_id=NEW.organization_id
+        AND m.usuario_id=NEW.submitted_by AND m.estado='activo') THEN
+        RAISE EXCEPTION 'KYB submitter must be an active organization member' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: kyb_verification_event_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.kyb_verification_event_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+BEGIN
+    RAISE EXCEPTION 'KYB verification events are append-only' USING ERRCODE = '23514';
+END;
+$$;
+
+
+--
 -- Name: local_contract_effective_retention_deadline(uuid); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1986,6 +2690,30 @@ BEGIN
  END IF;
  RETURN NULL;
 END $$;
+
+
+--
+-- Name: organizacion_miembro_requires_legal_rep(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.organizacion_miembro_requires_legal_rep() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog'
+    AS $$
+DECLARE org_id uuid; org_status text; rep_count bigint;
+BEGIN
+    org_id := COALESCE(NEW.organizacion_id, OLD.organizacion_id);
+    SELECT compliance_status INTO org_status FROM public.organizacion WHERE id = org_id FOR UPDATE;
+    IF org_status IS NOT NULL AND org_status <> 'disabled_missing_docs' THEN
+        SELECT count(*) INTO rep_count FROM public.organizacion_miembro
+        WHERE organizacion_id = org_id AND estado = 'activo' AND rol = 'representante_legal';
+        IF rep_count = 0 THEN
+            RAISE EXCEPTION 'an active organization must retain an active legal representative' USING ERRCODE = '23514';
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$;
 
 
 --
@@ -2793,6 +3521,39 @@ $$;
 
 
 --
+-- Name: space_kyb_owner_guard(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.space_kyb_owner_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$
+DECLARE space_mode text; space_owner uuid; space_org uuid; space_category text;
+BEGIN
+    SELECT modo_anfitrion, propietario_id, organizacion_id, categoria_codigo
+      INTO space_mode, space_owner, space_org, space_category
+      FROM public.espacio WHERE id=NEW.espacio_id;
+    IF space_mode IS NULL OR space_mode <> NEW.host_mode OR space_owner <> NEW.owner_usuario_id OR
+       space_org IS DISTINCT FROM NEW.organizacion_id THEN
+        RAISE EXCEPTION 'space KYB scope must match the space owner and mode' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.categoria_codigo IS NULL THEN
+        NEW.categoria_codigo := space_category;
+    ELSIF NEW.categoria_codigo IS DISTINCT FROM space_category THEN
+        RAISE EXCEPTION 'space KYB category must match space category' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.host_mode='personal' AND NEW.submitted_by <> NEW.owner_usuario_id THEN
+        RAISE EXCEPTION 'personal space document must be submitted by its owner' USING ERRCODE = '23514';
+    ELSIF NEW.host_mode='empresa' AND NOT EXISTS (SELECT 1 FROM public.organizacion_miembro m
+        WHERE m.organizacion_id=NEW.organizacion_id AND m.usuario_id=NEW.submitted_by AND m.estado='activo') THEN
+        RAISE EXCEPTION 'company space document submitter must be an active member' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: validar_horario_semanal_fixture_hora(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -2918,6 +3679,191 @@ CREATE TABLE public.acceso_sensible_administrativo (
 
 
 --
+-- Name: account_identity_profile; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_profile (
+    account_id uuid NOT NULL,
+    username text NOT NULL,
+    current_revision uuid NOT NULL,
+    CONSTRAINT account_identity_profile_username_check CHECK ((username ~ '^[A-Za-z0-9_][A-Za-z0-9_.-]{2,29}$'::text))
+);
+
+
+--
+-- Name: account_identity_profile_draft; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_profile_draft (
+    account_id uuid NOT NULL,
+    key_version text NOT NULL,
+    encrypted_data bytea NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_identity_profile_draft_encrypted_data_check CHECK ((octet_length(encrypted_data) > 28))
+);
+
+
+--
+-- Name: account_identity_profile_phone; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_profile_phone (
+    account_id uuid NOT NULL,
+    key_version text NOT NULL,
+    encrypted_phone bytea NOT NULL,
+    masked_phone text NOT NULL
+);
+
+
+--
+-- Name: account_identity_profile_revision; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_profile_revision (
+    id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    key_version text NOT NULL,
+    encrypted_data bytea NOT NULL,
+    masked_rut text NOT NULL,
+    masked_phone text NOT NULL,
+    saved_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_identity_profile_revision_encrypted_data_check CHECK ((octet_length(encrypted_data) > 28))
+);
+
+
+--
+-- Name: account_identity_rut_claim; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_rut_claim (
+    account_id uuid NOT NULL,
+    identity_revision uuid NOT NULL,
+    claimed_at timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: account_identity_rut_fingerprint; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_rut_fingerprint (
+    fingerprint text NOT NULL,
+    account_id uuid NOT NULL,
+    CONSTRAINT account_identity_rut_fingerprint_fingerprint_check CHECK ((fingerprint ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text))
+);
+
+
+--
+-- Name: account_identity_verification; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_verification (
+    id uuid NOT NULL,
+    account_id uuid NOT NULL,
+    profile_revision uuid NOT NULL,
+    state text NOT NULL,
+    provider_session uuid,
+    started_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    decision_at timestamp with time zone,
+    last_refresh_at timestamp with time zone,
+    verified_at timestamp with time zone,
+    verified_until timestamp with time zone,
+    CONSTRAINT account_identity_verification_check CHECK (((state <> 'verified'::text) OR ((verified_at IS NOT NULL) AND (verified_until > verified_at)))),
+    CONSTRAINT account_identity_verification_state_check CHECK ((state = ANY (ARRAY['in_progress'::text, 'in_review'::text, 'needs_correction'::text, 'verified'::text, 'expired'::text, 'revoked'::text])))
+);
+
+
+--
+-- Name: account_identity_webhook_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_identity_webhook_receipt (
+    event_id uuid NOT NULL,
+    attempt_id uuid NOT NULL,
+    received_at timestamp with time zone NOT NULL
+);
+
+
+--
+-- Name: account_pinpass; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_pinpass (
+    account_id uuid NOT NULL,
+    verifier_salt bytea NOT NULL,
+    verifier_hash bytea NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_pinpass_check CHECK ((updated_at >= created_at)),
+    CONSTRAINT account_pinpass_verifier_hash_check CHECK ((octet_length(verifier_hash) = 32)),
+    CONSTRAINT account_pinpass_verifier_salt_check CHECK ((octet_length(verifier_salt) = 16))
+);
+
+
+--
+-- Name: account_pinpass_access; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_pinpass_access (
+    account_id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_pinpass_access_check CHECK (((expires_at > created_at) AND (expires_at <= (created_at + '00:15:00'::interval))))
+);
+
+
+--
+-- Name: account_pinpass_attempt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_pinpass_attempt (
+    account_id uuid NOT NULL,
+    session_id uuid,
+    failed_attempts integer DEFAULT 0 NOT NULL,
+    blocked_until timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_pinpass_attempt_failed_attempts_check CHECK ((failed_attempts >= 0))
+);
+
+
+--
+-- Name: account_pinpass_audit; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_pinpass_audit (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    account_id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    action text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    CONSTRAINT account_pinpass_audit_action_check CHECK ((action = ANY (ARRAY['pinpass.changed'::text, 'pinpass.reset'::text, 'pinpass.unlock_denied'::text, 'pinpass.unlocked'::text, 'pinpass.sensitive_data_viewed'::text])))
+);
+
+
+--
+-- Name: account_pinpass_email_challenge; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_pinpass_email_challenge (
+    account_id uuid NOT NULL,
+    session_id uuid NOT NULL,
+    challenge_id uuid NOT NULL,
+    purpose text NOT NULL,
+    destination text,
+    code_hmac bytea NOT NULL,
+    sent_at timestamp with time zone NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    consumed_at timestamp with time zone,
+    CONSTRAINT account_pinpass_email_challenge_check CHECK ((((purpose = 'new_email'::text) AND (consumed_at IS NULL)) = (destination IS NOT NULL))),
+    CONSTRAINT account_pinpass_email_challenge_check1 CHECK ((expires_at > sent_at)),
+    CONSTRAINT account_pinpass_email_challenge_code_hmac_check CHECK ((octet_length(code_hmac) = 32)),
+    CONSTRAINT account_pinpass_email_challenge_purpose_check CHECK ((purpose = ANY (ARRAY['pinpass'::text, 'password'::text, 'authenticator'::text, 'new_email'::text])))
+);
+
+
+--
 -- Name: aceptacion_terminos; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2999,6 +3945,60 @@ COMMENT ON TABLE public.administrador_global_bootstrap_evento IS 'Auditoría mí
 
 
 --
+-- Name: anfitrion_cumplimiento_documento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.anfitrion_cumplimiento_documento (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    usuario_id uuid NOT NULL,
+    document_kind character varying(32) NOT NULL,
+    storage_ref uuid NOT NULL,
+    mime_type character varying(32) NOT NULL,
+    size_bytes bigint NOT NULL,
+    content_sha256 bytea NOT NULL,
+    status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
+    rejection_reason character varying(500),
+    submitted_by uuid NOT NULL,
+    submitted_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    reviewer_id uuid,
+    reviewed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT anfitrion_cumplimiento_documento_check CHECK (((((status)::text = 'REJECTED'::text) AND (rejection_reason IS NOT NULL) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text <> 'REJECTED'::text) AND (rejection_reason IS NULL)))),
+    CONSTRAINT anfitrion_cumplimiento_documento_check1 CHECK (((((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'REJECTED'::character varying])::text[])) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[])) AND (reviewer_id IS NULL) AND (reviewed_at IS NULL)))),
+    CONSTRAINT anfitrion_cumplimiento_documento_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT anfitrion_cumplimiento_documento_document_kind_check CHECK (((document_kind)::text = 'sii_start_activities'::text)),
+    CONSTRAINT anfitrion_cumplimiento_documento_mime_type_check CHECK (((mime_type)::text = ANY ((ARRAY['application/pdf'::character varying, 'image/jpeg'::character varying, 'image/png'::character varying])::text[]))),
+    CONSTRAINT anfitrion_cumplimiento_documento_size_bytes_check CHECK (((size_bytes >= 1) AND (size_bytes <= 10485760))),
+    CONSTRAINT anfitrion_cumplimiento_documento_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))
+);
+
+
+--
+-- Name: anfitrion_cumplimiento_personal; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.anfitrion_cumplimiento_personal (
+    usuario_id uuid NOT NULL,
+    sii_giro_code character varying(6),
+    compliance_status character varying(32) DEFAULT 'grace_active'::character varying NOT NULL,
+    sii_status character varying(16) DEFAULT 'MISSING'::character varying NOT NULL,
+    grace_started_at timestamp with time zone,
+    grace_due_at timestamp with time zone,
+    disabled_at timestamp with time zone,
+    disabled_reason character varying(500),
+    disabled_by uuid,
+    last_reminder_stage character varying(24),
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT anfitrion_cumplimiento_personal_check CHECK (((grace_due_at IS NULL) OR ((grace_started_at IS NOT NULL) AND (grace_due_at > grace_started_at)))),
+    CONSTRAINT anfitrion_cumplimiento_personal_check1 CHECK (((((compliance_status)::text = 'disabled_missing_docs'::text) AND (disabled_at IS NOT NULL) AND (disabled_reason IS NOT NULL)) OR (((compliance_status)::text <> 'disabled_missing_docs'::text) AND (disabled_at IS NULL)))),
+    CONSTRAINT anfitrion_cumplimiento_personal_compliance_status_check CHECK (((compliance_status)::text = ANY ((ARRAY['grace_active'::character varying, 'in_review'::character varying, 'compliant'::character varying, 'disabled_missing_docs'::character varying])::text[]))),
+    CONSTRAINT anfitrion_cumplimiento_personal_sii_giro_code_check CHECK (((sii_giro_code IS NULL) OR ((sii_giro_code)::text ~ '^[0-9]{6}$'::text))),
+    CONSTRAINT anfitrion_cumplimiento_personal_sii_status_check CHECK (((sii_status)::text = ANY ((ARRAY['MISSING'::character varying, 'PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))
+);
+
+
+--
 -- Name: aprobacion_administrativa; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3072,7 +4072,7 @@ CREATE TABLE public.arriendo_temprano (
     CONSTRAINT arriendo_temprano_titulo_snapshot_check CHECK (((length(btrim(titulo_snapshot)) >= 1) AND (length(btrim(titulo_snapshot)) <= 70))),
     CONSTRAINT arriendo_temprano_unidades_check CHECK ((unidades = ANY (ARRAY[(1)::bigint, (2)::bigint, (4)::bigint]))),
     CONSTRAINT arriendo_temprano_vencimiento_ck CHECK ((isfinite(creada_en) AND isfinite(actualizada_en) AND isfinite(vence_en) AND (vence_en > creada_en) AND (vence_en <= inicio) AND (vence_en <= (creada_en + '00:30:00'::interval)) AND (actualizada_en >= creada_en))),
-    CONSTRAINT arriendo_temprano_zona_horaria_check CHECK ((((length(btrim(zona_horaria)) >= 1) AND (length(btrim(zona_horaria)) <= 100)) AND (zona_horaria <> 'Local'::text)))
+    CONSTRAINT arriendo_temprano_zona_horaria_check CHECK (((length(btrim(zona_horaria)) >= 1) AND (length(btrim(zona_horaria)) <= 100) AND (zona_horaria <> 'Local'::text)))
 );
 
 
@@ -3440,6 +4440,34 @@ COMMENT ON COLUMN public.bloqueo_cuenta_historial_local.actor_id IS 'Nullable wh
 
 
 --
+-- Name: caso_soporte_reserva_comercial; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.caso_soporte_reserva_comercial (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    reserva_id uuid NOT NULL,
+    iniciador_id uuid NOT NULL,
+    rol_iniciador text NOT NULL,
+    categoria text NOT NULL,
+    enrutado_a text NOT NULL,
+    estado text NOT NULL,
+    descripcion text NOT NULL,
+    clave_idempotencia text NOT NULL,
+    plazo_descargo timestamp with time zone,
+    creada_en timestamp with time zone NOT NULL,
+    actualizada_en timestamp with time zone NOT NULL,
+    CONSTRAINT caso_soporte_reserva_comercial_categoria_check CHECK ((categoria = ANY (ARRAY['problemas_acceso'::text, 'condiciones_diferentes'::text, 'incumplimiento_normas'::text, 'espacio_no_disponible'::text, 'problema_pago_reembolso'::text, 'mediacion_directa'::text, 'dano_inmueble'::text]))),
+    CONSTRAINT caso_soporte_reserva_comercial_check CHECK (((categoria = 'dano_inmueble'::text) = (plazo_descargo IS NOT NULL))),
+    CONSTRAINT caso_soporte_reserva_comercial_check1 CHECK (((categoria <> 'dano_inmueble'::text) OR ((rol_iniciador = 'anfitrion'::text) AND (enrutado_a = 'espacigo'::text)))),
+    CONSTRAINT caso_soporte_reserva_comercial_clave_idempotencia_check CHECK (((char_length(clave_idempotencia) >= 1) AND (char_length(clave_idempotencia) <= 128))),
+    CONSTRAINT caso_soporte_reserva_comercial_descripcion_check CHECK (((char_length(descripcion) >= 1) AND (char_length(descripcion) <= 3000))),
+    CONSTRAINT caso_soporte_reserva_comercial_enrutado_a_check CHECK ((enrutado_a = ANY (ARRAY['contraparte'::text, 'espacigo'::text]))),
+    CONSTRAINT caso_soporte_reserva_comercial_estado_check CHECK ((estado = ANY (ARRAY['esperando_contraparte'::text, 'en_mediacion_espacigo'::text, 'resuelto'::text, 'cerrado'::text]))),
+    CONSTRAINT caso_soporte_reserva_comercial_rol_iniciador_check CHECK ((rol_iniciador = ANY (ARRAY['anfitrion'::text, 'arrendatario'::text])))
+);
+
+
+--
 -- Name: catalogo_ubicacion_publica; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -3477,6 +4505,32 @@ CREATE TABLE public.categoria_perfil_atributos (
     CONSTRAINT categoria_perfil_atributos_perfil_check CHECK ((jsonb_typeof(perfil) = 'object'::text)),
     CONSTRAINT categoria_perfil_atributos_version_check CHECK ((version > 0))
 );
+
+
+--
+-- Name: checkout_cancelacion_pendiente; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.checkout_cancelacion_pendiente (
+    operacion_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    seller_id text NOT NULL,
+    provider_payment_id text,
+    clave_idempotencia uuid NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    ultimo_intento_en timestamp with time zone,
+    resultado text,
+    CONSTRAINT checkout_cancelacion_pendiente_provider_payment_id_check CHECK ((provider_payment_id ~ '^[0-9]{1,64}$'::text)),
+    CONSTRAINT checkout_cancelacion_pendiente_resultado_check CHECK ((resultado = ANY (ARRAY['approved'::text, 'cancelled'::text]))),
+    CONSTRAINT checkout_cancelacion_pendiente_seller_id_check CHECK ((seller_id ~ '^[0-9]{1,64}$'::text))
+);
+
+
+--
+-- Name: TABLE checkout_cancelacion_pendiente; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.checkout_cancelacion_pendiente IS 'Durable Checkout Pro cancellation intent. No provider mutation without a bound payment ID.';
 
 
 --
@@ -3556,6 +4610,8 @@ CREATE TABLE public.checkout_preferencia_comercial (
     solicitud_comercial_id uuid,
     contrato_version bigint,
     contrato_sha256 bytea,
+    provider_settlement jsonb,
+    provider_settlement_attempted_at timestamp with time zone,
     CONSTRAINT checkout_contract_binding_ck CHECK ((((solicitud_comercial_id IS NULL) AND (contrato_version IS NULL) AND (contrato_sha256 IS NULL)) OR ((solicitud_comercial_id IS NOT NULL) AND (contrato_version IS NOT NULL) AND (contrato_sha256 IS NOT NULL) AND (contrato_version > 0) AND (octet_length(contrato_sha256) = 32)))),
     CONSTRAINT checkout_preferencia_comercial_amounts_ck CHECK (((base_clp > 0) AND (commission_clp >= 0) AND (iva_clp >= 0) AND (buyer_commission_clp >= 0) AND (buyer_iva_clp >= 0) AND (buyer_fee_clp = (buyer_commission_clp + buyer_iva_clp)) AND (total_charged_clp = (base_clp + buyer_fee_clp)) AND (marketplace_fee_clp = ((commission_clp + iva_clp) + buyer_fee_clp)) AND (marketplace_fee_clp < total_charged_clp))),
     CONSTRAINT checkout_preferencia_comercial_dates_ck CHECK ((isfinite(vence_en) AND isfinite(creada_en) AND isfinite(actualizada_en) AND (vence_en > creada_en) AND (actualizada_en >= creada_en))),
@@ -3570,6 +4626,7 @@ CREATE TABLE public.checkout_preferencia_comercial (
     CONSTRAINT checkout_preferencia_comercial_payment_no_preference_ck CHECK (((checkout_method <> 'payments_api'::text) OR ((preference_id IS NULL) AND (init_point IS NULL) AND (preference_claimed_at IS NULL)))),
     CONSTRAINT checkout_preferencia_comercial_payment_status_ck CHECK (((provider_payment_status IS NULL) OR (provider_payment_status ~ '^[a-z_]{1,40}$'::text))),
     CONSTRAINT checkout_preferencia_comercial_provider_ck CHECK ((((preference_id IS NULL) AND (init_point IS NULL)) OR ((preference_id IS NOT NULL) AND (init_point IS NOT NULL)))),
+    CONSTRAINT checkout_preferencia_comercial_provider_settlement_check CHECK ((jsonb_typeof(provider_settlement) = 'object'::text)),
     CONSTRAINT checkout_preferencia_comercial_reconciliation_reason_ck CHECK (((reconciliation_reason IS NULL) OR (reconciliation_reason ~ '^[a-z_]{1,64}$'::text)))
 );
 
@@ -3810,6 +4867,16 @@ CREATE TABLE public.contrato_propuesta_comercial (
     identidades_cifradas bytea NOT NULL,
     clave_version text NOT NULL,
     creada_en timestamp with time zone DEFAULT now() NOT NULL,
+    es_b2b boolean DEFAULT false NOT NULL,
+    organizacion_id uuid,
+    empresa_razon_social_snapshot character varying(200),
+    empresa_rut_masked_snapshot character varying(16),
+    empresa_rut_verificada boolean DEFAULT false NOT NULL,
+    representante_legal_id uuid,
+    representante_nombre_snapshot character varying(200),
+    representante_rut_masked_snapshot character varying(16),
+    representante_rut_verificada boolean DEFAULT false CONSTRAINT contrato_propuesta_comercia_representante_rut_verifica_not_null NOT NULL,
+    CONSTRAINT contrato_propuesta_b2b_snapshot_ck CHECK ((((NOT es_b2b) AND (organizacion_id IS NULL)) OR (es_b2b AND (organizacion_id IS NOT NULL) AND (empresa_razon_social_snapshot IS NOT NULL) AND (empresa_rut_masked_snapshot IS NOT NULL) AND empresa_rut_verificada AND (representante_legal_id IS NOT NULL) AND (representante_nombre_snapshot IS NOT NULL) AND (representante_rut_masked_snapshot IS NOT NULL) AND representante_rut_verificada))),
     CONSTRAINT contrato_propuesta_comercial_check CHECK ((termino > inicio)),
     CONSTRAINT contrato_propuesta_comercial_check1 CHECK ((propietario_id <> arrendatario_id)),
     CONSTRAINT contrato_propuesta_comercial_check10 CHECK (((((terminos ->> 'start_at'::text))::timestamp with time zone = inicio) IS TRUE)),
@@ -3842,13 +4909,14 @@ CREATE TABLE public.contrato_propuesta_comercial (
     CONSTRAINT contrato_propuesta_comercial_terminos_check2 CHECK (((jsonb_typeof((terminos -> 'location'::text)) = 'object'::text) AND ((terminos -> 'location'::text) ?& ARRAY['address'::text, 'latitude'::text, 'longitude'::text, 'revision'::text, 'region_code'::text, 'commune_code'::text]))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check3 CHECK (((jsonb_typeof((terminos -> 'cancellation_policy'::text)) = 'object'::text) AND ((terminos -> 'cancellation_policy'::text) ?& ARRAY['version'::text, 'text'::text]))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check4 CHECK ((NOT (terminos ?| ARRAY['parties'::text, 'owner_id'::text, 'renter_id'::text, 'propietario_id'::text, 'arrendatario_id'::text, 'legal_name'::text, 'rut'::text, 'email'::text, 'phone'::text]))),
-    CONSTRAINT contrato_propuesta_comercial_terminos_check5 CHECK (((jsonb_typeof((terminos -> 'sections'::text)) = 'array'::text) AND ((jsonb_array_length((terminos -> 'sections'::text)) >= 1) AND (jsonb_array_length((terminos -> 'sections'::text)) <= 12)))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check6 CHECK (((jsonb_typeof((terminos -> 'space_title'::text)) = 'string'::text) AND (length((terminos ->> 'space_title'::text)) > 0))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check7 CHECK (((jsonb_typeof((terminos -> 'rate_version'::text)) = 'number'::text) AND (((terminos ->> 'rate_version'::text))::bigint > 0))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check8 CHECK (((jsonb_typeof((terminos -> 'template_version'::text)) = 'number'::text) AND (((terminos ->> 'template_version'::text))::bigint > 0))),
     CONSTRAINT contrato_propuesta_comercial_terminos_check9 CHECK (((jsonb_typeof((terminos -> 'unit_price_clp'::text)) = 'number'::text) AND (((terminos ->> 'unit_price_clp'::text))::bigint > 0))),
+    CONSTRAINT contrato_propuesta_comercial_terminos_secciones_check CHECK (((jsonb_typeof((terminos -> 'sections'::text)) = 'array'::text) AND ((jsonb_array_length((terminos -> 'sections'::text)) >= 1) AND (jsonb_array_length((terminos -> 'sections'::text)) <= 13)))),
     CONSTRAINT contrato_propuesta_comercial_terminos_sha256_check CHECK ((octet_length(terminos_sha256) = 32)),
-    CONSTRAINT contrato_propuesta_comercial_version_check CHECK ((version > 0))
+    CONSTRAINT contrato_propuesta_comercial_version_check CHECK ((version > 0)),
+    CONSTRAINT contrato_propuesta_company_terms_snapshot_ck CHECK ((((NOT es_b2b) AND (NOT (terminos ? 'company_representation'::text))) OR ((es_b2b AND (jsonb_typeof((terminos -> 'company_representation'::text)) = 'object'::text) AND ((((terminos -> 'company_representation'::text) ->> 'organization_id'::text))::uuid = organizacion_id) AND (((terminos -> 'company_representation'::text) ->> 'legal_name'::text) = (empresa_razon_social_snapshot)::text) AND (((terminos -> 'company_representation'::text) ->> 'rut_masked'::text) = (empresa_rut_masked_snapshot)::text) AND ((((terminos -> 'company_representation'::text) ->> 'rut_verified'::text))::boolean = empresa_rut_verificada) AND ((((terminos -> 'company_representation'::text) ->> 'representative_user_id'::text))::uuid = representante_legal_id) AND (((terminos -> 'company_representation'::text) ->> 'representative_name'::text) = (representante_nombre_snapshot)::text) AND (((terminos -> 'company_representation'::text) ->> 'representative_rut_masked'::text) = (representante_rut_masked_snapshot)::text) AND ((((terminos -> 'company_representation'::text) ->> 'representative_rut_verified'::text))::boolean = representante_rut_verificada)) IS TRUE)))
 );
 
 
@@ -3882,6 +4950,16 @@ CREATE TABLE public.contrato_solicitud_comercial (
     creada_en timestamp with time zone NOT NULL,
     actualizada_en timestamp with time zone NOT NULL,
     modalidad_firma text DEFAULT 'fes_interna'::text NOT NULL,
+    es_b2b boolean DEFAULT false NOT NULL,
+    organizacion_id uuid,
+    empresa_razon_social_snapshot character varying(200),
+    empresa_rut_masked_snapshot character varying(16),
+    empresa_rut_verificada boolean DEFAULT false NOT NULL,
+    representante_legal_id uuid,
+    representante_nombre_snapshot character varying(200),
+    representante_rut_masked_snapshot character varying(16),
+    representante_rut_verificada boolean DEFAULT false CONSTRAINT contrato_solicitud_comercia_representante_rut_verifica_not_null NOT NULL,
+    CONSTRAINT contrato_solicitud_b2b_snapshot_ck CHECK ((((NOT es_b2b) AND (organizacion_id IS NULL)) OR (es_b2b AND (organizacion_id IS NOT NULL) AND (empresa_razon_social_snapshot IS NOT NULL) AND (empresa_rut_masked_snapshot IS NOT NULL) AND empresa_rut_verificada AND (representante_legal_id IS NOT NULL) AND (representante_nombre_snapshot IS NOT NULL) AND (representante_rut_masked_snapshot IS NOT NULL) AND representante_rut_verificada))),
     CONSTRAINT contrato_solicitud_comercial_check CHECK ((propietario_id <> arrendatario_id)),
     CONSTRAINT contrato_solicitud_comercial_check1 CHECK ((isfinite(vence_en) AND isfinite(creada_en) AND isfinite(actualizada_en) AND (vence_en > creada_en) AND (actualizada_en >= creada_en))),
     CONSTRAINT contrato_solicitud_comercial_check2 CHECK (((pago_vence_en IS NULL) OR (isfinite(pago_vence_en) AND (pago_vence_en > creada_en)))),
@@ -3977,7 +5055,7 @@ CREATE TABLE public.cotizacion_arriendo_comercial (
     CONSTRAINT cotizacion_arriendo_comercial_tarifa_ck CHECK (((tarifa_version > 0) AND (modalidad = ANY (ARRAY['hora'::text, 'dia'::text, 'mes'::text])) AND (precio_unitario_clp > 0) AND (moneda = 'CLP'::text))),
     CONSTRAINT cotizacion_arriendo_comercial_titulo_ck CHECK (((char_length(btrim(titulo_espacio)) >= 1) AND (char_length(btrim(titulo_espacio)) <= 70))),
     CONSTRAINT cotizacion_arriendo_comercial_unidades_ck CHECK ((((modalidad = 'hora'::text) AND ((unidades >= 1) AND (unidades <= 168))) OR ((modalidad = 'dia'::text) AND ((unidades >= 1) AND (unidades <= 64))) OR ((modalidad = 'mes'::text) AND ((unidades >= 1) AND (unidades <= 12))))),
-    CONSTRAINT cotizacion_comercial_cancelacion_snapshot_ck CHECK ((((politica_cancelacion_version IS NULL) AND (politica_cancelacion_texto IS NULL)) OR ((politica_cancelacion_version = ANY (ARRAY['flexible_v1'::text, 'moderada_v1'::text, 'estricta_v1'::text])) AND (politica_cancelacion_version IS NOT NULL) AND (politica_cancelacion_texto IS NOT NULL) AND ((length(btrim(politica_cancelacion_texto)) >= 1) AND (length(btrim(politica_cancelacion_texto)) <= 500)))))
+    CONSTRAINT cotizacion_comercial_cancelacion_snapshot_ck CHECK ((((politica_cancelacion_version IS NULL) AND (politica_cancelacion_texto IS NULL)) OR ((politica_cancelacion_version IS NOT NULL) AND (politica_cancelacion_version = ANY (ARRAY['facil_v1'::text, 'flexible_v1'::text, 'moderada_v1'::text, 'estricta_v1'::text])) AND (politica_cancelacion_texto IS NOT NULL) AND ((length(btrim(politica_cancelacion_texto)) >= 1) AND (length(btrim(politica_cancelacion_texto)) <= 500)))))
 );
 
 
@@ -4406,7 +5484,7 @@ CREATE TABLE public.didit_webhook_inbox (
     error_message text,
     received_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     processed_at timestamp with time zone,
-    CONSTRAINT didit_webhook_inbox_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'PROCESSED'::character varying, 'FAILED'::character varying, 'IGNORED'::character varying])::text[])))
+    CONSTRAINT didit_webhook_inbox_status_check CHECK (((status)::text = ANY (ARRAY[('PENDING'::character varying)::text, ('PROCESSED'::character varying)::text, ('FAILED'::character varying)::text, ('IGNORED'::character varying)::text])))
 );
 
 
@@ -4796,15 +5874,24 @@ CREATE TABLE public.espacio (
     ubicacion_visibilidad text DEFAULT 'exact'::text NOT NULL,
     ubicacion_publica_latitud double precision,
     ubicacion_publica_longitud double precision,
+    es_b2b boolean DEFAULT false NOT NULL,
+    organizacion_id uuid,
+    modo_anfitrion character varying(16) DEFAULT 'personal'::character varying NOT NULL,
+    kyb_grace_started_at timestamp with time zone,
+    kyb_grace_due_at timestamp with time zone,
+    CONSTRAINT espacio_b2b_organization_ck CHECK (((es_b2b AND (organizacion_id IS NOT NULL)) OR ((NOT es_b2b) AND (organizacion_id IS NULL)))),
     CONSTRAINT espacio_capacidad_maxima_check CHECK ((capacidad_maxima > 0)),
     CONSTRAINT espacio_commercial_confirmation_ck CHECK (((ubicacion_confirmada_en IS NULL) OR ((ubicacion_latitud IS NOT NULL) AND (ubicacion_longitud IS NOT NULL) AND (btrim(direccion) <> ''::text) AND (region_codigo IS NOT NULL) AND (comuna_codigo IS NOT NULL)))),
     CONSTRAINT espacio_commercial_coordinates_ck CHECK ((((ubicacion_latitud IS NULL) AND (ubicacion_longitud IS NULL)) OR ((ubicacion_latitud IS NOT NULL) AND (ubicacion_longitud IS NOT NULL) AND ((ubicacion_latitud >= ('-90'::integer)::double precision) AND (ubicacion_latitud <= (90)::double precision)) AND ((ubicacion_longitud >= ('-180'::integer)::double precision) AND (ubicacion_longitud <= (180)::double precision))))),
     CONSTRAINT espacio_commercial_revision_ck CHECK ((ubicacion_revision >= 0)),
     CONSTRAINT espacio_direccion_check CHECK (((length(btrim(direccion)) >= 1) AND (length(btrim(direccion)) <= 500))),
     CONSTRAINT espacio_estado_local_publication_ck CHECK ((estado = ANY (ARRAY['borrador'::text, 'activa'::text, 'oculta'::text, 'eliminada'::text]))),
+    CONSTRAINT espacio_host_mode_consistency_ck CHECK (((((modo_anfitrion)::text = 'empresa'::text) AND es_b2b AND (organizacion_id IS NOT NULL)) OR (((modo_anfitrion)::text = 'personal'::text) AND (NOT es_b2b) AND (organizacion_id IS NULL)))),
+    CONSTRAINT espacio_kyb_grace_dates_ck CHECK (((kyb_grace_due_at IS NULL) OR ((kyb_grace_started_at IS NOT NULL) AND (kyb_grace_due_at > kyb_grace_started_at)))),
     CONSTRAINT espacio_modalidad_tarifa_check CHECK ((modalidad_tarifa = ANY (ARRAY['hora'::text, 'dia'::text, 'mes'::text]))),
+    CONSTRAINT espacio_modo_anfitrion_check CHECK (((modo_anfitrion)::text = ANY ((ARRAY['personal'::character varying, 'empresa'::character varying])::text[]))),
     CONSTRAINT espacio_pin_provenance_ck CHECK ((((ubicacion_pin_origen IS NULL) AND (ubicacion_pin_precision IS NULL)) OR ((ubicacion_latitud IS NOT NULL) AND (ubicacion_longitud IS NOT NULL) AND (ubicacion_pin_origen IS NOT NULL) AND (((ubicacion_pin_origen = 'manual'::text) AND (ubicacion_pin_precision IS NULL)) OR ((ubicacion_pin_origen = 'geocoded'::text) AND (ubicacion_pin_precision IS NOT NULL) AND (ubicacion_pin_precision = ANY (ARRAY['address'::text, 'approximate'::text]))))))),
-    CONSTRAINT espacio_politica_cancelacion_version_check CHECK ((politica_cancelacion_version = ANY (ARRAY['flexible_v1'::text, 'moderada_v1'::text, 'estricta_v1'::text]))),
+    CONSTRAINT espacio_politica_cancelacion_version_check CHECK ((politica_cancelacion_version = ANY (ARRAY['facil_v1'::text, 'flexible_v1'::text, 'moderada_v1'::text, 'estricta_v1'::text]))),
     CONSTRAINT espacio_precio_base_clp_min_1000_ck CHECK ((precio_base_clp >= 1000)),
     CONSTRAINT espacio_public_location_all_or_none_ck CHECK ((((ubicacion_catalogo_version IS NULL) AND (region_codigo IS NULL) AND (comuna_codigo IS NULL)) OR ((ubicacion_catalogo_version IS NOT NULL) AND (region_codigo IS NOT NULL) AND (comuna_codigo IS NOT NULL)))),
     CONSTRAINT espacio_reglas_uso_check CHECK (((length(btrim((reglas_uso)::text)) >= 1) AND (length(btrim((reglas_uso)::text)) <= 250))),
@@ -5106,6 +6193,27 @@ CREATE TABLE public.espacio_regla_mensual (
 
 
 --
+-- Name: espacio_solicitud_documental; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.espacio_solicitud_documental (
+    espacio_id uuid NOT NULL,
+    actor_usuario_id uuid NOT NULL,
+    titular_usuario_id uuid,
+    organizacion_id uuid,
+    solicitado_en timestamp with time zone NOT NULL,
+    vence_en timestamp with time zone NOT NULL,
+    version_politica text NOT NULL,
+    documentos_titular text[] NOT NULL,
+    documento_espacio text NOT NULL,
+    CONSTRAINT espacio_solicitud_documental_check CHECK ((num_nonnulls(titular_usuario_id, organizacion_id) = 1)),
+    CONSTRAINT espacio_solicitud_documental_check1 CHECK ((((titular_usuario_id IS NOT NULL) AND (documentos_titular = ARRAY['sii_start_activities'::text])) OR ((organizacion_id IS NOT NULL) AND (documentos_titular = ARRAY['erut'::text, 'sii_start_activities'::text, 'power_certificate'::text])))),
+    CONSTRAINT espacio_solicitud_documental_documento_espacio_check CHECK ((documento_espacio = 'property_or_sublease_authorization'::text)),
+    CONSTRAINT espacio_solicitud_documental_version_politica_check CHECK ((version_politica = 'documentacion-comercial-v1'::text))
+);
+
+
+--
 -- Name: evento_auditoria_local; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5126,7 +6234,7 @@ CREATE TABLE public.evento_auditoria_local (
     registrado_en timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     CONSTRAINT evento_auditoria_codigos_ck CHECK (((jsonb_typeof(detalle_codigos) = 'object'::text) AND (detalle_codigos ? 'obligations_detected'::text) AND (detalle_codigos ? 'pending_checks'::text) AND ((detalle_codigos - ARRAY['obligations_detected'::text, 'pending_checks'::text]) = '{}'::jsonb) AND (jsonb_typeof((detalle_codigos -> 'obligations_detected'::text)) = 'array'::text) AND (jsonb_typeof((detalle_codigos -> 'pending_checks'::text)) = 'array'::text) AND ((detalle_codigos -> 'obligations_detected'::text) <@ '["reserva_activa", "pago_o_devolucion_pendiente", "disputa_abierta", "liquidacion_pendiente"]'::jsonb) AND ((detalle_codigos -> 'pending_checks'::text) <@ '["fuente_disputas_no_modelada", "matriz_retencion_historicos_incompleta"]'::jsonb))),
     CONSTRAINT evento_auditoria_five_years_ck CHECK ((retirar_en = (ocurrido_en + '5 years'::interval))),
-    CONSTRAINT evento_auditoria_idempotencia_ck CHECK (((clave_idempotencia IS NULL) OR (((length(btrim(clave_idempotencia)) >= 1) AND (length(btrim(clave_idempotencia)) <= 200)) AND (((accion = ANY (ARRAY['privacy.suppression.review'::text, 'privacy.suppression.execute'::text])) AND (recurso_tipo = 'solicitud_titular'::text)) OR ((accion = 'identity.credential_notice.reopen'::text) AND (recurso_tipo = 'outbox_evento'::text)) OR ((accion = 'reputation.review.moderate'::text) AND (recurso_tipo = 'reporte_resena'::text)) OR ((accion = 'local.damage_claim.resolve'::text) AND (recurso_tipo = 'reclamo_dano'::text)) OR ((accion = ANY (ARRAY['local.finance.decision'::text, 'local.finance.guarantee.operation'::text, 'local.finance.guarantee.reconcile'::text, 'local.finance.settlement'::text])) AND (recurso_tipo = 'reserva'::text)))))),
+    CONSTRAINT evento_auditoria_idempotencia_ck CHECK (((clave_idempotencia IS NULL) OR ((length(btrim(clave_idempotencia)) >= 1) AND (length(btrim(clave_idempotencia)) <= 200) AND (((accion = ANY (ARRAY['privacy.suppression.review'::text, 'privacy.suppression.execute'::text])) AND (recurso_tipo = 'solicitud_titular'::text)) OR ((accion = 'identity.credential_notice.reopen'::text) AND (recurso_tipo = 'outbox_evento'::text)) OR ((accion = 'reputation.review.moderate'::text) AND (recurso_tipo = 'reporte_resena'::text)) OR ((accion = 'local.damage_claim.resolve'::text) AND (recurso_tipo = 'reclamo_dano'::text)) OR ((accion = ANY (ARRAY['local.finance.decision'::text, 'local.finance.guarantee.operation'::text, 'local.finance.guarantee.reconcile'::text, 'local.finance.settlement'::text])) AND (recurso_tipo = 'reserva'::text)))))),
     CONSTRAINT evento_auditoria_local_accion_check CHECK (((length(btrim(accion)) >= 1) AND (length(btrim(accion)) <= 60))),
     CONSTRAINT evento_auditoria_local_correlacion_id_check CHECK (((length(btrim(correlacion_id)) >= 1) AND (length(btrim(correlacion_id)) <= 120))),
     CONSTRAINT evento_auditoria_local_motivo_codigo_check CHECK (((length(btrim(motivo_codigo)) >= 1) AND (length(btrim(motivo_codigo)) <= 60))),
@@ -5149,6 +6257,42 @@ COMMENT ON COLUMN public.evento_auditoria_local.cuenta_objetivo_id IS 'Cuenta ob
 --
 
 COMMENT ON COLUMN public.evento_auditoria_local.registrado_en IS 'Instante de inserción para describir el corte de exportaciones de auditoría; ocurrido_en sigue siendo el tiempo del evento.';
+
+
+--
+-- Name: evento_caso_soporte_comercial; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evento_caso_soporte_comercial (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    caso_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    accion text NOT NULL,
+    descripcion text NOT NULL,
+    clave_idempotencia text NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    CONSTRAINT evento_caso_soporte_comercial_accion_check CHECK ((accion = ANY (ARRAY['abrir'::text, 'responder'::text, 'escalar'::text, 'descargo'::text, 'resolver'::text, 'cerrar'::text]))),
+    CONSTRAINT evento_caso_soporte_comercial_clave_idempotencia_check CHECK (((char_length(clave_idempotencia) >= 1) AND (char_length(clave_idempotencia) <= 128))),
+    CONSTRAINT evento_caso_soporte_comercial_descripcion_check CHECK ((char_length(descripcion) <= 3000))
+);
+
+
+--
+-- Name: evidencia_caso_soporte_comercial; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.evidencia_caso_soporte_comercial (
+    id uuid NOT NULL,
+    caso_id uuid NOT NULL,
+    autor_id uuid NOT NULL,
+    mime text NOT NULL,
+    tamano_bytes integer NOT NULL,
+    sha256 bytea NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    CONSTRAINT evidencia_caso_soporte_comercial_mime_check CHECK ((mime = ANY (ARRAY['image/jpeg'::text, 'image/png'::text, 'application/pdf'::text]))),
+    CONSTRAINT evidencia_caso_soporte_comercial_sha256_check CHECK ((octet_length(sha256) = 32)),
+    CONSTRAINT evidencia_caso_soporte_comercial_tamano_bytes_check CHECK (((tamano_bytes >= 1) AND (tamano_bytes <= 5242880)))
+);
 
 
 --
@@ -5234,6 +6378,39 @@ CREATE TABLE public.historial_clave_local (
 
 
 --
+-- Name: host_compliance_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.host_compliance_event (
+    id bigint NOT NULL,
+    usuario_id uuid,
+    organizacion_id uuid,
+    espacio_id uuid,
+    actor_usuario_id uuid,
+    event_type character varying(32) NOT NULL,
+    reason character varying(500),
+    reminder_stage character varying(24),
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT host_compliance_event_check CHECK ((num_nonnulls(usuario_id, organizacion_id, espacio_id) = 1)),
+    CONSTRAINT host_compliance_event_event_type_check CHECK (((event_type)::text = ANY ((ARRAY['grace_started'::character varying, 'reminder_sent'::character varying, 'disabled_auto'::character varying, 'disabled_manual'::character varying, 're_enabled'::character varying, 'member_changed'::character varying, 'personal_sii_submitted'::character varying, 'space_property_submitted'::character varying, 'personal_sii_reviewed'::character varying, 'space_reviewed'::character varying, 'space_created'::character varying, 'space_edited'::character varying])::text[])))
+);
+
+
+--
+-- Name: host_compliance_event_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.host_compliance_event ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.host_compliance_event_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: identity_declaration_revision; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5278,13 +6455,13 @@ CREATE TABLE public.identity_provider_event (
     processed_at timestamp with time zone,
     retention_at timestamp with time zone NOT NULL,
     CONSTRAINT identity_provider_event_body_sha256_check CHECK ((octet_length(body_sha256) = 32)),
-    CONSTRAINT identity_provider_event_check CHECK (((((processing_status)::text = 'RECEIVED'::text) AND (processed_at IS NULL)) OR (((processing_status)::text = ANY ((ARRAY['PROCESSED'::character varying, 'FAILED'::character varying, 'IGNORED'::character varying])::text[])) AND (processed_at IS NOT NULL)))),
+    CONSTRAINT identity_provider_event_check CHECK (((((processing_status)::text = 'RECEIVED'::text) AND (processed_at IS NULL)) OR (((processing_status)::text = ANY (ARRAY[('PROCESSED'::character varying)::text, ('FAILED'::character varying)::text, ('IGNORED'::character varying)::text])) AND (processed_at IS NOT NULL)))),
     CONSTRAINT identity_provider_event_check1 CHECK (((processed_at IS NULL) OR (processed_at >= received_at))),
     CONSTRAINT identity_provider_event_check2 CHECK ((retention_at > received_at)),
-    CONSTRAINT identity_provider_event_environment_check CHECK (((environment)::text = ANY ((ARRAY['SANDBOX'::character varying, 'LIVE'::character varying])::text[]))),
+    CONSTRAINT identity_provider_event_environment_check CHECK (((environment)::text = ANY (ARRAY[('SANDBOX'::character varying)::text, ('LIVE'::character varying)::text]))),
     CONSTRAINT identity_provider_event_event_id_check CHECK (((length((event_id)::text) >= 1) AND (length((event_id)::text) <= 160))),
-    CONSTRAINT identity_provider_event_event_type_check CHECK (((event_type)::text = ANY ((ARRAY['status.updated'::character varying, 'data.updated'::character varying, 'user.status.updated'::character varying])::text[]))),
-    CONSTRAINT identity_provider_event_processing_status_check CHECK (((processing_status)::text = ANY ((ARRAY['RECEIVED'::character varying, 'PROCESSED'::character varying, 'FAILED'::character varying, 'IGNORED'::character varying])::text[]))),
+    CONSTRAINT identity_provider_event_event_type_check CHECK (((event_type)::text = ANY (ARRAY[('status.updated'::character varying)::text, ('data.updated'::character varying)::text, ('user.status.updated'::character varying)::text]))),
+    CONSTRAINT identity_provider_event_processing_status_check CHECK (((processing_status)::text = ANY (ARRAY[('RECEIVED'::character varying)::text, ('PROCESSED'::character varying)::text, ('FAILED'::character varying)::text, ('IGNORED'::character varying)::text]))),
     CONSTRAINT identity_provider_event_provider_check CHECK (((provider)::text = 'didit'::text))
 );
 
@@ -5337,7 +6514,7 @@ CREATE TABLE public.identity_verification_attempts (
     review_notes text,
     created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
     updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-    CONSTRAINT identity_verification_attempts_status_check CHECK (((status)::text = ANY ((ARRAY['CREATED'::character varying, 'PENDING_USER_INPUT'::character varying, 'PROCESSING'::character varying, 'APPROVED'::character varying, 'IN_REVIEW'::character varying, 'REJECTED'::character varying, 'EXPIRED'::character varying, 'FAILED'::character varying])::text[])))
+    CONSTRAINT identity_verification_attempts_status_check CHECK (((status)::text = ANY (ARRAY[('CREATED'::character varying)::text, ('PENDING_USER_INPUT'::character varying)::text, ('PROCESSING'::character varying)::text, ('APPROVED'::character varying)::text, ('IN_REVIEW'::character varying)::text, ('REJECTED'::character varying)::text, ('EXPIRED'::character varying)::text, ('FAILED'::character varying)::text])))
 );
 
 
@@ -5346,6 +6523,160 @@ CREATE TABLE public.identity_verification_attempts (
 --
 
 COMMENT ON TABLE public.identity_verification_attempts IS 'Didit identity-verification attempt and declared-identity snapshot; no captured media is stored.';
+
+
+--
+-- Name: kyb_compliance_notice_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kyb_compliance_notice_outbox (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    profile_type character varying(16) NOT NULL,
+    profile_id uuid NOT NULL,
+    recipient_id uuid NOT NULL,
+    reminder_stage character varying(24) NOT NULL,
+    source_transition_id uuid,
+    available_at timestamp with time zone NOT NULL,
+    state character varying(16) DEFAULT 'pending'::character varying NOT NULL,
+    attempts smallint DEFAULT 0 NOT NULL,
+    claimed_at timestamp with time zone,
+    delivered_at timestamp with time zone,
+    terminal_at timestamp with time zone,
+    cancelled_at timestamp with time zone,
+    last_error_code character varying(32),
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT kyb_compliance_notice_outbox_attempts_check CHECK (((attempts >= 0) AND (attempts <= 8))),
+    CONSTRAINT kyb_compliance_notice_outbox_check CHECK (((((reminder_stage)::text = 'reactivated'::text) AND (source_transition_id IS NOT NULL)) OR (((reminder_stage)::text <> 'reactivated'::text) AND (source_transition_id IS NULL)))),
+    CONSTRAINT kyb_compliance_notice_outbox_check1 CHECK ((created_at <= available_at)),
+    CONSTRAINT kyb_compliance_notice_outbox_check2 CHECK ((((state)::text = 'processing'::text) = (claimed_at IS NOT NULL))),
+    CONSTRAINT kyb_compliance_notice_outbox_check3 CHECK ((((state)::text = 'delivered'::text) = (delivered_at IS NOT NULL))),
+    CONSTRAINT kyb_compliance_notice_outbox_check4 CHECK ((((state)::text = 'terminal'::text) = (terminal_at IS NOT NULL))),
+    CONSTRAINT kyb_compliance_notice_outbox_check5 CHECK ((((state)::text = 'cancelled'::text) = (cancelled_at IS NOT NULL))),
+    CONSTRAINT kyb_compliance_notice_outbox_check6 CHECK ((num_nonnulls(delivered_at, terminal_at, cancelled_at) <= 1)),
+    CONSTRAINT kyb_compliance_notice_outbox_last_error_code_check CHECK (((last_error_code IS NULL) OR ((last_error_code)::text = ANY ((ARRAY['recipient_unavailable'::character varying, 'mail_delivery_failed'::character varying, 'attempt_limit_reached'::character varying])::text[])))),
+    CONSTRAINT kyb_compliance_notice_outbox_profile_type_check CHECK (((profile_type)::text = ANY ((ARRAY['personal'::character varying, 'organization'::character varying])::text[]))),
+    CONSTRAINT kyb_compliance_notice_outbox_reminder_stage_check CHECK (((reminder_stage)::text = ANY ((ARRAY['day0'::character varying, 'month1'::character varying, 'day15'::character varying, 'day7'::character varying, 'day1'::character varying, 'due'::character varying, 'reactivated'::character varying])::text[]))),
+    CONSTRAINT kyb_compliance_notice_outbox_state_check CHECK (((state)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying, 'delivered'::character varying, 'terminal'::character varying, 'cancelled'::character varying])::text[])))
+);
+
+
+--
+-- Name: kyb_rut_claim; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kyb_rut_claim (
+    rut_kind character varying(20) NOT NULL,
+    fingerprint character varying(97) NOT NULL,
+    verification_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT kyb_rut_claim_fingerprint_check CHECK (((fingerprint)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text)),
+    CONSTRAINT kyb_rut_claim_rut_kind_check CHECK (((rut_kind)::text = ANY ((ARRAY['company'::character varying, 'representative'::character varying])::text[])))
+);
+
+
+--
+-- Name: kyb_verification_document; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kyb_verification_document (
+    id uuid NOT NULL,
+    verification_id uuid NOT NULL,
+    document_kind character varying(40) NOT NULL,
+    storage_ref uuid NOT NULL,
+    mime_type character varying(32) NOT NULL,
+    size_bytes bigint NOT NULL,
+    content_sha256 bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    review_status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
+    rejection_reason character varying(500),
+    reviewer_id uuid,
+    reviewed_at timestamp with time zone,
+    CONSTRAINT kyb_verification_document_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT kyb_verification_document_document_kind_check CHECK (((document_kind)::text = ANY ((ARRAY['erut'::character varying, 'sii_start_activities'::character varying, 'power_certificate'::character varying, 'property_or_sublease_authorization'::character varying])::text[]))),
+    CONSTRAINT kyb_verification_document_mime_type_check CHECK (((mime_type)::text = ANY ((ARRAY['application/pdf'::character varying, 'image/jpeg'::character varying, 'image/png'::character varying])::text[]))),
+    CONSTRAINT kyb_verification_document_rejection_reason_ck CHECK (((((review_status)::text = 'REJECTED'::text) AND (rejection_reason IS NOT NULL) AND ((length(btrim((rejection_reason)::text)) >= 5) AND (length(btrim((rejection_reason)::text)) <= 500))) OR (((review_status)::text <> 'REJECTED'::text) AND (rejection_reason IS NULL)))),
+    CONSTRAINT kyb_verification_document_review_consistency_ck CHECK (((((review_status)::text = ANY ((ARRAY['APPROVED'::character varying, 'REJECTED'::character varying])::text[])) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((review_status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[])) AND (reviewer_id IS NULL) AND (reviewed_at IS NULL)))),
+    CONSTRAINT kyb_verification_document_review_status_check CHECK (((review_status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[]))),
+    CONSTRAINT kyb_verification_document_size_bytes_check CHECK (((size_bytes >= 1) AND (size_bytes <= 10485760)))
+);
+
+
+--
+-- Name: kyb_verification_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kyb_verification_event (
+    id bigint NOT NULL,
+    verification_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    action character varying(24) NOT NULL,
+    from_status character varying(16),
+    to_status character varying(16) NOT NULL,
+    reason character varying(500),
+    occurred_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT kyb_verification_event_action_check CHECK (((action)::text = ANY ((ARRAY['submitted'::character varying, 'review_started'::character varying, 'approved'::character varying, 'rejected'::character varying])::text[]))),
+    CONSTRAINT kyb_verification_event_from_status_check CHECK (((from_status IS NULL) OR ((from_status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))),
+    CONSTRAINT kyb_verification_event_to_status_check CHECK (((to_status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))
+);
+
+
+--
+-- Name: kyb_verification_event_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.kyb_verification_event ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.kyb_verification_event_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: kyb_verifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.kyb_verifications (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organization_id uuid NOT NULL,
+    submitted_by uuid NOT NULL,
+    idempotency_key character varying(120) NOT NULL,
+    legal_name character varying(200) NOT NULL,
+    company_rut_fingerprint character varying(97) NOT NULL,
+    company_rut_key_version character varying(64) NOT NULL,
+    company_rut_ciphertext bytea NOT NULL,
+    representative_name character varying(200) NOT NULL,
+    representative_rut_fingerprint character varying(97) NOT NULL,
+    representative_rut_key_version character varying(64) NOT NULL,
+    representative_rut_ciphertext bytea NOT NULL,
+    sii_giro_code character varying(6) NOT NULL,
+    status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
+    rejection_reason character varying(500),
+    submitted_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    reviewed_at timestamp with time zone,
+    reviewer_id uuid,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT kyb_verifications_check CHECK (((updated_at >= created_at) AND (submitted_at >= created_at))),
+    CONSTRAINT kyb_verifications_check1 CHECK (((((status)::text = 'REJECTED'::text) AND (rejection_reason IS NOT NULL) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text <> 'REJECTED'::text) AND (rejection_reason IS NULL)))),
+    CONSTRAINT kyb_verifications_check2 CHECK (((((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'REJECTED'::character varying])::text[])) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[])) AND (reviewer_id IS NULL) AND (reviewed_at IS NULL)))),
+    CONSTRAINT kyb_verifications_company_rut_ciphertext_check CHECK (((octet_length(company_rut_ciphertext) >= 29) AND (octet_length(company_rut_ciphertext) <= 65564))),
+    CONSTRAINT kyb_verifications_company_rut_fingerprint_check CHECK (((company_rut_fingerprint)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text)),
+    CONSTRAINT kyb_verifications_company_rut_key_version_check CHECK (((company_rut_key_version)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'::text)),
+    CONSTRAINT kyb_verifications_idempotency_key_check CHECK (((length(btrim((idempotency_key)::text)) >= 1) AND (length(btrim((idempotency_key)::text)) <= 120))),
+    CONSTRAINT kyb_verifications_legal_name_check CHECK (((length(btrim((legal_name)::text)) >= 2) AND (length(btrim((legal_name)::text)) <= 200))),
+    CONSTRAINT kyb_verifications_representative_name_check CHECK (((length(btrim((representative_name)::text)) >= 2) AND (length(btrim((representative_name)::text)) <= 200))),
+    CONSTRAINT kyb_verifications_representative_rut_ciphertext_check CHECK (((octet_length(representative_rut_ciphertext) >= 29) AND (octet_length(representative_rut_ciphertext) <= 65564))),
+    CONSTRAINT kyb_verifications_representative_rut_fingerprint_check CHECK (((representative_rut_fingerprint)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text)),
+    CONSTRAINT kyb_verifications_representative_rut_key_version_check CHECK (((representative_rut_key_version)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'::text)),
+    CONSTRAINT kyb_verifications_sii_giro_code_check CHECK (((sii_giro_code)::text ~ '^[0-9]{6}$'::text)),
+    CONSTRAINT kyb_verifications_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))
+);
 
 
 --
@@ -5448,10 +6779,43 @@ CREATE TABLE public.media_variant_intent (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     write_complete boolean DEFAULT false NOT NULL,
     CONSTRAINT media_variant_intent_generation_check CHECK (((generation IS NULL) OR (generation > 0))),
-    CONSTRAINT media_variant_intent_object_key_check CHECK ((((length(object_key) >= 1) AND (length(object_key) <= 1024)) AND ((object_key ~~ 'media/v1/%'::text) OR (object_key ~ '^users/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/spaces/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/images/v2/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9]{8}T[0-9]{6}[.][0-9]{9}Z_[1-9][0-9]*_(display|thumbnail)[.]webp$'::text)))),
+    CONSTRAINT media_variant_intent_object_key_check CHECK (((length(object_key) >= 1) AND (length(object_key) <= 1024) AND ((object_key ~~ 'media/v1/%'::text) OR (object_key ~ '^users/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/spaces/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/images/v2/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/[0-9]{8}T[0-9]{6}[.][0-9]{9}Z_[1-9][0-9]*_(display|thumbnail)[.]webp$'::text)))),
     CONSTRAINT media_variant_intent_provider_check CHECK ((provider = ANY (ARRAY['gcs'::text, 'filesystem'::text, 's3'::text]))),
     CONSTRAINT media_variant_intent_storage_ck CHECK ((((provider IS NULL) AND (bucket_name IS NULL) AND (generation IS NULL)) OR ((provider IS NOT NULL) AND (bucket_name IS NOT NULL) AND (generation IS NOT NULL)))),
     CONSTRAINT media_variant_intent_variant_check CHECK ((variant = ANY (ARRAY['display'::text, 'thumbnail'::text, 'avatar'::text])))
+);
+
+
+--
+-- Name: mensaje_reserva_comercial; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.mensaje_reserva_comercial (
+    secuencia bigint NOT NULL,
+    id uuid NOT NULL,
+    reserva_id uuid NOT NULL,
+    autor_id uuid,
+    clave_idempotencia text NOT NULL,
+    huella_solicitud bytea NOT NULL,
+    cuerpo text NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    CONSTRAINT mensaje_reserva_comercial_body_ck CHECK ((((char_length(cuerpo) >= 1) AND (char_length(cuerpo) <= 2000)) AND (length(btrim(cuerpo)) > 0))),
+    CONSTRAINT mensaje_reserva_comercial_hash_ck CHECK ((octet_length(huella_solicitud) = 32)),
+    CONSTRAINT mensaje_reserva_comercial_key_ck CHECK (((length(btrim(clave_idempotencia)) >= 1) AND (length(btrim(clave_idempotencia)) <= 200)))
+);
+
+
+--
+-- Name: mensaje_reserva_comercial_secuencia_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.mensaje_reserva_comercial ALTER COLUMN secuencia ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.mensaje_reserva_comercial_secuencia_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
 );
 
 
@@ -5469,7 +6833,7 @@ CREATE TABLE public.mensaje_reserva_ensayo (
     cuerpo text NOT NULL,
     creada_en timestamp with time zone NOT NULL,
     CONSTRAINT mensaje_reserva_ensayo_clave_idempotencia_check CHECK (((length(btrim(clave_idempotencia)) >= 1) AND (length(btrim(clave_idempotencia)) <= 200))),
-    CONSTRAINT mensaje_reserva_ensayo_cuerpo_check CHECK ((((char_length(cuerpo) >= 1) AND (char_length(cuerpo) <= 2000)) AND (length(btrim(cuerpo)) > 0))),
+    CONSTRAINT mensaje_reserva_ensayo_cuerpo_check CHECK (((char_length(cuerpo) >= 1) AND (char_length(cuerpo) <= 2000) AND (length(btrim(cuerpo)) > 0))),
     CONSTRAINT mensaje_reserva_ensayo_huella_solicitud_check CHECK ((octet_length(huella_solicitud) = 32))
 );
 
@@ -5742,6 +7106,100 @@ ALTER TABLE public.operacion_arriendo_historial_ensayo_local ALTER COLUMN secuen
 
 
 --
+-- Name: organizacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.organizacion (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    usuario_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    created_by_usuario_id uuid NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    company_rut_fingerprint character varying(97),
+    sii_giro_code character varying(6),
+    legal_name character varying(200),
+    trade_name character varying(200),
+    public_summary character varying(2000),
+    logo_media_id uuid,
+    commune_code character varying(32),
+    region_code character varying(32),
+    compliance_status character varying(32) DEFAULT 'grace_active'::character varying NOT NULL,
+    grace_started_at timestamp with time zone,
+    grace_due_at timestamp with time zone,
+    disabled_at timestamp with time zone,
+    disabled_reason character varying(500),
+    disabled_by uuid,
+    last_reminder_stage character varying(24),
+    CONSTRAINT organizacion_compliance_status_check CHECK (((compliance_status)::text = ANY ((ARRAY['grace_active'::character varying, 'in_review'::character varying, 'compliant'::character varying, 'disabled_missing_docs'::character varying])::text[]))),
+    CONSTRAINT organizacion_disabled_state_ck CHECK (((((compliance_status)::text = 'disabled_missing_docs'::text) AND (disabled_at IS NOT NULL) AND (disabled_reason IS NOT NULL)) OR (((compliance_status)::text <> 'disabled_missing_docs'::text) AND (disabled_at IS NULL)))),
+    CONSTRAINT organizacion_grace_dates_ck CHECK (((grace_due_at IS NULL) OR ((grace_started_at IS NOT NULL) AND (grace_due_at > grace_started_at)))),
+    CONSTRAINT organizacion_rut_fingerprint_ck CHECK (((company_rut_fingerprint IS NULL) OR ((company_rut_fingerprint)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text))),
+    CONSTRAINT organizacion_sii_giro_code_check CHECK (((sii_giro_code IS NULL) OR ((sii_giro_code)::text ~ '^[0-9]{6}$'::text)))
+);
+
+
+--
+-- Name: organizacion_invitacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.organizacion_invitacion (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organizacion_id uuid NOT NULL,
+    tipo character varying(24) NOT NULL,
+    target_email_normalized character varying(320),
+    target_usuario_id uuid,
+    rol_propuesto character varying(32) NOT NULL,
+    token_sha256 bytea,
+    estado character varying(16) DEFAULT 'pendiente'::character varying NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    created_by uuid NOT NULL,
+    resolved_by uuid,
+    resolved_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT organizacion_invitacion_check CHECK (((target_email_normalized IS NOT NULL) OR (target_usuario_id IS NOT NULL))),
+    CONSTRAINT organizacion_invitacion_check1 CHECK (((((estado)::text = 'pendiente'::text) AND (resolved_at IS NULL)) OR (((estado)::text <> 'pendiente'::text) AND (resolved_at IS NOT NULL)))),
+    CONSTRAINT organizacion_invitacion_estado_check CHECK (((estado)::text = ANY ((ARRAY['pendiente'::character varying, 'aceptada'::character varying, 'rechazada'::character varying, 'expirada'::character varying, 'revocada'::character varying])::text[]))),
+    CONSTRAINT organizacion_invitacion_rol_propuesto_check CHECK (((rol_propuesto)::text = ANY ((ARRAY['representante_legal'::character varying, 'administrador'::character varying, 'operador'::character varying])::text[]))),
+    CONSTRAINT organizacion_invitacion_target_email_normalized_check CHECK (((target_email_normalized IS NULL) OR ((target_email_normalized)::text = lower(btrim((target_email_normalized)::text))))),
+    CONSTRAINT organizacion_invitacion_tipo_check CHECK (((tipo)::text = ANY ((ARRAY['invitacion'::character varying, 'solicitud_adhesion'::character varying])::text[]))),
+    CONSTRAINT organizacion_invitacion_token_sha256_check CHECK (((token_sha256 IS NULL) OR (octet_length(token_sha256) = 32)))
+);
+
+
+--
+-- Name: organizacion_miembro; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.organizacion_miembro (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organizacion_id uuid NOT NULL,
+    usuario_id uuid NOT NULL,
+    rol character varying(32) NOT NULL,
+    estado character varying(16) DEFAULT 'activo'::character varying NOT NULL,
+    invited_by uuid,
+    joined_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    removed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    updated_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT organizacion_miembro_check CHECK (((((estado)::text = 'retirado'::text) AND (removed_at IS NOT NULL)) OR (((estado)::text <> 'retirado'::text) AND (removed_at IS NULL)))),
+    CONSTRAINT organizacion_miembro_estado_check CHECK (((estado)::text = ANY ((ARRAY['activo'::character varying, 'suspendido'::character varying, 'retirado'::character varying])::text[]))),
+    CONSTRAINT organizacion_miembro_rol_check CHECK (((rol)::text = ANY ((ARRAY['representante_legal'::character varying, 'administrador'::character varying, 'operador'::character varying])::text[])))
+);
+
+
+--
+-- Name: organizacion_rut_fingerprint; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.organizacion_rut_fingerprint (
+    organizacion_id uuid NOT NULL,
+    fingerprint character varying(97) NOT NULL,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    CONSTRAINT organizacion_rut_fingerprint_fingerprint_check CHECK (((fingerprint)::text ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,31}:[0-9a-f]{64}$'::text))
+);
+
+
+--
 -- Name: outbox_evento_ciclo_local; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -5814,8 +7272,220 @@ CREATE TABLE public.perfil_usuario (
     nombre_visible text NOT NULL,
     telefono_normalizado text,
     actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT perfil_usuario_nombre_ck CHECK ((((length(btrim(nombre_visible)) >= 1) AND (length(btrim(nombre_visible)) <= 120)) AND (nombre_visible ~ '^[[:alpha:] ]+$'::text))),
+    CONSTRAINT perfil_usuario_nombre_ck CHECK (((length(btrim(nombre_visible)) >= 1) AND (length(btrim(nombre_visible)) <= 120) AND (nombre_visible ~ '^[[:alpha:] ]+$'::text))),
     CONSTRAINT perfil_usuario_telefono_ck CHECK (((telefono_normalizado IS NULL) OR (telefono_normalizado ~ '^[0-9]{9}$'::text)))
+);
+
+
+--
+-- Name: privacidad_bloqueo_tratamiento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_bloqueo_tratamiento (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    cuenta_id uuid NOT NULL,
+    solicitud_id uuid NOT NULL,
+    ambito text NOT NULL,
+    estado text DEFAULT 'activo'::text NOT NULL,
+    motivo text NOT NULL,
+    aplicado_por uuid NOT NULL,
+    aplicado_en timestamp with time zone DEFAULT now() NOT NULL,
+    revisar_en timestamp with time zone,
+    levantado_por uuid,
+    levantado_en timestamp with time zone,
+    motivo_levantamiento text,
+    CONSTRAINT privacidad_bloqueo_tratamiento_ambito_check CHECK ((ambito = ANY (ARRAY['comunicaciones_comerciales'::text, 'analitica_y_perfilado'::text, 'publicaciones_y_visibilidad'::text, 'exportaciones_y_terceros'::text, 'tratamiento_general'::text]))),
+    CONSTRAINT privacidad_bloqueo_tratamiento_check CHECK ((((estado = 'activo'::text) AND (levantado_por IS NULL) AND (levantado_en IS NULL) AND (motivo_levantamiento IS NULL)) OR ((estado = 'levantado'::text) AND (levantado_por IS NOT NULL) AND (levantado_en IS NOT NULL) AND (motivo_levantamiento IS NOT NULL)))),
+    CONSTRAINT privacidad_bloqueo_tratamiento_estado_check CHECK ((estado = ANY (ARRAY['activo'::text, 'levantado'::text]))),
+    CONSTRAINT privacidad_bloqueo_tratamiento_motivo_check CHECK (((char_length(btrim(motivo)) >= 10) AND (char_length(btrim(motivo)) <= 1000))),
+    CONSTRAINT privacidad_bloqueo_tratamiento_motivo_levantamiento_check CHECK (((motivo_levantamiento IS NULL) OR ((char_length(btrim(motivo_levantamiento)) >= 10) AND (char_length(btrim(motivo_levantamiento)) <= 1000))))
+);
+
+
+--
+-- Name: privacidad_ejecucion_derecho; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_ejecucion_derecho (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    solicitud_id uuid NOT NULL,
+    cuenta_id uuid,
+    tipo_ejecucion text NOT NULL,
+    estado text DEFAULT 'ejecutada'::text NOT NULL,
+    ambito text NOT NULL,
+    resumen_operativo text NOT NULL,
+    destino_referencia text,
+    sha256_artefacto text,
+    ejecutado_por uuid NOT NULL,
+    ejecutado_en timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT privacidad_ejecucion_derecho_ambito_check CHECK (((char_length(btrim(ambito)) >= 2) AND (char_length(btrim(ambito)) <= 120))),
+    CONSTRAINT privacidad_ejecucion_derecho_destino_referencia_check CHECK (((destino_referencia IS NULL) OR ((char_length(btrim(destino_referencia)) >= 2) AND (char_length(btrim(destino_referencia)) <= 200)))),
+    CONSTRAINT privacidad_ejecucion_derecho_estado_check CHECK ((estado = ANY (ARRAY['ejecutada'::text, 'parcial'::text, 'denegada'::text]))),
+    CONSTRAINT privacidad_ejecucion_derecho_resumen_operativo_check CHECK (((char_length(btrim(resumen_operativo)) >= 10) AND (char_length(btrim(resumen_operativo)) <= 1000))),
+    CONSTRAINT privacidad_ejecucion_derecho_sha256_artefacto_check CHECK (((sha256_artefacto IS NULL) OR (sha256_artefacto ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT privacidad_ejecucion_derecho_tipo_ejecucion_check CHECK ((tipo_ejecucion = ANY (ARRAY['rectificacion_perfil'::text, 'oposicion_finalidad'::text, 'bloqueo_aplicado'::text, 'bloqueo_levantado'::text, 'portabilidad_emitida'::text, 'transferencia_portabilidad'::text, 'propagacion_encargado'::text])))
+);
+
+
+--
+-- Name: privacidad_incidente_datos; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_incidente_datos (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    folio_incidente text NOT NULL,
+    titulo text NOT NULL,
+    severidad text NOT NULL,
+    estado text DEFAULT 'abierto'::text NOT NULL,
+    categorias_datos text[] NOT NULL,
+    sistemas_afectados text[] NOT NULL,
+    titulares_estimados integer DEFAULT 0 NOT NULL,
+    resumen_hechos text NOT NULL,
+    medidas_contencion text,
+    requiere_notificacion_agencia boolean DEFAULT false CONSTRAINT privacidad_incidente_datos_requiere_notificacion_agenc_not_null NOT NULL,
+    notificado_agencia_en timestamp with time zone,
+    referencia_agencia text,
+    requiere_notificacion_titulares boolean DEFAULT false CONSTRAINT privacidad_incidente_datos_requiere_notificacion_titul_not_null NOT NULL,
+    notificado_titulares_en timestamp with time zone,
+    lider_id uuid NOT NULL,
+    suplente_id uuid,
+    detectado_en timestamp with time zone NOT NULL,
+    creado_por uuid NOT NULL,
+    creado_en timestamp with time zone DEFAULT now() NOT NULL,
+    actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+    cerrado_en timestamp with time zone,
+    version integer DEFAULT 1 NOT NULL,
+    CONSTRAINT privacidad_incidente_datos_categorias_datos_check CHECK ((cardinality(categorias_datos) >= 1)),
+    CONSTRAINT privacidad_incidente_datos_check CHECK (((estado = 'cerrado'::text) = (cerrado_en IS NOT NULL))),
+    CONSTRAINT privacidad_incidente_datos_check1 CHECK (((notificado_agencia_en IS NULL) OR (requiere_notificacion_agencia = true))),
+    CONSTRAINT privacidad_incidente_datos_check2 CHECK (((notificado_titulares_en IS NULL) OR (requiere_notificacion_titulares = true))),
+    CONSTRAINT privacidad_incidente_datos_estado_check CHECK ((estado = ANY (ARRAY['abierto'::text, 'contenido'::text, 'evaluado'::text, 'notificado'::text, 'cerrado'::text]))),
+    CONSTRAINT privacidad_incidente_datos_medidas_contencion_check CHECK (((medidas_contencion IS NULL) OR ((char_length(btrim(medidas_contencion)) >= 10) AND (char_length(btrim(medidas_contencion)) <= 2000)))),
+    CONSTRAINT privacidad_incidente_datos_referencia_agencia_check CHECK (((referencia_agencia IS NULL) OR ((char_length(btrim(referencia_agencia)) >= 2) AND (char_length(btrim(referencia_agencia)) <= 160)))),
+    CONSTRAINT privacidad_incidente_datos_resumen_hechos_check CHECK (((char_length(btrim(resumen_hechos)) >= 10) AND (char_length(btrim(resumen_hechos)) <= 2000))),
+    CONSTRAINT privacidad_incidente_datos_severidad_check CHECK ((severidad = ANY (ARRAY['baja'::text, 'media'::text, 'alta'::text, 'critica'::text]))),
+    CONSTRAINT privacidad_incidente_datos_sistemas_afectados_check CHECK ((cardinality(sistemas_afectados) >= 1)),
+    CONSTRAINT privacidad_incidente_datos_titulares_estimados_check CHECK ((titulares_estimados >= 0)),
+    CONSTRAINT privacidad_incidente_datos_titulo_check CHECK (((char_length(btrim(titulo)) >= 5) AND (char_length(btrim(titulo)) <= 200))),
+    CONSTRAINT privacidad_incidente_datos_version_check CHECK ((version >= 1))
+);
+
+
+--
+-- Name: privacidad_incidente_evento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_incidente_evento (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    incidente_id uuid NOT NULL,
+    secuencia integer NOT NULL,
+    tipo_evento text NOT NULL,
+    actor_id uuid NOT NULL,
+    detalle text NOT NULL,
+    creado_en timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT privacidad_incidente_evento_detalle_check CHECK (((char_length(btrim(detalle)) >= 5) AND (char_length(btrim(detalle)) <= 2000))),
+    CONSTRAINT privacidad_incidente_evento_secuencia_check CHECK ((secuencia >= 1)),
+    CONSTRAINT privacidad_incidente_evento_tipo_evento_check CHECK ((tipo_evento = ANY (ARRAY['apertura'::text, 'contencion'::text, 'evaluacion'::text, 'notificacion_agencia'::text, 'notificacion_titulares'::text, 'nota'::text, 'cierre'::text])))
+);
+
+
+--
+-- Name: privacidad_notificacion_outbox; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_notificacion_outbox (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    solicitud_id uuid NOT NULL,
+    tipo_aviso text NOT NULL,
+    clave_idempotencia text NOT NULL,
+    destinatario_correo text NOT NULL,
+    asunto text NOT NULL,
+    cuerpo_texto text NOT NULL,
+    estado text DEFAULT 'pending'::text NOT NULL,
+    intentos smallint DEFAULT 0 NOT NULL,
+    disponible_en timestamp with time zone DEFAULT now() NOT NULL,
+    reclamado_en timestamp with time zone,
+    entregado_en timestamp with time zone,
+    terminal_en timestamp with time zone,
+    ultimo_error_codigo text,
+    creado_en timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT privacidad_notificacion_outbox_asunto_check CHECK (((char_length(asunto) >= 3) AND (char_length(asunto) <= 200))),
+    CONSTRAINT privacidad_notificacion_outbox_check CHECK (((estado = 'processing'::text) = (reclamado_en IS NOT NULL))),
+    CONSTRAINT privacidad_notificacion_outbox_check1 CHECK (((estado = 'delivered'::text) = (entregado_en IS NOT NULL))),
+    CONSTRAINT privacidad_notificacion_outbox_check2 CHECK (((estado = 'terminal'::text) = (terminal_en IS NOT NULL))),
+    CONSTRAINT privacidad_notificacion_outbox_check3 CHECK ((num_nonnulls(entregado_en, terminal_en) <= 1)),
+    CONSTRAINT privacidad_notificacion_outbox_cuerpo_texto_check CHECK (((char_length(cuerpo_texto) >= 10) AND (char_length(cuerpo_texto) <= 4000))),
+    CONSTRAINT privacidad_notificacion_outbox_destinatario_correo_check CHECK (((char_length(destinatario_correo) >= 5) AND (char_length(destinatario_correo) <= 254))),
+    CONSTRAINT privacidad_notificacion_outbox_estado_check CHECK ((estado = ANY (ARRAY['pending'::text, 'processing'::text, 'delivered'::text, 'terminal'::text]))),
+    CONSTRAINT privacidad_notificacion_outbox_intentos_check CHECK (((intentos >= 0) AND (intentos <= 6))),
+    CONSTRAINT privacidad_notificacion_outbox_tipo_aviso_check CHECK ((tipo_aviso = ANY (ARRAY['acuse_recepcion'::text, 'aclaracion_solicitada'::text, 'prorroga_plazo'::text, 'resolucion_publicada'::text]))),
+    CONSTRAINT privacidad_notificacion_outbox_ultimo_error_codigo_check CHECK (((ultimo_error_codigo IS NULL) OR (ultimo_error_codigo = ANY (ARRAY['mail_delivery_failed'::text, 'attempt_limit_reached'::text]))))
+);
+
+
+--
+-- Name: privacidad_preferencia_finalidad; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_preferencia_finalidad (
+    cuenta_id uuid NOT NULL,
+    finalidad text NOT NULL,
+    estado text NOT NULL,
+    causal text,
+    solicitud_id uuid,
+    actualizado_por uuid NOT NULL,
+    actualizado_en timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT privacidad_preferencia_finalidad_causal_check CHECK (((causal IS NULL) OR ((char_length(btrim(causal)) >= 5) AND (char_length(btrim(causal)) <= 500)))),
+    CONSTRAINT privacidad_preferencia_finalidad_estado_check CHECK ((estado = ANY (ARRAY['permitido'::text, 'opuesto'::text, 'retirado'::text]))),
+    CONSTRAINT privacidad_preferencia_finalidad_finalidad_check CHECK ((finalidad = ANY (ARRAY['comunicaciones_comerciales'::text, 'analitica_producto'::text, 'personalizacion_recomendaciones'::text, 'comparticion_encargados_opcionales'::text])))
+);
+
+
+--
+-- Name: privacidad_retencion_legal; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacidad_retencion_legal (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    folio_retencion text NOT NULL,
+    cuenta_id uuid,
+    solicitud_id uuid,
+    incidente_id uuid,
+    ambito text NOT NULL,
+    autoridad text NOT NULL,
+    fundamento text NOT NULL,
+    estado text DEFAULT 'activa'::text NOT NULL,
+    revisar_en timestamp with time zone,
+    aplicada_por uuid NOT NULL,
+    aplicada_en timestamp with time zone DEFAULT now() NOT NULL,
+    liberada_por uuid,
+    liberada_en timestamp with time zone,
+    motivo_liberacion text,
+    CONSTRAINT privacidad_retencion_legal_ambito_check CHECK ((ambito = ANY (ARRAY['expediente_privacidad'::text, 'cuenta_completa'::text, 'evidencia_kyc'::text, 'contratos_y_pagos'::text, 'incidente_seguridad'::text]))),
+    CONSTRAINT privacidad_retencion_legal_autoridad_check CHECK (((char_length(btrim(autoridad)) >= 3) AND (char_length(btrim(autoridad)) <= 200))),
+    CONSTRAINT privacidad_retencion_legal_check CHECK ((((estado = 'activa'::text) AND (liberada_por IS NULL) AND (liberada_en IS NULL) AND (motivo_liberacion IS NULL)) OR ((estado = 'liberada'::text) AND (liberada_por IS NOT NULL) AND (liberada_en IS NOT NULL) AND (motivo_liberacion IS NOT NULL)))),
+    CONSTRAINT privacidad_retencion_legal_estado_check CHECK ((estado = ANY (ARRAY['activa'::text, 'liberada'::text]))),
+    CONSTRAINT privacidad_retencion_legal_fundamento_check CHECK (((char_length(btrim(fundamento)) >= 10) AND (char_length(btrim(fundamento)) <= 1000))),
+    CONSTRAINT privacidad_retencion_legal_motivo_liberacion_check CHECK (((motivo_liberacion IS NULL) OR ((char_length(btrim(motivo_liberacion)) >= 10) AND (char_length(btrim(motivo_liberacion)) <= 1000))))
+);
+
+
+--
+-- Name: privacy_response_dispatch_receipt; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.privacy_response_dispatch_receipt (
+    request_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    channel text NOT NULL,
+    destination text NOT NULL,
+    sent_at timestamp with time zone NOT NULL,
+    evidence_ref text NOT NULL,
+    dispatch_recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT privacy_dispatch_destination_ck CHECK ((((channel = 'email'::text) AND (destination ~* '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'::text)) OR ((channel = 'postal'::text) AND (length(btrim(destination)) >= 5)))),
+    CONSTRAINT privacy_response_dispatch_receipt_channel_check CHECK ((channel = ANY (ARRAY['email'::text, 'postal'::text]))),
+    CONSTRAINT privacy_response_dispatch_receipt_destination_check CHECK (((length(btrim(destination)) >= 1) AND (length(btrim(destination)) <= 500))),
+    CONSTRAINT privacy_response_dispatch_receipt_evidence_ref_check CHECK (((length(btrim(evidence_ref)) >= 1) AND (length(btrim(evidence_ref)) <= 500)))
 );
 
 
@@ -5827,6 +7497,19 @@ CREATE TABLE public.profile_media (
     propietario_id uuid NOT NULL,
     media_id uuid NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: profile_pinpass_reauth; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.profile_pinpass_reauth (
+    account_id uuid NOT NULL,
+    failed_attempts integer DEFAULT 0 NOT NULL,
+    blocked_until timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT profile_pinpass_reauth_failed_attempts_check CHECK ((failed_attempts >= 0))
 );
 
 
@@ -6098,6 +7781,41 @@ COMMENT ON TABLE public.resena_ensayo_local IS 'Synthetic local reviews; remove 
 
 
 --
+-- Name: resena_reserva_comercial; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.resena_reserva_comercial (
+    id uuid NOT NULL,
+    reserva_id uuid NOT NULL,
+    espacio_id uuid NOT NULL,
+    autor_id uuid,
+    destinatario_tipo text NOT NULL,
+    destinatario_id uuid,
+    calificacion smallint NOT NULL,
+    comentario text DEFAULT ''::text NOT NULL,
+    estado text DEFAULT 'publicada'::text NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    retirar_en timestamp with time zone NOT NULL,
+    clave_idempotencia text NOT NULL,
+    huella_solicitud bytea NOT NULL,
+    CONSTRAINT resena_reserva_comercial_destino_ck CHECK ((((destinatario_tipo = 'espacio'::text) AND (destinatario_id IS NULL)) OR ((destinatario_tipo = 'arrendatario'::text) AND (destinatario_id IS NOT NULL)))),
+    CONSTRAINT resena_reserva_comercial_hash_ck CHECK ((octet_length(huella_solicitud) = 32)),
+    CONSTRAINT resena_reserva_comercial_key_ck CHECK (((length(btrim(clave_idempotencia)) >= 8) AND (length(btrim(clave_idempotencia)) <= 200))),
+    CONSTRAINT resena_reserva_comercial_participants_ck CHECK (((autor_id IS NULL) OR (destinatario_id IS NULL) OR (autor_id <> destinatario_id))),
+    CONSTRAINT resena_reserva_comercial_rating_ck CHECK (((calificacion >= 1) AND (calificacion <= 5))),
+    CONSTRAINT resena_reserva_comercial_retencion_ck CHECK ((retirar_en = (creada_en + '2 years'::interval))),
+    CONSTRAINT resena_reserva_comercial_state_ck CHECK ((estado = ANY (ARRAY['publicada'::text, 'reportada'::text, 'oculta'::text])))
+);
+
+
+--
+-- Name: TABLE resena_reserva_comercial; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.resena_reserva_comercial IS 'Reviews from paid commercial reservations; participant identifiers are nulled after the 24-month link retention window.';
+
+
+--
 -- Name: reserva_arriendo_comercial; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6126,8 +7844,9 @@ CREATE TABLE public.reserva_arriendo_comercial (
     CONSTRAINT reserva_arriendo_comercial_check CHECK ((subtotal_clp = (precio_unitario_clp * unidades))),
     CONSTRAINT reserva_arriendo_comercial_check1 CHECK ((termino > inicio)),
     CONSTRAINT reserva_arriendo_comercial_check2 CHECK ((isfinite(inicio) AND isfinite(termino) AND isfinite(pago_vence_en) AND isfinite(creada_en) AND isfinite(actualizada_en))),
-    CONSTRAINT reserva_arriendo_comercial_check3 CHECK ((((estado = ANY (ARRAY['pendiente_de_pago'::text, 'reconciliation_required'::text])) AND (pago_vence_en IS NOT NULL)) OR (estado = ANY (ARRAY['pagada'::text, 'cancelada_por_pago'::text, 'vencida_pago'::text])))),
-    CONSTRAINT reserva_arriendo_comercial_estado_check CHECK ((estado = ANY (ARRAY['pendiente_de_pago'::text, 'pagada'::text, 'cancelada_por_pago'::text, 'vencida_pago'::text, 'reconciliation_required'::text]))),
+    CONSTRAINT reserva_arriendo_comercial_check3 CHECK ((((estado = ANY (ARRAY['pendiente_de_pago'::text, 'reconciliation_required'::text])) AND (pago_vence_en IS NOT NULL)) OR (estado = ANY (ARRAY['pagada'::text, 'cancelada_por_pago'::text, 'vencida_pago'::text, 'cancelada'::text, 'reembolsada'::text])))),
+    CONSTRAINT reserva_arriendo_comercial_distinct_participants_ck CHECK ((anfitrion_id <> arrendatario_id)),
+    CONSTRAINT reserva_arriendo_comercial_estado_check CHECK ((estado = ANY (ARRAY['pendiente_de_pago'::text, 'pagada'::text, 'cancelada_por_pago'::text, 'vencida_pago'::text, 'reconciliation_required'::text, 'cancelada'::text, 'reembolsada'::text]))),
     CONSTRAINT reserva_arriendo_comercial_modalidad_check CHECK ((modalidad = ANY (ARRAY['hora'::text, 'dia'::text, 'mes'::text]))),
     CONSTRAINT reserva_arriendo_comercial_moneda_check CHECK ((moneda = 'CLP'::bpchar)),
     CONSTRAINT reserva_arriendo_comercial_precio_unitario_clp_check CHECK ((precio_unitario_clp > 0)),
@@ -6168,6 +7887,65 @@ CREATE TABLE public.reserva_cancelacion_ensayo (
     creada_en timestamp with time zone NOT NULL,
     CONSTRAINT reserva_cancelacion_ensayo_clave_idempotencia_check CHECK (((length(btrim(clave_idempotencia)) >= 1) AND (length(btrim(clave_idempotencia)) <= 200))),
     CONSTRAINT reserva_cancelacion_ensayo_huella_solicitud_check CHECK ((octet_length(huella_solicitud) = 32))
+);
+
+
+--
+-- Name: reserva_comercial_cancelacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reserva_comercial_cancelacion (
+    id uuid NOT NULL,
+    reserva_id uuid NOT NULL,
+    actor_id uuid NOT NULL,
+    rol_actor text NOT NULL,
+    politica_version text NOT NULL,
+    politica_texto text NOT NULL,
+    motivo text NOT NULL,
+    porcentaje_reembolso smallint NOT NULL,
+    monto_total_clp bigint NOT NULL,
+    monto_reembolso_clp bigint NOT NULL,
+    clave_idempotencia text NOT NULL,
+    provider_refund_id text,
+    refund_status text NOT NULL,
+    intentos integer DEFAULT 0 NOT NULL,
+    creada_en timestamp with time zone NOT NULL,
+    actualizada_en timestamp with time zone NOT NULL,
+    resuelta_en timestamp with time zone,
+    CONSTRAINT reserva_comercial_cancelacion_check CHECK (((monto_reembolso_clp >= 0) AND (monto_reembolso_clp <= monto_total_clp))),
+    CONSTRAINT reserva_comercial_cancelacion_check1 CHECK ((isfinite(creada_en) AND isfinite(actualizada_en) AND ((resuelta_en IS NULL) OR isfinite(resuelta_en)))),
+    CONSTRAINT reserva_comercial_cancelacion_check2 CHECK ((((refund_status = ANY (ARRAY['pendiente'::text, 'fallido'::text])) AND (resuelta_en IS NULL)) OR ((refund_status = ANY (ARRAY['aprobado'::text, 'no_aplica'::text])) AND (resuelta_en IS NOT NULL)))),
+    CONSTRAINT reserva_comercial_cancelacion_check3 CHECK ((((monto_reembolso_clp = 0) AND (refund_status = ANY (ARRAY['no_aplica'::text, 'pendiente'::text, 'fallido'::text]))) OR ((monto_reembolso_clp > 0) AND (refund_status = ANY (ARRAY['pendiente'::text, 'fallido'::text, 'aprobado'::text]))))),
+    CONSTRAINT reserva_comercial_cancelacion_clave_idempotencia_check CHECK (((length(clave_idempotencia) >= 1) AND (length(clave_idempotencia) <= 200))),
+    CONSTRAINT reserva_comercial_cancelacion_intentos_check CHECK ((intentos >= 0)),
+    CONSTRAINT reserva_comercial_cancelacion_monto_total_clp_check CHECK ((monto_total_clp > 0)),
+    CONSTRAINT reserva_comercial_cancelacion_motivo_check CHECK (((length(btrim(motivo)) >= 1) AND (length(btrim(motivo)) <= 500))),
+    CONSTRAINT reserva_comercial_cancelacion_politica_texto_check CHECK (((length(btrim(politica_texto)) >= 1) AND (length(btrim(politica_texto)) <= 500))),
+    CONSTRAINT reserva_comercial_cancelacion_politica_version_check CHECK ((politica_version = ANY (ARRAY['facil_v1'::text, 'flexible_v1'::text, 'moderada_v1'::text, 'estricta_v1'::text, 'sin_snapshot_v1'::text]))),
+    CONSTRAINT reserva_comercial_cancelacion_porcentaje_reembolso_check CHECK (((porcentaje_reembolso >= 0) AND (porcentaje_reembolso <= 100))),
+    CONSTRAINT reserva_comercial_cancelacion_provider_refund_id_check CHECK (((provider_refund_id IS NULL) OR (provider_refund_id ~ '^[A-Za-z0-9_-]{1,100}$'::text))),
+    CONSTRAINT reserva_comercial_cancelacion_refund_status_check CHECK ((refund_status = ANY (ARRAY['pendiente'::text, 'aprobado'::text, 'fallido'::text, 'no_aplica'::text]))),
+    CONSTRAINT reserva_comercial_cancelacion_rol_actor_check CHECK ((rol_actor = ANY (ARRAY['arrendatario'::text, 'anfitrion'::text])))
+);
+
+
+--
+-- Name: TABLE reserva_comercial_cancelacion; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.reserva_comercial_cancelacion IS 'Durable cancellation and refund intent for commercial reservations; retries reuse clave_idempotencia.';
+
+
+--
+-- Name: reserva_comercial_mensaje_lectura; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.reserva_comercial_mensaje_lectura (
+    reserva_id uuid NOT NULL,
+    usuario_id uuid NOT NULL,
+    ultima_secuencia_leida bigint CONSTRAINT reserva_comercial_mensaje_lectu_ultima_secuencia_leida_not_null NOT NULL,
+    actualizada_en timestamp with time zone NOT NULL,
+    CONSTRAINT reserva_comercial_mensaje_lectura_sequence_ck CHECK ((ultima_secuencia_leida > 0))
 );
 
 
@@ -6913,7 +8691,7 @@ CREATE TABLE public.solicitud_privacidad_administrativa (
 
 CREATE TABLE public.solicitud_titular (
     id uuid NOT NULL,
-    usuario_id uuid NOT NULL,
+    usuario_id uuid,
     tipo text NOT NULL,
     canal text NOT NULL,
     estado text DEFAULT 'en_revision'::text NOT NULL,
@@ -6921,11 +8699,105 @@ CREATE TABLE public.solicitud_titular (
     resuelta_en timestamp with time zone,
     motivo_resolucion_codigo text,
     retirar_en timestamp with time zone,
-    CONSTRAINT solicitud_titular_canal_ck CHECK ((canal = ANY (ARRAY['web'::text, 'api'::text]))),
+    solicitado_por uuid,
+    motivo_administrativo text,
+    caso_ref_administrativo text,
+    respuesta_titular text,
+    detalle_titular text,
+    asignado_a_id uuid,
+    vence_en timestamp with time zone,
+    prorrogada_hasta timestamp with time zone,
+    prorroga_motivo text,
+    version integer DEFAULT 1 NOT NULL,
+    folio_publico text DEFAULT ('PRIV-'::text || upper(substr(replace((gen_random_uuid())::text, '-'::text, ''::text), 1, 10))) NOT NULL,
+    solicitante_tipo text DEFAULT 'titular'::text NOT NULL,
+    solicitante_nombre text,
+    solicitante_correo text,
+    representante_nombre text,
+    representante_relacion text,
+    titular_referencia text,
+    consulta_token_hash bytea,
+    CONSTRAINT solicitud_titular_canal_ck CHECK ((canal = ANY (ARRAY['web'::text, 'api'::text, 'publico'::text, 'correo'::text]))),
+    CONSTRAINT solicitud_titular_consulta_token_hash_check CHECK (((consulta_token_hash IS NULL) OR (octet_length(consulta_token_hash) = 32))),
+    CONSTRAINT solicitud_titular_detalle_titular_ck CHECK (((detalle_titular IS NULL) OR (((length(btrim(detalle_titular)) >= 1) AND (length(btrim(detalle_titular)) <= 1000)) AND ((tipo <> ALL (ARRAY['rectificacion'::text, 'oposicion'::text, 'bloqueo'::text])) OR (length(btrim(detalle_titular)) >= 10))))),
     CONSTRAINT solicitud_titular_estado_ck CHECK ((estado = ANY (ARRAY['recibida'::text, 'identidad_pendiente'::text, 'en_revision'::text, 'resuelta'::text, 'denegada_fundada'::text]))),
-    CONSTRAINT solicitud_titular_motivo_ck CHECK (((motivo_resolucion_codigo IS NULL) OR (motivo_resolucion_codigo = ANY (ARRAY['baja_local_minimizada'::text, 'derecho_tramitado'::text])))),
+    CONSTRAINT solicitud_titular_identificacion_ck CHECK (((usuario_id IS NOT NULL) OR ((solicitante_nombre IS NOT NULL) AND (solicitante_correo IS NOT NULL)))),
+    CONSTRAINT solicitud_titular_motivo_ck CHECK (((motivo_resolucion_codigo IS NULL) OR (motivo_resolucion_codigo = ANY (ARRAY['baja_local_minimizada'::text, 'derecho_tramitado'::text, 'respuesta_acceso_publicada'::text, 'respuesta_derecho_publicada'::text, 'denegacion_fundada'::text])))),
+    CONSTRAINT solicitud_titular_prorroga_ck CHECK ((((prorrogada_hasta IS NULL) AND (prorroga_motivo IS NULL)) OR ((prorrogada_hasta IS NOT NULL) AND (vence_en IS NOT NULL) AND (prorrogada_hasta > vence_en) AND (prorrogada_hasta <= (vence_en + '31 days'::interval)) AND (prorroga_motivo IS NOT NULL) AND ((length(btrim(prorroga_motivo)) >= 10) AND (length(btrim(prorroga_motivo)) <= 1000))))),
+    CONSTRAINT solicitud_titular_representante_ck CHECK ((((solicitante_tipo = 'titular'::text) AND (representante_nombre IS NULL) AND (representante_relacion IS NULL)) OR ((solicitante_tipo = 'representante'::text) AND (representante_nombre IS NOT NULL) AND (representante_relacion IS NOT NULL)))),
+    CONSTRAINT solicitud_titular_representante_nombre_check CHECK (((representante_nombre IS NULL) OR ((char_length(btrim(representante_nombre)) >= 2) AND (char_length(btrim(representante_nombre)) <= 160)))),
+    CONSTRAINT solicitud_titular_representante_relacion_check CHECK (((representante_relacion IS NULL) OR (representante_relacion = ANY (ARRAY['mandatario'::text, 'representante_legal'::text, 'tutor_nna'::text])))),
     CONSTRAINT solicitud_titular_resolucion_ck CHECK ((((resuelta_en IS NULL) AND (motivo_resolucion_codigo IS NULL) AND (retirar_en IS NULL)) OR ((resuelta_en IS NOT NULL) AND (motivo_resolucion_codigo IS NOT NULL) AND (retirar_en = (resuelta_en + '5 years'::interval))))),
-    CONSTRAINT solicitud_titular_tipo_ck CHECK ((tipo = ANY (ARRAY['acceso'::text, 'supresion'::text])))
+    CONSTRAINT solicitud_titular_respuesta_ck CHECK (((respuesta_titular IS NULL) OR ((estado = ANY (ARRAY['resuelta'::text, 'denegada_fundada'::text])) AND (resuelta_en IS NOT NULL) AND (motivo_resolucion_codigo = ANY (ARRAY['respuesta_acceso_publicada'::text, 'respuesta_derecho_publicada'::text, 'denegacion_fundada'::text, 'derecho_tramitado'::text, 'baja_local_minimizada'::text])) AND ((length(btrim(respuesta_titular)) >= 10) AND (length(btrim(respuesta_titular)) <= 4000))))),
+    CONSTRAINT solicitud_titular_solicitante_correo_check CHECK (((solicitante_correo IS NULL) OR ((char_length(btrim(solicitante_correo)) >= 5) AND (char_length(btrim(solicitante_correo)) <= 254)))),
+    CONSTRAINT solicitud_titular_solicitante_nombre_check CHECK (((solicitante_nombre IS NULL) OR ((char_length(btrim(solicitante_nombre)) >= 2) AND (char_length(btrim(solicitante_nombre)) <= 160)))),
+    CONSTRAINT solicitud_titular_solicitante_tipo_check CHECK ((solicitante_tipo = ANY (ARRAY['titular'::text, 'representante'::text]))),
+    CONSTRAINT solicitud_titular_tipo_ck CHECK ((tipo = ANY (ARRAY['acceso'::text, 'rectificacion'::text, 'supresion'::text, 'oposicion'::text, 'portabilidad'::text, 'bloqueo'::text]))),
+    CONSTRAINT solicitud_titular_titular_referencia_check CHECK (((titular_referencia IS NULL) OR ((char_length(btrim(titular_referencia)) >= 2) AND (char_length(btrim(titular_referencia)) <= 200)))),
+    CONSTRAINT solicitud_titular_version_ck CHECK ((version >= 1))
+);
+
+
+--
+-- Name: solicitud_titular_evento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solicitud_titular_evento (
+    id uuid NOT NULL,
+    solicitud_id uuid NOT NULL,
+    secuencia integer NOT NULL,
+    tipo_evento text NOT NULL,
+    visibilidad text NOT NULL,
+    estado_anterior text,
+    estado_nuevo text,
+    actor_id uuid,
+    detalle text,
+    vence_en_nuevo timestamp with time zone,
+    creado_en timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT solicitud_titular_evento_detalle_ck CHECK (((detalle IS NULL) OR ((length(btrim(detalle)) >= 1) AND (length(btrim(detalle)) <= 2000)))),
+    CONSTRAINT solicitud_titular_evento_secuencia_check CHECK ((secuencia >= 1)),
+    CONSTRAINT solicitud_titular_evento_tipo_evento_ck CHECK ((tipo_evento = ANY (ARRAY['recepcion'::text, 'asignacion'::text, 'identidad_verificada'::text, 'en_revision'::text, 'aclaracion_solicitada'::text, 'nota_interna'::text, 'prorroga'::text, 'ejecucion_derecho'::text, 'resolucion'::text, 'despacho_registrado'::text]))),
+    CONSTRAINT solicitud_titular_evento_visibilidad_check CHECK ((visibilidad = ANY (ARRAY['titular'::text, 'interna'::text]))),
+    CONSTRAINT solicitud_titular_evento_visibilidad_ck CHECK (((tipo_evento <> 'nota_interna'::text) OR (visibilidad = 'interna'::text)))
+);
+
+
+--
+-- Name: space_kyb_verification; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.space_kyb_verification (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    espacio_id uuid NOT NULL,
+    host_mode character varying(16) NOT NULL,
+    owner_usuario_id uuid NOT NULL,
+    organizacion_id uuid,
+    kyb_verification_id uuid,
+    document_storage_ref uuid NOT NULL,
+    mime_type character varying(32) NOT NULL,
+    size_bytes bigint NOT NULL,
+    content_sha256 bytea NOT NULL,
+    status character varying(16) DEFAULT 'PENDING'::character varying NOT NULL,
+    rejection_reason character varying(500),
+    submitted_by uuid NOT NULL,
+    submitted_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    reviewer_id uuid,
+    reviewed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+    document_kind character varying(40) DEFAULT 'property_or_sublease_authorization'::character varying NOT NULL,
+    sii_giro_code character varying(6),
+    categoria_codigo text,
+    CONSTRAINT space_kyb_verification_check CHECK (((((host_mode)::text = 'empresa'::text) AND (organizacion_id IS NOT NULL)) OR (((host_mode)::text = 'personal'::text) AND (organizacion_id IS NULL)))),
+    CONSTRAINT space_kyb_verification_check1 CHECK (((((status)::text = 'REJECTED'::text) AND (rejection_reason IS NOT NULL) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text <> 'REJECTED'::text) AND (rejection_reason IS NULL)))),
+    CONSTRAINT space_kyb_verification_check2 CHECK (((((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'REJECTED'::character varying])::text[])) AND (reviewer_id IS NOT NULL) AND (reviewed_at IS NOT NULL)) OR (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[])) AND (reviewer_id IS NULL) AND (reviewed_at IS NULL)))),
+    CONSTRAINT space_kyb_verification_content_sha256_check CHECK ((octet_length(content_sha256) = 32)),
+    CONSTRAINT space_kyb_verification_document_kind_check CHECK (((document_kind)::text = ANY ((ARRAY['property_or_sublease_authorization'::character varying, 'sii_start_activities'::character varying])::text[]))),
+    CONSTRAINT space_kyb_verification_host_mode_check CHECK (((host_mode)::text = ANY ((ARRAY['personal'::character varying, 'empresa'::character varying])::text[]))),
+    CONSTRAINT space_kyb_verification_mime_type_check CHECK (((mime_type)::text = ANY ((ARRAY['application/pdf'::character varying, 'image/jpeg'::character varying, 'image/png'::character varying])::text[]))),
+    CONSTRAINT space_kyb_verification_sii_fields_ck CHECK (((((document_kind)::text = 'sii_start_activities'::text) AND ((host_mode)::text = 'empresa'::text) AND (organizacion_id IS NOT NULL) AND (sii_giro_code IS NOT NULL) AND (categoria_codigo IS NOT NULL)) OR (((document_kind)::text = 'property_or_sublease_authorization'::text) AND (sii_giro_code IS NULL)))),
+    CONSTRAINT space_kyb_verification_sii_giro_code_check CHECK (((sii_giro_code IS NULL) OR ((sii_giro_code)::text ~ '^[0-9]{6}$'::text))),
+    CONSTRAINT space_kyb_verification_size_bytes_check CHECK (((size_bytes >= 1) AND (size_bytes <= 10485760))),
+    CONSTRAINT space_kyb_verification_status_check CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying])::text[])))
 );
 
 
@@ -7214,6 +9086,134 @@ ALTER TABLE ONLY public.acceso_sensible_administrativo
 
 
 --
+-- Name: account_identity_profile_draft account_identity_profile_draft_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_draft
+    ADD CONSTRAINT account_identity_profile_draft_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: account_identity_profile_phone account_identity_profile_phone_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_phone
+    ADD CONSTRAINT account_identity_profile_phone_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: account_identity_profile account_identity_profile_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile
+    ADD CONSTRAINT account_identity_profile_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: account_identity_profile_revision account_identity_profile_revision_account_id_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_revision
+    ADD CONSTRAINT account_identity_profile_revision_account_id_id_key UNIQUE (account_id, id);
+
+
+--
+-- Name: account_identity_profile_revision account_identity_profile_revision_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_revision
+    ADD CONSTRAINT account_identity_profile_revision_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: account_identity_rut_claim account_identity_rut_claim_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_claim
+    ADD CONSTRAINT account_identity_rut_claim_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: account_identity_rut_fingerprint account_identity_rut_fingerprint_account_id_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_fingerprint
+    ADD CONSTRAINT account_identity_rut_fingerprint_account_id_fingerprint_key UNIQUE (account_id, fingerprint);
+
+
+--
+-- Name: account_identity_rut_fingerprint account_identity_rut_fingerprint_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_fingerprint
+    ADD CONSTRAINT account_identity_rut_fingerprint_pkey PRIMARY KEY (fingerprint);
+
+
+--
+-- Name: account_identity_verification account_identity_verification_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_verification
+    ADD CONSTRAINT account_identity_verification_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: account_identity_verification account_identity_verification_provider_session_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_verification
+    ADD CONSTRAINT account_identity_verification_provider_session_key UNIQUE (provider_session);
+
+
+--
+-- Name: account_identity_webhook_receipt account_identity_webhook_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_webhook_receipt
+    ADD CONSTRAINT account_identity_webhook_receipt_pkey PRIMARY KEY (event_id);
+
+
+--
+-- Name: account_pinpass_access account_pinpass_access_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_access
+    ADD CONSTRAINT account_pinpass_access_pkey PRIMARY KEY (account_id, session_id);
+
+
+--
+-- Name: account_pinpass_attempt account_pinpass_attempt_scope_uk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_attempt
+    ADD CONSTRAINT account_pinpass_attempt_scope_uk UNIQUE NULLS NOT DISTINCT (account_id, session_id);
+
+
+--
+-- Name: account_pinpass_audit account_pinpass_audit_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_audit
+    ADD CONSTRAINT account_pinpass_audit_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: account_pinpass_email_challenge account_pinpass_email_challenge_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_email_challenge
+    ADD CONSTRAINT account_pinpass_email_challenge_pkey PRIMARY KEY (account_id);
+
+
+--
+-- Name: account_pinpass account_pinpass_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass
+    ADD CONSTRAINT account_pinpass_pkey PRIMARY KEY (account_id);
+
+
+--
 -- Name: aceptacion_terminos aceptacion_terminos_pk; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7259,6 +9259,30 @@ ALTER TABLE ONLY public.administrador_global_bootstrap
 
 ALTER TABLE ONLY public.administrador_global
     ADD CONSTRAINT administrador_global_pkey PRIMARY KEY (usuario_id);
+
+
+--
+-- Name: anfitrion_cumplimiento_documento anfitrion_cumplimiento_documento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_documento
+    ADD CONSTRAINT anfitrion_cumplimiento_documento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: anfitrion_cumplimiento_documento anfitrion_cumplimiento_documento_storage_ref_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_documento
+    ADD CONSTRAINT anfitrion_cumplimiento_documento_storage_ref_key UNIQUE (storage_ref);
+
+
+--
+-- Name: anfitrion_cumplimiento_personal anfitrion_cumplimiento_personal_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_personal
+    ADD CONSTRAINT anfitrion_cumplimiento_personal_pkey PRIMARY KEY (usuario_id);
 
 
 --
@@ -7510,6 +9534,22 @@ ALTER TABLE ONLY public.bloqueo_cuenta_historial_local
 
 
 --
+-- Name: caso_soporte_reserva_comercial caso_soporte_reserva_comercia_reserva_id_iniciador_id_clave_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caso_soporte_reserva_comercial
+    ADD CONSTRAINT caso_soporte_reserva_comercia_reserva_id_iniciador_id_clave_key UNIQUE (reserva_id, iniciador_id, clave_idempotencia);
+
+
+--
+-- Name: caso_soporte_reserva_comercial caso_soporte_reserva_comercial_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caso_soporte_reserva_comercial
+    ADD CONSTRAINT caso_soporte_reserva_comercial_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: catalogo_ubicacion_publica catalogo_ubicacion_publica_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7547,6 +9587,22 @@ ALTER TABLE ONLY public.categoria_espacio
 
 ALTER TABLE ONLY public.categoria_perfil_atributos
     ADD CONSTRAINT categoria_perfil_atributos_pkey PRIMARY KEY (categoria_codigo, version);
+
+
+--
+-- Name: checkout_cancelacion_pendiente checkout_cancelacion_pendiente_clave_idempotencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.checkout_cancelacion_pendiente
+    ADD CONSTRAINT checkout_cancelacion_pendiente_clave_idempotencia_key UNIQUE (clave_idempotencia);
+
+
+--
+-- Name: checkout_cancelacion_pendiente checkout_cancelacion_pendiente_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.checkout_cancelacion_pendiente
+    ADD CONSTRAINT checkout_cancelacion_pendiente_pkey PRIMARY KEY (operacion_id);
 
 
 --
@@ -8318,11 +10374,51 @@ ALTER TABLE ONLY public.espacio_regla_mensual
 
 
 --
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_solicitud_documental
+    ADD CONSTRAINT espacio_solicitud_documental_pkey PRIMARY KEY (espacio_id);
+
+
+--
 -- Name: evento_auditoria_local evento_auditoria_local_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.evento_auditoria_local
     ADD CONSTRAINT evento_auditoria_local_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evento_caso_soporte_comercial evento_caso_soporte_comercial_caso_id_actor_id_clave_idempo_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evento_caso_soporte_comercial
+    ADD CONSTRAINT evento_caso_soporte_comercial_caso_id_actor_id_clave_idempo_key UNIQUE (caso_id, actor_id, clave_idempotencia);
+
+
+--
+-- Name: evento_caso_soporte_comercial evento_caso_soporte_comercial_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evento_caso_soporte_comercial
+    ADD CONSTRAINT evento_caso_soporte_comercial_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: evidencia_caso_soporte_comercial evidencia_caso_soporte_comercial_caso_id_autor_id_sha256_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidencia_caso_soporte_comercial
+    ADD CONSTRAINT evidencia_caso_soporte_comercial_caso_id_autor_id_sha256_key UNIQUE (caso_id, autor_id, sha256);
+
+
+--
+-- Name: evidencia_caso_soporte_comercial evidencia_caso_soporte_comercial_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidencia_caso_soporte_comercial
+    ADD CONSTRAINT evidencia_caso_soporte_comercial_pkey PRIMARY KEY (id);
 
 
 --
@@ -8379,6 +10475,14 @@ ALTER TABLE ONLY public.gcp06_test_access_batch_audit
 
 ALTER TABLE ONLY public.historial_clave_local
     ADD CONSTRAINT historial_clave_local_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: host_compliance_event host_compliance_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.host_compliance_event
+    ADD CONSTRAINT host_compliance_event_pkey PRIMARY KEY (id);
 
 
 --
@@ -8486,6 +10590,78 @@ ALTER TABLE ONLY public.identity_verification_attempts
 
 
 --
+-- Name: kyb_compliance_notice_outbox kyb_compliance_notice_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_compliance_notice_outbox
+    ADD CONSTRAINT kyb_compliance_notice_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: kyb_rut_claim kyb_rut_claim_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_rut_claim
+    ADD CONSTRAINT kyb_rut_claim_pkey PRIMARY KEY (verification_id, rut_kind, fingerprint);
+
+
+--
+-- Name: kyb_verification_document kyb_verification_document_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_document
+    ADD CONSTRAINT kyb_verification_document_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: kyb_verification_document kyb_verification_document_storage_ref_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_document
+    ADD CONSTRAINT kyb_verification_document_storage_ref_key UNIQUE (storage_ref);
+
+
+--
+-- Name: kyb_verification_document kyb_verification_document_verification_id_document_kind_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_document
+    ADD CONSTRAINT kyb_verification_document_verification_id_document_kind_key UNIQUE (verification_id, document_kind);
+
+
+--
+-- Name: kyb_verification_event kyb_verification_event_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_event
+    ADD CONSTRAINT kyb_verification_event_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: kyb_verifications kyb_verifications_id_organization_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_id_organization_id_key UNIQUE (id, organization_id);
+
+
+--
+-- Name: kyb_verifications kyb_verifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: kyb_verifications kyb_verifications_submitted_by_idempotency_key_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_submitted_by_idempotency_key_key UNIQUE (submitted_by, idempotency_key);
+
+
+--
 -- Name: m02_operacion_idempotente_local m02_operacion_idempotente_local_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8547,6 +10723,30 @@ ALTER TABLE ONLY public.media_variant_intent
 
 ALTER TABLE ONLY public.media_variant
     ADD CONSTRAINT media_variant_pkey PRIMARY KEY (media_id, variant);
+
+
+--
+-- Name: mensaje_reserva_comercial mensaje_reserva_comercial_idempotency_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mensaje_reserva_comercial
+    ADD CONSTRAINT mensaje_reserva_comercial_idempotency_uq UNIQUE (reserva_id, autor_id, clave_idempotencia);
+
+
+--
+-- Name: mensaje_reserva_comercial mensaje_reserva_comercial_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mensaje_reserva_comercial
+    ADD CONSTRAINT mensaje_reserva_comercial_pk PRIMARY KEY (id);
+
+
+--
+-- Name: mensaje_reserva_comercial mensaje_reserva_comercial_reserva_secuencia_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mensaje_reserva_comercial
+    ADD CONSTRAINT mensaje_reserva_comercial_reserva_secuencia_uq UNIQUE (reserva_id, secuencia);
 
 
 --
@@ -8734,6 +10934,70 @@ ALTER TABLE ONLY public.operacion_arriendo_historial_ensayo_local
 
 
 --
+-- Name: organizacion organizacion_id_usuario_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion
+    ADD CONSTRAINT organizacion_id_usuario_id_key UNIQUE (id, usuario_id);
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_token_sha256_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_token_sha256_key UNIQUE (token_sha256);
+
+
+--
+-- Name: organizacion_miembro organizacion_miembro_id_organizacion_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_miembro
+    ADD CONSTRAINT organizacion_miembro_id_organizacion_id_key UNIQUE (id, organizacion_id);
+
+
+--
+-- Name: organizacion_miembro organizacion_miembro_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_miembro
+    ADD CONSTRAINT organizacion_miembro_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: organizacion organizacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion
+    ADD CONSTRAINT organizacion_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: organizacion_rut_fingerprint organizacion_rut_fingerprint_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_rut_fingerprint
+    ADD CONSTRAINT organizacion_rut_fingerprint_fingerprint_key UNIQUE (fingerprint);
+
+
+--
+-- Name: organizacion_rut_fingerprint organizacion_rut_fingerprint_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_rut_fingerprint
+    ADD CONSTRAINT organizacion_rut_fingerprint_pkey PRIMARY KEY (organizacion_id, fingerprint);
+
+
+--
 -- Name: outbox_evento_ciclo_local outbox_evento_ciclo_local_evento_id_clave_idempotencia_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8774,6 +11038,102 @@ ALTER TABLE ONLY public.perfil_usuario
 
 
 --
+-- Name: privacidad_bloqueo_tratamiento privacidad_bloqueo_tratamiento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_bloqueo_tratamiento
+    ADD CONSTRAINT privacidad_bloqueo_tratamiento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacidad_ejecucion_derecho privacidad_ejecucion_derecho_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_ejecucion_derecho
+    ADD CONSTRAINT privacidad_ejecucion_derecho_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacidad_incidente_datos privacidad_incidente_datos_folio_incidente_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_datos
+    ADD CONSTRAINT privacidad_incidente_datos_folio_incidente_key UNIQUE (folio_incidente);
+
+
+--
+-- Name: privacidad_incidente_datos privacidad_incidente_datos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_datos
+    ADD CONSTRAINT privacidad_incidente_datos_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacidad_incidente_evento privacidad_incidente_evento_incidente_id_secuencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_evento
+    ADD CONSTRAINT privacidad_incidente_evento_incidente_id_secuencia_key UNIQUE (incidente_id, secuencia);
+
+
+--
+-- Name: privacidad_incidente_evento privacidad_incidente_evento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_evento
+    ADD CONSTRAINT privacidad_incidente_evento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacidad_notificacion_outbox privacidad_notificacion_outbox_clave_idempotencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_notificacion_outbox
+    ADD CONSTRAINT privacidad_notificacion_outbox_clave_idempotencia_key UNIQUE (clave_idempotencia);
+
+
+--
+-- Name: privacidad_notificacion_outbox privacidad_notificacion_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_notificacion_outbox
+    ADD CONSTRAINT privacidad_notificacion_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacidad_preferencia_finalidad privacidad_preferencia_finalidad_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_preferencia_finalidad
+    ADD CONSTRAINT privacidad_preferencia_finalidad_pkey PRIMARY KEY (cuenta_id, finalidad);
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_folio_retencion_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_folio_retencion_key UNIQUE (folio_retencion);
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: privacy_response_dispatch_receipt privacy_response_dispatch_receipt_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacy_response_dispatch_receipt
+    ADD CONSTRAINT privacy_response_dispatch_receipt_pkey PRIMARY KEY (request_id);
+
+
+--
 -- Name: profile_media profile_media_media_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -8787,6 +11147,14 @@ ALTER TABLE ONLY public.profile_media
 
 ALTER TABLE ONLY public.profile_media
     ADD CONSTRAINT profile_media_pkey PRIMARY KEY (propietario_id);
+
+
+--
+-- Name: profile_pinpass_reauth profile_pinpass_reauth_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_pinpass_reauth
+    ADD CONSTRAINT profile_pinpass_reauth_pkey PRIMARY KEY (account_id);
 
 
 --
@@ -8942,6 +11310,22 @@ ALTER TABLE ONLY public.resena_ensayo_local
 
 
 --
+-- Name: resena_reserva_comercial resena_reserva_comercial_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_pk PRIMARY KEY (id);
+
+
+--
+-- Name: resena_reserva_comercial resena_reserva_comercial_reserva_autor_uq; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_reserva_autor_uq UNIQUE (reserva_id, autor_id);
+
+
+--
 -- Name: reserva_arriendo_comercial reserva_arriendo_comercial_cotizacion_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9011,6 +11395,38 @@ ALTER TABLE ONLY public.reserva_cancelacion_ensayo
 
 ALTER TABLE ONLY public.reserva_cancelacion_ensayo
     ADD CONSTRAINT reserva_cancelacion_ensayo_reserva_id_key UNIQUE (reserva_id);
+
+
+--
+-- Name: reserva_comercial_cancelacion reserva_comercial_cancelacion_clave_idempotencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_cancelacion
+    ADD CONSTRAINT reserva_comercial_cancelacion_clave_idempotencia_key UNIQUE (clave_idempotencia);
+
+
+--
+-- Name: reserva_comercial_cancelacion reserva_comercial_cancelacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_cancelacion
+    ADD CONSTRAINT reserva_comercial_cancelacion_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: reserva_comercial_cancelacion reserva_comercial_cancelacion_reserva_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_cancelacion
+    ADD CONSTRAINT reserva_comercial_cancelacion_reserva_id_key UNIQUE (reserva_id);
+
+
+--
+-- Name: reserva_comercial_mensaje_lectura reserva_comercial_mensaje_lectura_pk; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_mensaje_lectura
+    ADD CONSTRAINT reserva_comercial_mensaje_lectura_pk PRIMARY KEY (reserva_id, usuario_id);
 
 
 --
@@ -9542,11 +11958,43 @@ ALTER TABLE ONLY public.solicitud_privacidad_administrativa
 
 
 --
+-- Name: solicitud_titular_evento solicitud_titular_evento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular_evento
+    ADD CONSTRAINT solicitud_titular_evento_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: solicitud_titular_evento solicitud_titular_evento_solicitud_id_secuencia_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular_evento
+    ADD CONSTRAINT solicitud_titular_evento_solicitud_id_secuencia_key UNIQUE (solicitud_id, secuencia);
+
+
+--
 -- Name: solicitud_titular solicitud_titular_pk; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.solicitud_titular
     ADD CONSTRAINT solicitud_titular_pk PRIMARY KEY (id);
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_document_storage_ref_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_document_storage_ref_key UNIQUE (document_storage_ref);
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_pkey PRIMARY KEY (id);
 
 
 --
@@ -9708,6 +12156,41 @@ CREATE INDEX acceso_sensible_administrativo_objetivo_idx ON public.acceso_sensib
 
 
 --
+-- Name: account_identity_profile_username_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX account_identity_profile_username_unique ON public.account_identity_profile USING btree (lower(username));
+
+
+--
+-- Name: account_identity_verification_latest; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX account_identity_verification_latest ON public.account_identity_verification USING btree (account_id, profile_revision, started_at DESC, id DESC);
+
+
+--
+-- Name: account_identity_verification_pending; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX account_identity_verification_pending ON public.account_identity_verification USING btree (account_id, profile_revision) WHERE (state = ANY (ARRAY['in_progress'::text, 'in_review'::text]));
+
+
+--
+-- Name: account_pinpass_access_expiry_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX account_pinpass_access_expiry_idx ON public.account_pinpass_access USING btree (expires_at);
+
+
+--
+-- Name: account_pinpass_audit_account_time_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX account_pinpass_audit_account_time_idx ON public.account_pinpass_audit USING btree (account_id, occurred_at DESC, id DESC);
+
+
+--
 -- Name: aceptacion_terminos_version_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -9719,6 +12202,13 @@ CREATE INDEX aceptacion_terminos_version_idx ON public.aceptacion_terminos USING
 --
 
 CREATE INDEX administrador_global_bootstrap_evento_objetivo_idx ON public.administrador_global_bootstrap_evento USING btree (usuario_objetivo_id, ocurrida_en DESC, id);
+
+
+--
+-- Name: anfitrion_cumplimiento_documento_one_open_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX anfitrion_cumplimiento_documento_one_open_uq ON public.anfitrion_cumplimiento_documento USING btree (usuario_id) WHERE ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[]));
 
 
 --
@@ -9799,10 +12289,52 @@ CREATE INDEX bloqueo_cuenta_historial_local_idx ON public.bloqueo_cuenta_histori
 
 
 --
+-- Name: caso_soporte_dano_unico; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX caso_soporte_dano_unico ON public.caso_soporte_reserva_comercial USING btree (reserva_id) WHERE (categoria = 'dano_inmueble'::text);
+
+
+--
+-- Name: caso_soporte_descargo_unico; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX caso_soporte_descargo_unico ON public.evento_caso_soporte_comercial USING btree (caso_id) WHERE (accion = 'descargo'::text);
+
+
+--
+-- Name: caso_soporte_mediacion_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX caso_soporte_mediacion_idx ON public.caso_soporte_reserva_comercial USING btree (creada_en DESC, id) WHERE (enrutado_a = 'espacigo'::text);
+
+
+--
+-- Name: caso_soporte_reserva_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX caso_soporte_reserva_idx ON public.caso_soporte_reserva_comercial USING btree (reserva_id, creada_en DESC, id);
+
+
+--
 -- Name: catalogo_ubicacion_publica_activo_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX catalogo_ubicacion_publica_activo_idx ON public.catalogo_ubicacion_publica USING btree (activo) WHERE activo;
+
+
+--
+-- Name: checkout_cancelacion_pendiente_trabajo_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX checkout_cancelacion_pendiente_trabajo_idx ON public.checkout_cancelacion_pendiente USING btree (ultimo_intento_en NULLS FIRST, operacion_id) WHERE (resultado IS NULL);
+
+
+--
+-- Name: checkout_comercial_settlement_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX checkout_comercial_settlement_due_idx ON public.checkout_preferencia_comercial USING btree (provider_settlement_attempted_at NULLS FIRST, id) WHERE ((estado = 'approved'::text) AND (checkout_method = 'checkout_pro'::text) AND (provider_payment_id IS NOT NULL));
 
 
 --
@@ -10107,6 +12639,13 @@ CREATE INDEX elegibilidad_local_active_idx ON public.elegibilidad_verificacion_l
 
 
 --
+-- Name: espacio_b2b_organization_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX espacio_b2b_organization_idx ON public.espacio USING btree (organizacion_id) WHERE es_b2b;
+
+
+--
 -- Name: espacio_caracteristicas_public_filter_keys_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10268,10 +12807,17 @@ CREATE INDEX historial_clave_usuario_vigente_idx ON public.historial_clave_local
 
 
 --
+-- Name: host_compliance_event_profile_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX host_compliance_event_profile_idx ON public.host_compliance_event USING btree (usuario_id, organizacion_id, occurred_at DESC);
+
+
+--
 -- Name: identity_provider_attempt_one_active_intent; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX identity_provider_attempt_one_active_intent ON public.identity_provider_attempt USING btree (account_id, declaration_id, provider, environment, application_id) WHERE ((status)::text = ANY ((ARRAY['CREATED'::character varying, 'PENDING_USER_INPUT'::character varying, 'PROCESSING'::character varying, 'IN_REVIEW'::character varying])::text[]));
+CREATE UNIQUE INDEX identity_provider_attempt_one_active_intent ON public.identity_provider_attempt USING btree (account_id, declaration_id, provider, environment, application_id) WHERE ((status)::text = ANY (ARRAY[('CREATED'::character varying)::text, ('PENDING_USER_INPUT'::character varying)::text, ('PROCESSING'::character varying)::text, ('IN_REVIEW'::character varying)::text]));
 
 
 --
@@ -10366,6 +12912,69 @@ CREATE INDEX idx_identity_verification_attempts_status ON public.identity_verifi
 
 
 --
+-- Name: kyb_compliance_notice_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_compliance_notice_pending_idx ON public.kyb_compliance_notice_outbox USING btree (available_at, created_at, id) WHERE ((state)::text = ANY ((ARRAY['pending'::character varying, 'processing'::character varying])::text[]));
+
+
+--
+-- Name: kyb_compliance_notice_profile_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_compliance_notice_profile_idx ON public.kyb_compliance_notice_outbox USING btree (profile_type, profile_id, created_at DESC);
+
+
+--
+-- Name: kyb_compliance_notice_stage_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX kyb_compliance_notice_stage_uq ON public.kyb_compliance_notice_outbox USING btree (profile_type, profile_id, recipient_id, reminder_stage) WHERE ((reminder_stage)::text <> 'reactivated'::text);
+
+
+--
+-- Name: kyb_compliance_notice_transition_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX kyb_compliance_notice_transition_uq ON public.kyb_compliance_notice_outbox USING btree (profile_type, profile_id, recipient_id, source_transition_id) WHERE ((reminder_stage)::text = 'reactivated'::text);
+
+
+--
+-- Name: kyb_rut_claim_verification_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_rut_claim_verification_idx ON public.kyb_rut_claim USING btree (verification_id, rut_kind);
+
+
+--
+-- Name: kyb_verification_document_verification_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_verification_document_verification_idx ON public.kyb_verification_document USING btree (verification_id, document_kind);
+
+
+--
+-- Name: kyb_verification_event_verification_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_verification_event_verification_idx ON public.kyb_verification_event USING btree (verification_id, occurred_at, id);
+
+
+--
+-- Name: kyb_verifications_one_open_per_organization_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX kyb_verifications_one_open_per_organization_uq ON public.kyb_verifications USING btree (organization_id) WHERE ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[]));
+
+
+--
+-- Name: kyb_verifications_status_submitted_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX kyb_verifications_status_submitted_idx ON public.kyb_verifications USING btree (status, submitted_at, id);
+
+
+--
 -- Name: m02_operacion_idempotente_retention_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10419,6 +13028,13 @@ CREATE INDEX media_variant_intent_cleanup_idx ON public.media_variant_intent USI
 --
 
 CREATE UNIQUE INDEX media_variant_object_generation_uq ON public.media_variant USING btree (provider, bucket_name, object_key, generation);
+
+
+--
+-- Name: mensaje_reserva_comercial_page_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX mensaje_reserva_comercial_page_idx ON public.mensaje_reserva_comercial USING btree (reserva_id, secuencia DESC);
 
 
 --
@@ -10520,6 +13136,55 @@ CREATE INDEX operacion_arriendo_reserva_hist_idx ON public.operacion_arriendo_en
 
 
 --
+-- Name: organizacion_company_rut_fingerprint_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX organizacion_company_rut_fingerprint_uq ON public.organizacion USING btree (company_rut_fingerprint) WHERE (company_rut_fingerprint IS NOT NULL);
+
+
+--
+-- Name: organizacion_invitacion_org_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX organizacion_invitacion_org_status_idx ON public.organizacion_invitacion USING btree (organizacion_id, estado, created_at DESC);
+
+
+--
+-- Name: organizacion_invitacion_pending_email_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX organizacion_invitacion_pending_email_uq ON public.organizacion_invitacion USING btree (organizacion_id, target_email_normalized) WHERE (((estado)::text = 'pendiente'::text) AND (target_email_normalized IS NOT NULL));
+
+
+--
+-- Name: organizacion_invitacion_pending_user_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX organizacion_invitacion_pending_user_uq ON public.organizacion_invitacion USING btree (organizacion_id, target_usuario_id) WHERE (((estado)::text = 'pendiente'::text) AND (target_usuario_id IS NOT NULL));
+
+
+--
+-- Name: organizacion_miembro_active_user_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX organizacion_miembro_active_user_uq ON public.organizacion_miembro USING btree (organizacion_id, usuario_id) WHERE ((estado)::text = 'activo'::text);
+
+
+--
+-- Name: organizacion_miembro_role_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX organizacion_miembro_role_idx ON public.organizacion_miembro USING btree (organizacion_id, rol) WHERE ((estado)::text = 'activo'::text);
+
+
+--
+-- Name: organizacion_miembro_user_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX organizacion_miembro_user_idx ON public.organizacion_miembro USING btree (usuario_id, estado, organizacion_id);
+
+
+--
 -- Name: outbox_evento_local_pendiente_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10538,6 +13203,69 @@ CREATE INDEX outbox_evento_local_terminal_retention_idx ON public.outbox_evento_
 --
 
 CREATE INDEX perfil_usuario_nombre_lower_prefix_idx ON public.perfil_usuario USING btree (lower(nombre_visible) text_pattern_ops);
+
+
+--
+-- Name: privacidad_bloqueo_activo_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX privacidad_bloqueo_activo_uq ON public.privacidad_bloqueo_tratamiento USING btree (cuenta_id, ambito) WHERE (estado = 'activo'::text);
+
+
+--
+-- Name: privacidad_bloqueo_cuenta_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_bloqueo_cuenta_idx ON public.privacidad_bloqueo_tratamiento USING btree (cuenta_id, aplicado_en DESC);
+
+
+--
+-- Name: privacidad_bloqueo_solicitud_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_bloqueo_solicitud_idx ON public.privacidad_bloqueo_tratamiento USING btree (solicitud_id, aplicado_en DESC);
+
+
+--
+-- Name: privacidad_ejecucion_solicitud_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_ejecucion_solicitud_idx ON public.privacidad_ejecucion_derecho USING btree (solicitud_id, ejecutado_en);
+
+
+--
+-- Name: privacidad_incidente_estado_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_incidente_estado_idx ON public.privacidad_incidente_datos USING btree (estado, severidad, creado_en DESC);
+
+
+--
+-- Name: privacidad_notificacion_outbox_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_notificacion_outbox_pending_idx ON public.privacidad_notificacion_outbox USING btree (disponible_en, creado_en, id) WHERE (estado = ANY (ARRAY['pending'::text, 'processing'::text]));
+
+
+--
+-- Name: privacidad_notificacion_outbox_solicitud_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_notificacion_outbox_solicitud_idx ON public.privacidad_notificacion_outbox USING btree (solicitud_id, creado_en DESC);
+
+
+--
+-- Name: privacidad_retencion_cuenta_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_retencion_cuenta_idx ON public.privacidad_retencion_legal USING btree (cuenta_id, estado, aplicada_en DESC);
+
+
+--
+-- Name: privacidad_retencion_estado_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX privacidad_retencion_estado_idx ON public.privacidad_retencion_legal USING btree (estado, aplicada_en DESC);
 
 
 --
@@ -10597,6 +13325,20 @@ CREATE INDEX resena_espacio_publica_idx ON public.resena_ensayo_local USING btre
 
 
 --
+-- Name: resena_reserva_comercial_author_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX resena_reserva_comercial_author_idx ON public.resena_reserva_comercial USING btree (autor_id, creada_en DESC) WHERE (autor_id IS NOT NULL);
+
+
+--
+-- Name: resena_reserva_comercial_space_visible_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX resena_reserva_comercial_space_visible_idx ON public.resena_reserva_comercial USING btree (espacio_id, creada_en DESC) WHERE ((destinatario_tipo = 'espacio'::text) AND (estado = ANY (ARRAY['publicada'::text, 'reportada'::text])));
+
+
+--
 -- Name: resena_retirar_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10629,6 +13371,13 @@ CREATE INDEX reserva_arriendo_tramo_estado_codigo_idx ON public.reserva_arriendo
 --
 
 CREATE INDEX reserva_arriendo_tramo_estado_reserva_idx ON public.reserva_arriendo_tramo_estado USING btree (reserva_id);
+
+
+--
+-- Name: reserva_comercial_cancelacion_pendiente_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX reserva_comercial_cancelacion_pendiente_idx ON public.reserva_comercial_cancelacion USING btree (actualizada_en) WHERE (refund_status = 'pendiente'::text);
 
 
 --
@@ -10779,6 +13528,13 @@ CREATE INDEX sesion_usuario_actividad_idx ON public.sesion USING btree (usuario_
 
 
 --
+-- Name: sesion_usuario_id_pinpass_uk; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sesion_usuario_id_pinpass_uk ON public.sesion USING btree (usuario_id, id);
+
+
+--
 -- Name: simulacion_precio_espacio_propietario_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -10800,10 +13556,59 @@ CREATE INDEX solicitud_privacidad_administrativa_estado_idx ON public.solicitud_
 
 
 --
+-- Name: solicitud_titular_asignado_estado_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX solicitud_titular_asignado_estado_idx ON public.solicitud_titular USING btree (asignado_a_id, estado, solicitada_en DESC);
+
+
+--
+-- Name: solicitud_titular_evento_solicitud_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX solicitud_titular_evento_solicitud_idx ON public.solicitud_titular_evento USING btree (solicitud_id, secuencia);
+
+
+--
+-- Name: solicitud_titular_folio_publico_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX solicitud_titular_folio_publico_uq ON public.solicitud_titular USING btree (folio_publico);
+
+
+--
 -- Name: solicitud_titular_usuario_fecha_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX solicitud_titular_usuario_fecha_idx ON public.solicitud_titular USING btree (usuario_id, solicitada_en DESC);
+
+
+--
+-- Name: solicitud_titular_vence_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX solicitud_titular_vence_idx ON public.solicitud_titular USING btree (COALESCE(prorrogada_hasta, vence_en), estado);
+
+
+--
+-- Name: space_kyb_verification_one_open_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX space_kyb_verification_one_open_uq ON public.space_kyb_verification USING btree (espacio_id, document_kind) WHERE ((status)::text = ANY ((ARRAY['PENDING'::character varying, 'IN_REVIEW'::character varying])::text[]));
+
+
+--
+-- Name: space_kyb_verification_org_cat_sii_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX space_kyb_verification_org_cat_sii_idx ON public.space_kyb_verification USING btree (organizacion_id, categoria_codigo) WHERE (((host_mode)::text = 'empresa'::text) AND ((document_kind)::text = 'sii_start_activities'::text) AND ((status)::text = 'APPROVED'::text));
+
+
+--
+-- Name: space_kyb_verification_space_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX space_kyb_verification_space_history_idx ON public.space_kyb_verification USING btree (espacio_id, submitted_at DESC, id);
 
 
 --
@@ -10923,6 +13728,13 @@ CREATE INDEX verificacion_usuario_fecha_idx ON public.verificacion USING btree (
 --
 
 CREATE INDEX vista_asistida_administrativa_actor_idx ON public.vista_asistida_administrativa USING btree (actor_cuenta_id, revocada_en, expira_en);
+
+
+--
+-- Name: anfitrion_cumplimiento_personal anfitrion_personal_reactivation_notice; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER anfitrion_personal_reactivation_notice AFTER UPDATE OF compliance_status ON public.anfitrion_cumplimiento_personal FOR EACH ROW WHEN ((((old.compliance_status)::text = 'disabled_missing_docs'::text) AND ((new.compliance_status)::text = 'compliant'::text))) EXECUTE FUNCTION public.kyb_personal_reactivation_notice();
 
 
 --
@@ -11164,6 +13976,13 @@ CREATE TRIGGER espacio_commercial_pin_provenance_clear BEFORE UPDATE OF direccio
 
 
 --
+-- Name: espacio_solicitud_documental espacio_document_request_notice; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER espacio_document_request_notice AFTER INSERT ON public.espacio_solicitud_documental FOR EACH ROW EXECUTE FUNCTION public.kyb_space_document_request_notice();
+
+
+--
 -- Name: espacio_eliminacion_historial_local espacio_eliminacion_historial_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -11199,6 +14018,34 @@ CREATE TRIGGER espacio_publicacion_historial_append_only BEFORE DELETE OR UPDATE
 
 
 --
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_no_mutation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER espacio_solicitud_documental_no_mutation BEFORE DELETE OR UPDATE ON public.espacio_solicitud_documental FOR EACH ROW EXECUTE FUNCTION public.host_compliance_event_immutable();
+
+
+--
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_no_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER espacio_solicitud_documental_no_truncate BEFORE TRUNCATE ON public.espacio_solicitud_documental FOR EACH STATEMENT EXECUTE FUNCTION public.host_compliance_event_immutable();
+
+
+--
+-- Name: espacio espacio_start_kyb_grace_insert; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER espacio_start_kyb_grace_insert AFTER INSERT ON public.espacio FOR EACH ROW WHEN ((new.estado = 'activa'::text)) EXECUTE FUNCTION public.kyb_start_space_grace();
+
+
+--
+-- Name: espacio espacio_start_kyb_grace_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER espacio_start_kyb_grace_update AFTER UPDATE OF estado ON public.espacio FOR EACH ROW WHEN (((new.estado = 'activa'::text) AND (old.estado IS DISTINCT FROM 'activa'::text))) EXECUTE FUNCTION public.kyb_start_space_grace();
+
+
+--
 -- Name: espacio espacio_zona_horario_semanal_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -11213,10 +14060,52 @@ CREATE TRIGGER horario_semanal_fixture_hora_guard BEFORE INSERT OR UPDATE OF act
 
 
 --
+-- Name: host_compliance_event host_compliance_event_no_mutation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER host_compliance_event_no_mutation BEFORE DELETE OR UPDATE ON public.host_compliance_event FOR EACH ROW EXECUTE FUNCTION public.host_compliance_event_immutable();
+
+
+--
+-- Name: host_compliance_event host_compliance_event_no_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER host_compliance_event_no_truncate BEFORE TRUNCATE ON public.host_compliance_event FOR EACH STATEMENT EXECUTE FUNCTION public.host_compliance_event_immutable();
+
+
+--
 -- Name: identity_declaration_revision identity_declaration_case_retention_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER identity_declaration_case_retention_guard BEFORE DELETE ON public.identity_declaration_revision FOR EACH ROW EXECUTE FUNCTION public.identity_declaration_case_retention_guard();
+
+
+--
+-- Name: kyb_verifications kyb_bind_company_rut_before_insert; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER kyb_bind_company_rut_before_insert BEFORE INSERT ON public.kyb_verifications FOR EACH ROW EXECUTE FUNCTION public.kyb_bind_company_rut();
+
+
+--
+-- Name: kyb_verifications kyb_submission_member_before_insert; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER kyb_submission_member_before_insert BEFORE INSERT ON public.kyb_verifications FOR EACH ROW EXECUTE FUNCTION public.kyb_submission_requires_active_member();
+
+
+--
+-- Name: kyb_verification_event kyb_verification_event_no_mutation; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER kyb_verification_event_no_mutation BEFORE DELETE OR UPDATE ON public.kyb_verification_event FOR EACH ROW EXECUTE FUNCTION public.kyb_verification_event_immutable();
+
+
+--
+-- Name: kyb_verification_event kyb_verification_event_no_truncate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER kyb_verification_event_no_truncate BEFORE TRUNCATE ON public.kyb_verification_event FOR EACH STATEMENT EXECUTE FUNCTION public.kyb_verification_event_immutable();
 
 
 --
@@ -11311,6 +14200,20 @@ CREATE CONSTRAINT TRIGGER ocupacion_arriendo_temprano_consistency_trg AFTER INSE
 
 
 --
+-- Name: organizacion_miembro organizacion_miembro_legal_rep_ck; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER organizacion_miembro_legal_rep_ck AFTER INSERT OR DELETE OR UPDATE ON public.organizacion_miembro DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.organizacion_miembro_requires_legal_rep();
+
+
+--
+-- Name: organizacion organizacion_reactivation_notice; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER organizacion_reactivation_notice AFTER UPDATE OF compliance_status ON public.organizacion FOR EACH ROW WHEN ((((old.compliance_status)::text = 'disabled_missing_docs'::text) AND ((new.compliance_status)::text = 'compliant'::text))) EXECUTE FUNCTION public.kyb_organization_reactivation_notice();
+
+
+--
 -- Name: profile_media profile_media_scope_guard; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -11329,6 +14232,13 @@ CREATE TRIGGER reserva_cerrada_liquidacion_fake_guard BEFORE UPDATE OF estado ON
 --
 
 CREATE TRIGGER reserva_vinculos_retencion_trg BEFORE INSERT OR UPDATE OF estado ON public.reserva_ensayo_local FOR EACH ROW EXECUTE FUNCTION public.schedule_local_reservation_link_retention();
+
+
+--
+-- Name: space_kyb_verification space_kyb_owner_guard_before_insert_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER space_kyb_owner_guard_before_insert_update BEFORE INSERT OR UPDATE ON public.space_kyb_verification FOR EACH ROW EXECUTE FUNCTION public.space_kyb_owner_guard();
 
 
 --
@@ -11405,6 +14315,142 @@ ALTER TABLE ONLY public.acceso_sensible_administrativo
 
 
 --
+-- Name: account_identity_profile account_identity_profile_account_id_current_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile
+    ADD CONSTRAINT account_identity_profile_account_id_current_revision_fkey FOREIGN KEY (account_id, current_revision) REFERENCES public.account_identity_profile_revision(account_id, id);
+
+
+--
+-- Name: account_identity_profile account_identity_profile_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile
+    ADD CONSTRAINT account_identity_profile_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_identity_profile_draft account_identity_profile_draft_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_draft
+    ADD CONSTRAINT account_identity_profile_draft_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_identity_profile_phone account_identity_profile_phone_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_phone
+    ADD CONSTRAINT account_identity_profile_phone_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account_identity_profile(account_id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_identity_profile_revision account_identity_profile_revision_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_profile_revision
+    ADD CONSTRAINT account_identity_profile_revision_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_identity_rut_claim account_identity_rut_claim_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_claim
+    ADD CONSTRAINT account_identity_rut_claim_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: account_identity_rut_claim account_identity_rut_claim_account_id_identity_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_claim
+    ADD CONSTRAINT account_identity_rut_claim_account_id_identity_revision_fkey FOREIGN KEY (account_id, identity_revision) REFERENCES public.account_identity_profile_revision(account_id, id);
+
+
+--
+-- Name: account_identity_rut_fingerprint account_identity_rut_fingerprint_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_rut_fingerprint
+    ADD CONSTRAINT account_identity_rut_fingerprint_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.account_identity_rut_claim(account_id);
+
+
+--
+-- Name: account_identity_verification account_identity_verification_account_id_profile_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_verification
+    ADD CONSTRAINT account_identity_verification_account_id_profile_revision_fkey FOREIGN KEY (account_id, profile_revision) REFERENCES public.account_identity_profile_revision(account_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_identity_webhook_receipt account_identity_webhook_receipt_attempt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_identity_webhook_receipt
+    ADD CONSTRAINT account_identity_webhook_receipt_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.account_identity_verification(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_access account_pinpass_access_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_access
+    ADD CONSTRAINT account_pinpass_access_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_access account_pinpass_access_account_id_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_access
+    ADD CONSTRAINT account_pinpass_access_account_id_session_id_fkey FOREIGN KEY (account_id, session_id) REFERENCES public.sesion(usuario_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass account_pinpass_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass
+    ADD CONSTRAINT account_pinpass_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_attempt account_pinpass_attempt_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_attempt
+    ADD CONSTRAINT account_pinpass_attempt_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_attempt account_pinpass_attempt_session_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_attempt
+    ADD CONSTRAINT account_pinpass_attempt_session_fk FOREIGN KEY (account_id, session_id) REFERENCES public.sesion(usuario_id, id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_email_challenge account_pinpass_email_challenge_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_email_challenge
+    ADD CONSTRAINT account_pinpass_email_challenge_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: account_pinpass_email_challenge account_pinpass_email_challenge_account_id_session_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_pinpass_email_challenge
+    ADD CONSTRAINT account_pinpass_email_challenge_account_id_session_id_fkey FOREIGN KEY (account_id, session_id) REFERENCES public.sesion(usuario_id, id) ON DELETE CASCADE;
+
+
+--
 -- Name: aceptacion_terminos aceptacion_terminos_usuario_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11442,6 +14488,46 @@ ALTER TABLE ONLY public.administrador_global
 
 ALTER TABLE ONLY public.administrador_global
     ADD CONSTRAINT administrador_global_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: anfitrion_cumplimiento_documento anfitrion_cumplimiento_documento_reviewer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_documento
+    ADD CONSTRAINT anfitrion_cumplimiento_documento_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: anfitrion_cumplimiento_documento anfitrion_cumplimiento_documento_submitted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_documento
+    ADD CONSTRAINT anfitrion_cumplimiento_documento_submitted_by_fkey FOREIGN KEY (submitted_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: anfitrion_cumplimiento_documento anfitrion_cumplimiento_documento_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_documento
+    ADD CONSTRAINT anfitrion_cumplimiento_documento_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.anfitrion_cumplimiento_personal(usuario_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: anfitrion_cumplimiento_personal anfitrion_cumplimiento_personal_disabled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_personal
+    ADD CONSTRAINT anfitrion_cumplimiento_personal_disabled_by_fkey FOREIGN KEY (disabled_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: anfitrion_cumplimiento_personal anfitrion_cumplimiento_personal_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.anfitrion_cumplimiento_personal
+    ADD CONSTRAINT anfitrion_cumplimiento_personal_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -11733,11 +14819,43 @@ ALTER TABLE ONLY public.bloqueo_cuenta_historial_local
 
 
 --
+-- Name: caso_soporte_reserva_comercial caso_soporte_reserva_comercial_iniciador_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caso_soporte_reserva_comercial
+    ADD CONSTRAINT caso_soporte_reserva_comercial_iniciador_id_fkey FOREIGN KEY (iniciador_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: caso_soporte_reserva_comercial caso_soporte_reserva_comercial_reserva_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.caso_soporte_reserva_comercial
+    ADD CONSTRAINT caso_soporte_reserva_comercial_reserva_id_fkey FOREIGN KEY (reserva_id) REFERENCES public.reserva_arriendo_comercial(id);
+
+
+--
 -- Name: categoria_perfil_atributos categoria_perfil_atributos_categoria_codigo_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.categoria_perfil_atributos
     ADD CONSTRAINT categoria_perfil_atributos_categoria_codigo_fkey FOREIGN KEY (categoria_codigo) REFERENCES public.categoria_espacio(codigo) ON DELETE RESTRICT;
+
+
+--
+-- Name: checkout_cancelacion_pendiente checkout_cancelacion_pendiente_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.checkout_cancelacion_pendiente
+    ADD CONSTRAINT checkout_cancelacion_pendiente_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: checkout_cancelacion_pendiente checkout_cancelacion_pendiente_operacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.checkout_cancelacion_pendiente
+    ADD CONSTRAINT checkout_cancelacion_pendiente_operacion_id_fkey FOREIGN KEY (operacion_id) REFERENCES public.checkout_preferencia_comercial(id) ON DELETE CASCADE;
 
 
 --
@@ -11949,6 +15067,14 @@ ALTER TABLE ONLY public.contrato_propuesta_comercial
 
 
 --
+-- Name: contrato_propuesta_comercial contrato_propuesta_comercial_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contrato_propuesta_comercial
+    ADD CONSTRAINT contrato_propuesta_comercial_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: contrato_propuesta_comercial contrato_propuesta_comercial_plantilla_version_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11962,6 +15088,14 @@ ALTER TABLE ONLY public.contrato_propuesta_comercial
 
 ALTER TABLE ONLY public.contrato_propuesta_comercial
     ADD CONSTRAINT contrato_propuesta_comercial_propietario_id_fkey FOREIGN KEY (propietario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: contrato_propuesta_comercial contrato_propuesta_comercial_representante_legal_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contrato_propuesta_comercial
+    ADD CONSTRAINT contrato_propuesta_comercial_representante_legal_id_fkey FOREIGN KEY (representante_legal_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -11981,6 +15115,14 @@ ALTER TABLE ONLY public.contrato_solicitud_comercial
 
 
 --
+-- Name: contrato_solicitud_comercial contrato_solicitud_comercial_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contrato_solicitud_comercial
+    ADD CONSTRAINT contrato_solicitud_comercial_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: contrato_solicitud_comercial contrato_solicitud_comercial_propietario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11994,6 +15136,14 @@ ALTER TABLE ONLY public.contrato_solicitud_comercial
 
 ALTER TABLE ONLY public.contrato_solicitud_comercial
     ADD CONSTRAINT contrato_solicitud_comercial_propuesta_id_fkey FOREIGN KEY (propuesta_id) REFERENCES public.contrato_propuesta_comercial(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: contrato_solicitud_comercial contrato_solicitud_comercial_representante_legal_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contrato_solicitud_comercial
+    ADD CONSTRAINT contrato_solicitud_comercial_representante_legal_id_fkey FOREIGN KEY (representante_legal_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -12445,6 +15595,14 @@ ALTER TABLE ONLY public.elegibilidad_verificacion_local
 
 
 --
+-- Name: espacio espacio_b2b_owner_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio
+    ADD CONSTRAINT espacio_b2b_owner_fk FOREIGN KEY (organizacion_id, propietario_id) REFERENCES public.organizacion(id, usuario_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: espacio_calendario_override espacio_calendario_override_espacio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12629,6 +15787,38 @@ ALTER TABLE ONLY public.espacio_regla_mensual
 
 
 --
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_actor_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_solicitud_documental
+    ADD CONSTRAINT espacio_solicitud_documental_actor_usuario_id_fkey FOREIGN KEY (actor_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_espacio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_solicitud_documental
+    ADD CONSTRAINT espacio_solicitud_documental_espacio_id_fkey FOREIGN KEY (espacio_id) REFERENCES public.espacio(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_solicitud_documental
+    ADD CONSTRAINT espacio_solicitud_documental_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: espacio_solicitud_documental espacio_solicitud_documental_titular_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.espacio_solicitud_documental
+    ADD CONSTRAINT espacio_solicitud_documental_titular_usuario_id_fkey FOREIGN KEY (titular_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: evento_auditoria_local evento_auditoria_local_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12642,6 +15832,38 @@ ALTER TABLE ONLY public.evento_auditoria_local
 
 ALTER TABLE ONLY public.evento_auditoria_local
     ADD CONSTRAINT evento_auditoria_local_cuenta_objetivo_id_fkey FOREIGN KEY (cuenta_objetivo_id) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
+-- Name: evento_caso_soporte_comercial evento_caso_soporte_comercial_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evento_caso_soporte_comercial
+    ADD CONSTRAINT evento_caso_soporte_comercial_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: evento_caso_soporte_comercial evento_caso_soporte_comercial_caso_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evento_caso_soporte_comercial
+    ADD CONSTRAINT evento_caso_soporte_comercial_caso_id_fkey FOREIGN KEY (caso_id) REFERENCES public.caso_soporte_reserva_comercial(id);
+
+
+--
+-- Name: evidencia_caso_soporte_comercial evidencia_caso_soporte_comercial_autor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidencia_caso_soporte_comercial
+    ADD CONSTRAINT evidencia_caso_soporte_comercial_autor_id_fkey FOREIGN KEY (autor_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: evidencia_caso_soporte_comercial evidencia_caso_soporte_comercial_caso_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.evidencia_caso_soporte_comercial
+    ADD CONSTRAINT evidencia_caso_soporte_comercial_caso_id_fkey FOREIGN KEY (caso_id) REFERENCES public.caso_soporte_reserva_comercial(id);
 
 
 --
@@ -12682,6 +15904,38 @@ ALTER TABLE ONLY public.gallery_item_order
 
 ALTER TABLE ONLY public.historial_clave_local
     ADD CONSTRAINT historial_clave_local_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: host_compliance_event host_compliance_event_actor_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.host_compliance_event
+    ADD CONSTRAINT host_compliance_event_actor_usuario_id_fkey FOREIGN KEY (actor_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: host_compliance_event host_compliance_event_espacio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.host_compliance_event
+    ADD CONSTRAINT host_compliance_event_espacio_id_fkey FOREIGN KEY (espacio_id) REFERENCES public.espacio(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: host_compliance_event host_compliance_event_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.host_compliance_event
+    ADD CONSTRAINT host_compliance_event_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: host_compliance_event host_compliance_event_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.host_compliance_event
+    ADD CONSTRAINT host_compliance_event_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -12733,6 +15987,78 @@ ALTER TABLE ONLY public.identity_verification_attempts
 
 
 --
+-- Name: kyb_compliance_notice_outbox kyb_compliance_notice_outbox_recipient_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_compliance_notice_outbox
+    ADD CONSTRAINT kyb_compliance_notice_outbox_recipient_id_fkey FOREIGN KEY (recipient_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_rut_claim kyb_rut_claim_verification_id_organization_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_rut_claim
+    ADD CONSTRAINT kyb_rut_claim_verification_id_organization_id_fkey FOREIGN KEY (verification_id, organization_id) REFERENCES public.kyb_verifications(id, organization_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verification_document kyb_verification_document_reviewer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_document
+    ADD CONSTRAINT kyb_verification_document_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verification_document kyb_verification_document_verification_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_document
+    ADD CONSTRAINT kyb_verification_document_verification_id_fkey FOREIGN KEY (verification_id) REFERENCES public.kyb_verifications(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verification_event kyb_verification_event_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_event
+    ADD CONSTRAINT kyb_verification_event_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verification_event kyb_verification_event_verification_id_organization_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verification_event
+    ADD CONSTRAINT kyb_verification_event_verification_id_organization_id_fkey FOREIGN KEY (verification_id, organization_id) REFERENCES public.kyb_verifications(id, organization_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verifications kyb_verifications_organization_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verifications kyb_verifications_reviewer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: kyb_verifications kyb_verifications_submitted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.kyb_verifications
+    ADD CONSTRAINT kyb_verifications_submitted_by_fkey FOREIGN KEY (submitted_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: m02_operacion_idempotente_local m02_operacion_idempotente_local_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12778,6 +16104,22 @@ ALTER TABLE ONLY public.media_variant_intent
 
 ALTER TABLE ONLY public.media_variant
     ADD CONSTRAINT media_variant_media_id_fkey FOREIGN KEY (media_id) REFERENCES public.media_asset(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: mensaje_reserva_comercial mensaje_reserva_comercial_autor_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mensaje_reserva_comercial
+    ADD CONSTRAINT mensaje_reserva_comercial_autor_fk FOREIGN KEY (autor_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: mensaje_reserva_comercial mensaje_reserva_comercial_reserva_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.mensaje_reserva_comercial
+    ADD CONSTRAINT mensaje_reserva_comercial_reserva_fk FOREIGN KEY (reserva_id) REFERENCES public.reserva_arriendo_comercial(id) ON DELETE RESTRICT;
 
 
 --
@@ -12917,6 +16259,94 @@ ALTER TABLE ONLY public.operacion_arriendo_historial_ensayo_local
 
 
 --
+-- Name: organizacion organizacion_created_by_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion
+    ADD CONSTRAINT organizacion_created_by_fk FOREIGN KEY (created_by_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion organizacion_disabled_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion
+    ADD CONSTRAINT organizacion_disabled_by_fkey FOREIGN KEY (disabled_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_resolved_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_invitacion organizacion_invitacion_target_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_invitacion
+    ADD CONSTRAINT organizacion_invitacion_target_usuario_id_fkey FOREIGN KEY (target_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_miembro organizacion_miembro_invited_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_miembro
+    ADD CONSTRAINT organizacion_miembro_invited_by_fkey FOREIGN KEY (invited_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_miembro organizacion_miembro_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_miembro
+    ADD CONSTRAINT organizacion_miembro_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_miembro organizacion_miembro_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_miembro
+    ADD CONSTRAINT organizacion_miembro_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion_rut_fingerprint organizacion_rut_fingerprint_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion_rut_fingerprint
+    ADD CONSTRAINT organizacion_rut_fingerprint_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: organizacion organizacion_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.organizacion
+    ADD CONSTRAINT organizacion_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: outbox_evento_ciclo_local outbox_evento_ciclo_local_actor_reapertura_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12941,6 +16371,190 @@ ALTER TABLE ONLY public.perfil_usuario
 
 
 --
+-- Name: privacidad_bloqueo_tratamiento privacidad_bloqueo_tratamiento_aplicado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_bloqueo_tratamiento
+    ADD CONSTRAINT privacidad_bloqueo_tratamiento_aplicado_por_fkey FOREIGN KEY (aplicado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_bloqueo_tratamiento privacidad_bloqueo_tratamiento_cuenta_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_bloqueo_tratamiento
+    ADD CONSTRAINT privacidad_bloqueo_tratamiento_cuenta_id_fkey FOREIGN KEY (cuenta_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_bloqueo_tratamiento privacidad_bloqueo_tratamiento_levantado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_bloqueo_tratamiento
+    ADD CONSTRAINT privacidad_bloqueo_tratamiento_levantado_por_fkey FOREIGN KEY (levantado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_bloqueo_tratamiento privacidad_bloqueo_tratamiento_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_bloqueo_tratamiento
+    ADD CONSTRAINT privacidad_bloqueo_tratamiento_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_ejecucion_derecho privacidad_ejecucion_derecho_cuenta_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_ejecucion_derecho
+    ADD CONSTRAINT privacidad_ejecucion_derecho_cuenta_id_fkey FOREIGN KEY (cuenta_id) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
+-- Name: privacidad_ejecucion_derecho privacidad_ejecucion_derecho_ejecutado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_ejecucion_derecho
+    ADD CONSTRAINT privacidad_ejecucion_derecho_ejecutado_por_fkey FOREIGN KEY (ejecutado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_ejecucion_derecho privacidad_ejecucion_derecho_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_ejecucion_derecho
+    ADD CONSTRAINT privacidad_ejecucion_derecho_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_incidente_datos privacidad_incidente_datos_creado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_datos
+    ADD CONSTRAINT privacidad_incidente_datos_creado_por_fkey FOREIGN KEY (creado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_incidente_datos privacidad_incidente_datos_lider_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_datos
+    ADD CONSTRAINT privacidad_incidente_datos_lider_id_fkey FOREIGN KEY (lider_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_incidente_datos privacidad_incidente_datos_suplente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_datos
+    ADD CONSTRAINT privacidad_incidente_datos_suplente_id_fkey FOREIGN KEY (suplente_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_incidente_evento privacidad_incidente_evento_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_evento
+    ADD CONSTRAINT privacidad_incidente_evento_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_incidente_evento privacidad_incidente_evento_incidente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_incidente_evento
+    ADD CONSTRAINT privacidad_incidente_evento_incidente_id_fkey FOREIGN KEY (incidente_id) REFERENCES public.privacidad_incidente_datos(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_notificacion_outbox privacidad_notificacion_outbox_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_notificacion_outbox
+    ADD CONSTRAINT privacidad_notificacion_outbox_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_preferencia_finalidad privacidad_preferencia_finalidad_actualizado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_preferencia_finalidad
+    ADD CONSTRAINT privacidad_preferencia_finalidad_actualizado_por_fkey FOREIGN KEY (actualizado_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_preferencia_finalidad privacidad_preferencia_finalidad_cuenta_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_preferencia_finalidad
+    ADD CONSTRAINT privacidad_preferencia_finalidad_cuenta_id_fkey FOREIGN KEY (cuenta_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
+
+
+--
+-- Name: privacidad_preferencia_finalidad privacidad_preferencia_finalidad_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_preferencia_finalidad
+    ADD CONSTRAINT privacidad_preferencia_finalidad_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE SET NULL;
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_aplicada_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_aplicada_por_fkey FOREIGN KEY (aplicada_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_cuenta_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_cuenta_id_fkey FOREIGN KEY (cuenta_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_incidente_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_incidente_id_fkey FOREIGN KEY (incidente_id) REFERENCES public.privacidad_incidente_datos(id) ON DELETE SET NULL;
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_liberada_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_liberada_por_fkey FOREIGN KEY (liberada_por) REFERENCES public.usuario(id);
+
+
+--
+-- Name: privacidad_retencion_legal privacidad_retencion_legal_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacidad_retencion_legal
+    ADD CONSTRAINT privacidad_retencion_legal_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE SET NULL;
+
+
+--
+-- Name: privacy_response_dispatch_receipt privacy_response_dispatch_receipt_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacy_response_dispatch_receipt
+    ADD CONSTRAINT privacy_response_dispatch_receipt_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: privacy_response_dispatch_receipt privacy_response_dispatch_receipt_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.privacy_response_dispatch_receipt
+    ADD CONSTRAINT privacy_response_dispatch_receipt_request_id_fkey FOREIGN KEY (request_id) REFERENCES public.solicitud_titular(id) ON DELETE CASCADE;
+
+
+--
 -- Name: profile_media profile_media_asset_owner_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -12954,6 +16568,14 @@ ALTER TABLE ONLY public.profile_media
 
 ALTER TABLE ONLY public.profile_media
     ADD CONSTRAINT profile_media_propietario_id_fkey FOREIGN KEY (propietario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: profile_pinpass_reauth profile_pinpass_reauth_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.profile_pinpass_reauth
+    ADD CONSTRAINT profile_pinpass_reauth_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.usuario(id) ON DELETE CASCADE;
 
 
 --
@@ -13141,6 +16763,38 @@ ALTER TABLE ONLY public.resena_ensayo_local
 
 
 --
+-- Name: resena_reserva_comercial resena_reserva_comercial_autor_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_autor_fk FOREIGN KEY (autor_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: resena_reserva_comercial resena_reserva_comercial_destinatario_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_destinatario_fk FOREIGN KEY (destinatario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: resena_reserva_comercial resena_reserva_comercial_espacio_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_espacio_fk FOREIGN KEY (espacio_id) REFERENCES public.espacio(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: resena_reserva_comercial resena_reserva_comercial_reserva_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.resena_reserva_comercial
+    ADD CONSTRAINT resena_reserva_comercial_reserva_fk FOREIGN KEY (reserva_id) REFERENCES public.reserva_arriendo_comercial(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: reserva_arriendo_comercial reserva_arriendo_comercial_anfitrion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13218,6 +16872,38 @@ ALTER TABLE ONLY public.reserva_cancelacion_ensayo
 
 ALTER TABLE ONLY public.reserva_cancelacion_ensayo
     ADD CONSTRAINT reserva_cancelacion_ensayo_reserva_id_fkey FOREIGN KEY (reserva_id) REFERENCES public.reserva_ensayo_local(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: reserva_comercial_cancelacion reserva_comercial_cancelacion_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_cancelacion
+    ADD CONSTRAINT reserva_comercial_cancelacion_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: reserva_comercial_cancelacion reserva_comercial_cancelacion_reserva_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_cancelacion
+    ADD CONSTRAINT reserva_comercial_cancelacion_reserva_id_fkey FOREIGN KEY (reserva_id) REFERENCES public.reserva_arriendo_comercial(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: reserva_comercial_mensaje_lectura reserva_comercial_mensaje_lectura_reserva_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_mensaje_lectura
+    ADD CONSTRAINT reserva_comercial_mensaje_lectura_reserva_fk FOREIGN KEY (reserva_id) REFERENCES public.reserva_arriendo_comercial(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: reserva_comercial_mensaje_lectura reserva_comercial_mensaje_lectura_usuario_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.reserva_comercial_mensaje_lectura
+    ADD CONSTRAINT reserva_comercial_mensaje_lectura_usuario_fk FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -13653,11 +17339,99 @@ ALTER TABLE ONLY public.solicitud_privacidad_administrativa
 
 
 --
+-- Name: solicitud_titular solicitud_titular_asignado_a_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular
+    ADD CONSTRAINT solicitud_titular_asignado_a_id_fkey FOREIGN KEY (asignado_a_id) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
+-- Name: solicitud_titular_evento solicitud_titular_evento_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular_evento
+    ADD CONSTRAINT solicitud_titular_evento_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
+-- Name: solicitud_titular_evento solicitud_titular_evento_solicitud_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular_evento
+    ADD CONSTRAINT solicitud_titular_evento_solicitud_id_fkey FOREIGN KEY (solicitud_id) REFERENCES public.solicitud_titular(id) ON DELETE CASCADE;
+
+
+--
+-- Name: solicitud_titular solicitud_titular_solicitado_por_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitud_titular
+    ADD CONSTRAINT solicitud_titular_solicitado_por_fkey FOREIGN KEY (solicitado_por) REFERENCES public.usuario(id) ON DELETE SET NULL;
+
+
+--
 -- Name: solicitud_titular solicitud_titular_usuario_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.solicitud_titular
     ADD CONSTRAINT solicitud_titular_usuario_fk FOREIGN KEY (usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_categoria_codigo_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_categoria_codigo_fkey FOREIGN KEY (categoria_codigo) REFERENCES public.categoria_espacio(codigo) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_espacio_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_espacio_id_fkey FOREIGN KEY (espacio_id) REFERENCES public.espacio(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_kyb_verification_id_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_kyb_verification_id_organizacion_id_fkey FOREIGN KEY (kyb_verification_id, organizacion_id) REFERENCES public.kyb_verifications(id, organization_id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_organizacion_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_organizacion_id_fkey FOREIGN KEY (organizacion_id) REFERENCES public.organizacion(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_owner_usuario_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_owner_usuario_id_fkey FOREIGN KEY (owner_usuario_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_reviewer_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_reviewer_id_fkey FOREIGN KEY (reviewer_id) REFERENCES public.usuario(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: space_kyb_verification space_kyb_verification_submitted_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.space_kyb_verification
+    ADD CONSTRAINT space_kyb_verification_submitted_by_fkey FOREIGN KEY (submitted_by) REFERENCES public.usuario(id) ON DELETE RESTRICT;
 
 
 --
@@ -13789,11 +17563,3354 @@ ALTER TABLE ONLY public.vista_asistida_administrativa
 
 
 --
--- PostgreSQL database dump complete
+-- Name: FUNCTION account_profile_identity_status(subject uuid, as_of timestamp with time zone); Type: ACL; Schema: public; Owner: -
 --
 
+REVOKE ALL ON FUNCTION public.account_profile_identity_status(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.account_profile_identity_status(uuid, timestamptz) TO espacigo_runtime;
+
+
 --
--- Data for Name: categoria_espacio; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Name: FUNCTION arriendo_temprano_confirmacion_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_confirmacion_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_evento_consistency(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_evento_consistency() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_evento_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_evento_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_idempotencia_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_idempotencia_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_immutable_update(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_immutable_update() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_occupancy_consistency(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_occupancy_consistency() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION arriendo_temprano_pago_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.arriendo_temprano_pago_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION assign_local_space_history_retention(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.assign_local_space_history_retention() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION build_public_search_document(p_status text, p_category text, p_title text, p_description text, p_location_version text, p_region_code text, p_commune_code text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.build_public_search_document(text, text, text, text, text, text, text) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION claim_expired_local_verification_files(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.claim_expired_local_verification_files(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.claim_expired_local_verification_files(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION claim_private_media_cleanup(p_limit integer, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.claim_private_media_cleanup(integer, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.claim_private_media_cleanup(integer, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION clear_commercial_space_pin_provenance(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.clear_commercial_space_pin_provenance() TO espacigo_runtime;
+
+
+--
+-- Name: TABLE identity_provider_attempt; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.identity_provider_attempt TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION commit_verified_identity_decision(p_attempt_id uuid, p_event_row_id uuid, p_rut_fingerprint text, p_session_id text, p_processed_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.commit_verified_identity_decision(uuid, uuid, text, text, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.commit_verified_identity_decision(uuid, uuid, text, text, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION complete_expired_local_verification_file(p_evidencia uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.complete_expired_local_verification_file(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.complete_expired_local_verification_file(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION complete_private_media_cleanup(p_id uuid, p_token bigint, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.complete_private_media_cleanup(uuid, bigint, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.complete_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_event_immutable(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_event_immutable() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_identity_case_insert_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_identity_case_insert_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_identity_case_link_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_identity_case_link_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_identity_review_audit_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_identity_review_audit_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_reviewer_grant_audit(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_reviewer_grant_audit() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_reviewer_grant_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_reviewer_grant_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION document_verification_space_owner_changed(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.document_verification_space_owner_changed() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_booking_payment_notices(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_booking_payment_notices() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_checkout_payment_notices(p_operation_id uuid, p_transition text, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_checkout_payment_notices(uuid, text, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_contract_complete_notices(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_contract_complete_notices() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_contract_signature_notices(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_contract_signature_notices() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_cancel_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_cancel_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_checkin_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_checkin_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_claim_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_claim_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_damage_claim_resolution_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_damage_claim_resolution_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_notice(p_type text, p_aggregate_type text, p_aggregate uuid, p_recipient uuid, p_key text, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_notice(text, text, uuid, uuid, text, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_local_review_report_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_local_review_report_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_login_lock_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_login_lock_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION enqueue_verification_result_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.enqueue_verification_result_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION fail_expired_local_verification_file(p_evidencia uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fail_expired_local_verification_file(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fail_expired_local_verification_file(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION fail_private_media_cleanup(p_id uuid, p_token bigint, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.fail_private_media_cleanup(uuid, bigint, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fail_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION finalize_pending_suppression_cleanup(p_request_id uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.finalize_pending_suppression_cleanup(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.finalize_pending_suppression_cleanup(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION gcp06_test_access_operation_exists(p_id uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.gcp06_test_access_operation_exists(uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION gcp06_test_access_owner_ready(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.gcp06_test_access_owner_ready() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION gcp06_test_access_target_ids(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.gcp06_test_access_target_ids() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION guard_checkout_commercial_contract_binding(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_checkout_commercial_contract_binding() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_agreement(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_agreement() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_contract_document(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_contract_document() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_rental_authorization(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_rental_authorization() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_rental_tax_document(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_rental_tax_document() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_signature(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_signature() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_commercial_space_location(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_commercial_space_location() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guard_local_reservation_close_after_settlement(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guard_local_reservation_close_after_settlement() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guardar_modalidad_horario_activo(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guardar_modalidad_horario_activo() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION guardar_zona_sin_horario_activo(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.guardar_zona_sin_horario_activo() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION host_compliance_event_immutable(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.host_compliance_event_immutable() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.host_compliance_event_immutable() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION identity_declaration_case_retention_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.identity_declaration_case_retention_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION img01b_check_media_relation_scope(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.img01b_check_media_relation_scope() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION img01b_enforce_gallery_slot(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.img01b_enforce_gallery_slot() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION img01b_guard_replacement_request_revision(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.img01b_guard_replacement_request_revision() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_bind_company_rut(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_bind_company_rut() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_bind_company_rut() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_enqueue_due_reminders(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_enqueue_due_reminders(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_enqueue_due_reminders(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_expire_noncompliant_profiles(p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_expire_noncompliant_profiles(timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_expire_noncompliant_profiles(timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_next_reminder(p_started_at timestamp with time zone, p_due_at timestamp with time zone, p_last_stage text, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_next_reminder(timestamptz, timestamptz, text, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_next_reminder(timestamptz, timestamptz, text, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_organization_reactivation_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_organization_reactivation_notice() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_organization_reactivation_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_personal_reactivation_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_personal_reactivation_notice() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_personal_reactivation_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_record_publication_document_request(p_space uuid, p_actor uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_record_publication_document_request(uuid, uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_record_publication_document_request(uuid, uuid) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_space_compliance_detail(p_espacio_id uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_space_compliance_detail(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_space_compliance_detail(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_space_document_request_notice(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_space_document_request_notice() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_space_document_request_notice() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_space_document_state(p_espacio_id uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_space_document_state(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_space_document_state(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_space_eligibility(p_espacio_id uuid, p_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_space_eligibility(uuid, timestamptz) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_space_eligibility(uuid, timestamptz) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_start_space_grace(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_start_space_grace() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_start_space_grace() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_submission_requires_active_member(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_submission_requires_active_member() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_submission_requires_active_member() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION kyb_verification_event_immutable(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.kyb_verification_event_immutable() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.kyb_verification_event_immutable() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION local_contract_effective_retention_deadline(p_reservation uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.local_contract_effective_retention_deadline(uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION local_retention_reservation_has_open_obligation(p_reservation uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.local_retention_reservation_has_open_obligation(uuid) FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION maintain_commercial_agreement_quote_anchor(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.maintain_commercial_agreement_quote_anchor() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION organizacion_miembro_requires_legal_rep(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.organizacion_miembro_requires_legal_rep() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.organizacion_miembro_requires_legal_rep() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION prevent_local_publication_history_mutation(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.prevent_local_publication_history_mutation() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION prevent_local_space_deletion_history_mutation(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.prevent_local_space_deletion_history_mutation() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION protect_commercial_agreement_event(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.protect_commercial_agreement_event() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION protect_commercial_contract_template_version(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.protect_commercial_contract_template_version() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION protect_commercial_rental_authorization_event(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.protect_commercial_rental_authorization_event() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION public_catalog_billed_units(p_unit text, p_start timestamp with time zone, p_end timestamp with time zone, p_zone text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.public_catalog_billed_units(text, timestamptz, timestamptz, text) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION public_catalog_resolve_wall(p_wall timestamp without time zone, p_zone text); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.public_catalog_resolve_wall(timestamp, text) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_delivered_identity_session_outbox(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_delivered_identity_session_outbox() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_delivered_identity_session_outbox() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_expired_identity_declaration_revisions(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_expired_identity_declaration_revisions() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_identity_declaration_revisions() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_expired_local_communication(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_expired_local_communication(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_local_communication(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_expired_local_contracts_and_publication_history(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_expired_local_contracts_and_publication_history(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_local_contracts_and_publication_history(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_expired_local_credential_notices(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_expired_local_credential_notices(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_local_credential_notices(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_expired_local_privacy_rows(p_at timestamp with time zone, p_limit integer); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_expired_local_privacy_rows(timestamptz, integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_expired_local_privacy_rows(timestamptz, integer) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION purge_unreferenced_local_publication_rates(p_space_id uuid); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION rechazar_cambio_tarifa_con_horario_activo(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.rechazar_cambio_tarifa_con_horario_activo() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION refresh_category_public_search_document(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.refresh_category_public_search_document() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION refresh_espacio_public_search_document(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.refresh_espacio_public_search_document() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION reject_gadm_bootstrap_identity_change(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.reject_gadm_bootstrap_identity_change() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION require_commercial_agreement_signatures(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.require_commercial_agreement_signatures() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION revoke_commercial_rental_authorization_on_template_change(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.revoke_commercial_rental_authorization_on_template_change() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION schedule_local_reservation_link_retention(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.schedule_local_reservation_link_retention() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION set_local_verification_retention_deadline(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.set_local_verification_retention_deadline() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION set_verification_evidence_retention_deadline(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.set_verification_evidence_retention_deadline() FROM PUBLIC;
+
+
+--
+-- Name: FUNCTION space_kyb_owner_guard(); Type: ACL; Schema: public; Owner: -
+--
+
+REVOKE ALL ON FUNCTION public.space_kyb_owner_guard() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.space_kyb_owner_guard() TO espacigo_runtime;
+
+
+--
+-- Name: FUNCTION validar_horario_semanal_fixture_hora(); Type: ACL; Schema: public; Owner: -
+--
+
+GRANT ALL ON FUNCTION public.validar_horario_semanal_fixture_hora() TO espacigo_runtime;
+
+
+--
+-- Name: TABLE acceso_sensible_administrativo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.acceso_sensible_administrativo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_profile; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.account_identity_profile TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_profile_draft; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_identity_profile_draft TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_profile_phone; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.account_identity_profile_phone TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_profile_revision; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.account_identity_profile_revision TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_rut_claim; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.account_identity_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_rut_fingerprint; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.account_identity_rut_fingerprint TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_verification; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.account_identity_verification TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_identity_webhook_receipt; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.account_identity_webhook_receipt TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_pinpass; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_pinpass TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_pinpass_access; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_pinpass_access TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_pinpass_attempt; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_pinpass_attempt TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_pinpass_audit; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT ON TABLE public.account_pinpass_audit TO espacigo_runtime;
+
+
+--
+-- Name: TABLE account_pinpass_email_challenge; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.account_pinpass_email_challenge TO espacigo_runtime;
+
+
+--
+-- Name: TABLE aceptacion_terminos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.aceptacion_terminos TO espacigo_runtime;
+
+
+--
+-- Name: TABLE administrador_global; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.administrador_global TO espacigo_runtime;
+
+
+--
+-- Name: TABLE administrador_global_bootstrap; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.administrador_global_bootstrap TO espacigo_runtime;
+
+
+--
+-- Name: TABLE administrador_global_bootstrap_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.administrador_global_bootstrap_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE anfitrion_cumplimiento_documento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.anfitrion_cumplimiento_documento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE anfitrion_cumplimiento_personal; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.anfitrion_cumplimiento_personal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN anfitrion_cumplimiento_personal.last_reminder_stage; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(last_reminder_stage) ON TABLE public.anfitrion_cumplimiento_personal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN anfitrion_cumplimiento_personal.updated_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(updated_at) ON TABLE public.anfitrion_cumplimiento_personal TO espacigo_runtime;
+
+
+--
+-- Name: TABLE aprobacion_administrativa; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.aprobacion_administrativa TO espacigo_runtime;
+
+
+--
+-- Name: TABLE arriendo_temprano; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.arriendo_temprano TO espacigo_runtime;
+
+
+--
+-- Name: TABLE arriendo_temprano_confirmacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.arriendo_temprano_confirmacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE arriendo_temprano_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.arriendo_temprano_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE arriendo_temprano_idempotencia; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.arriendo_temprano_idempotencia TO espacigo_runtime;
+
+
+--
+-- Name: TABLE arriendo_temprano_pago; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.arriendo_temprano_pago TO espacigo_runtime;
+
+
+--
+-- Name: TABLE atributo_filtro_publico; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.atributo_filtro_publico TO espacigo_runtime;
+
+
+--
+-- Name: TABLE autorizacion_arriendo_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.autorizacion_arriendo_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE autorizacion_arriendo_comercial_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.autorizacion_arriendo_comercial_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE autorizacion_firma_desafio_otp; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.autorizacion_firma_desafio_otp TO espacigo_runtime;
+
+
+--
+-- Name: TABLE aviso_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.aviso_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE aviso_local_ciclo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.aviso_local_ciclo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE aviso_local_recuperacion_auditoria; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.aviso_local_recuperacion_auditoria TO espacigo_runtime;
+
+
+--
+-- Name: TABLE baja_archivo_pendiente_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.baja_archivo_pendiente_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.ejecucion_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.evidencia_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.intentos; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.disponible_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.ultimo_codigo_error; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.completada_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.claim_owner; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.claim_hasta; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN baja_archivo_pendiente_local.claim_generacion; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE bloqueo_cuenta_administrativo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bloqueo_cuenta_administrativo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE bloqueo_cuenta_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bloqueo_cuenta_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE caso_soporte_reserva_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.caso_soporte_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN caso_soporte_reserva_comercial.enrutado_a; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(enrutado_a) ON TABLE public.caso_soporte_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN caso_soporte_reserva_comercial.estado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(estado) ON TABLE public.caso_soporte_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN caso_soporte_reserva_comercial.actualizada_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(actualizada_en) ON TABLE public.caso_soporte_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE catalogo_ubicacion_publica; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.catalogo_ubicacion_publica TO espacigo_runtime;
+
+
+--
+-- Name: TABLE categoria_espacio; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.categoria_espacio TO espacigo_runtime;
+
+
+--
+-- Name: TABLE categoria_perfil_atributos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.categoria_perfil_atributos TO espacigo_runtime;
+
+
+--
+-- Name: TABLE checkout_cancelacion_pendiente; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.checkout_cancelacion_pendiente TO espacigo_runtime;
+
+
+--
+-- Name: TABLE checkout_payment_notice_outbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.checkout_payment_notice_outbox TO espacigo_runtime;
+
+
+--
+-- Name: TABLE checkout_preferencia_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.checkout_preferencia_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE comuna_publica; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.comuna_publica TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_documento_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_documento_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_ensayo_firma; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_ensayo_firma TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_ensayo_historial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_ensayo_historial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_firma_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_firma_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_firma_desafio_otp; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_firma_desafio_otp TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_propuesta_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_propuesta_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_solicitud_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_solicitud_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_solicitud_evento_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_solicitud_evento_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_solicitud_notice_outbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_solicitud_notice_outbox TO espacigo_runtime;
+
+
+--
+-- Name: TABLE contrato_solicitud_quote_activa; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.contrato_solicitud_quote_activa TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cotizacion_arriendo_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cotizacion_arriendo_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cotizacion_arriendo_tramo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cotizacion_arriendo_tramo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cotizacion_modalidad_cobro; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cotizacion_modalidad_cobro TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cotizacion_reserva_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cotizacion_reserva_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_alerta_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_alerta_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_alerta_preferencia; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_alerta_preferencia TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_cobro_sintetica_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_cobro_sintetica_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE cuenta_cobro_sintetica_historial_local_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.cuenta_cobro_sintetica_historial_local_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_cobro_sintetica_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_cobro_sintetica_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_passkey; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_passkey TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_permiso_ubicacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_permiso_ubicacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_persona_confianza; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_persona_confianza TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_qr_dispositivo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_qr_dispositivo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_qr_ticket; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_qr_ticket TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_totp; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_totp TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_totp_backup_code; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_totp_backup_code TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_verificacion_telefono; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_verificacion_telefono TO espacigo_runtime;
+
+
+--
+-- Name: TABLE cuenta_webauthn_challenge; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cuenta_webauthn_challenge TO espacigo_runtime;
+
+
+--
+-- Name: TABLE desafio_mfa_administrativo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.desafio_mfa_administrativo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE didit_webhook_inbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.didit_webhook_inbox TO espacigo_runtime;
+
+
+--
+-- Name: TABLE disputa_ensayo_historial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.disputa_ensayo_historial TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE disputa_ensayo_historial_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.disputa_ensayo_historial_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE disputa_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.disputa_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_case; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_verification_case TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_event; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_verification_event TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE document_verification_event_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.document_verification_event_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_file; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_verification_file TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_job; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_verification_job TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_reviewer_grant; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.document_verification_reviewer_grant TO espacigo_runtime;
+
+
+--
+-- Name: TABLE document_verification_reviewer_grant_event; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.document_verification_reviewer_grant_event TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE document_verification_reviewer_grant_event_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.document_verification_reviewer_grant_event_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE documento_privado_sintetico_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.documento_privado_sintetico_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE ejecucion_baja_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ejecucion_baja_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN ejecucion_baja_local.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN ejecucion_baja_local.solicitud_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN ejecucion_baja_local.estado; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN ejecucion_baja_local.iniciada_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE elegibilidad_verificacion_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.elegibilidad_verificacion_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio.es_b2b; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(es_b2b),UPDATE(es_b2b) ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio.organizacion_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(organizacion_id),UPDATE(organizacion_id) ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio.modo_anfitrion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(modo_anfitrion) ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio.kyb_grace_started_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(kyb_grace_started_at) ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio.kyb_grace_due_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(kyb_grace_due_at) ON TABLE public.espacio TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_calendario_override; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_calendario_override TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_caracteristicas; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_caracteristicas TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_contrato_borrador; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_contrato_borrador TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_contrato_version; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_contrato_version TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_eliminacion_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_eliminacion_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE espacio_eliminacion_historial_local_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.espacio_eliminacion_historial_local_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_galeria_archivo_candidato_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_galeria_archivo_candidato_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_galeria_sintetica_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_galeria_sintetica_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.archivo_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.estado; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.proximo_intento_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.limpia_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN espacio_galeria_sintetica_local.ultimo_codigo_error; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE espacio_horario_semanal; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_horario_semanal TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_horario_semanal_tramo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_horario_semanal_tramo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_publicacion_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_publicacion_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE espacio_publicacion_historial_local_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.espacio_publicacion_historial_local_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_regla_disponibilidad; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_regla_disponibilidad TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_regla_mensual; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.espacio_regla_mensual TO espacigo_runtime;
+
+
+--
+-- Name: TABLE espacio_solicitud_documental; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT ON TABLE public.espacio_solicitud_documental TO espacigo_runtime;
+
+
+--
+-- Name: TABLE evento_auditoria_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.evento_auditoria_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE evento_caso_soporte_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.evento_caso_soporte_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE evidencia_caso_soporte_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.evidencia_caso_soporte_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE foto_perfil_sintetica_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.foto_perfil_sintetica_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.archivo_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.mime_type; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.sha256; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.size_bytes; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.estado; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.limpia_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.proximo_intento_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN foto_perfil_sintetica_local.ultimo_codigo_error; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE gallery_item_order; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gallery_item_order TO espacigo_runtime;
+
+
+--
+-- Name: TABLE gcp06_test_access_batch_audit; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gcp06_test_access_batch_audit TO espacigo_runtime;
+
+
+--
+-- Name: TABLE historial_clave_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.historial_clave_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE host_compliance_event; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.host_compliance_event TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE host_compliance_event_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT USAGE ON SEQUENCE public.host_compliance_event_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE identity_declaration_revision; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.identity_declaration_revision TO espacigo_runtime;
+
+
+--
+-- Name: TABLE identity_provider_event; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.identity_provider_event TO espacigo_runtime;
+
+
+--
+-- Name: TABLE identity_rut_claim; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.identity_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: TABLE identity_verification_attempts; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.identity_verification_attempts TO espacigo_runtime;
+
+
+--
+-- Name: TABLE kyb_compliance_notice_outbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.kyb_compliance_notice_outbox TO espacigo_runtime;
+
+
+--
+-- Name: TABLE kyb_rut_claim; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_rut_claim.rut_kind; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(rut_kind) ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_rut_claim.fingerprint; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(fingerprint) ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_rut_claim.verification_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT(verification_id),INSERT(verification_id) ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_rut_claim.organization_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(organization_id) ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_rut_claim.active; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(active) ON TABLE public.kyb_rut_claim TO espacigo_runtime;
+
+
+--
+-- Name: TABLE kyb_verification_document; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(id) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.verification_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(verification_id) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.document_kind; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(document_kind) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.storage_ref; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(storage_ref) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.mime_type; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(mime_type) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.size_bytes; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(size_bytes) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.content_sha256; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(content_sha256) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.review_status; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(review_status) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.rejection_reason; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(rejection_reason) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.reviewer_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(reviewer_id) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verification_document.reviewed_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(reviewed_at) ON TABLE public.kyb_verification_document TO espacigo_runtime;
+
+
+--
+-- Name: TABLE kyb_verification_event; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kyb_verification_event TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE kyb_verification_event_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.kyb_verification_event_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE kyb_verifications; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(id) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.organization_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(organization_id) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.submitted_by; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(submitted_by) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.idempotency_key; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(idempotency_key) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.legal_name; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(legal_name) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.company_rut_fingerprint; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(company_rut_fingerprint) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.company_rut_key_version; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(company_rut_key_version) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.company_rut_ciphertext; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(company_rut_ciphertext) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.representative_name; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(representative_name) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.representative_rut_fingerprint; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(representative_rut_fingerprint) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.representative_rut_key_version; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(representative_rut_key_version) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.representative_rut_ciphertext; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(representative_rut_ciphertext) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.sii_giro_code; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(sii_giro_code) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.status; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(status),UPDATE(status) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.rejection_reason; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(rejection_reason) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.submitted_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(submitted_at) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.reviewed_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(reviewed_at) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.reviewer_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(reviewer_id) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.created_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(created_at) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN kyb_verifications.updated_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT INSERT(updated_at),UPDATE(updated_at) ON TABLE public.kyb_verifications TO espacigo_runtime;
+
+
+--
+-- Name: TABLE m02_operacion_idempotente_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.m02_operacion_idempotente_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE media_asset; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.media_asset TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN media_asset.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_asset.propietario_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_asset.estado; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_asset.fencing_token; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_asset.lease_until; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_asset.updated_at; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE media_variant; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.media_variant TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN media_variant.media_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.variant; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.provider; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.bucket_name; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.object_key; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.generation; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.mime_type; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.size_bytes; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.sha256; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.width; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant.height; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE media_variant_intent; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.media_variant_intent TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN media_variant_intent.media_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant_intent.variant; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant_intent.object_key; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant_intent.generation; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN media_variant_intent.write_complete; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE mensaje_reserva_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.mensaje_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE mensaje_reserva_comercial_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.mensaje_reserva_comercial_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE mensaje_reserva_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.mensaje_reserva_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE mensaje_reserva_ensayo_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.mensaje_reserva_ensayo_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE mercadopago_oauth_state; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.mercadopago_oauth_state TO espacigo_runtime;
+
+
+--
+-- Name: TABLE mercadopago_payment_webhook_receipt; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.mercadopago_payment_webhook_receipt TO espacigo_runtime;
+
+
+--
+-- Name: TABLE mercadopago_seller_connection; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.mercadopago_seller_connection TO espacigo_runtime;
+
+
+--
+-- Name: TABLE notificacion_usuario; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notificacion_usuario TO espacigo_runtime;
+
+
+--
+-- Name: TABLE ocupacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ocupacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE operacion_arriendo_archivo_candidato_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operacion_arriendo_archivo_candidato_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN operacion_arriendo_archivo_candidato_local.archivo_id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE operacion_arriendo_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operacion_arriendo_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE operacion_arriendo_evidencia_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operacion_arriendo_evidencia_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN operacion_arriendo_evidencia_ensayo_local.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN operacion_arriendo_evidencia_ensayo_local.retirar_archivo_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: COLUMN operacion_arriendo_evidencia_ensayo_local.archivo_retirado_en; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE operacion_arriendo_historial_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.operacion_arriendo_historial_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE operacion_arriendo_historial_ensayo_local_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.operacion_arriendo_historial_ensayo_local_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE organizacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.created_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(created_at) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.updated_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(updated_at) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.sii_giro_code; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(sii_giro_code) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.trade_name; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(trade_name) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.public_summary; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(public_summary) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.logo_media_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(logo_media_id) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.commune_code; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(commune_code) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.region_code; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(region_code) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.compliance_status; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(compliance_status) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.grace_started_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(grace_started_at) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.grace_due_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(grace_due_at) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.disabled_at; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(disabled_at) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.disabled_reason; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(disabled_reason) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.disabled_by; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(disabled_by) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN organizacion.last_reminder_stage; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(last_reminder_stage) ON TABLE public.organizacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE organizacion_invitacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.organizacion_invitacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE organizacion_miembro; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.organizacion_miembro TO espacigo_runtime;
+
+
+--
+-- Name: TABLE organizacion_rut_fingerprint; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.organizacion_rut_fingerprint TO espacigo_runtime;
+
+
+--
+-- Name: TABLE outbox_evento_ciclo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.outbox_evento_ciclo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE outbox_evento_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.outbox_evento_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE perfil_usuario; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.perfil_usuario TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_bloqueo_tratamiento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_bloqueo_tratamiento.estado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(estado) ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_bloqueo_tratamiento.revisar_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(revisar_en) ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_bloqueo_tratamiento.levantado_por; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(levantado_por) ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_bloqueo_tratamiento.levantado_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(levantado_en) ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_bloqueo_tratamiento.motivo_levantamiento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(motivo_levantamiento) ON TABLE public.privacidad_bloqueo_tratamiento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_ejecucion_derecho; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacidad_ejecucion_derecho TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_incidente_datos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.privacidad_incidente_datos TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_incidente_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacidad_incidente_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_notificacion_outbox; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.estado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(estado) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.intentos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(intentos) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.disponible_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(disponible_en) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.reclamado_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(reclamado_en) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.entregado_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(entregado_en) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.terminal_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(terminal_en) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_notificacion_outbox.ultimo_error_codigo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(ultimo_error_codigo) ON TABLE public.privacidad_notificacion_outbox TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_preferencia_finalidad; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.privacidad_preferencia_finalidad TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacidad_retencion_legal; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_retencion_legal.estado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(estado) ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_retencion_legal.revisar_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(revisar_en) ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_retencion_legal.liberada_por; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(liberada_por) ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_retencion_legal.liberada_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(liberada_en) ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN privacidad_retencion_legal.motivo_liberacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(motivo_liberacion) ON TABLE public.privacidad_retencion_legal TO espacigo_runtime;
+
+
+--
+-- Name: TABLE privacy_response_dispatch_receipt; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.privacy_response_dispatch_receipt TO espacigo_runtime;
+
+
+--
+-- Name: TABLE profile_media; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.profile_media TO espacigo_runtime;
+
+
+--
+-- Name: TABLE profile_pinpass_reauth; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.profile_pinpass_reauth TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reaplicacion_baja_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reaplicacion_baja_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reclamo_dano_descargo_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reclamo_dano_descargo_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reclamo_dano_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reclamo_dano_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reclamo_dano_historial_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reclamo_dano_historial_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE reclamo_dano_historial_ensayo_local_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.reclamo_dano_historial_ensayo_local_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reclamo_dano_resolucion_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reclamo_dano_resolucion_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE region_publica; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.region_publica TO espacigo_runtime;
+
+
+--
+-- Name: TABLE registro_replay_baja_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.registro_replay_baja_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reporte_resena_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reporte_resena_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reporte_resena_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reporte_resena_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE reporte_resena_historial_local_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.reporte_resena_historial_local_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE resena_autoria_marca_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.resena_autoria_marca_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE resena_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.resena_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE resena_reserva_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.resena_reserva_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_arriendo_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_arriendo_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_arriendo_tramo_estado; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_arriendo_tramo_estado TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_cancelacion_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_cancelacion_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_comercial_cancelacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.clave_idempotencia; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(clave_idempotencia) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.provider_refund_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(provider_refund_id) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.refund_status; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(refund_status) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.intentos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(intentos) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.actualizada_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(actualizada_en) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN reserva_comercial_cancelacion.resuelta_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(resuelta_en) ON TABLE public.reserva_comercial_cancelacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_comercial_mensaje_lectura; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_comercial_mensaje_lectura TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_comprobante_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_comprobante_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_cuota_mensual; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_cuota_mensual TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_decision_financiera_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_decision_financiera_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_devolucion_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_devolucion_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_devolucion_intento_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_devolucion_intento_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_documento_tributario_comercial; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_documento_tributario_comercial TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_ensayo_local_fixture; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_ensayo_local_fixture TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_ensayo_local_ubicacion_sintetica; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_ensayo_local_ubicacion_sintetica TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_ensayo_transicion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_ensayo_transicion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_finanzas_historial_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_finanzas_historial_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE reserva_finanzas_historial_ensayo_local_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.reserva_finanzas_historial_ensayo_local_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_garantia_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_garantia_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_garantia_evento_aplicacion_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_garantia_evento_aplicacion_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_garantia_evento_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_garantia_evento_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_garantia_operacion_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_garantia_operacion_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_garantia_resultado_fake_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_garantia_resultado_fake_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_liquidacion_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_liquidacion_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_liquidacion_historial_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_liquidacion_historial_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE reserva_liquidacion_historial_ensayo_local_secuencia_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.reserva_liquidacion_historial_ensayo_local_secuencia_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_liquidacion_operacion_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_liquidacion_operacion_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_liquidacion_resultado_fake_ensayo_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_liquidacion_resultado_fake_ensayo_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_mensaje_lectura; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_mensaje_lectura TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_pago_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_pago_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_pago_ensayo_operacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_pago_ensayo_operacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_pago_evento_aplicacion_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_pago_evento_aplicacion_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_pago_evento_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_pago_evento_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_pago_fake_resultado_ensayo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_pago_fake_resultado_ensayo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE reserva_vinculo_purgado_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reserva_vinculo_purgado_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE rol_usuario; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.rol_usuario TO espacigo_runtime;
+
+
+--
+-- Name: TABLE rol_usuario_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.rol_usuario_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE sesion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sesion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE sesion_administrativa; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sesion_administrativa TO espacigo_runtime;
+
+
+--
+-- Name: TABLE simulacion_precio_privada; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.simulacion_precio_privada TO espacigo_runtime;
+
+
+--
+-- Name: TABLE solicitud_privacidad_administrativa; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.solicitud_privacidad_administrativa TO espacigo_runtime;
+
+
+--
+-- Name: TABLE solicitud_titular; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.usuario_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(usuario_id) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.respuesta_titular; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(respuesta_titular) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.asignado_a_id; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(asignado_a_id) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.vence_en; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(vence_en) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.prorrogada_hasta; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(prorrogada_hasta) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.prorroga_motivo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(prorroga_motivo) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.version; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(version) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN solicitud_titular.folio_publico; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT UPDATE(folio_publico) ON TABLE public.solicitud_titular TO espacigo_runtime;
+
+
+--
+-- Name: TABLE solicitud_titular_evento; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT ON TABLE public.solicitud_titular_evento TO espacigo_runtime;
+
+
+--
+-- Name: TABLE space_kyb_verification; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,UPDATE ON TABLE public.space_kyb_verification TO espacigo_runtime;
+
+
+--
+-- Name: TABLE space_media; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.space_media TO espacigo_runtime;
+
+
+--
+-- Name: TABLE tarifa_espacio; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tarifa_espacio TO espacigo_runtime;
+
+
+--
+-- Name: TABLE ticket_soporte_administrativo; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ticket_soporte_administrativo TO espacigo_runtime;
+
+
+--
+-- Name: TABLE token_accion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.token_accion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE usuario; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.usuario TO espacigo_runtime;
+
+
+--
+-- Name: TABLE verificacion; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.verificacion TO espacigo_runtime;
+
+
+--
+-- Name: TABLE verificacion_archivo_retiro_pendiente_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.verificacion_archivo_retiro_pendiente_local TO espacigo_runtime;
+
+
+--
+-- Name: TABLE verificacion_evidencia_sintetica; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.verificacion_evidencia_sintetica TO espacigo_runtime;
+
+
+--
+-- Name: COLUMN verificacion_evidencia_sintetica.id; Type: ACL; Schema: public; Owner: -
+--
+
+
+
+--
+-- Name: TABLE verificacion_historial_local; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.verificacion_historial_local TO espacigo_runtime;
+
+
+--
+-- Name: SEQUENCE verificacion_historial_local_id_seq; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,USAGE ON SEQUENCE public.verificacion_historial_local_id_seq TO espacigo_runtime;
+
+
+--
+-- Name: TABLE version_terminos; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.version_terminos TO espacigo_runtime;
+
+
+--
+-- Name: TABLE vista_asistida_administrativa; Type: ACL; Schema: public; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.vista_asistida_administrativa TO espacigo_runtime;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT SELECT,USAGE ON SEQUENCES TO espacigo_runtime;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT ALL ON FUNCTIONS TO espacigo_runtime;
+
+
+--
+-- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: -
+--
+
+ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO espacigo_runtime;
+
+
+--
+-- PostgreSQL database dump complete
+--
+--
+-- PostgreSQL database dump
+--
+
+
+-- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
+-- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Data for Name: categoria_espacio; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.categoria_espacio VALUES ('oficina', 'Oficina', 1, true);
@@ -13808,7 +20925,7 @@ INSERT INTO public.categoria_espacio VALUES ('inmuebles', 'Inmuebles', 9, true);
 
 
 --
--- Data for Name: categoria_perfil_atributos; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: categoria_perfil_atributos; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.categoria_perfil_atributos VALUES ('parcela_eventos', 1, '{"attributes": [{"code": "superficie_exterior_util_m2", "step": 0.01, "type": "number", "unit": "m²", "label": "Superficie exterior útil", "order": 1, "maximum": 99999999.99, "minimum": 0.01, "filter_candidate": false}, {"code": "superficie_cubierta_util_m2", "step": 0.01, "type": "number", "unit": "m²", "label": "Superficie cubierta útil", "order": 2, "maximum": 99999999.99, "minimum": 0.01, "filter_candidate": false}, {"code": "estacionamientos_disponibles", "type": "integer", "label": "Estacionamientos disponibles", "order": 3, "maximum": 2147483647, "minimum": 0, "filter_candidate": false}, {"code": "salon_cubierto", "type": "boolean", "label": "Salón cubierto", "order": 4, "filter_candidate": false}, {"code": "cocina_disponible", "type": "boolean", "label": "Cocina disponible", "order": 5, "filter_candidate": false}, {"code": "quincho_disponible", "type": "boolean", "label": "Quincho disponible", "order": 6, "filter_candidate": false}, {"code": "piscina_disponible", "type": "boolean", "label": "Piscina disponible", "order": 7, "filter_candidate": false}, {"code": "acceso_bus", "type": "boolean", "label": "Acceso para bus", "order": 8, "filter_candidate": false}, {"code": "agua_potable", "type": "boolean", "label": "Agua potable", "order": 9, "filter_candidate": false}, {"code": "energia_electrica", "type": "boolean", "label": "Energía eléctrica", "order": 10, "filter_candidate": false}, {"code": "banos_disponibles", "type": "integer", "label": "Baños disponibles", "order": 11, "maximum": 2147483647, "minimum": 0, "filter_candidate": false}], "category_code": "parcela_eventos", "schema_version": 1}', '2026-11-15 21:54:49.637547+00');
@@ -13823,7 +20940,7 @@ INSERT INTO public.categoria_perfil_atributos VALUES ('inmuebles', 1, '{"attribu
 
 
 --
--- Data for Name: atributo_filtro_publico; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: atributo_filtro_publico; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.atributo_filtro_publico VALUES ('oficina', 1, 'wifi', 'Wi-Fi', 'boolean', 8);
@@ -13888,14 +21005,14 @@ INSERT INTO public.atributo_filtro_publico VALUES ('parcela_eventos', 1, 'acceso
 
 
 --
--- Data for Name: catalogo_ubicacion_publica; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: catalogo_ubicacion_publica; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.catalogo_ubicacion_publica VALUES ('SUBDERE_DPA_2018', 'SUBDERE CUT 2018 v04 / IDE Chile DPA 2018', '2018-09-21', true);
 
 
 --
--- Data for Name: region_publica; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: region_publica; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.region_publica VALUES ('SUBDERE_DPA_2018', '01', 'Tarapacá');
@@ -13917,7 +21034,7 @@ INSERT INTO public.region_publica VALUES ('SUBDERE_DPA_2018', '16', 'Ñuble');
 
 
 --
--- Data for Name: comuna_publica; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: comuna_publica; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.comuna_publica VALUES ('SUBDERE_DPA_2018', '01101', '01', 'Iquique');
@@ -14268,7 +21385,7 @@ INSERT INTO public.comuna_publica VALUES ('SUBDERE_DPA_2018', '16305', '16', 'Sa
 
 
 --
--- Data for Name: version_terminos; Type: TABLE DATA; Schema: public; Owner: espacigo_schema_owner
+-- Data for Name: version_terminos; Type: TABLE DATA; Schema: public; Owner: -
 --
 
 INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000001', 'sintetico-terminos-v0.1', 'terminos', '1519668e1eaa6612ba184a1573db9fa7b95f61d3aab410b4f02028411ec483f2', '2026-10-04 00:00:00+00');
@@ -14278,21 +21395,90 @@ INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-00000000007
 INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000076', 'evaluacion-privacidad-20261023-v1', 'privacidad', '45dbeaef01b2ae7cc6375b5a8ef6a574f95eab702fbde7f152a742ad154fdd3b', '2026-10-23 00:00:00+00');
 INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000101', 'espacigo-terminos-20261118-v1', 'terminos', '54a5cf3b3a9193a9d44db9c30c1891daa2c389ca9482f17fb88b0ed0c4f5e30a', '2026-11-18 00:00:00+00');
 INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000102', 'espacigo-privacidad-20261118-v1', 'privacidad', 'cb83ce4c6219d3d7d8cbc0bfd2430f32f84334e5ec377dfe0994fedd9f76ba74', '2026-11-18 00:00:00+00');
+INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000103', 'evaluacion-terminos-20261126-v2', 'terminos', 'd952a43b260febe5470eb9af348dddf7f1b2e2c744d18e408c814bf82cc76b57', '2026-11-26 00:00:00+00');
+INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000104', 'espacigo-terminos-20261126-v2', 'terminos', 'b5dc085757725d8bc60a545f98b9b544a1b1cb07c16355df7bb56bac3e274d3c', '2026-11-26 00:00:00+00');
+INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000105', 'espacigo-terminos-hotusoft-v1-2', 'terminos', '1c17baa937446e5136faa232ae3aaabda8c9579fd4f824791f9ea073cf787d78', '2026-11-28 01:00:55.778678+00');
+INSERT INTO public.version_terminos VALUES ('00000000-0000-4000-8000-000000000106', 'espacigo-privacidad-hotusoft-v1-2', 'privacidad', '35f430d2463b6036337caa3baf6520d3a1a19d26262dd8339dcf19ccf0cb5eae', '2026-11-28 01:00:55.778678+00');
 
 
 --
 -- PostgreSQL database dump complete
 --
 
---
--- Uniform runtime permissions and append-only audit protection
---
+-- Preserve explicit denials for the ACL reconciler and the migration ledger.
+REVOKE UPDATE, DELETE ON TABLE public.evento_auditoria_local FROM espacigo_runtime;
+REVOKE ALL ON TABLE public.schema_migrations FROM PUBLIC;
+REVOKE ALL ON TABLE public.schema_migrations FROM espacigo_runtime;
+REVOKE UPDATE, DELETE ON TABLE public.aviso_local_recuperacion_auditoria FROM espacigo_runtime;
+REVOKE UPDATE, DELETE ON TABLE public.rol_usuario_evento FROM espacigo_runtime;
+REVOKE UPDATE, DELETE ON TABLE public.document_verification_reviewer_grant_event FROM espacigo_runtime;
 
-GRANT USAGE ON SCHEMA public TO espacigo_runtime;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO espacigo_runtime;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO espacigo_runtime;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO espacigo_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO espacigo_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO espacigo_runtime;
-ALTER DEFAULT PRIVILEGES FOR ROLE espacigo_schema_owner IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO espacigo_runtime;
-REVOKE UPDATE, DELETE ON public.evento_auditoria_local FROM espacigo_runtime;
+DO $worker_acl$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_privacy_cleanup_worker') THEN
+        GRANT ALL ON FUNCTION public.claim_private_media_cleanup(integer, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT ALL ON FUNCTION public.complete_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT ALL ON FUNCTION public.fail_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT ALL ON FUNCTION public.finalize_pending_suppression_cleanup(uuid, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT ALL ON FUNCTION public.purge_delivered_identity_session_outbox() TO espacigo_privacy_cleanup_worker;
+        GRANT ALL ON FUNCTION public.purge_expired_identity_declaration_revisions() TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(ejecucion_id) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(evidencia_id) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(intentos),UPDATE(intentos) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(disponible_en),UPDATE(disponible_en) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(ultimo_codigo_error),UPDATE(ultimo_codigo_error) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(completada_en),UPDATE(completada_en) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(claim_owner),UPDATE(claim_owner) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(claim_hasta),UPDATE(claim_hasta) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(claim_generacion),UPDATE(claim_generacion) ON TABLE public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.ejecucion_baja_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(solicitud_id) ON TABLE public.ejecucion_baja_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(estado) ON TABLE public.ejecucion_baja_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(iniciada_en) ON TABLE public.ejecucion_baja_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(archivo_id) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(estado) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(proximo_intento_en) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(limpia_en) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(ultimo_codigo_error) ON TABLE public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(archivo_id) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(mime_type) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(sha256) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(size_bytes) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(estado) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(limpia_en) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(proximo_intento_en) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE(ultimo_codigo_error) ON TABLE public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(propietario_id) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(estado) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(fencing_token) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(lease_until) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(updated_at) ON TABLE public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(media_id) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(variant) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(provider) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(bucket_name) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(object_key) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(generation) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(mime_type) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(size_bytes) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(sha256) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(width) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(height) ON TABLE public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(media_id) ON TABLE public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(variant) ON TABLE public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(object_key) ON TABLE public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(generation) ON TABLE public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(write_complete) ON TABLE public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+        GRANT DELETE ON TABLE public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(archivo_id) ON TABLE public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(retirar_archivo_en),UPDATE(retirar_archivo_en) ON TABLE public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(archivo_retirado_en),UPDATE(archivo_retirado_en) ON TABLE public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+        GRANT DELETE ON TABLE public.verificacion_evidencia_sintetica TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT(id) ON TABLE public.verificacion_evidencia_sintetica TO espacigo_privacy_cleanup_worker;
+    END IF;
+END
+$worker_acl$;

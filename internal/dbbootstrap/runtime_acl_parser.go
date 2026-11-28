@@ -24,6 +24,7 @@ var aclFunctionTypes = map[string]struct{}{
 	"bigint":      {},
 	"integer":     {},
 	"text":        {},
+	"timestamp":   {},
 	"timestamptz": {},
 	"uuid":        {},
 }

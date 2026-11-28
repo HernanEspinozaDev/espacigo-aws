@@ -162,7 +162,7 @@ func TestReleasePolicyMatchesDiscoveredMigrations(t *testing.T) {
 }
 
 func TestHotusoftReleasePreflightOnlyRequiresExistingObjects(t *testing.T) {
-	root := filepath.Join("..", "..", "db")
+	root := filepath.Join("..", "..", "db", "legacy-migrations", "v29")
 	raw, err := os.ReadFile(filepath.Join(root, "release-policy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestHotusoftReleasePreflightOnlyRequiresExistingObjects(t *testing.T) {
 	if err := json.Unmarshal(raw, &policy); err != nil {
 		t.Fatal(err)
 	}
-	migrations, err := DiscoverMigrations(filepath.Join(root, "migrations"))
+	migrations, err := DiscoverMigrations(root)
 	if err != nil {
 		t.Fatal(err)
 	}

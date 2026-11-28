@@ -265,7 +265,7 @@ func TestNativeIdentityCleanupAuthorityReadOnlyPreflight(t *testing.T) {
 }
 
 func TestNativeIdentityPreflightRejectsUntrustedTargetAndLedger(t *testing.T) {
-	source, err := migrator.DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
+	source, err := migrator.DiscoverMigrations(filepath.Join("..", "..", "db", "legacy-migrations", "v29"))
 	if err != nil {
 		t.Fatal(err)
 	}
