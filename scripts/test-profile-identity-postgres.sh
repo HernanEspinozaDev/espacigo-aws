@@ -42,7 +42,7 @@ CREATE TABLE public.cuenta_totp(
 CREATE TABLE public.cuenta_totp_backup_code(account_id uuid NOT NULL, used_at timestamptz);
 CREATE TABLE public.cotizacion_arriendo_comercial(id uuid PRIMARY KEY, propietario_id uuid NOT NULL, arrendatario_id uuid NOT NULL);
 SQL
-{ printf 'SET ROLE espacigo_schema_owner;\n'; cat db/migrations/V000007__perfil_identidad_didit.sql db/migrations/V000008__espacigo_pinpass.sql db/migrations/V000009__pinpass_codigo_correo.sql; } | profile_test_psql -q
+{ printf 'SET ROLE espacigo_schema_owner;\n'; cat db/legacy-migrations/v29/V000007__perfil_identidad_didit.sql db/legacy-migrations/v29/V000008__espacigo_pinpass.sql db/legacy-migrations/v29/V000009__pinpass_codigo_correo.sql; } | profile_test_psql -q
 profile_test_psql -q <<'SQL'
 DO $$
 BEGIN
