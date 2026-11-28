@@ -253,6 +253,7 @@ Resources:
 
   RdsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    Condition: CreateManagedRds
     Properties:
       GroupName: !Sub espacigo-rds-sg-${Environment}
       GroupDescription: Permitir PostgreSQL 5432 solo desde la tarea ECS
