@@ -101,7 +101,7 @@ CREATE TABLE public.notificacion_usuario(
 	}
 	_, source, _, _ := runtime.Caller(0)
 	for _, name := range []string{"V000003__mensajeria_comercial.sql", "V000004__resenas_comerciales.sql"} {
-		migration := filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "..", "..", "db", "migrations", name))
+		migration := filepath.Clean(filepath.Join(filepath.Dir(source), "..", "..", "..", "..", "db", "legacy-migrations", "v29", name))
 		sql, readErr := os.ReadFile(migration)
 		if readErr != nil {
 			t.Fatal(readErr)
