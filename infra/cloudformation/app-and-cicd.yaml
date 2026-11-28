@@ -64,6 +64,12 @@ Parameters:
     Default: ''
     Description: Digest ECR de espacigo-web (@sha256:...). Vacio omite la tarea ECS de la app.
 
+  DatabaseEndpointOverride:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.rds\.amazonaws\.com$'
+    Description: Endpoint RDS alternativo. Vacío usa el endpoint de la red.
+
   DatabaseMigratorSecretArn:
     Type: String
     Default: ''
@@ -121,6 +127,7 @@ Parameters:
     Description: Nombre del parametro SecureString en SSM Parameter Store con el token de GitHub (ej. /espacigo/prod/github/commit_status_token). Vacio omite la Lambda.
 
 Conditions:
+  OverrideDatabase: !Not [!Equals [!Ref DatabaseEndpointOverride, '']]
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
   ProvisionMigrator: !Not [!Equals [!Ref MigratorSeedImage, '']]
   ProvisionApp: !And
@@ -170,8 +177,7 @@ Resources:
     Properties:
       Name: !Sub /espacigo/${Environment}/database/host
       Type: String
-      Value:
-        Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+      Value: !If [OverrideDatabase, !Ref DatabaseEndpointOverride, {Fn::ImportValue: !Sub '${NetworkStackName}-RdsEndpointAddress'}]
 
   SsmDatabasePort:
     Type: AWS::SSM::Parameter
@@ -606,9 +612,7 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref WebTargetGroup
 
-  # ============================================================================
   # 5. ECS Task Definition & Service (Next.js + Go API)
-  # ============================================================================
   AppTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Condition: ProvisionApp
@@ -637,8 +641,7 @@ Resources:
             - Name: AWS_REGION
               Value: !Ref AWS::Region
             - Name: DATABASE_HOST
-              Value:
-                Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+              Value: !If [OverrideDatabase, !Ref DatabaseEndpointOverride, {Fn::ImportValue: !Sub '${NetworkStackName}-RdsEndpointAddress'}]
             - Name: DATABASE_PORT
               Value:
                 Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointPort
@@ -915,15 +918,13 @@ Resources:
             - -aws-release
           Environment:
             - Name: AWS_RDS_HOST
-              Value:
-                Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+              Value: !If [OverrideDatabase, !Ref DatabaseEndpointOverride, {Fn::ImportValue: !Sub '${NetworkStackName}-RdsEndpointAddress'}]
             - Name: DATABASE_SET_ROLE
               Value: espacigo_schema_owner
             - Name: DATABASE_URL
               Value: !Sub
                 - postgres://espacigo_migrator_login@${Host}:${Port}/espacigo_${Environment}?sslmode=verify-full&sslrootcert=/etc/ssl/rds-ca.pem
-                - Host:
-                    Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointAddress
+                - Host: !If [OverrideDatabase, !Ref DatabaseEndpointOverride, {Fn::ImportValue: !Sub '${NetworkStackName}-RdsEndpointAddress'}]
                   Port:
                     Fn::ImportValue: !Sub ${NetworkStackName}-RdsEndpointPort
           Secrets:
