@@ -13,14 +13,34 @@ PROFILE="${ESPACIGO_PROD_PROFILE:-espacigo-prod}"
 REGION="${ESPACIGO_PROD_REGION:-us-east-2}"
 ECS_CLUSTER="espacigo-production"
 ECS_SERVICE="espacigo-app-prod"
-RDS_INSTANCE="espacigo-db-prod"
+RDS_HOST_PARAMETER="/espacigo/prod/database/host"
 NAT_INSTANCE_NAME="espacigo-nat-prod"
 
 # Aislamiento respecto al aws-emulator local.
 unset AWS_ENDPOINT_URL AWS_ENDPOINT_URL_S3 AWS_ENDPOINT_URL_SSM AWS_CA_BUNDLE
 
 aws_prod() {
-  aws --profile "$PROFILE" --region "$REGION" "$@"
+  AWS_IGNORE_CONFIGURED_ENDPOINT_URLS=true aws --profile "$PROFILE" --region "$REGION" "$@"
+}
+
+get_rds_id() {
+  local host result
+  host="$(aws_prod ssm get-parameter --name "$RDS_HOST_PARAMETER" \
+    --query Parameter.Value --output text)"
+  if [[ ! "$host" =~ ^[a-z0-9-]+\.[a-z0-9-]+\.$REGION\.rds\.amazonaws\.com$ ]]; then
+    echo "El parámetro de producción no contiene un endpoint RDS de $REGION." >&2
+    return 1
+  fi
+  result="$(aws_prod rds describe-db-instances --db-instance-identifier "${host%%.*}" \
+    --query 'DBInstances[0].[DBInstanceIdentifier,Endpoint.Address,DeletionProtection,PubliclyAccessible]' \
+    --output text)"
+  local id address protected public
+  read -r id address protected public <<<"$result"
+  if [[ "$id" != "${host%%.*}" || "$address" != "$host" || "$protected" != True || "$public" != False ]]; then
+    echo "El endpoint no coincide con una instancia privada y protegida de producción." >&2
+    return 1
+  fi
+  printf '%s\n' "$id"
 }
 
 get_nat_id() {
@@ -68,8 +88,14 @@ cmd_status() {
 }
 
 cmd_pause() {
-  local nat_id nat_state rds_state
+  local nat_id nat_state rds_state pipeline_active
   nat_id="$(get_nat_id)"
+  pipeline_active="$(aws_prod codepipeline list-pipeline-executions --pipeline-name espacigo-main-pilot \
+    --max-results 20 --query 'length(pipelineExecutionSummaries[?status==`InProgress` || status==`Stopping`])' --output text)"
+  if [[ "$pipeline_active" != 0 ]]; then
+    echo "CodePipeline tiene una publicación activa. Espera a que termine antes de pausar." >&2
+    return 1
+  fi
 
   echo "[1/3] Bajando ECS ${ECS_SERVICE} a desiredCount=0..."
   aws_prod ecs update-service \
@@ -77,6 +103,16 @@ cmd_pause() {
     --service "$ECS_SERVICE" \
     --desired-count 0 \
     --no-cli-pager >/dev/null
+
+  echo "      Esperando que ECS termine sus tareas antes de detener RDS..."
+  aws_prod ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"
+  local ecs_counts
+  ecs_counts="$(aws_prod ecs describe-services --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE" \
+    --query 'services[0].[desiredCount,runningCount,pendingCount]' --output text)"
+  if [[ ! "$ecs_counts" =~ ^0[[:space:]]+0[[:space:]]+0$ ]]; then
+    echo "ECS todavía tiene tareas. Se conserva RDS encendido." >&2
+    return 1
+  fi
 
   echo "[2/3] Verificando RDS ${RDS_INSTANCE}..."
   rds_state="$(get_rds_state)"
@@ -135,9 +171,14 @@ cmd_start() {
 }
 
 case "${1:-}" in
-  status) cmd_status ;;
-  pause|stop) cmd_pause ;;
-  start|resume) cmd_start ;;
+  status|pause|stop|start|resume)
+    RDS_INSTANCE="$(get_rds_id)"
+    case "$1" in
+      status) cmd_status ;;
+      pause|stop) cmd_pause ;;
+      start|resume) cmd_start ;;
+    esac
+    ;;
   *)
     echo "Uso: $0 {status|pause|start}" >&2
     exit 1
