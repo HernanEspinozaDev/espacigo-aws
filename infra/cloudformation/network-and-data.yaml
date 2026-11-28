@@ -13,6 +13,12 @@ Parameters:
       - staging
     Description: Ambiente de despliegue.
 
+  ExternalRdsEndpoint:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]+\.rds\.amazonaws\.com$'
+    Description: Endpoint de RDS existente. Vacío aprovisiona la instancia del stack.
+
   RdsInstanceClass:
     Type: String
     Default: db.t4g.micro
@@ -48,6 +54,7 @@ Parameters:
     Description: Crea el bucket privado exclusivo de documentos KYB. Activar solo tras aprobar el despliegue de infraestructura.
 
 Conditions:
+  CreateManagedRds: !Equals [!Ref ExternalRdsEndpoint, '']
   HasPublicTls: !Not [!Equals [!Ref PublicTlsCertificateArn, '']]
   EnableSecretsManagerEndpoint: !Equals [!Ref EnablePersistentSecretsManagerEndpoint, 'true']
   EnableInterfaceEndpoints: !Equals [!Ref EnablePrivateInterfaceEndpoints, 'true']
@@ -412,6 +419,7 @@ Resources:
 
   PostgresDatabase:
     Type: AWS::RDS::DBInstance
+    Condition: CreateManagedRds
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -634,11 +642,11 @@ Outputs:
     Export:
       Name: !Sub ${AWS::StackName}-SecretsManagerVpceId
   RdsEndpointAddress:
-    Value: !GetAtt PostgresDatabase.Endpoint.Address
+    Value: !If [CreateManagedRds, !GetAtt PostgresDatabase.Endpoint.Address, !Ref ExternalRdsEndpoint]
     Export:
       Name: !Sub ${AWS::StackName}-RdsEndpointAddress
   RdsEndpointPort:
-    Value: !GetAtt PostgresDatabase.Endpoint.Port
+    Value: !If [CreateManagedRds, !GetAtt PostgresDatabase.Endpoint.Port, '5432']
     Export:
       Name: !Sub ${AWS::StackName}-RdsEndpointPort
   RdsDbName:
