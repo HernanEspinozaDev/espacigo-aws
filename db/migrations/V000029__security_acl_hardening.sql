@@ -83,3 +83,52 @@ BEGIN
     END IF;
 END
 $runtime$;
+
+-- D. El worker de limpieza utiliza un rol efectivo dedicado y sólo los permisos
+-- de columna y las seis funciones que exige su ciclo actual.
+DO $cleanup_worker$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_privacy_cleanup_worker') THEN
+        IF NOT pg_catalog.has_schema_privilege('espacigo_privacy_cleanup_worker', 'public', 'USAGE') THEN
+            RAISE EXCEPTION 'V000029 requires USAGE on schema public for espacigo_privacy_cleanup_worker';
+        END IF;
+
+        GRANT SELECT (id, solicitud_id, estado, iniciada_en)
+            ON public.ejecucion_baja_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (ejecucion_id, evidencia_id, completada_en, disponible_en, intentos,
+                      ultimo_codigo_error, claim_owner, claim_hasta, claim_generacion)
+            ON public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE (completada_en, disponible_en, intentos, ultimo_codigo_error,
+                      claim_owner, claim_hasta, claim_generacion)
+            ON public.baja_archivo_pendiente_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (id) ON public.verificacion_evidencia_sintetica TO espacigo_privacy_cleanup_worker;
+        GRANT DELETE ON public.verificacion_evidencia_sintetica TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (archivo_id) ON public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
+        GRANT DELETE ON public.operacion_arriendo_archivo_candidato_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (id, retirar_archivo_en, archivo_retirado_en)
+            ON public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE (retirar_archivo_en, archivo_retirado_en)
+            ON public.operacion_arriendo_evidencia_ensayo_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (id, estado) ON public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE (archivo_id, mime_type, sha256, size_bytes, limpia_en, proximo_intento_en, ultimo_codigo_error)
+            ON public.foto_perfil_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (id, estado) ON public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+        GRANT UPDATE (archivo_id, limpia_en, proximo_intento_en, ultimo_codigo_error)
+            ON public.espacio_galeria_sintetica_local TO espacigo_privacy_cleanup_worker;
+
+        GRANT SELECT (id, propietario_id, estado, fencing_token, lease_until, updated_at)
+            ON public.media_asset TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (media_id, variant, provider, bucket_name, object_key, generation, mime_type, size_bytes, sha256, width, height)
+            ON public.media_variant TO espacigo_privacy_cleanup_worker;
+        GRANT SELECT (media_id, variant, object_key, generation, write_complete)
+            ON public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+
+        GRANT EXECUTE ON FUNCTION public.finalize_pending_suppression_cleanup(uuid, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT EXECUTE ON FUNCTION public.claim_private_media_cleanup(integer, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT EXECUTE ON FUNCTION public.complete_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT EXECUTE ON FUNCTION public.fail_private_media_cleanup(uuid, bigint, timestamptz) TO espacigo_privacy_cleanup_worker;
+        GRANT EXECUTE ON FUNCTION public.purge_expired_identity_declaration_revisions() TO espacigo_privacy_cleanup_worker;
+        GRANT EXECUTE ON FUNCTION public.purge_delivered_identity_session_outbox() TO espacigo_privacy_cleanup_worker;
+    END IF;
+END
+$cleanup_worker$;
