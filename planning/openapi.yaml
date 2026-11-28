@@ -3160,7 +3160,7 @@ paths:
       operationId: getGlobalAdminAssistedViewProjection
       tags: [ Global administration ]
       summary: Consultar proyección de solo lectura para una vista asistida activa
-      description: Verifica la sesión, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
+      description: Verifica la sesión administrativa, MFA reciente, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
       parameters:
         - { in: path, name: grantID, required: true, schema: { type: string, format: uuid } }
       responses:
@@ -3169,6 +3169,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { description: Se requiere autenticación MFA reciente para consultar la vista asistida, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /admin/global/assisted-view/{grantID}:
     delete:
       operationId: closeGlobalAdminAssistedView
@@ -5373,7 +5374,8 @@ paths:
         Disponible en los perfiles local y productivo sin requerir cuenta ni sesión activa.
         Registra una solicitud de acceso, rectificación, supresión, oposición, portabilidad o
         bloqueo presentada por el titular o por un representante, y entrega un acuse neutral
-        con folio público y código de seguimiento para consulta posterior.
+        con folio público y código de seguimiento para consulta posterior. Sujeto a límites de
+        frecuencia. La respuesta 429 informa el tiempo de espera en Retry-After.
       requestBody:
         required: true
         content:
@@ -5387,6 +5389,7 @@ paths:
               schema: { $ref: "#/components/schemas/PublicPrivacyRequestReceiptEnvelope" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /privacy/public-requests/lookup:
     post:
@@ -5398,7 +5401,8 @@ paths:
         Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio
         público y el código de seguimiento en tiempo constante y devuelve únicamente el estado,
         plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo
-        actor_id, correos y notas internas.
+        actor_id, correos y notas internas. Sujeto a límites de frecuencia. La respuesta 429
+        informa el tiempo de espera en Retry-After.
       requestBody:
         required: true
         content:
@@ -5413,6 +5417,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /privacy/legal-acceptances:
     get:

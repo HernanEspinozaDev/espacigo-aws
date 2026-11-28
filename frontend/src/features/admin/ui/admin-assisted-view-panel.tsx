@@ -16,6 +16,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/workspace/ui/button";
 import { ApiError } from "@/lib/api/errors";
 import type {
   AdminAssistedViewAccountSummary,
@@ -29,6 +30,7 @@ import type {
   AdminAssistedViewRole,
   AdminAssistedViewSpaceItem,
 } from "../domain/types";
+import { isRecentAuthRequired } from "../domain/admin-rules";
 import { useAdmin } from "./use-admin";
 
 const dateTimeFormatter = new Intl.DateTimeFormat("es-CL", {
@@ -603,8 +605,8 @@ function PaymentsSection({
 
 type ProjectionState =
   | { status: "loading" }
-  | { status: "ready"; value: AdminAssistedViewProjection }
-  | { status: "error"; message: string };
+  | { status: "ready"; grantId: string; value: AdminAssistedViewProjection }
+  | { status: "error"; message: string; terminal?: boolean };
 
 export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
   const { snapshot, hasAdminCapability, getAssistedViewProjection } =
@@ -616,6 +618,7 @@ export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
 
   const [state, setState] = useState<ProjectionState>({ status: "loading" });
   const [activeTab, setActiveTab] = useState<AssistedViewTabId>("resumen");
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   useEffect(() => {
     if (!activeGrant) return;
@@ -630,7 +633,11 @@ export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
           });
           return;
         }
-        setState({ status: "ready", value: projection });
+        setState({
+          status: "ready",
+          grantId: activeGrant.grant_id,
+          value: projection,
+        });
         setActiveTab("resumen");
       })
       .catch((error: unknown) => {
@@ -639,22 +646,25 @@ export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
           setState({
             status: "error",
             message: "La vista asistida expiró o ya fue cerrada.",
+            terminal: true,
           });
           return;
         }
+        const requiresRecentAuth = isRecentAuthRequired(error);
         setState({
           status: "error",
-          message: "No fue posible cargar la proyección de solo lectura.",
+          message: requiresRecentAuth
+            ? "La sesión requiere una verificación MFA reciente. Confirma el código en la ventana emergente y vuelve a intentar la consulta."
+            : "No fue posible cargar la proyección de solo lectura.",
         });
       });
     return () => controller.abort();
-  }, [activeGrant, getAssistedViewProjection]);
+  }, [activeGrant, getAssistedViewProjection, reloadVersion]);
 
   const tabs = useMemo(() => {
     if (state.status !== "ready") return [];
     return buildTabsForRole(state.value.role, state.value);
   }, [state]);
-
   if (
     snapshot.adminSessionStatus === "unknown" ||
     snapshot.adminSessionStatus === "checking"
@@ -734,17 +744,30 @@ export function AdminAssistedViewPanel({ accountId }: { accountId: string }) {
         </div>
       </header>
 
-      {state.status === "loading" ? (
+      {state.status === "loading" ||
+      (state.status === "ready" && state.grantId !== activeGrant.grant_id) ? (
         <p role="status" className="text-sm text-muted-foreground">
           Cargando proyección de solo lectura…
         </p>
       ) : state.status === "error" ? (
-        <p
+        <div
           role="alert"
-          className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200"
+          className="space-y-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200"
         >
-          {state.message}
-        </p>
+          <p>{state.message}</p>
+          {!state.terminal && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setState({ status: "loading" });
+                setReloadVersion((version) => version + 1);
+              }}
+            >
+              Reintentar consulta
+            </Button>
+          )}
+        </div>
       ) : (
         <div className="space-y-5">
           <div

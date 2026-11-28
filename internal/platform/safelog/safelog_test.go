@@ -181,6 +181,33 @@ func TestLoggerMaxEventBytes(t *testing.T) {
 	if !bytes.Contains(output, []byte(safelog.TruncationMarker)) {
 		t.Fatalf("log event expected to contain truncation marker")
 	}
+	var event safelog.Event
+	if err := json.Unmarshal(output, &event); err != nil || event.RequestID != "req-12345" || event.Level != "ERROR" {
+		t.Fatalf("truncation lost structured event metadata: %v, %#v", err, event)
+	}
+}
+
+func TestLoggerRejectsSensitiveAndUnstructuredFields(t *testing.T) {
+	var buf bytes.Buffer
+	logger := safelog.New(&buf)
+	ctx := safelog.ContextWithRequestID(context.Background(), "person@example.invalid")
+	logger.Info(ctx, "started",
+		safelog.F("password", "arbitrary-secret"),
+		safelog.F("fields", map[string]string{"data": "nested-secret"}),
+		safelog.F("message", "forged-message"),
+		safelog.F("cookie", 123456),
+		safelog.F("attempt", 3),
+	)
+	var event map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event["message"] != "started" || event["password"] != "[REDACTED]" || event["cookie"] != "[REDACTED]" || event["attempt"] != float64(3) {
+		t.Fatalf("unexpected event fields: %v", event)
+	}
+	if event["request_id"] != nil || event["fields"] != nil || strings.Contains(buf.String(), "-secret") {
+		t.Fatalf("unexpected private data in event: %v", event)
+	}
 }
 
 func TestLoggerStructuredJSONAndRequestID(t *testing.T) {

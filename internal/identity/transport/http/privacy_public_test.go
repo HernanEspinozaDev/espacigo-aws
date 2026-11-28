@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -245,5 +246,108 @@ func TestPublicPrivacyRequestsErrorsAndMethods(t *testing.T) {
 		if !strings.Contains(res.Body.String(), `"privacy_unavailable"`) {
 			t.Fatalf("nil privacy on %s expected privacy_unavailable, got %s", tc.path, res.Body.String())
 		}
+	}
+}
+
+func TestPublicPrivacyRequestsRateLimitByRequesterAndEndpoint(t *testing.T) {
+	h := newHandler(nil, nil, nil, nil, mustPublicPrivacyService(t)).(*Handler)
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	h.now = func() time.Time { return now }
+	var body = `{"right_type":"acceso","requester_type":"titular","requester_name":"Camila Rojas","requester_email":"camila@example.com","detail":"Solicito copia de mis datos personales."}`
+	for request := 0; request < 5; request++ {
+		req := httptest.NewRequest(http.MethodPost, privacyPublicRequestsPath, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("request %d status = %d, want 201, body=%s", request+1, res.Code, res.Body.String())
+		}
+	}
+	blocked := httptest.NewRequest(http.MethodPost, privacyPublicRequestsPath, strings.NewReader(body))
+	blocked.Header.Set("Content-Type", "application/json")
+	blockedRes := httptest.NewRecorder()
+	h.ServeHTTP(blockedRes, blocked)
+	if blockedRes.Code != http.StatusTooManyRequests || blockedRes.Header().Get("Retry-After") != "3600" {
+		t.Fatalf("sixth submission status/retry-after = %d/%q, want 429/3600", blockedRes.Code, blockedRes.Header().Get("Retry-After"))
+	}
+
+	otherRequesterBody := strings.Replace(body, "camila@example.com", "ines@example.com", 1)
+	otherRequester := httptest.NewRequest(http.MethodPost, privacyPublicRequestsPath, strings.NewReader(otherRequesterBody))
+	otherRequester.Header.Set("Content-Type", "application/json")
+	otherRequesterRes := httptest.NewRecorder()
+	h.ServeHTTP(otherRequesterRes, otherRequester)
+	if otherRequesterRes.Code != http.StatusCreated {
+		t.Fatalf("separate requester status = %d, want 201, body=%s", otherRequesterRes.Code, otherRequesterRes.Body.String())
+	}
+
+	now = now.Add(time.Hour)
+	retried := httptest.NewRequest(http.MethodPost, privacyPublicRequestsPath, strings.NewReader(body))
+	retried.Header.Set("Content-Type", "application/json")
+	retriedRes := httptest.NewRecorder()
+	h.ServeHTTP(retriedRes, retried)
+	if retriedRes.Code != http.StatusCreated {
+		t.Fatalf("request after window status = %d, want 201, body=%s", retriedRes.Code, retriedRes.Body.String())
+	}
+}
+
+func mustPublicPrivacyService(t *testing.T) *privacy.Service {
+	t.Helper()
+	svc, err := privacy.NewService(&memoryPublicPrivacyRepo{})
+	if err != nil {
+		t.Fatalf("privacy.NewService: %v", err)
+	}
+	return svc
+}
+
+func TestPublicPrivacyRateLimitsLookupSeparatelyAndBoundKeys(t *testing.T) {
+	limiter := newPublicPrivacyRateLimiter()
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	for request := 0; request < 20; request++ {
+		allowed, _ := limiter.allow(privacyPublicRequestsLookupPath, "PRIV-2026-ABCDEF12", now)
+		if !allowed {
+			t.Fatalf("lookup request %d was blocked before the limit", request+1)
+		}
+	}
+	allowed, retryAfter := limiter.allow(privacyPublicRequestsLookupPath, "PRIV-2026-ABCDEF12", now)
+	if allowed || retryAfter != 15*time.Minute {
+		t.Fatalf("lookup limit result = %t, %s, want blocked for 15 minutes", allowed, retryAfter)
+	}
+	allowed, _ = limiter.allow(privacyPublicRequestsPath, "camila@example.com", now)
+	if !allowed {
+		t.Fatal("lookup limit unexpectedly blocked a new submission bucket")
+	}
+
+	for request := 0; request < maxPublicPrivacyRateLimitKeys; request++ {
+		limiter.allow(privacyPublicRequestsPath, "requester"+strconv.Itoa(request)+"@example.com", now)
+	}
+	if len(limiter.buckets) > maxPublicPrivacyRateLimitKeys {
+		t.Fatalf("limiter retained %d keys, maximum is %d", len(limiter.buckets), maxPublicPrivacyRateLimitKeys)
+	}
+}
+
+func TestPublicPrivacyRateLimiterCleansExpiredKeysAndClampsClock(t *testing.T) {
+	limiter := newPublicPrivacyRateLimiter()
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	for request := 0; request < 5; request++ {
+		allowed, _ := limiter.allow(privacyPublicRequestsPath, "camila@example.com", now)
+		if !allowed {
+			t.Fatalf("request %d was unexpectedly blocked", request+1)
+		}
+	}
+	allowed, retryAfter := limiter.allow(privacyPublicRequestsPath, "camila@example.com", now.Add(-2*time.Hour))
+	if allowed || retryAfter != time.Hour {
+		t.Fatalf("backward-clock request result = %t, %s, want blocked for an hour", allowed, retryAfter)
+	}
+	if len(limiter.buckets) != 2 {
+		t.Fatalf("backward clock changed limiter state: %d buckets", len(limiter.buckets))
+	}
+
+	now = now.Add(2 * time.Hour)
+	allowed, _ = limiter.allow(privacyPublicRequestsPath, "ines@example.com", now)
+	if !allowed {
+		t.Fatal("request after expiry was unexpectedly blocked")
+	}
+	if len(limiter.buckets) != 2 {
+		t.Fatalf("expired-key cleanup retained %d buckets, want only the new identity and aggregate buckets", len(limiter.buckets))
 	}
 }

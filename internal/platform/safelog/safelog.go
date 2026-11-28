@@ -1,7 +1,6 @@
 package safelog
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -33,7 +32,7 @@ func ContextWithRequestID(ctx context.Context, requestID string) context.Context
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return context.WithValue(ctx, requestIDContextKey, requestID)
+	return context.WithValue(ctx, requestIDContextKey, safeRequestID(requestID))
 }
 
 // RequestIDFromContext extracts the correlation or request ID from a context, if present.
@@ -56,13 +55,10 @@ func RequestIDFromRequest(r *http.Request) string {
 	if id := RequestIDFromContext(r.Context()); id != "" {
 		return id
 	}
-	if id := r.Header.Get("X-Request-ID"); id != "" {
+	if id := safeRequestID(r.Header.Get("X-Request-ID")); id != "" {
 		return id
 	}
-	if id := r.Header.Get("X-Correlation-ID"); id != "" {
-		return id
-	}
-	return ""
+	return safeRequestID(r.Header.Get("X-Correlation-ID"))
 }
 
 // Precompiled regular expressions for PII and sensitive data sanitization.
@@ -92,9 +88,17 @@ var (
 	// Database URI passwords: postgresql://user:password@host...
 	reDBPassword = regexp.MustCompile(`(?i)([a-z]+://[^:]+:)([^@]+)(@)`)
 
-	// Multi-whitespace / control characters
-	reCRLF = regexp.MustCompile(`[\r\n]+`)
+	reRequestID      = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+	reFieldName      = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	reSensitiveField = regexp.MustCompile(`(?:^|_)(?:authorization|password|passwd|secret|token|apikey|cookie|credential|body|headers|pan|cvv|rut|email|phone)(?:_|$)|(?:^|_)(?:api_key|private_key|database_url)(?:_|$)`)
 )
+
+func safeRequestID(value string) string {
+	if !reRequestID.MatchString(value) || Sanitize(value) != value {
+		return ""
+	}
+	return value
+}
 
 // NormalizeCRLF replaces line breaks (\r, \n) with escaped representation \n or space,
 // preventing log splitting / CRLF injection (CWE-117).
@@ -251,9 +255,11 @@ func (l *Logger) Log(ctx context.Context, level, msg string, err error, fields .
 		errStr = NormalizeCRLF(Sanitize(err.Error()))
 	}
 
+	timestamp := now.UTC().Format(time.RFC3339Nano)
+	cleanLevel := TruncateUTF8(NormalizeCRLF(Sanitize(level)), 32)
 	eventMap := make(map[string]any, len(fields)+5)
-	eventMap["timestamp"] = now.UTC().Format(time.RFC3339Nano)
-	eventMap["level"] = level
+	eventMap["timestamp"] = timestamp
+	eventMap["level"] = cleanLevel
 	eventMap["message"] = cleanMsg
 
 	if reqID != "" {
@@ -264,10 +270,22 @@ func (l *Logger) Log(ctx context.Context, level, msg string, err error, fields .
 	}
 
 	for _, f := range fields {
-		if f.Key == "" {
+		if !reFieldName.MatchString(f.Key) {
 			continue
 		}
-		// Sanitize field values
+		switch f.Key {
+		case "timestamp", "level", "message", "request_id":
+			continue
+		case "error":
+			if errStr != "" {
+				continue
+			}
+		}
+		if f.Key != "masked_phone" && reSensitiveField.MatchString(f.Key) {
+			eventMap[f.Key] = "[REDACTED]"
+			continue
+		}
+		// Keep diagnostics scalar so arbitrary nested data cannot reach the log.
 		switch val := f.Value.(type) {
 		case string:
 			eventMap[f.Key] = NormalizeCRLF(Sanitize(val))
@@ -275,33 +293,26 @@ func (l *Logger) Log(ctx context.Context, level, msg string, err error, fields .
 			eventMap[f.Key] = NormalizeCRLF(Sanitize(val.String()))
 		case error:
 			eventMap[f.Key] = NormalizeCRLF(Sanitize(val.Error()))
-		default:
+		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 			eventMap[f.Key] = val
 		}
 	}
 
 	data, jsonErr := json.Marshal(eventMap)
-	if jsonErr != nil {
-		// Fallback minimal event
-		data = []byte(fmt.Sprintf(`{"timestamp":%q,"level":%q,"message":%q,"error":"json_marshal_error"}`,
-			now.UTC().Format(time.RFC3339Nano), level, cleanMsg))
+	if jsonErr != nil || len(data) >= MaxEventBytes {
+		message := TruncateUTF8(cleanMsg, 512)
+		if jsonErr != nil {
+			message += " [json_marshal_error]"
+		} else if !strings.HasSuffix(message, TruncationMarker) {
+			message += " " + TruncationMarker
+		}
+		// Marshal the bounded event again to keep the entire line parseable.
+		data, _ = json.Marshal(Event{Timestamp: now.UTC(), Level: cleanLevel, Message: message, RequestID: reqID})
 	}
-
-	// Ensure newline fits within MaxEventBytes: data + '\n' <= MaxEventBytes
-	maxBody := MaxEventBytes - 1
-	if len(data) > maxBody {
-		truncated := TruncateUTF8(string(data), maxBody)
-		data = []byte(truncated)
-	}
-
-	var buf bytes.Buffer
-	buf.Grow(len(data) + 1)
-	buf.Write(data)
-	buf.WriteByte('\n')
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, _ = l.out.Write(buf.Bytes())
+	_, _ = l.out.Write(append(data, '\n'))
 }
 
 // Info logs an informational event.

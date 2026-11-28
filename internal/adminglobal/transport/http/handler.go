@@ -756,6 +756,10 @@ func (h *Handler) serveAssistedView(w http.ResponseWriter, r *http.Request, path
 		if !ok {
 			return true
 		}
+		if !recentlyAuthenticated(principal.AuthenticatedAt, time.Now().UTC()) {
+			writeError(w, http.StatusPreconditionRequired, "recent_authentication_required", requestID)
+			return true
+		}
 		value, err := h.service.GetAssistedViewProjection(r.Context(), adminglobal.AssistedViewProjectionInput{
 			GrantID:        parts[0],
 			ActorID:        principal.AccountID,

@@ -1228,9 +1228,17 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
     let startPayload: Record<string, unknown> | null = null;
     let closedGrantId: string | null = null;
+    let projectionStepUpComplete = false;
 
     await installMockGateway(page, (_route, request) => {
       const url = new URL(request.url());
+      if (
+        url.pathname === "/api/backend/admin/session/mfa" &&
+        request.method() === "POST"
+      ) {
+        const payload = request.postDataJSON() as Record<string, unknown>;
+        if (!payload.challenge_id) projectionStepUpComplete = true;
+      }
       if (
         url.pathname ===
           `/api/backend/admin/global/accounts/${account.account_id}` &&
@@ -1266,6 +1274,12 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
           `/api/backend/admin/global/assisted-view/${grantId}/projection` &&
         request.method() === "GET"
       ) {
+        if (!projectionStepUpComplete) {
+          return {
+            status: 428,
+            body: { error: { code: "recent_authentication_required" } },
+          };
+        }
         return {
           body: {
             data: {
@@ -1424,6 +1438,16 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
       case_id: "SUP-2026-2040",
       reason: "Revisión de reservas y contratos reportados en soporte",
     });
+
+    await expect(
+      page.getByText("Confirmar autenticación reciente (MFA)"),
+    ).toBeVisible();
+    await page.locator("#admin-stepup-code").fill("654321");
+    await page.getByRole("button", { name: "Confirmar código" }).click();
+    await expect(
+      page.getByRole("button", { name: "Reintentar consulta" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Reintentar consulta" }).click();
 
     await expect(page).toHaveURL(
       new RegExp(

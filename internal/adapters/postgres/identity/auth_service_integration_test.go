@@ -693,6 +693,9 @@ func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppr
 	h := newAuthHarness(t)
 	hostID := h.register(t, "archive-host@ejemplo.invalid")
 	h.verify(t)
+	if _, err := h.pool.Exec(h.ctx, `UPDATE public.usuario SET preferencia_uso='arrendar' WHERE id=$1`, hostID); err != nil {
+		t.Fatal(err)
+	}
 	host := h.login(t, "archive-host@ejemplo.invalid")
 	renterID := h.register(t, "archive-renter@ejemplo.invalid")
 	h.verify(t)

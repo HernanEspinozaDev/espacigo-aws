@@ -31,7 +31,6 @@ import (
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/damageclaim"
 	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -1354,7 +1353,7 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	tmp := t.TempDir()
 	backup := filepath.Join(tmp, "pre-suppression.dump")
 	sourceURL := h.pool.Config().ConnConfig.ConnString()
-	if output, err := exec.Command("pg_dump", "--format=custom", "--no-owner", "--no-privileges", "--file", backup, "--dbname", sourceURL).CombinedOutput(); err != nil {
+	if output, err := exec.Command("pg_dump", "--format=custom", "--no-owner", "--file", backup, "--dbname", sourceURL).CombinedOutput(); err != nil {
 		t.Fatalf("create isolated test backup: %v %s", err, string(output))
 	}
 	suppressed, err := sourceService.ExecuteSuppression(h.ctx, adminID, request.ID, "source-backup-test", "source-backup", func() time.Time { return h.now }, noOpPrivacyCleaner{})
@@ -1421,11 +1420,8 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	})
 	parsed.Path = "/" + restoreDB
 	restoreURL := parsed.String()
-	if output, err := exec.Command("pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", restoreURL, backup).CombinedOutput(); err != nil {
+	if output, err := exec.Command("pg_restore", "--exit-on-error", "--no-owner", "--dbname", restoreURL, backup).CombinedOutput(); err != nil {
 		t.Fatalf("restore isolated pre-suppression backup: %v %s", err, string(output))
-	}
-	if err := adminConnExecGrant(restoreURL); err != nil {
-		t.Fatalf("restore database runtime grants: %v", err)
 	}
 	config, err := pgxpool.ParseConfig(restoreURL)
 	if err != nil {
@@ -1504,18 +1500,6 @@ func TestLocalSuppressionReplayAfterPgDumpRestore(t *testing.T) {
 	if err != nil || len(again) != 1 || again[0].Status != "reaplicada" || !again[0].Reused {
 		t.Fatalf("restored replay retry=%+v err=%v", again, err)
 	}
-}
-
-func adminConnExecGrant(databaseURL string) error {
-	conn, err := pgx.Connect(context.Background(), databaseURL)
-	if err != nil {
-		return err
-	}
-	defer conn.Close(context.Background())
-	if err := dbbootstrap.GrantRuntimePermissions(context.Background(), conn); err != nil {
-		return err
-	}
-	return nil
 }
 
 func TestSuppressionAndRetentionPreserveUnstartedSettlementObligation(t *testing.T) {

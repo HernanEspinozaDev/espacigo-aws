@@ -308,3 +308,29 @@ test("@controlled /privacidad/solicitudes: consulta con folio o código inválid
     "No encontramos una solicitud que coincida con el folio y código de seguimiento ingresados. Verifica los datos e intenta nuevamente.",
   );
 });
+
+test("@controlled /privacidad/solicitudes: muestra cuánto esperar ante el límite de consultas", async ({
+  page,
+}) => {
+  await mockAnonymousSession(page);
+  await page.route("**/api/backend/privacy/public-requests/lookup", (route) =>
+    route.fulfill({
+      status: 429,
+      headers: { "retry-after": "120" },
+      json: { error: { code: "rate_limited" } },
+    }),
+  );
+  await page.goto("/privacidad/solicitudes");
+  await page.getByRole("button", { name: "Rechazar opcionales" }).click();
+  await page
+    .getByRole("tab", { name: "Consultar solicitud por folio y código" })
+    .click();
+  await page.getByRole("textbox", { name: "Folio" }).fill("PRIV-2026-00000000");
+  await page
+    .getByRole("textbox", { name: "Código de seguimiento" })
+    .fill("codigo_de_prueba_1234567890");
+  await page.getByRole("button", { name: "Consultar estado" }).click();
+  await expect(page.getByRole("tabpanel").getByRole("alert")).toContainText(
+    "Espera 2 minutos antes de volver a intentarlo.",
+  );
+});

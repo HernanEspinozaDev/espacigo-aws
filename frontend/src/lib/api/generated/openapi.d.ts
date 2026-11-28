@@ -1885,7 +1885,7 @@ export interface paths {
     };
     /**
      * Consultar proyección de solo lectura para una vista asistida activa
-     * @description Verifica la sesión, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
+     * @description Verifica la sesión administrativa, MFA reciente, vigencia del permiso y un ticket de soporte activo de la cuenta. Devuelve la proyección de solo lectura y registra la consulta en auditoría.
      */
     get: operations["getGlobalAdminAssistedViewProjection"];
     put?: never;
@@ -3649,7 +3649,7 @@ export interface paths {
     put?: never;
     /**
      * Registrar solicitud pública ARCO+ sin cuenta (Ley 21.719)
-     * @description Disponible en los perfiles local y productivo sin requerir cuenta ni sesión activa. Registra una solicitud de acceso, rectificación, supresión, oposición, portabilidad o bloqueo presentada por el titular o por un representante, y entrega un acuse neutral con folio público y código de seguimiento para consulta posterior.
+     * @description Disponible en los perfiles local y productivo sin requerir cuenta ni sesión activa. Registra una solicitud de acceso, rectificación, supresión, oposición, portabilidad o bloqueo presentada por el titular o por un representante, y entrega un acuse neutral con folio público y código de seguimiento para consulta posterior. Sujeto a límites de frecuencia. La respuesta 429 informa el tiempo de espera en Retry-After.
      */
     post: operations["submitPublicPrivacyRequest"];
     delete?: never;
@@ -3669,7 +3669,7 @@ export interface paths {
     put?: never;
     /**
      * Consultar estado de solicitud pública ARCO+ por folio y código de seguimiento
-     * @description Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio público y el código de seguimiento en tiempo constante y devuelve únicamente el estado, plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo actor_id, correos y notas internas.
+     * @description Disponible en los perfiles local y productivo sin requerir sesión. Verifica el folio público y el código de seguimiento en tiempo constante y devuelve únicamente el estado, plazos, respuesta publicada (si existe) y eventos visibles para el titular, omitiendo actor_id, correos y notas internas. Sujeto a límites de frecuencia. La respuesta 429 informa el tiempo de espera en Retry-After.
      */
     post: operations["lookupPublicPrivacyRequest"];
     delete?: never;
@@ -17392,6 +17392,15 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
+      /** @description Se requiere autenticación MFA reciente para consultar la vista asistida */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
   };
   closeGlobalAdminAssistedView: {
@@ -20883,6 +20892,7 @@ export interface operations {
       };
       400: components["responses"]["BadRequest"];
       422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };
@@ -20911,6 +20921,7 @@ export interface operations {
       400: components["responses"]["BadRequest"];
       404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
       503: components["responses"]["ServiceUnavailable"];
     };
   };

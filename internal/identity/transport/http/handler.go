@@ -27,6 +27,7 @@ type Handler struct {
 	suppressionRegistryPath string
 	suppressionReplayStore  privacy.SuppressionReplayStore
 	now                     func() time.Time
+	publicPrivacyLimiter    *publicPrivacyRateLimiter
 }
 
 func (h *Handler) SetPhoneVerificationService(s *identity.PhoneVerificationService) {
@@ -79,7 +80,7 @@ func NewHandlerWithSuppressionClockAndRegistry(service *identity.AuthenticationS
 }
 
 func newHandler(service *identity.AuthenticationService, terms identity.AuthenticationRepository, origins []string, cleaner privacy.SyntheticEvidenceCleaner, privacyServices ...*privacy.Service) http.Handler {
-	h := &Handler{service: service, terms: terms, origins: map[string]bool{}, now: time.Now}
+	h := &Handler{service: service, terms: terms, origins: map[string]bool{}, now: time.Now, publicPrivacyLimiter: newPublicPrivacyRateLimiter()}
 	h.evidenceCleaner = cleaner
 	if len(privacyServices) > 0 {
 		h.privacy = privacyServices[0]
@@ -572,6 +573,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !h.decode(w, r, &input) {
 				return
 			}
+			if !h.allowPublicPrivacyRequest(w, r.URL.Path, input.RequesterEmail) {
+				return
+			}
 			receipt, err := h.privacy.SubmitPublicRightsRequest(r.Context(), input)
 			if err != nil {
 				h.privacyError(w, err)
@@ -582,6 +586,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		var input privacy.PublicRightsLookupInput
 		if !h.decode(w, r, &input) {
+			return
+		}
+		if !h.allowPublicPrivacyRequest(w, r.URL.Path, input.Folio) {
 			return
 		}
 		status, err := h.privacy.LookupPublicRightsRequest(r.Context(), input)
@@ -1346,6 +1353,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(204)
 	}
+}
+
+func (h *Handler) allowPublicPrivacyRequest(w http.ResponseWriter, path, identifier string) bool {
+	allowed, retryAfter := h.publicPrivacyLimiter.allow(path, identifier, h.now())
+	if allowed {
+		return true
+	}
+	retrySeconds := int(retryAfter.Seconds())
+	if time.Duration(retrySeconds)*time.Second < retryAfter {
+		retrySeconds++
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(retrySeconds))
+	h.fail(w, http.StatusTooManyRequests, "rate_limited", "Se alcanzó el límite temporal de solicitudes.")
+	return false
 }
 
 // The public SSR adds this sanitized value only after extracting the client

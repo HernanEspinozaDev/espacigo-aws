@@ -328,6 +328,18 @@ func TestAssistedViewLifecycleAndNegativeProjectionMatrix(t *testing.T) {
 	}
 
 	// 3. Projection happy path
+	staleAuth := accountEmailAuth{identity.Principal{
+		AccountID:       actorID,
+		SessionID:       sessionID,
+		Capabilities:    []identity.Capability{identity.CapabilityAccountsRead},
+		AuthenticatedAt: current.Add(-recentAuthenticationTTL - time.Second),
+	}}
+	staleProjection := httptest.NewRecorder()
+	NewHandler(staleAuth, svc, nil).ServeHTTP(staleProjection, httptest.NewRequest(http.MethodGet, projectionURL, nil))
+	if staleProjection.Code != http.StatusPreconditionRequired || !strings.Contains(staleProjection.Body.String(), "recent_authentication_required") {
+		t.Fatalf("stale MFA projection got %d %s, want 428 recent_authentication_required", staleProjection.Code, staleProjection.Body.String())
+	}
+
 	projReq := httptest.NewRequest(http.MethodGet, projectionURL, nil)
 	projReply := httptest.NewRecorder()
 	h.ServeHTTP(projReply, projReq)
@@ -392,6 +404,12 @@ func TestAssistedViewLifecycleAndNegativeProjectionMatrix(t *testing.T) {
 
 	// 6. Expired grant rejected (403)
 	current = current.Add(16 * time.Minute)
+	h = NewHandler(accountEmailAuth{identity.Principal{
+		AccountID:       actorID,
+		SessionID:       sessionID,
+		Capabilities:    []identity.Capability{identity.CapabilityAccountsRead},
+		AuthenticatedAt: time.Now().UTC(),
+	}}, svc, nil)
 	expiredReply := httptest.NewRecorder()
 	h.ServeHTTP(expiredReply, httptest.NewRequest(http.MethodGet, projectionURL, nil))
 	if expiredReply.Code != http.StatusForbidden {

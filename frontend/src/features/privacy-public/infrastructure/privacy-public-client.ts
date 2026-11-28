@@ -86,7 +86,18 @@ export function publicPrivacyErrorMessage(
     error.code === "rate_limited" ||
     error.code === "too_many_requests"
   ) {
-    return "Se realizaron demasiadas consultas o envíos seguidos. Espera unos minutos antes de volver a intentarlo.";
+    const seconds =
+      error.retryAfter && /^\d{1,4}$/.test(error.retryAfter)
+        ? Number(error.retryAfter)
+        : 0;
+    const minutes = Math.ceil(seconds / 60);
+    const wait =
+      minutes === 1
+        ? "un minuto"
+        : minutes > 1
+          ? `${minutes} minutos`
+          : "unos minutos";
+    return `Se realizaron demasiadas consultas o envíos seguidos. Espera ${wait} antes de volver a intentarlo.`;
   }
   if (
     error.status === 503 ||
