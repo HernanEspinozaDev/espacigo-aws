@@ -262,7 +262,7 @@ func setupPendingPaymentCancellationTestDB(t *testing.T) (*pgxpool.Pool, *Reposi
 	if _, err := pool.Exec(ctx, ddl); err != nil {
 		t.Fatal(err)
 	}
-	v10SQL, err := os.ReadFile("../../../../db/migrations/V000010__cancelacion_checkout_pendiente.sql")
+	v10SQL, err := os.ReadFile("../../../../db/legacy-migrations/v29/V000010__cancelacion_checkout_pendiente.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

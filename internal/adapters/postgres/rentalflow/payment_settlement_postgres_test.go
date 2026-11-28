@@ -59,7 +59,7 @@ CREATE TABLE public.mercadopago_seller_connection (
 );`); err != nil {
 		t.Fatal(err)
 	}
-	migration, err := os.ReadFile("../../../../db/migrations/V000006__conciliacion_financiera_mercado_pago.sql")
+	migration, err := os.ReadFile("../../../../db/legacy-migrations/v29/V000006__conciliacion_financiera_mercado_pago.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

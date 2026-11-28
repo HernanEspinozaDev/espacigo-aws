@@ -28,7 +28,7 @@ func TestConsentDocumentsMatchAdditivePublishedVersions(t *testing.T) {
 	if err != nil || len(localDocs) != 2 {
 		t.Fatal("read v2 evaluation terms")
 	}
-	version, err := os.ReadFile("../../db/migrations/V000015__local_terms_v2_commercial_documentation.sql")
+	version, err := os.ReadFile("../../db/legacy-migrations/v29/V000015__local_terms_v2_commercial_documentation.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestConsentDocumentsMatchAdditivePublishedVersions(t *testing.T) {
 	if err != nil || len(prodDocs) != 2 {
 		t.Fatal("read production consent documents")
 	}
-	prodTermsVersion, err := os.ReadFile("../../db/migrations/V000021__hotusoft_legal_documents.sql")
+	prodTermsVersion, err := os.ReadFile("../../db/legacy-migrations/v29/V000021__hotusoft_legal_documents.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
